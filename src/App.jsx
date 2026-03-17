@@ -53,7 +53,18 @@ export default function App() {
       if (r.ok) {
         setConnected(true)
         if (tenantSlug) {
-          api.getSettings().then(s => setSettings(s || {})).catch(() => {})
+          api.getSettings().then(s => {
+            if (s && s.error === 'Access denied') {
+              // Wrong tenant — redirect to user's own
+              const ownSlug = localStorage.getItem('tenant_slug')
+              if (ownSlug && ownSlug !== tenantSlug) {
+                api.setTenantSlug(ownSlug)
+                window.location.href = '/t/' + ownSlug
+              }
+              return
+            }
+            setSettings(s || {})
+          }).catch(() => {})
           api.getHashtags().then(h => setHashtagSets(Array.isArray(h) ? h : [])).catch(() => {})
         }
       }

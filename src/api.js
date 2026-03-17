@@ -11,6 +11,12 @@ function getTenantSlug() {
 
 let _slug = null
 export function tenantSlug() {
+  // Always check URL first for super admin context switching
+  const urlMatch = window.location.pathname.match(/\/t\/([^/]+)/)
+  if (urlMatch) {
+    _slug = urlMatch[1]
+    return _slug
+  }
   if (_slug === null) _slug = getTenantSlug()
   return _slug || ''
 }
