@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .tog {
+    @apply w-8 h-[17px] rounded-full bg-border border-none cursor-pointer relative transition-colors flex-shrink-0;
+  }
+  .tog::after {
+    content: '';
+    @apply absolute w-[11px] h-[11px] rounded-full bg-white top-[3px] left-[3px] transition-transform;
+  }
+  .tog.on {
+    @apply bg-sage;
+  }
+  .tog.on::after {
+    transform: translateX(15px);
+  }
+  .chip {
+    @apply text-[11px] py-[5px] px-2 border border-border rounded-full bg-cream text-muted cursor-pointer font-sans transition-all text-center;
+  }
+  .chip.on {
+    @apply bg-terra-light text-terra border-terra font-medium;
+  }
+  .s-head {
+    @apply text-[10px] font-medium tracking-wider uppercase text-muted mb-1.5;
+  }
+  .field-input {
+    @apply w-full text-xs font-sans border border-border rounded-sm py-1.5 px-2 text-ink bg-cream focus:outline-none focus:border-sage;
+  }
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.skel {
+  @apply bg-border rounded h-[11px] my-1;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
