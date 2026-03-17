@@ -393,6 +393,7 @@ export default function App() {
                   onUpdateCaption={(platform, text, captionId) => updateCaption(item.id, platform, text, captionId)}
                   onRefine={(textVal, platform, captionId) => setRefineCtx({ item, textarea: textVal, platform, captionId })}
                   apiUrl={apiUrl}
+                  settings={settings}
                 />
               </ErrorBoundary>
             )

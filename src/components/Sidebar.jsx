@@ -124,6 +124,12 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         )}
       </div>
 
+      {/* Connected accounts */}
+      <div>
+        <div className="s-head">Connected accounts</div>
+        <SocialConnections settings={s} apiUrl={apiUrl} onRefresh={() => api.getSettings().then(s => onSave(s))} />
+      </div>
+
       {/* This batch */}
       <div>
         <div className="s-head">This batch</div>
@@ -232,6 +238,137 @@ function WatermarkUpload({ path, onUploaded }) {
         <input type="file" accept="image/png" className="hidden" onChange={handleFile} />
       </label>
       {status && !uploading && <span className="text-[10px] text-sage">{status}</span>}
+    </div>
+  )
+}
+
+function SocialConnections({ settings, apiUrl, onRefresh }) {
+  const s = settings
+  const [showFbSetup, setShowFbSetup] = useState(false)
+  const [fbAppId, setFbAppId] = useState('')
+  const [fbAppSecret, setFbAppSecret] = useState('')
+  const [fbSaving, setFbSaving] = useState(false)
+  const [fbError, setFbError] = useState('')
+
+  const handleSaveFbCreds = async () => {
+    if (!fbAppId || !fbAppSecret) return
+    setFbSaving(true)
+    setFbError('')
+    try {
+      const data = await api.saveFbCredentials(fbAppId, fbAppSecret)
+      if (data.ok) {
+        setShowFbSetup(false)
+        setFbAppId(''); setFbAppSecret('')
+        onRefresh()
+      } else {
+        setFbError(data.error || 'Failed')
+      }
+    } catch (err) { setFbError(err.message) }
+    setFbSaving(false)
+  }
+
+  const handleConnectFb = async () => {
+    try {
+      const data = await api.startFbConnect()
+      if (data.error) { setFbError(data.error); return }
+      if (data.url) {
+        const popup = window.open(data.url, 'fb-connect', 'width=600,height=700')
+        const handler = (e) => {
+          if (e.data && e.data.type === 'fb-connected') {
+            window.removeEventListener('message', handler)
+            onRefresh()
+          }
+        }
+        window.addEventListener('message', handler)
+        const check = setInterval(() => {
+          if (popup && popup.closed) { clearInterval(check); onRefresh() }
+        }, 1000)
+      }
+    } catch (err) { setFbError(err.message) }
+  }
+
+  const handleDisconnectFb = async () => {
+    if (!confirm('Disconnect Facebook Page?')) return
+    await api.disconnectFb()
+    onRefresh()
+  }
+
+  const handleResetFb = async () => {
+    if (!confirm('Reset Facebook credentials? You will need to re-enter the App ID and Secret.')) return
+    await api.resetFb()
+    onRefresh()
+  }
+
+  const btn = "text-[10px] py-1 px-2.5 border border-border rounded-sm cursor-pointer font-sans"
+  const inp = "w-full py-1.5 px-2 border border-[#ddd] rounded text-[11px] font-sans focus:outline-none focus:border-sage"
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {/* Facebook */}
+      <div className="flex items-center justify-between text-xs py-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.fb_connected ? '#2D9A5E' : '#ccc' }} />
+          <span>{s.fb_connected ? s.fb_page_name : 'Facebook'}</span>
+        </div>
+        {s.fb_connected
+          ? <div className="flex gap-1">
+              <button onClick={handleDisconnectFb} className={`${btn} text-[#c0392b]`}>Disconnect</button>
+              <button onClick={handleResetFb} className={`${btn} text-muted`}>Reset</button>
+            </div>
+          : <div className="flex gap-1">
+              {s.fb_app_configured && <button onClick={handleConnectFb} className={`${btn} bg-[#1877F2] text-white border-[#1877F2]`}>Connect Page</button>}
+              <button onClick={() => setShowFbSetup(true)} className={`${btn}`}>{s.fb_app_configured ? 'Edit' : 'Set up'}</button>
+            </div>
+        }
+      </div>
+      {showFbSetup && (
+        <div className="bg-[#fff3cd] border-2 border-[#856404] rounded p-2 text-[11px]">
+          <p className="text-muted mb-1.5">Enter your Facebook App credentials from <a href="https://developers.facebook.com" target="_blank" rel="noopener" className="text-sage underline">developers.facebook.com</a></p>
+          <input className={`${inp} mb-1.5`} placeholder="App ID" value={fbAppId} onChange={e => setFbAppId(e.target.value)} />
+          <input className={`${inp} mb-1.5`} placeholder="App Secret" type="password" value={fbAppSecret} onChange={e => setFbAppSecret(e.target.value)} />
+          {fbError && <p className="text-[#c0392b] text-[10px] mb-1">{fbError}</p>}
+          <div className="flex gap-1">
+            <button onClick={handleSaveFbCreds} disabled={fbSaving} className={`${btn} bg-sage text-white border-sage`}>{fbSaving ? 'Saving...' : 'Save'}</button>
+            <button onClick={() => setShowFbSetup(false)} className={btn}>Cancel</button>
+          </div>
+        </div>
+      )}
+      {s.fb_app_configured && !s.fb_connected && (
+        <div className="flex items-center justify-between pl-3.5">
+          <span className="text-[10px] text-muted">App configured</span>
+          <button onClick={handleResetFb} className={`${btn} text-[#c0392b]`}>Reset</button>
+        </div>
+      )}
+
+      {/* Instagram (auto-connected via Facebook Page link) */}
+      <div className="flex items-center justify-between text-xs py-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.ig_connected ? '#2D9A5E' : '#ccc' }} />
+          <span>{s.ig_connected ? `@${s.ig_username}` : 'Instagram'}</span>
+        </div>
+        {s.ig_connected
+          ? <span className="text-[10px] text-sage">Via Facebook</span>
+          : <span className="text-[10px] text-muted italic">{s.fb_connected ? 'Link IG to FB Page' : 'Connect FB first'}</span>
+        }
+      </div>
+
+      {/* X/Twitter */}
+      <div className="flex items-center justify-between text-xs py-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.twitter_connected ? '#2D9A5E' : '#ccc' }} />
+          <span>{s.twitter_connected ? `@${s.twitter_username}` : 'X / Twitter'}</span>
+        </div>
+        <span className="text-[10px] text-muted italic">Coming soon</span>
+      </div>
+
+      {/* WordPress */}
+      <div className="flex items-center justify-between text-xs py-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.wp_connected ? '#2D9A5E' : '#ccc' }} />
+          <span>{s.wp_connected ? 'WordPress' : 'WordPress'}</span>
+        </div>
+        <span className="text-[10px] text-muted italic">Coming soon</span>
+      </div>
     </div>
   )
 }

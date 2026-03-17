@@ -155,3 +155,19 @@ export const updateThrottle = (id, data) => fetch(adm(`/throttle/${id}`), { meth
 export const getIpBlocklist = () => fetch(adm('/ip-blocklist'), { credentials: 'include' }).then(r => r.json())
 export const blockIp = (data) => fetch(adm('/ip-blocklist'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const unblockIp = (id) => fetch(adm(`/ip-blocklist/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
+
+// Social connections
+export const saveFbCredentials = (appId, appSecret) =>
+  fetch(api('/connect/facebook/credentials'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ app_id: appId, app_secret: appSecret }) }).then(r => r.json())
+export const startFbConnect = () =>
+  fetch(api('/connect/facebook'), { credentials: 'include' }).then(r => r.json())
+export const disconnectFb = () =>
+  fetch(api('/connect/facebook/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
+export const resetFb = () =>
+  fetch(api('/connect/facebook/reset'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
+
+// Social posting
+export const postToFacebook = (caption, imageBase64, mediaType) =>
+  fetch(api('/post/facebook'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const postToInstagram = (caption, imageBase64, mediaType) =>
+  fetch(api('/post/instagram'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })

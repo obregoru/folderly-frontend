@@ -26,7 +26,7 @@ function getScore(cap) {
   return cap.ai_score || null
 }
 
-export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl }) {
+export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings }) {
   // Find which platforms have captions
   const available = item.captions
     ? PLATFORMS.filter(p => item.captions[p.key])
@@ -126,6 +126,9 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
                   text={getText(cap)}
                   captionId={getId(cap)}
                   score={getScore(cap)}
+                  platform={p.key}
+                  item={item}
+                  settings={settings}
                   onSave={(newText) => onUpdateCaption(p.key, newText, getId(cap))}
                   onRegen={onRegen}
                   onRefine={(val) => onRefine(val, p.key, getId(cap))}
@@ -141,9 +144,11 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   )
 }
 
-function CaptionEditor({ text, captionId, score, onSave, onRegen, onRefine }) {
+function CaptionEditor({ text, captionId, score, platform, item, settings, onSave, onRegen, onRefine }) {
   const [value, setValue] = useState(text)
   const [saved, setSaved] = useState(false)
+  const [posting, setPosting] = useState(false)
+  const [postStatus, setPostStatus] = useState('')
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
@@ -154,6 +159,41 @@ function CaptionEditor({ text, captionId, score, onSave, onRegen, onRefine }) {
       setSaved(true)
       setTimeout(() => setSaved(false), 1500)
     }
+  }
+
+  const canPostFb = platform === 'facebook' && settings?.fb_connected
+  const canPostIg = platform === 'instagram' && settings?.ig_connected
+
+  const getImageBase64 = async () => {
+    if (!item.isImg || !item.file) return { imageBase64: null, mediaType: null }
+    const imageBase64 = await new Promise((resolve, reject) => {
+      const r = new FileReader()
+      r.onload = () => resolve(r.result.split(',')[1])
+      r.onerror = reject
+      r.readAsDataURL(item.file)
+    })
+    return { imageBase64, mediaType: item.file.type || 'image/jpeg' }
+  }
+
+  const handlePost = async (target) => {
+    setPosting(true)
+    setPostStatus('')
+    try {
+      const { imageBase64, mediaType } = await getImageBase64()
+      const api = await import('../api')
+      if (target === 'facebook') {
+        await api.postToFacebook(value, imageBase64, mediaType)
+      } else if (target === 'instagram') {
+        if (!imageBase64) throw new Error('Instagram requires a photo')
+        await api.postToInstagram(value, imageBase64, mediaType)
+      }
+      setPostStatus('Posted!')
+      setTimeout(() => setPostStatus(''), 3000)
+    } catch (err) {
+      setPostStatus('Failed: ' + err.message)
+      setTimeout(() => setPostStatus(''), 5000)
+    }
+    setPosting(false)
   }
 
   const scoreLabel = score?.score >= 0
@@ -170,10 +210,29 @@ function CaptionEditor({ text, captionId, score, onSave, onRegen, onRefine }) {
         rows={Math.max(3, Math.ceil(value.length / 60))}
       />
       <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
+        {canPostFb && (
+          <button
+            onClick={() => handlePost('facebook')}
+            disabled={posting}
+            className="text-[11px] py-1 px-2.5 border border-[#1877F2] rounded-sm bg-[#1877F2] text-white cursor-pointer font-sans hover:bg-[#1565c0] disabled:opacity-50"
+          >
+            {posting ? 'Posting...' : 'Post to Facebook'}
+          </button>
+        )}
+        {canPostIg && (
+          <button
+            onClick={() => handlePost('instagram')}
+            disabled={posting}
+            className="text-[11px] py-1 px-2.5 border border-[#E1306C] rounded-sm bg-[#E1306C] text-white cursor-pointer font-sans hover:bg-[#c1255b] disabled:opacity-50"
+          >
+            {posting ? 'Posting...' : 'Post to Instagram'}
+          </button>
+        )}
         <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regenerate</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
         <button onClick={() => onRefine(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Refine</button>
         {saved && <span className="text-[10px] text-sage">Saved</span>}
+        {postStatus && <span className={`text-[10px] ${postStatus.startsWith('Failed') ? 'text-[#c0392b]' : 'text-sage'}`}>{postStatus}</span>}
         {scoreLabel && (
           <span
             className={`text-[10px] py-0.5 px-2 rounded-xl font-semibold border ${
