@@ -273,15 +273,15 @@ export default function App() {
           </button>
           <div className="font-serif text-[19px]">posty<span className="text-terra"> posty</span></div>
         </div>
-        <div className="flex items-center gap-2.5">
-          <span className={`w-[7px] h-[7px] rounded-full inline-block ${connected ? 'bg-tk' : 'bg-border'}`} />
+        <div className="flex items-center gap-1.5 md:gap-2.5 flex-shrink-0">
+          <span className={`w-[7px] h-[7px] rounded-full inline-block flex-shrink-0 ${connected ? 'bg-tk' : 'bg-border'}`} />
           <span className="text-[11px] text-muted hidden sm:inline">
             {connected ? `Connected` : 'Connecting...'}
           </span>
-          <button onClick={() => setHistoryOpen(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">History</button>
+          <button onClick={() => setHistoryOpen(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">History</button>
           <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium hidden sm:inline">Beta</span>
-          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">Admin</button>}
-          <button onClick={handleLogout} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">Sign out</button>
+          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">Admin</button>}
+          <button onClick={handleLogout} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">Sign out</button>
         </div>
       </nav>
 
@@ -289,7 +289,7 @@ export default function App() {
       {sidebarOpen && <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />}
 
       {/* Shell */}
-      <div className="flex md:grid md:grid-cols-[260px_1fr] h-[calc(100vh-52px)]">
+      <div className="flex md:grid md:grid-cols-[260px_1fr] h-[calc(100vh-52px)] overflow-x-hidden">
         <div className={`fixed md:static inset-y-0 left-0 z-40 w-[280px] md:w-auto transform transition-transform md:transform-none ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <Sidebar
           settings={settings}
@@ -304,7 +304,7 @@ export default function App() {
         />
         </div>
 
-        <main className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 max-w-[640px] mx-auto w-full">
+        <main className="flex-1 p-3 md:p-5 overflow-y-auto overflow-x-hidden flex flex-col gap-4 max-w-[640px] mx-auto w-full min-w-0">
           {/* Tips */}
           <div className="text-xs text-muted leading-relaxed text-center">
             <p className="mb-2"><strong className="text-ink">Tip:</strong> Descriptive names help the AI write better captions.</p>
@@ -362,14 +362,14 @@ export default function App() {
 
           {/* Results */}
           {files.some(f => f.status) && (
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <div className="font-serif text-[17px]">Generated captions</div>
-              <div className="flex gap-1.5">
-                <button onClick={clearAll} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Clear</button>
-                {hasCaptions && <button onClick={regenAll} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Regenerate all</button>}
-                {hasCaptions && <button onClick={handleExportSeo} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">SEO photos ↓</button>}
-                {hasCaptions && <button onClick={handleExportAll} disabled={exporting} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-white cursor-pointer font-sans disabled:opacity-40">
-                  {exporting ? 'Exporting...' : 'Export all ↓'}
+              <div className="flex gap-1 flex-wrap">
+                <button onClick={clearAll} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Clear</button>
+                {hasCaptions && <button onClick={regenAll} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Regen all</button>}
+                {hasCaptions && <button onClick={handleExportSeo} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans hidden sm:block">SEO photos</button>}
+                {hasCaptions && <button onClick={handleExportAll} disabled={exporting} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans disabled:opacity-40">
+                  {exporting ? 'Exporting...' : 'Export all'}
                 </button>}
               </div>
             </div>
