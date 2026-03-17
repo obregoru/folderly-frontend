@@ -40,16 +40,16 @@ export default function AdminPanel({ user, onBack, onLogout }) {
   return (
     <div className="min-h-screen bg-cream">
       {/* Top bar */}
-      <div className="bg-white border-b border-border py-3.5 px-8 flex items-center justify-between sticky top-0 z-10">
-        <h1 className="font-serif text-[22px]">Posty Posty Admin</h1>
-        <div className="flex gap-3 items-center">
-          <span className="text-[13px] text-muted">{user.email}</span>
+      <div className="bg-white border-b border-border py-3 px-4 md:px-8 flex items-center justify-between sticky top-0 z-10 flex-wrap gap-2">
+        <h1 className="font-serif text-[20px] md:text-[22px]">Posty Posty Admin</h1>
+        <div className="flex gap-2 items-center flex-wrap">
+          <span className="text-[12px] text-muted hidden sm:inline">{user.email}</span>
           {onBack && <button onClick={onBack} className="text-[12px] py-1 px-3 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Back to app</button>}
           <button onClick={onLogout} className="text-[12px] py-1 px-3 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Sign out</button>
         </div>
       </div>
 
-      <div className="max-w-[1100px] mx-auto py-8 px-6">
+      <div className="max-w-[1100px] mx-auto py-4 md:py-8 px-3 md:px-6">
         {/* Tabs */}
         <div className="flex gap-1 mb-6 border-b-2 border-border">
           {visibleTabs.map(t => (
@@ -93,7 +93,7 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
   return (
     <>
       {isSuperAdmin && (
-        <div className="bg-white rounded shadow-sm p-6 mb-5">
+        <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6 mb-5">
           <h2 className="font-serif text-xl mb-4">Create Tenant</h2>
           <form onSubmit={handleCreate}>
             <div className="flex gap-3 mb-3.5 flex-wrap">
@@ -116,9 +116,9 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
         </div>
       )}
 
-      <div className="bg-white rounded shadow-sm p-6">
+      <div className="bg-white rounded shadow-sm p-4 md:p-6 overflow-x-auto">
         <h2 className="font-serif text-xl mb-4">All Tenants</h2>
-        <table className="w-full text-[13px]">
+        <table className="w-full text-[13px] min-w-[500px]">
           <thead>
             <tr>
               <th className="text-left py-2.5 px-3 border-b-2 border-border text-muted font-medium text-xs uppercase tracking-wide">Name</th>
@@ -174,7 +174,7 @@ function UsersPanel({ users, tenants, isSuperAdmin, onRefresh, error, setError }
 
   return (
     <>
-      <div className="bg-white rounded shadow-sm p-6 mb-5">
+      <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6 mb-5">
         <h2 className="font-serif text-xl mb-4">Create User</h2>
         <form onSubmit={handleCreate}>
           <div className="flex gap-3 mb-3.5 flex-wrap">
@@ -209,9 +209,9 @@ function UsersPanel({ users, tenants, isSuperAdmin, onRefresh, error, setError }
         </form>
       </div>
 
-      <div className="bg-white rounded shadow-sm p-6">
+      <div className="bg-white rounded shadow-sm p-4 md:p-6 overflow-x-auto">
         <h2 className="font-serif text-xl mb-4">All Users</h2>
-        <table className="w-full text-[13px]">
+        <table className="w-full text-[13px] min-w-[500px]">
           <thead>
             <tr>
               <th className="text-left py-2.5 px-3 border-b-2 border-border text-muted font-medium text-xs uppercase tracking-wide">Email</th>
@@ -257,7 +257,7 @@ function ThrottlePanel({ configs, onRefresh }) {
   }
 
   return (
-    <div className="bg-white rounded shadow-sm p-6">
+    <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6">
       <h2 className="font-serif text-xl mb-4">Rate Limiting</h2>
       {configs.length === 0 && <p className="text-muted">No throttle config found</p>}
       {configs.map(c => (
@@ -307,7 +307,7 @@ function BlocklistPanel({ items, onRefresh, error, setError }) {
 
   return (
     <>
-      <div className="bg-white rounded shadow-sm p-6 mb-5">
+      <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6 mb-5">
         <h2 className="font-serif text-xl mb-4">Block an IP</h2>
         <form onSubmit={handleBlock}>
           <div className="flex gap-3 mb-3.5 flex-wrap">
@@ -325,7 +325,7 @@ function BlocklistPanel({ items, onRefresh, error, setError }) {
         </form>
       </div>
 
-      <div className="bg-white rounded shadow-sm p-6">
+      <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6">
         <h2 className="font-serif text-xl mb-4">Blocked IPs</h2>
         <table className="w-full text-[13px]">
           <thead>
