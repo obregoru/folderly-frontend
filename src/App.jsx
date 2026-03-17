@@ -344,6 +344,7 @@ export default function App() {
               >
                 {generating ? 'Generating...' : 'Generate captions ↗'}
               </button>
+              <button onClick={clearAll} className="text-[11px] py-2 px-3 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Clear all</button>
               <span className="text-xs text-muted whitespace-nowrap">{files.length} file{files.length !== 1 ? 's' : ''}</span>
             </div>
           )}
