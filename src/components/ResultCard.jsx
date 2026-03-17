@@ -167,6 +167,7 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
   const [wpCategories, setWpCategories] = useState([])
   const [selectedCats, setSelectedCats] = useState([])
   const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
+  const [wpPublish, setWpPublish] = useState(false)
 
   useEffect(() => {
     if (canPostWp && !wpCatsLoaded) {
@@ -203,8 +204,12 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
         setPostStatus('Posted!')
       } else if (target === 'wordpress') {
         const title = item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
-        const result = await api.postToWordPress(title, value, imageBase64, mediaType, selectedCats)
-        setPostStatus(result.edit_url ? 'Draft created!' : 'Posted!')
+        const result = await api.postToWordPress(title, value, imageBase64, mediaType, selectedCats, wpPublish)
+        if (wpPublish) {
+          setPostStatus('Published to WordPress!')
+        } else {
+          setPostStatus('Draft created — review in WP admin')
+        }
         if (result.edit_url) window.open(result.edit_url, '_blank')
       } else {
         setPostStatus('Posted!')
@@ -264,12 +269,21 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
                 ))}
               </select>
             )}
+            <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={wpPublish}
+                onChange={e => setWpPublish(e.target.checked)}
+                className="accent-[#21759B]"
+              />
+              Publish immediately
+            </label>
             <button
               onClick={() => handlePost('wordpress')}
               disabled={posting}
               className="text-[11px] py-1 px-2.5 border border-[#21759B] rounded-sm bg-[#21759B] text-white cursor-pointer font-sans hover:bg-[#1a5f7a] disabled:opacity-50"
             >
-              {posting ? 'Posting...' : 'Post to WordPress'}
+              {posting ? 'Posting...' : wpPublish ? 'Publish to WordPress' : 'Save Draft to WordPress'}
             </button>
           </>
         )}
