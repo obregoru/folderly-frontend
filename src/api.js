@@ -64,12 +64,45 @@ export const uploadFile = (file, folderName, batchId, parsedKeywords, videoThumb
 export const createBatch = (folderName, fileCount) =>
   fetch(api('/upload/batch'), { method: 'POST', headers: json, credentials: 'include', body: JSON.stringify({ folder_name: folderName, file_count: fileCount }) }).then(r => r.json())
 
-// Generate
+// Generate (non-streaming fallback)
 export const generate = (body) =>
   fetch(api('/generate'), { method: 'POST', headers: json, credentials: 'include', body: JSON.stringify(body) }).then(r => {
     if (!r.ok) return r.json().then(e => { throw new Error(e.error || 'Server error') })
     return r.json()
   })
+
+// Generate (streaming) - calls onCaptions for each batch of results
+export async function generateStream(body, onCaptions) {
+  const resp = await fetch(api('/generate/stream'), {
+    method: 'POST', headers: json, credentials: 'include', body: JSON.stringify(body)
+  })
+  if (!resp.ok) {
+    const e = await resp.json().catch(() => ({ error: 'Server error' }))
+    throw new Error(e.error || 'Server error')
+  }
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const evt = JSON.parse(line.slice(6))
+          if (evt.type === 'captions' && evt.data) onCaptions(evt.data)
+          if (evt.type === 'error') throw new Error(evt.error)
+        } catch (e) {
+          if (e.message !== 'Unexpected end of JSON input') throw e
+        }
+      }
+    }
+  }
+}
 
 export const humanize = (text, platform) =>
   fetch(api('/generate/humanize'), { method: 'POST', headers: json, credentials: 'include', body: JSON.stringify({ text, platform }) }).then(r => r.json())

@@ -175,7 +175,14 @@ export default function App() {
       body.media_type = item.file.type || 'image/jpeg'
     }
 
-    return api.generate(body)
+    // Use streaming endpoint -- returns captions progressively
+    const allCaps = {}
+    await api.generateStream(body, (partialCaps) => {
+      Object.assign(allCaps, partialCaps)
+      // Update UI immediately as each batch arrives
+      setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'done', captions: { ...f.captions, ...partialCaps }, uploadResult: item.uploadResult, previouslyUsed: item.previouslyUsed, previousCaptions: item.previousCaptions } : f))
+    })
+    return allCaps
   }
 
   const runAll = async () => {
@@ -188,11 +195,7 @@ export default function App() {
         item.batchId = batch.id
         setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'loading', captions: null } : f))
         try {
-          const caps = await genCaptions(item, batch.id)
-          setFiles(prev => {
-            const next = prev.map(f => f.id === item.id ? { ...f, status: 'done', captions: caps, uploadResult: item.uploadResult, previouslyUsed: item.previouslyUsed, previousCaptions: item.previousCaptions } : f)
-            return next
-          })
+          await genCaptions(item, batch.id)
         } catch (e) {
           showError(`Error on "${item.file.name}": ${e.message}`)
           setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'error', errMsg: e.message } : f))
