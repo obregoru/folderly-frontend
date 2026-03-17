@@ -120,12 +120,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         <div className="flex items-center justify-between text-xs py-0.5"><span>Brand name in filenames</span><Toggle on={s.seo_prepend_brand !== false} onChange={v => save('seo_prepend_brand', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Watermark exports</span><Toggle on={s.watermark_enabled === true} onChange={v => save('watermark_enabled', v)} /></div>
         {s.watermark_enabled && (
-          <div className="mt-1 flex items-center gap-1.5">
-            {s.watermark_path && <img src={s.watermark_path.startsWith('http') ? s.watermark_path : `/uploads/${s.watermark_path}`} className="w-8 h-8 object-contain rounded bg-[#eee]" />}
-            <label className="text-[10px] py-0.5 px-2.5 bg-cream border border-border rounded-sm cursor-pointer">Upload logo
-              <input type="file" accept="image/png" className="hidden" onChange={e => { if (e.target.files[0]) api.uploadWatermark(e.target.files[0]).then(d => { if (d.watermark_path) save('watermark_path', d.watermark_path) }) }} />
-            </label>
-          </div>
+          <WatermarkUpload path={s.watermark_path} onUploaded={(path) => save('watermark_path', path)} />
         )}
       </div>
 
@@ -200,5 +195,43 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         <div className="flex items-center justify-between text-xs py-0.5"><span>AI detection scoring</span><Toggle on={s.ai_detection_enabled === true} onChange={v => save('ai_detection_enabled', v)} /></div>
       </div>
     </aside>
+  )
+}
+
+function WatermarkUpload({ path, onUploaded }) {
+  const [uploading, setUploading] = useState(false)
+  const [status, setStatus] = useState('')
+
+  const imgSrc = path ? (path.startsWith('http') ? path : `/uploads/${path}`) : null
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    setStatus('Uploading...')
+    try {
+      const d = await api.uploadWatermark(file)
+      if (d.watermark_path) {
+        onUploaded(d.watermark_path)
+        setStatus('Uploaded!')
+        setTimeout(() => setStatus(''), 2000)
+      }
+    } catch (err) {
+      setStatus('Upload failed')
+      setTimeout(() => setStatus(''), 3000)
+    }
+    setUploading(false)
+    e.target.value = ''
+  }
+
+  return (
+    <div className="mt-1 flex items-center gap-1.5">
+      {imgSrc && <img src={imgSrc} className="w-8 h-8 object-contain rounded bg-[#eee]" />}
+      <label className={`text-[10px] py-0.5 px-2.5 bg-cream border border-border rounded-sm cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+        {uploading ? 'Uploading...' : (path ? 'Replace logo' : 'Upload logo')}
+        <input type="file" accept="image/png" className="hidden" onChange={handleFile} />
+      </label>
+      {status && !uploading && <span className="text-[10px] text-sage">{status}</span>}
+    </div>
   )
 }
