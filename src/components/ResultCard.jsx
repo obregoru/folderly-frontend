@@ -163,6 +163,7 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
 
   const canPostFb = platform === 'facebook' && settings?.fb_connected
   const canPostIg = platform === 'instagram' && settings?.ig_connected
+  const canPostTw = platform === 'twitter' && settings?.twitter_connected
   const canPostWp = platform === 'blog' && settings?.wp_site_url
   const [wpCategories, setWpCategories] = useState([])
   const [selectedCats, setSelectedCats] = useState([])
@@ -202,6 +203,10 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
         if (!imageBase64) throw new Error('Instagram requires a photo')
         await api.postToInstagram(value, imageBase64, mediaType)
         setPostStatus('Posted!')
+      } else if (target === 'twitter') {
+        const result = await api.postToTwitter(value, imageBase64, mediaType)
+        setPostStatus('Posted to X!')
+        if (result.tweet_url) window.open(result.tweet_url, '_blank')
       } else if (target === 'wordpress') {
         const title = item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
         const result = await api.postToWordPress(title, value, imageBase64, mediaType, selectedCats, wpPublish)
@@ -252,6 +257,15 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
             className="text-[11px] py-1 px-2.5 border border-[#E1306C] rounded-sm bg-[#E1306C] text-white cursor-pointer font-sans hover:bg-[#c1255b] disabled:opacity-50"
           >
             {posting ? 'Posting...' : 'Post to Instagram'}
+          </button>
+        )}
+        {canPostTw && (
+          <button
+            onClick={() => handlePost('twitter')}
+            disabled={posting}
+            className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333] disabled:opacity-50"
+          >
+            {posting ? 'Posting...' : 'Post to X'}
           </button>
         )}
         {canPostWp && (

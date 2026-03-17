@@ -249,6 +249,10 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
   const [fbAppSecret, setFbAppSecret] = useState('')
   const [fbSaving, setFbSaving] = useState(false)
   const [fbError, setFbError] = useState('')
+  const [showTwitterSetup, setShowTwitterSetup] = useState(false)
+  const [twClientId, setTwClientId] = useState('')
+  const [twClientSecret, setTwClientSecret] = useState('')
+  const [twSaving, setTwSaving] = useState(false)
   const [showWpSetup, setShowWpSetup] = useState(false)
   const [wpUrl, setWpUrl] = useState('')
   const [wpUser, setWpUser] = useState('')
@@ -358,12 +362,57 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
       </div>
 
       {/* X/Twitter */}
-      <div className="flex items-center justify-between text-xs py-0.5">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.twitter_connected ? '#2D9A5E' : '#ccc' }} />
-          <span>{s.twitter_connected ? `@${s.twitter_username}` : 'X / Twitter'}</span>
+      <div className="text-xs py-0.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.twitter_connected ? '#2D9A5E' : '#ccc' }} />
+            <span>{s.twitter_connected ? `@${s.twitter_username}` : 'X / Twitter'}</span>
+          </div>
+          {!s.twitter_connected && !s.twitter_app_configured && !showTwitterSetup && (
+            <button onClick={() => setShowTwitterSetup(true)} className="text-[10px] text-accent hover:underline">Set up</button>
+          )}
+          {!s.twitter_connected && s.twitter_app_configured && (
+            <div className="flex gap-1">
+              <button onClick={async () => {
+                const data = await api.startTwitterConnect()
+                if (data.url) {
+                  const popup = window.open(data.url, 'twitter-connect', 'width=600,height=700')
+                  const handler = (e) => { if (e.data?.type === 'twitter-connected') { window.removeEventListener('message', handler); onRefresh() } }
+                  window.addEventListener('message', handler)
+                }
+              }} className="text-[10px] text-accent hover:underline">Connect</button>
+              <button onClick={async () => { await api.resetTwitter(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
+            </div>
+          )}
+          {s.twitter_connected && (
+            <div className="flex gap-1">
+              <button onClick={async () => { await api.disconnectTwitter(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Disconnect</button>
+              <button onClick={async () => { await api.resetTwitter(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
+            </div>
+          )}
         </div>
-        <span className="text-[10px] text-muted italic">Coming soon</span>
+        {showTwitterSetup && (
+          <div className="mt-1 space-y-1">
+            <input value={twClientId} onChange={e => setTwClientId(e.target.value)} placeholder="Client ID" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <input value={twClientSecret} onChange={e => setTwClientSecret(e.target.value)} type="password" placeholder="Client Secret" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <p className="text-[9px] text-muted">From developer.x.com → your app → Keys and tokens</p>
+            <div className="flex gap-1">
+              <button onClick={async () => {
+                setTwSaving(true)
+                try {
+                  await api.saveTwitterCredentials(twClientId, twClientSecret)
+                  setShowTwitterSetup(false)
+                  setTwClientId(''); setTwClientSecret('')
+                  onRefresh()
+                } catch (e) { alert(e.message) }
+                setTwSaving(false)
+              }} disabled={twSaving || !twClientId || !twClientSecret} className="px-2 py-0.5 text-[10px] bg-accent text-white rounded disabled:opacity-50">
+                {twSaving ? 'Saving...' : 'Save'}
+              </button>
+              <button onClick={() => { setShowTwitterSetup(false); setTwClientId(''); setTwClientSecret('') }} className="px-2 py-0.5 text-[10px] border rounded">Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* WordPress */}
