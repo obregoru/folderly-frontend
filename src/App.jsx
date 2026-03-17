@@ -39,10 +39,7 @@ export default function App() {
     api.getMe().then(u => {
       if (u && u.id) {
         setUser(u)
-        // Set tenant slug from user's tenant
-        if (u.tenant_id) {
-          // Slug will be resolved from URL or localStorage
-        }
+        if (u.csrf_token) api.setCsrfToken(u.csrf_token)
       }
       setAuthChecked(true)
     }).catch(() => setAuthChecked(true))
@@ -65,6 +62,7 @@ export default function App() {
 
   const handleLogin = (data) => {
     setUser({ id: data.id, email: data.email, role: data.role, tenant_id: data.tenant_id })
+    if (data.csrf_token) api.setCsrfToken(data.csrf_token)
     if (data.tenant_slug) {
       api.setTenantSlug(data.tenant_slug)
     } else if (data.redirect) {
