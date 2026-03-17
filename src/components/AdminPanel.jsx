@@ -97,7 +97,8 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
     setEditData({ name: t.name, slug: t.slug, target_url: t.target_url || '' })
   }
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (e) => {
+    e.preventDefault()
     setError('')
     try {
       await api.updateTenant(editing, editData)
@@ -106,10 +107,38 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
     } catch (err) { setError(err.message) }
   }
 
-  const inp = "w-full py-1.5 px-2 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage"
+  const inp = "w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage"
 
   return (
     <>
+      {/* Edit modal */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditing(null)}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-[480px] p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="font-serif text-xl mb-4">Edit Tenant</h2>
+            <form onSubmit={handleSaveEdit}>
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-muted mb-1">Name</label>
+                <input className={inp} value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} required />
+              </div>
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-muted mb-1">Slug</label>
+                <input className={inp} value={editData.slug} onChange={e => setEditData(d => ({ ...d, slug: e.target.value }))} required />
+              </div>
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-muted mb-1">Target URL</label>
+                <input className={inp} value={editData.target_url} onChange={e => setEditData(d => ({ ...d, target_url: e.target.value }))} placeholder="https://book.example.com" />
+              </div>
+              {error && <p className="text-[#c0392b] text-[13px] mb-3">{error}</p>}
+              <div className="flex gap-2 justify-end">
+                <button type="button" onClick={() => setEditing(null)} className="py-2 px-4 border border-border rounded text-[13px] font-sans cursor-pointer bg-transparent hover:bg-cream">Cancel</button>
+                <button type="submit" className="py-2 px-4 bg-sage text-white border-none rounded text-[13px] font-semibold cursor-pointer font-sans hover:bg-[#4a6650]">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {isSuperAdmin && (
         <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6 mb-5">
           <h2 className="font-serif text-xl mb-4">Create Tenant</h2>
@@ -150,34 +179,19 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
           <tbody>
             {tenants.length === 0 && <tr><td colSpan={6} className="py-3 px-3 text-muted">No tenants yet</td></tr>}
             {tenants.map(t => (
-              editing === t.id ? (
-                <tr key={t.id} className="bg-cream">
-                  <td className="py-2 px-3 border-b border-[#f0ebe3]"><input className={inp} value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} /></td>
-                  <td className="py-2 px-3 border-b border-[#f0ebe3]"><input className={inp} value={editData.slug} onChange={e => setEditData(d => ({ ...d, slug: e.target.value }))} /></td>
-                  <td className="py-2 px-3 border-b border-[#f0ebe3]"><input className={inp} value={editData.target_url} onChange={e => setEditData(d => ({ ...d, target_url: e.target.value }))} /></td>
-                  <td className="py-2 px-3 border-b border-[#f0ebe3]" colSpan={2}></td>
-                  <td className="py-2 px-3 border-b border-[#f0ebe3]">
-                    <div className="flex gap-1">
-                      <button onClick={handleSaveEdit} className="text-xs py-1 px-2.5 border border-sage rounded bg-sage text-white cursor-pointer font-sans">Save</button>
-                      <button onClick={() => setEditing(null)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans">Cancel</button>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                <tr key={t.id} className="hover:bg-cream">
-                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.name}</td>
-                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><a href={`/t/${t.slug}`} className="text-sage text-xs hover:underline">/t/{t.slug}</a></td>
-                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.target_url || '--'}</td>
-                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge></td>
-                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{fmtDate(t.created_at)}</td>
-                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">
-                    <div className="flex gap-1">
-                      {isSuperAdmin && <button onClick={() => startEdit(t)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>}
+              <tr key={t.id} className="hover:bg-cream">
+                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.name}</td>
+                <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><a href={`/t/${t.slug}`} className="text-sage text-xs hover:underline">/t/{t.slug}</a></td>
+                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.target_url || '--'}</td>
+                <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge></td>
+                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{fmtDate(t.created_at)}</td>
+                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">
+                  <div className="flex gap-1">
+                    {isSuperAdmin && <button onClick={() => startEdit(t)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>}
                       {t.is_active && isSuperAdmin && <button onClick={() => handleDeactivate(t.id)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Deactivate</button>}
                     </div>
                   </td>
                 </tr>
-              )
             ))}
           </tbody>
         </table>
