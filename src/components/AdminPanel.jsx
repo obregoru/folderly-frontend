@@ -168,23 +168,21 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
         {tenants.length === 0 && <p className="text-muted text-[13px]">No tenants yet</p>}
         <div className="flex flex-col gap-2">
           {tenants.map(t => (
-            <div key={t.id} className="flex items-center justify-between gap-3 py-2.5 px-3 border border-border rounded hover:bg-cream">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <a href={`/t/${t.slug}`} className="text-sage hover:text-[#3a5a40] flex-shrink-0" title={`Open /t/${t.slug}`}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 3H3v10h10v-3M9 2h5v5M14 2L7 9" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <div key={t.id} className="py-2.5 px-3 border border-border rounded hover:bg-cream">
+              <div className="text-[13px] font-medium">{t.name}</div>
+              <div className="text-[11px] text-muted mb-2">{t.slug}</div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <a href={`/t/${t.slug}`} className="text-sage hover:text-[#3a5a40]" title={`Open /t/${t.slug}`}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 3H3v10h10v-3M9 2h5v5M14 2L7 9" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </a>
-                <div className="min-w-0">
-                  <div className="text-[13px] font-medium truncate">{t.name}</div>
-                  <div className="text-[11px] text-muted truncate">{t.slug}</div>
-                </div>
                 <Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge>
+                {isSuperAdmin && (
+                  <>
+                    <button onClick={() => startEdit(t)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>
+                    {t.is_active && <button onClick={() => handleDeactivate(t.id)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream text-[#c0392b]">Off</button>}
+                  </>
+                )}
               </div>
-              {isSuperAdmin && (
-                <div className="flex gap-1 flex-shrink-0">
-                  <button onClick={() => startEdit(t)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>
-                  {t.is_active && <button onClick={() => handleDeactivate(t.id)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream text-[#c0392b]">Off</button>}
-                </div>
-              )}
             </div>
           ))}
         </div>
