@@ -163,38 +163,31 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
         </div>
       )}
 
-      <div className="bg-white rounded shadow-sm p-4 md:p-6 overflow-x-auto">
+      <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6">
         <h2 className="font-serif text-xl mb-4">All Tenants</h2>
-        <table className="w-full text-[13px] min-w-[500px]">
-          <thead>
-            <tr>
-              <th className="text-left py-2.5 px-3 border-b-2 border-border text-muted font-medium text-xs uppercase tracking-wide">Name</th>
-              <th className="text-left py-2.5 px-3 border-b-2 border-border text-muted font-medium text-xs uppercase tracking-wide">Slug</th>
-              <th className="text-left py-2.5 px-3 border-b-2 border-border text-muted font-medium text-xs uppercase tracking-wide">Target URL</th>
-              <th className="text-left py-2.5 px-3 border-b-2 border-border text-muted font-medium text-xs uppercase tracking-wide">Status</th>
-              <th className="text-left py-2.5 px-3 border-b-2 border-border text-muted font-medium text-xs uppercase tracking-wide">Created</th>
-              <th className="py-2.5 px-3 border-b-2 border-border"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {tenants.length === 0 && <tr><td colSpan={6} className="py-3 px-3 text-muted">No tenants yet</td></tr>}
-            {tenants.map(t => (
-              <tr key={t.id} className="hover:bg-cream">
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.name}</td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><a href={`/t/${t.slug}`} className="text-sage text-xs hover:underline">/t/{t.slug}</a></td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.target_url || '--'}</td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge></td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{fmtDate(t.created_at)}</td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">
-                  <div className="flex gap-1">
-                    {isSuperAdmin && <button onClick={() => startEdit(t)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>}
-                      {t.is_active && isSuperAdmin && <button onClick={() => handleDeactivate(t.id)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Deactivate</button>}
-                    </div>
-                  </td>
-                </tr>
-            ))}
-          </tbody>
-        </table>
+        {tenants.length === 0 && <p className="text-muted text-[13px]">No tenants yet</p>}
+        <div className="flex flex-col gap-2">
+          {tenants.map(t => (
+            <div key={t.id} className="flex items-center justify-between gap-3 py-2.5 px-3 border border-border rounded hover:bg-cream">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <a href={`/t/${t.slug}`} className="text-sage hover:text-[#3a5a40] flex-shrink-0" title={`Open /t/${t.slug}`}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 3H3v10h10v-3M9 2h5v5M14 2L7 9" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </a>
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium truncate">{t.name}</div>
+                  <div className="text-[11px] text-muted truncate">{t.slug}</div>
+                </div>
+                <Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge>
+              </div>
+              {isSuperAdmin && (
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => startEdit(t)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>
+                  {t.is_active && <button onClick={() => handleDeactivate(t.id)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream text-[#c0392b]">Off</button>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </>
   )
