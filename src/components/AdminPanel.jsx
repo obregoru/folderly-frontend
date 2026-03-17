@@ -29,11 +29,11 @@ export default function AdminPanel({ user, onBack, onLogout }) {
   useEffect(() => { loadAll() }, [])
 
   const loadAll = () => {
-    api.getTenants().then(setTenants).catch(() => {})
-    api.getUsers().then(setUsers).catch(() => {})
+    api.getTenants().then(d => { if (Array.isArray(d)) setTenants(d) }).catch(() => {})
+    api.getUsers().then(d => { if (Array.isArray(d)) setUsers(d) }).catch(() => {})
     if (isSuperAdmin) {
-      api.getThrottleConfig().then(setThrottle).catch(() => {})
-      api.getIpBlocklist().then(setBlocklist).catch(() => {})
+      api.getThrottleConfig().then(d => { if (Array.isArray(d)) setThrottle(d) }).catch(() => {})
+      api.getIpBlocklist().then(d => { if (Array.isArray(d)) setBlocklist(d) }).catch(() => {})
     }
   }
 
