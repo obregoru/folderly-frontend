@@ -130,6 +130,7 @@ export const deleteHashtag = (id) =>
 const adm = (path) => `${BASE}/api/admin${path}`
 export const getTenants = () => fetch(adm('/tenants'), { credentials: 'include' }).then(r => r.json())
 export const createTenant = (data) => fetch(adm('/tenants'), { method: 'POST', headers: json, credentials: 'include', body: JSON.stringify(data) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const updateTenant = (id, data) => fetch(adm(`/tenants/${id}`), { method: 'PUT', headers: json, credentials: 'include', body: JSON.stringify(data) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const deactivateTenant = (id) => fetch(adm(`/tenants/${id}`), { method: 'DELETE', credentials: 'include' })
 export const getUsers = () => fetch(adm('/users'), { credentials: 'include' }).then(r => r.json())
 export const createUser = (data) => fetch(adm('/users'), { method: 'POST', headers: json, credentials: 'include', body: JSON.stringify(data) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })

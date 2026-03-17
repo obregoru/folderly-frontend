@@ -74,6 +74,8 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [targetUrl, setTargetUrl] = useState('')
+  const [editing, setEditing] = useState(null)
+  const [editData, setEditData] = useState({})
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -90,6 +92,22 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
     api.deactivateTenant(id).then(onRefresh)
   }
 
+  const startEdit = (t) => {
+    setEditing(t.id)
+    setEditData({ name: t.name, slug: t.slug, target_url: t.target_url || '' })
+  }
+
+  const handleSaveEdit = async () => {
+    setError('')
+    try {
+      await api.updateTenant(editing, editData)
+      setEditing(null)
+      onRefresh()
+    } catch (err) { setError(err.message) }
+  }
+
+  const inp = "w-full py-1.5 px-2 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage"
+
   return (
     <>
       {isSuperAdmin && (
@@ -99,15 +117,15 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
             <div className="flex gap-3 mb-3.5 flex-wrap">
               <div className="flex-1 min-w-[180px]">
                 <label className="block text-xs font-medium text-muted mb-1">Name</label>
-                <input className="w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage" value={name} onChange={e => setName(e.target.value)} required />
+                <input className={inp} value={name} onChange={e => setName(e.target.value)} required />
               </div>
               <div className="flex-1 min-w-[180px]">
                 <label className="block text-xs font-medium text-muted mb-1">Slug</label>
-                <input className="w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage" value={slug} onChange={e => setSlug(e.target.value)} required placeholder="lowercase-with-hyphens" />
+                <input className={inp} value={slug} onChange={e => setSlug(e.target.value)} required placeholder="lowercase-with-hyphens" />
               </div>
               <div className="flex-1 min-w-[180px]">
                 <label className="block text-xs font-medium text-muted mb-1">Target URL</label>
-                <input className="w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage" value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://book.example.com" />
+                <input className={inp} value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://book.example.com" />
               </div>
             </div>
             <button type="submit" className="py-2 px-4 bg-sage text-white border-none rounded text-[13px] font-semibold cursor-pointer font-sans hover:bg-[#4a6650]">Create Tenant</button>
@@ -132,16 +150,34 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
           <tbody>
             {tenants.length === 0 && <tr><td colSpan={6} className="py-3 px-3 text-muted">No tenants yet</td></tr>}
             {tenants.map(t => (
-              <tr key={t.id} className="hover:bg-cream">
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.name}</td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><a href={`/t/${t.slug}`} className="text-sage text-xs hover:underline">/t/{t.slug}</a></td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.target_url || '--'}</td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge></td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{fmtDate(t.created_at)}</td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">
-                  {t.is_active && isSuperAdmin && <button onClick={() => handleDeactivate(t.id)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Deactivate</button>}
-                </td>
-              </tr>
+              editing === t.id ? (
+                <tr key={t.id} className="bg-cream">
+                  <td className="py-2 px-3 border-b border-[#f0ebe3]"><input className={inp} value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} /></td>
+                  <td className="py-2 px-3 border-b border-[#f0ebe3]"><input className={inp} value={editData.slug} onChange={e => setEditData(d => ({ ...d, slug: e.target.value }))} /></td>
+                  <td className="py-2 px-3 border-b border-[#f0ebe3]"><input className={inp} value={editData.target_url} onChange={e => setEditData(d => ({ ...d, target_url: e.target.value }))} /></td>
+                  <td className="py-2 px-3 border-b border-[#f0ebe3]" colSpan={2}></td>
+                  <td className="py-2 px-3 border-b border-[#f0ebe3]">
+                    <div className="flex gap-1">
+                      <button onClick={handleSaveEdit} className="text-xs py-1 px-2.5 border border-sage rounded bg-sage text-white cursor-pointer font-sans">Save</button>
+                      <button onClick={() => setEditing(null)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans">Cancel</button>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={t.id} className="hover:bg-cream">
+                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.name}</td>
+                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><a href={`/t/${t.slug}`} className="text-sage text-xs hover:underline">/t/{t.slug}</a></td>
+                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{t.target_url || '--'}</td>
+                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge></td>
+                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{fmtDate(t.created_at)}</td>
+                  <td className="py-2.5 px-3 border-b border-[#f0ebe3]">
+                    <div className="flex gap-1">
+                      {isSuperAdmin && <button onClick={() => startEdit(t)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>}
+                      {t.is_active && isSuperAdmin && <button onClick={() => handleDeactivate(t.id)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Deactivate</button>}
+                    </div>
+                  </td>
+                </tr>
+              )
             ))}
           </tbody>
         </table>
