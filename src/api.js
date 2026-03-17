@@ -14,13 +14,13 @@ function getTenantSlug() {
 
 let _slug = null
 export function tenantSlug() {
-  if (!_slug) _slug = getTenantSlug()
-  return _slug
+  if (_slug === null) _slug = getTenantSlug()
+  return _slug || ''
 }
 
 export function setTenantSlug(slug) {
   _slug = slug
-  localStorage.setItem('tenant_slug', slug)
+  if (slug) localStorage.setItem('tenant_slug', slug)
 }
 
 function api(path) {
