@@ -163,6 +163,19 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
 
   const canPostFb = platform === 'facebook' && settings?.fb_connected
   const canPostIg = platform === 'instagram' && settings?.ig_connected
+  const canPostWp = platform === 'blog' && settings?.wp_site_url
+  const [wpCategories, setWpCategories] = useState([])
+  const [selectedCats, setSelectedCats] = useState([])
+  const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
+
+  useEffect(() => {
+    if (canPostWp && !wpCatsLoaded) {
+      import('../api').then(api => api.getWpCategories()).then(cats => {
+        if (Array.isArray(cats)) setWpCategories(cats)
+        setWpCatsLoaded(true)
+      }).catch(() => setWpCatsLoaded(true))
+    }
+  }, [canPostWp, wpCatsLoaded])
 
   const getImageBase64 = async () => {
     if (!item.isImg || !item.file) return { imageBase64: null, mediaType: null }
@@ -183,11 +196,19 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
       const api = await import('../api')
       if (target === 'facebook') {
         await api.postToFacebook(value, imageBase64, mediaType)
+        setPostStatus('Posted!')
       } else if (target === 'instagram') {
         if (!imageBase64) throw new Error('Instagram requires a photo')
         await api.postToInstagram(value, imageBase64, mediaType)
+        setPostStatus('Posted!')
+      } else if (target === 'wordpress') {
+        const title = item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
+        const result = await api.postToWordPress(title, value, imageBase64, mediaType, selectedCats)
+        setPostStatus(result.edit_url ? 'Draft created!' : 'Posted!')
+        if (result.edit_url) window.open(result.edit_url, '_blank')
+      } else {
+        setPostStatus('Posted!')
       }
-      setPostStatus('Posted!')
       setTimeout(() => setPostStatus(''), 3000)
     } catch (err) {
       setPostStatus('Failed: ' + err.message)
@@ -227,6 +248,30 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
           >
             {posting ? 'Posting...' : 'Post to Instagram'}
           </button>
+        )}
+        {canPostWp && (
+          <>
+            {wpCategories.length > 0 && (
+              <select
+                multiple
+                value={selectedCats.map(String)}
+                onChange={e => setSelectedCats(Array.from(e.target.selectedOptions, o => Number(o.value)))}
+                className="text-[10px] border border-border rounded-sm bg-white px-1 py-0.5 max-h-[60px] min-w-[100px]"
+                title="Hold Ctrl/Cmd to select multiple categories"
+              >
+                {wpCategories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={() => handlePost('wordpress')}
+              disabled={posting}
+              className="text-[11px] py-1 px-2.5 border border-[#21759B] rounded-sm bg-[#21759B] text-white cursor-pointer font-sans hover:bg-[#1a5f7a] disabled:opacity-50"
+            >
+              {posting ? 'Posting...' : 'Post to WordPress'}
+            </button>
+          </>
         )}
         <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regenerate</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>

@@ -171,3 +171,13 @@ export const postToFacebook = (caption, imageBase64, mediaType) =>
   fetch(api('/post/facebook'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const postToInstagram = (caption, imageBase64, mediaType) =>
   fetch(api('/post/instagram'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
+// WordPress
+export const saveWpCredentials = (siteUrl, username, appPassword) =>
+  fetch(api('/connect/wordpress/credentials'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ site_url: siteUrl, username, app_password: appPassword }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const getWpCategories = () =>
+  fetch(api('/connect/wordpress/categories'), { credentials: 'include' }).then(r => r.json())
+export const disconnectWp = () =>
+  fetch(api('/connect/wordpress/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
+export const postToWordPress = (title, content, imageBase64, mediaType, categoryIds) =>
+  fetch(api('/post/wordpress'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ title, content, image_base64: imageBase64, media_type: mediaType, category_ids: categoryIds }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })

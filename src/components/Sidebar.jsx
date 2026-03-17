@@ -249,6 +249,11 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
   const [fbAppSecret, setFbAppSecret] = useState('')
   const [fbSaving, setFbSaving] = useState(false)
   const [fbError, setFbError] = useState('')
+  const [showWpSetup, setShowWpSetup] = useState(false)
+  const [wpUrl, setWpUrl] = useState('')
+  const [wpUser, setWpUser] = useState('')
+  const [wpPass, setWpPass] = useState('')
+  const [wpSaving, setWpSaving] = useState(false)
 
   const handleSaveFbCreds = async () => {
     if (!fbAppId || !fbAppSecret) return
@@ -362,12 +367,45 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
       </div>
 
       {/* WordPress */}
-      <div className="flex items-center justify-between text-xs py-0.5">
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.wp_connected ? '#2D9A5E' : '#ccc' }} />
-          <span>{s.wp_connected ? 'WordPress' : 'WordPress'}</span>
+      <div className="text-xs py-0.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.wp_site_url ? '#2D9A5E' : '#ccc' }} />
+            <span>{s.wp_site_url ? `WordPress (${s.wp_username})` : 'WordPress'}</span>
+          </div>
+          {!s.wp_site_url && !showWpSetup && (
+            <button onClick={() => setShowWpSetup(true)} className="text-[10px] text-accent hover:underline">Set up</button>
+          )}
+          {s.wp_site_url && (
+            <div className="flex gap-1">
+              <button onClick={() => setShowWpSetup(true)} className="text-[10px] text-muted hover:underline">Edit</button>
+              <button onClick={async () => { await api.disconnectWp(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Disconnect</button>
+            </div>
+          )}
         </div>
-        <span className="text-[10px] text-muted italic">Coming soon</span>
+        {showWpSetup && (
+          <div className="mt-1 space-y-1">
+            <input value={wpUrl} onChange={e => setWpUrl(e.target.value)} placeholder="https://yoursite.com" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <input value={wpUser} onChange={e => setWpUser(e.target.value)} placeholder="WordPress username" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <input value={wpPass} onChange={e => setWpPass(e.target.value)} type="password" placeholder="Application password" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <p className="text-[9px] text-muted">In WP Admin → Users → Profile → Application Passwords</p>
+            <div className="flex gap-1">
+              <button onClick={async () => {
+                setWpSaving(true)
+                try {
+                  await api.saveWpCredentials(wpUrl, wpUser, wpPass)
+                  setShowWpSetup(false)
+                  setWpUrl(''); setWpUser(''); setWpPass('')
+                  onRefresh()
+                } catch (e) { alert(e.message) }
+                setWpSaving(false)
+              }} disabled={wpSaving || !wpUrl || !wpUser || !wpPass} className="px-2 py-0.5 text-[10px] bg-accent text-white rounded disabled:opacity-50">
+                {wpSaving ? 'Testing...' : 'Save & test'}
+              </button>
+              <button onClick={() => setShowWpSetup(false)} className="px-2 py-0.5 text-[10px] text-muted hover:underline">Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
