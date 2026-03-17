@@ -29,6 +29,7 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false)
   const [rules, setRules] = useState({ name: true, cta: true, brand: true, seo: true, hashtags: true })
   const [userHint, setUserHint] = useState('')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const tenantSlug = api.tenantSlug()
   const apiUrl = `${import.meta.env.VITE_API_URL || ''}/api/t/${tenantSlug}`
@@ -263,24 +264,31 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
-      <nav className="flex items-center justify-between px-6 h-[52px] border-b border-border bg-white sticky top-0 z-10">
-        <div className="font-serif text-[19px]">posty<span className="text-terra"> posty</span></div>
+      <nav className="flex items-center justify-between px-4 md:px-6 h-[52px] border-b border-border bg-white sticky top-0 z-20">
+        <div className="flex items-center gap-2.5">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden text-ink p-1 -ml-1 cursor-pointer bg-transparent border-none">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+          </button>
+          <div className="font-serif text-[19px]">posty<span className="text-terra"> posty</span></div>
+        </div>
         <div className="flex items-center gap-2.5">
           <span className={`w-[7px] h-[7px] rounded-full inline-block ${connected ? 'bg-tk' : 'bg-border'}`} />
-          <span className="text-[11px] text-muted">
+          <span className="text-[11px] text-muted hidden sm:inline">
             {connected ? `Connected` : 'Connecting...'}
           </span>
           <button onClick={() => setHistoryOpen(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">History</button>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium">Beta</span>
-          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">Admin</button>}
+          <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium hidden sm:inline">Beta</span>
+          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans hidden sm:block">Admin</button>}
           <button onClick={handleLogout} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">Sign out</button>
         </div>
       </nav>
 
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />}
+
       {/* Shell */}
-      <div className="grid grid-cols-[260px_1fr] h-[calc(100vh-52px)]">
+      <div className="flex md:grid md:grid-cols-[260px_1fr] h-[calc(100vh-52px)]">
+        <div className={`fixed md:static inset-y-0 left-0 z-40 w-[280px] md:w-auto transform transition-transform md:transform-none ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <Sidebar
           settings={settings}
           onSave={saveSettingsToServer}
@@ -292,8 +300,9 @@ export default function App() {
           onRulesChange={setRules}
           apiUrl={apiUrl}
         />
+        </div>
 
-        <main className="p-5 overflow-y-auto flex flex-col gap-4 max-w-[640px]">
+        <main className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 max-w-[640px] mx-auto w-full">
           {/* Tips */}
           <div className="text-xs text-muted leading-relaxed text-center">
             <p className="mb-2"><strong className="text-ink">Tip:</strong> Descriptive names help the AI write better captions.</p>
