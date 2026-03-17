@@ -65,7 +65,9 @@ export default function App() {
 
   const handleLogin = (data) => {
     setUser({ id: data.id, email: data.email, role: data.role, tenant_id: data.tenant_id })
-    if (data.redirect) {
+    if (data.tenant_slug) {
+      api.setTenantSlug(data.tenant_slug)
+    } else if (data.redirect) {
       const m = data.redirect.match(/\/t\/([^/]+)/)
       if (m) api.setTenantSlug(m[1])
     }
