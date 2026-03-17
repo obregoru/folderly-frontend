@@ -142,9 +142,22 @@ export function captureVideoFrame(file) {
 
 export function toBase64(file) {
   return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => resolve(r.result.split(',')[1])
-    r.onerror = reject
-    r.readAsDataURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const MAX = 1200
+      let w = img.width, h = img.height
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX }
+        else { w = Math.round(w * MAX / h); h = MAX }
+      }
+      const c = document.createElement('canvas')
+      c.width = w; c.height = h
+      c.getContext('2d').drawImage(img, 0, 0, w, h)
+      const dataUrl = c.toDataURL('image/jpeg', 0.75)
+      resolve(dataUrl.split(',')[1])
+      URL.revokeObjectURL(img.src)
+    }
+    img.onerror = reject
+    img.src = URL.createObjectURL(file)
   })
 }
