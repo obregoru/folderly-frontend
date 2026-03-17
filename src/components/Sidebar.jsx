@@ -121,7 +121,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         <div className="flex items-center justify-between text-xs py-0.5"><span>Watermark exports</span><Toggle on={s.watermark_enabled === true} onChange={v => save('watermark_enabled', v)} /></div>
         {s.watermark_enabled && (
           <div className="mt-1 flex items-center gap-1.5">
-            {s.watermark_path && <img src={`/uploads/${s.watermark_path}`} className="w-8 h-8 object-contain rounded bg-[#eee]" />}
+            {s.watermark_path && <img src={s.watermark_path.startsWith('http') ? s.watermark_path : `/uploads/${s.watermark_path}`} className="w-8 h-8 object-contain rounded bg-[#eee]" />}
             <label className="text-[10px] py-0.5 px-2.5 bg-cream border border-border rounded-sm cursor-pointer">Upload logo
               <input type="file" accept="image/png" className="hidden" onChange={e => { if (e.target.files[0]) api.uploadWatermark(e.target.files[0]).then(d => { if (d.watermark_path) save('watermark_path', d.watermark_path) }) }} />
             </label>
