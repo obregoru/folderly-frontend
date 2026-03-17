@@ -261,7 +261,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 h-[52px] border-b border-border bg-white sticky top-0 z-10">
-        <div className="font-serif text-[19px]">folder<span className="text-terra">ly</span></div>
+        <div className="font-serif text-[19px]">posty<span className="text-terra"> posty</span></div>
         <div className="flex items-center gap-2.5">
           <span className={`w-[7px] h-[7px] rounded-full inline-block ${connected ? 'bg-tk' : 'bg-border'}`} />
           <span className="text-[11px] text-muted">

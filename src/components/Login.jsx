@@ -27,7 +27,7 @@ export default function Login({ onLogin }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-cream">
       <div className="bg-white rounded p-12 w-full max-w-[400px] shadow-[0_2px_16px_rgba(0,0,0,.08)]">
-        <h1 className="font-serif text-[28px] text-center mb-2">Folderly</h1>
+        <h1 className="font-serif text-[28px] text-center mb-2">Posty Posty</h1>
         <p className="text-muted text-sm text-center mb-8">Sign in to your account</p>
 
         {error && (

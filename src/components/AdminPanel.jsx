@@ -41,7 +41,7 @@ export default function AdminPanel({ user, onBack, onLogout }) {
     <div className="min-h-screen bg-cream">
       {/* Top bar */}
       <div className="bg-white border-b border-border py-3.5 px-8 flex items-center justify-between sticky top-0 z-10">
-        <h1 className="font-serif text-[22px]">Folderly Admin</h1>
+        <h1 className="font-serif text-[22px]">Posty Posty Admin</h1>
         <div className="flex gap-3 items-center">
           <span className="text-[13px] text-muted">{user.email}</span>
           {onBack && <button onClick={onBack} className="text-[12px] py-1 px-3 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Back to app</button>}
