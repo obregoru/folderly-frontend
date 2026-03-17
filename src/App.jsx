@@ -278,7 +278,7 @@ export default function App() {
           </span>
           <button onClick={() => setHistoryOpen(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">History</button>
           <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium hidden sm:inline">Beta</span>
-          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans hidden sm:block">Admin</button>}
+          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">Admin</button>}
           <button onClick={handleLogout} className="text-[11px] py-1 px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans">Sign out</button>
         </div>
       </nav>
