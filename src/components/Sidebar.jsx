@@ -393,9 +393,9 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
         </div>
         {showTwitterSetup && (
           <div className="mt-1 space-y-1">
-            <input value={twClientId} onChange={e => setTwClientId(e.target.value)} placeholder="Client ID" className="w-full px-2 py-1 text-xs border rounded bg-white" />
-            <input value={twClientSecret} onChange={e => setTwClientSecret(e.target.value)} type="password" placeholder="Client Secret" className="w-full px-2 py-1 text-xs border rounded bg-white" />
-            <p className="text-[9px] text-muted">From developer.x.com → your app → Keys and tokens</p>
+            <input value={twClientId} onChange={e => setTwClientId(e.target.value)} placeholder="API Key" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <input value={twClientSecret} onChange={e => setTwClientSecret(e.target.value)} type="password" placeholder="API Secret" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <p className="text-[9px] text-muted">From developer.x.com → your app → Keys and tokens → Consumer Keys</p>
             <div className="flex gap-1">
               <button onClick={async () => {
                 setTwSaving(true)

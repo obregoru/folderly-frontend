@@ -173,8 +173,8 @@ export const postToInstagram = (caption, imageBase64, mediaType) =>
   fetch(api('/post/instagram'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 
 // X / Twitter
-export const saveTwitterCredentials = (clientId, clientSecret) =>
-  fetch(api('/connect/twitter/credentials'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }) }).then(r => r.json())
+export const saveTwitterCredentials = (apiKey, apiSecret) =>
+  fetch(api('/connect/twitter/credentials'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret }) }).then(r => r.json())
 export const startTwitterConnect = () =>
   fetch(api('/connect/twitter'), { credentials: 'include' }).then(r => r.json())
 export const disconnectTwitter = () =>
