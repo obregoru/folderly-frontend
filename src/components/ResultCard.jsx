@@ -166,6 +166,7 @@ const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#
 function PostAllBar({ item, available, settings, apiUrl }) {
   const [posting, setPosting] = useState(false)
   const [results, setResults] = useState({}) // { platform: 'success' | 'Failed: ...' }
+  const [wpPublishAll, setWpPublishAll] = useState(false)
 
   // Determine which platforms can actually post
   const postable = available.filter(p => {
@@ -218,8 +219,8 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           newResults[p.key] = 'success'
         } else if (p.key === 'blog') {
           const title = item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
-          await api.postToWordPress(title, caption, imageBase64, mediaType, [], false)
-          newResults[p.key] = 'draft'
+          await api.postToWordPress(title, caption, imageBase64, mediaType, [], wpPublishAll)
+          newResults[p.key] = wpPublishAll ? 'success' : 'draft'
         }
       } catch (err) {
         newResults[p.key] = 'Failed: ' + err.message
@@ -244,6 +245,12 @@ function PostAllBar({ item, available, settings, apiUrl }) {
         >
           {posting ? 'Posting...' : `Post All (${postable.length})`}
         </button>
+        {postable.some(p => p.key === 'blog') && (
+          <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
+            <input type="checkbox" checked={wpPublishAll} onChange={e => setWpPublishAll(e.target.checked)} className="accent-[#21759B]" />
+            WP: {wpPublishAll ? 'Publish' : 'Draft'}
+          </label>
+        )}
         {hasResults && postable.map(p => {
           const r = results[p.key]
           if (!r) return posting ? <span key={p.key} className="text-[10px] text-muted">{PLATFORM_LABELS[p.key]}: waiting...</span> : null
