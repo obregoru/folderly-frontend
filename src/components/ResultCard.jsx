@@ -109,6 +109,11 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
         <div className="py-3 px-3.5 text-xs text-[#A32D2D]">{item.errMsg || 'Error generating captions.'}</div>
       )}
 
+      {/* Post All */}
+      {available.length > 0 && (
+        <PostAllBar item={item} available={available} settings={settings} apiUrl={apiUrl} />
+      )}
+
       {/* Caption tabs + content */}
       {available.length > 0 && (
         <>
@@ -151,6 +156,106 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
       )}
 
       <CropStrip item={item} apiUrl={apiUrl} />
+    </div>
+  )
+}
+
+const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress', tiktok: 'TikTok', google: 'Google' }
+const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B', tiktok: '#2D9A5E', google: '#4285F4' }
+
+function PostAllBar({ item, available, settings, apiUrl }) {
+  const [posting, setPosting] = useState(false)
+  const [results, setResults] = useState({}) // { platform: 'success' | 'Failed: ...' }
+
+  // Determine which platforms can actually post
+  const postable = available.filter(p => {
+    if (p.key === 'facebook' && settings?.fb_connected) return true
+    if (p.key === 'instagram' && settings?.ig_connected) return true
+    if (p.key === 'twitter' && settings?.twitter_connected) return true
+    if (p.key === 'blog' && settings?.wp_site_url) return true
+    return false
+  })
+
+  if (postable.length < 2) return null // No point if only 1 or 0 platforms
+
+  const handlePostAll = async () => {
+    setPosting(true)
+    setResults({})
+    const api = await import('../api')
+    const newResults = {}
+
+    for (const p of postable) {
+      const caption = getText(item.captions[p.key])
+      if (!caption) { newResults[p.key] = 'Skipped: no caption'; continue }
+
+      try {
+        // Get platform-cropped watermarked image
+        let imageBase64 = null, mediaType = null
+        if (item.isImg && item.file) {
+          const cropRatio = PLATFORM_CROPS[p.key]
+          if (cropRatio) {
+            let blob = await smartCrop(item, cropRatio)
+            blob = await applyWatermark(blob, cropRatio.wm, apiUrl)
+            imageBase64 = await new Promise((resolve, reject) => {
+              const r = new FileReader()
+              r.onload = () => resolve(r.result.split(',')[1])
+              r.onerror = reject
+              r.readAsDataURL(blob)
+            })
+            mediaType = 'image/jpeg'
+          }
+        }
+
+        if (p.key === 'facebook') {
+          await api.postToFacebook(caption, imageBase64, mediaType)
+          newResults[p.key] = 'success'
+        } else if (p.key === 'instagram') {
+          if (!imageBase64) throw new Error('Requires a photo')
+          await api.postToInstagram(caption, imageBase64, mediaType)
+          newResults[p.key] = 'success'
+        } else if (p.key === 'twitter') {
+          await api.postToTwitter(caption, imageBase64, mediaType)
+          newResults[p.key] = 'success'
+        } else if (p.key === 'blog') {
+          const title = item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
+          await api.postToWordPress(title, caption, imageBase64, mediaType, [], false)
+          newResults[p.key] = 'draft'
+        }
+      } catch (err) {
+        newResults[p.key] = 'Failed: ' + err.message
+      }
+
+      // Update results as we go
+      setResults({ ...newResults })
+    }
+
+    setPosting(false)
+  }
+
+  const hasResults = Object.keys(results).length > 0
+
+  return (
+    <div className="px-3.5 py-2 border-b border-border bg-[#f9f8f6]">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={handlePostAll}
+          disabled={posting}
+          className="text-[11px] py-1.5 px-3 rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#248a50] disabled:opacity-50 border-none"
+        >
+          {posting ? 'Posting...' : `Post All (${postable.length})`}
+        </button>
+        {hasResults && postable.map(p => {
+          const r = results[p.key]
+          if (!r) return posting ? <span key={p.key} className="text-[10px] text-muted">{PLATFORM_LABELS[p.key]}: waiting...</span> : null
+          const isOk = r === 'success' || r === 'draft'
+          return (
+            <span key={p.key} className={`text-[10px] ${isOk ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}`}>
+              <span className="font-medium" style={{ color: PLATFORM_COLORS[p.key] }}>{PLATFORM_LABELS[p.key]}:</span>{' '}
+              {r === 'success' ? 'Posted' : r === 'draft' ? 'Draft saved' : r}
+            </span>
+          )
+        })}
+      </div>
     </div>
   )
 }
