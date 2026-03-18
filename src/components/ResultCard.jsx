@@ -411,6 +411,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   useEffect(() => { setTitle(blogTitle || '') }, [blogTitle])
   useEffect(() => { setTags(ytTags || []) }, [ytTags])
 
+  const CHAR_LIMITS = { twitter: 280, instagram: 2200, tiktok: 4000, google: 750 }
+  const charLimit = CHAR_LIMITS[platform] || null
+
   const handleBlur = () => {
     if (value !== text) {
       onSave(value)
@@ -506,20 +509,32 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   return (
     <>
       {(platform === 'blog' || platform === 'youtube') && (
-        <input
-          className="w-full text-xs font-medium text-ink border border-transparent rounded-sm py-1.5 px-2 font-sans bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white mb-1"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder={platform === 'youtube' ? 'Video title...' : 'Blog post title...'}
-        />
+        <>
+          <input
+            className={`w-full text-xs font-medium text-ink border rounded-sm py-1.5 px-2 font-sans bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white mb-1 ${platform === 'youtube' && title.length > 100 ? 'border-[#c0392b]' : 'border-transparent'}`}
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder={platform === 'youtube' ? 'Video title...' : 'Blog post title...'}
+          />
+          {platform === 'youtube' && (
+            <div className={`text-[10px] text-right -mt-0.5 mb-1 ${title.length > 100 ? 'text-[#c0392b] font-medium' : 'text-muted'}`}>
+              {title.length}/100{title.length > 100 ? ` (${title.length - 100} over)` : ''}
+            </div>
+          )}
+        </>
       )}
       <textarea
-        className="w-full text-xs leading-relaxed whitespace-pre-wrap text-ink border border-transparent rounded-sm py-1.5 px-2 font-sans resize-y min-h-[60px] bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white"
+        className={`w-full text-xs leading-relaxed whitespace-pre-wrap text-ink border rounded-sm py-1.5 px-2 font-sans resize-y min-h-[60px] bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white ${charLimit && value.length > charLimit ? 'border-[#c0392b]' : 'border-transparent'}`}
         value={value}
         onChange={e => setValue(e.target.value)}
         onBlur={handleBlur}
         rows={Math.max(3, Math.ceil(value.length / 60))}
       />
+      {charLimit && (
+        <div className={`text-[10px] text-right mt-0.5 ${value.length > charLimit ? 'text-[#c0392b] font-medium' : 'text-muted'}`}>
+          {value.length}/{charLimit}{value.length > charLimit ? ` (${value.length - charLimit} over)` : ''}
+        </div>
+      )}
       {platform === 'youtube' && tags.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1 items-center">
           <span className="text-[10px] text-muted mr-0.5">Tags:</span>
