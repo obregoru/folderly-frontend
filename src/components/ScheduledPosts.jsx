@@ -29,6 +29,15 @@ export default function ScheduledPosts() {
     }
   }
 
+  const handleRetry = async (uuid) => {
+    try {
+      await api.retryScheduledPost(uuid)
+      load()
+    } catch (err) {
+      alert('Retry failed: ' + err.message)
+    }
+  }
+
   const handleDelete = async (uuid) => {
     try {
       await api.deleteScheduledPost(uuid)
@@ -106,10 +115,18 @@ export default function ScheduledPosts() {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => handleDelete(p.uuid)}
-                    className="text-[10px] text-muted hover:underline flex-shrink-0"
-                  >Remove</button>
+                  <div className="flex gap-1 flex-shrink-0">
+                    {p.status === 'failed' && (
+                      <button
+                        onClick={() => handleRetry(p.uuid)}
+                        className="text-[10px] text-[#6C5CE7] hover:underline"
+                      >Retry now</button>
+                    )}
+                    <button
+                      onClick={() => handleDelete(p.uuid)}
+                      className="text-[10px] text-muted hover:underline"
+                    >Remove</button>
+                  </div>
                 </div>
               ))}
             </div>
