@@ -187,7 +187,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       {/* Platforms */}
       <div>
         <div className="s-head">Platforms</div>
-        {[['platform_tiktok', 'TikTok', true], ['platform_instagram', 'Instagram', true], ['platform_facebook', 'Facebook', true], ['platform_twitter', 'X / Twitter', false], ['platform_google', 'Google Business', false], ['platform_blog', 'Blog post', false]].map(([key, label, defaultOn]) => (
+        {[['platform_tiktok', 'TikTok', true], ['platform_instagram', 'Instagram', true], ['platform_facebook', 'Facebook', true], ['platform_twitter', 'X / Twitter', false], ['platform_google', 'Google Business', false], ['platform_blog', 'Blog post', false], ['platform_youtube', 'YouTube', false]].map(([key, label, defaultOn]) => (
           <div key={key} className="flex items-center justify-between text-xs py-0.5 mt-1.5">
             <span>{label}</span>
             <Toggle on={defaultOn ? s[key] !== false : s[key] === true} onChange={v => save(key, v)} />

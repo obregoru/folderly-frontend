@@ -20,6 +20,7 @@ const PLATFORMS = [
   { key: 'twitter', label: 'X', color: '#000000' },
   { key: 'google', label: 'Google', color: '#4285F4' },
   { key: 'blog', label: 'Blog', color: '#E67E22' },
+  { key: 'youtube', label: 'YouTube', color: '#FF0000' },
 ]
 
 function getText(cap) {
@@ -30,6 +31,11 @@ function getText(cap) {
 function getTitle(cap) {
   if (!cap || typeof cap !== 'object') return ''
   return cap.title || ''
+}
+
+function getTags(cap) {
+  if (!cap || typeof cap !== 'object') return []
+  return cap.tags || []
 }
 
 function getId(cap) {
@@ -146,6 +152,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
                 <CaptionEditor
                   text={getText(cap)}
                   blogTitle={getTitle(cap)}
+                  ytTags={getTags(cap)}
                   captionId={getId(cap)}
                   score={getScore(cap)}
                   platform={p.key}
@@ -274,9 +281,10 @@ function PostAllBar({ item, available, settings, apiUrl }) {
   )
 }
 
-function CaptionEditor({ text, blogTitle, captionId, score, platform, item, settings, onSave, onRegen, onRefine }) {
+function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, item, settings, onSave, onRegen, onRefine }) {
   const [value, setValue] = useState(text)
   const [title, setTitle] = useState(blogTitle || '')
+  const [tags, setTags] = useState(ytTags || [])
   const [saved, setSaved] = useState(false)
   const [posting, setPosting] = useState(false)
   const [postStatus, setPostStatus] = useState('')
@@ -284,6 +292,7 @@ function CaptionEditor({ text, blogTitle, captionId, score, platform, item, sett
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
   useEffect(() => { setTitle(blogTitle || '') }, [blogTitle])
+  useEffect(() => { setTags(ytTags || []) }, [ytTags])
 
   const handleBlur = () => {
     if (value !== text) {
@@ -379,12 +388,12 @@ function CaptionEditor({ text, blogTitle, captionId, score, platform, item, sett
 
   return (
     <>
-      {platform === 'blog' && (
+      {(platform === 'blog' || platform === 'youtube') && (
         <input
           className="w-full text-xs font-medium text-ink border border-transparent rounded-sm py-1.5 px-2 font-sans bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white mb-1"
           value={title}
           onChange={e => setTitle(e.target.value)}
-          placeholder="Blog post title..."
+          placeholder={platform === 'youtube' ? 'Video title...' : 'Blog post title...'}
         />
       )}
       <textarea
@@ -394,7 +403,28 @@ function CaptionEditor({ text, blogTitle, captionId, score, platform, item, sett
         onBlur={handleBlur}
         rows={Math.max(3, Math.ceil(value.length / 60))}
       />
+      {platform === 'youtube' && tags.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-1 items-center">
+          <span className="text-[10px] text-muted mr-0.5">Tags:</span>
+          {tags.map((t, i) => (
+            <span key={i} className="inline-block bg-[#ffecec] text-[#cc0000] border border-[#ffcccc] rounded-full px-[7px] text-[10px]">{t}</span>
+          ))}
+          <button
+            onClick={() => navigator.clipboard.writeText(tags.join(', '))}
+            className="text-[10px] text-muted hover:underline ml-1"
+          >Copy tags</button>
+        </div>
+      )}
       <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
+        {platform === 'youtube' && (
+          <button
+            onClick={() => {
+              const full = `${title}\n\n${value}${tags.length ? '\n\nTags: ' + tags.join(', ') : ''}`
+              navigator.clipboard.writeText(full)
+            }}
+            className="text-[11px] py-1 px-2.5 border border-[#FF0000] rounded-sm bg-[#FF0000] text-white cursor-pointer font-sans hover:bg-[#cc0000]"
+          >Copy All for YouTube</button>
+        )}
         {canPostFb && (
           <button
             onClick={() => handlePost('facebook')}

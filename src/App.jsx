@@ -132,6 +132,7 @@ export default function App() {
     if (settings.platform_twitter === true) p.push('twitter')
     if (settings.platform_google === true) p.push('google')
     if (settings.platform_blog === true) p.push('blog')
+    if (settings.platform_youtube === true) p.push('youtube')
     return p
   }
 
