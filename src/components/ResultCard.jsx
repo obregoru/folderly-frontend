@@ -180,10 +180,23 @@ function PostAllBar({ item, available, settings, apiUrl }) {
   const [posting, setPosting] = useState(false)
   const [results, setResults] = useState({}) // { platform: 'success' | 'Failed: ...' }
   const [wpPublishAll, setWpPublishAll] = useState(false)
+  const [wpCategories, setWpCategories] = useState([])
+  const [selectedCats, setSelectedCats] = useState([])
+  const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduling, setScheduling] = useState(false)
   const [scheduleStatus, setScheduleStatus] = useState('')
+
+  const hasWp = available.some(p => p.key === 'blog') && settings?.wp_site_url
+  useEffect(() => {
+    if (hasWp && !wpCatsLoaded) {
+      import('../api').then(api => api.getWpCategories()).then(cats => {
+        if (Array.isArray(cats)) setWpCategories(cats)
+        setWpCatsLoaded(true)
+      }).catch(() => setWpCatsLoaded(true))
+    }
+  }, [hasWp, wpCatsLoaded])
 
   // Determine which platforms can actually post
   const postable = available.filter(p => {
@@ -237,7 +250,7 @@ function PostAllBar({ item, available, settings, apiUrl }) {
         } else if (p.key === 'blog') {
           const blogCap = item.captions[p.key]
           const wpTitle = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
-          await api.postToWordPress(wpTitle, caption, imageBase64, mediaType, [], wpPublishAll)
+          await api.postToWordPress(wpTitle, caption, imageBase64, mediaType, selectedCats, wpPublishAll)
           newResults[p.key] = wpPublishAll ? 'success' : 'draft'
         }
       } catch (err) {
@@ -278,6 +291,7 @@ function PostAllBar({ item, available, settings, apiUrl }) {
         const blogCap = item.captions[p.key]
         post.title = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
         post.wp_publish = wpPublishAll
+        post.wp_category_ids = selectedCats
       }
       posts.push(post)
     }
@@ -323,10 +337,25 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           Schedule
         </button>
         {postable.some(p => p.key === 'blog') && (
-          <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
-            <input type="checkbox" checked={wpPublishAll} onChange={e => setWpPublishAll(e.target.checked)} className="accent-[#21759B]" />
-            WP: {wpPublishAll ? 'Publish' : 'Draft'}
-          </label>
+          <>
+            {wpCategories.length > 0 && (
+              <select
+                multiple
+                value={selectedCats.map(String)}
+                onChange={e => setSelectedCats(Array.from(e.target.selectedOptions, o => Number(o.value)))}
+                className="text-[10px] border border-border rounded-sm bg-white px-1 py-0.5 max-h-[50px] min-w-[80px]"
+                title="Hold Ctrl/Cmd to select categories"
+              >
+                {wpCategories.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )}
+            <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
+              <input type="checkbox" checked={wpPublishAll} onChange={e => setWpPublishAll(e.target.checked)} className="accent-[#21759B]" />
+              WP: {wpPublishAll ? 'Publish' : 'Draft'}
+            </label>
+          </>
         )}
         {scheduleStatus && (
           <span className={`text-[10px] ${scheduleStatus.startsWith('Failed') ? 'text-[#c0392b]' : 'text-[#6C5CE7]'}`}>{scheduleStatus}</span>
