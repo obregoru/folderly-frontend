@@ -166,11 +166,25 @@ export const disconnectFb = () =>
 export const resetFb = () =>
   fetch(api('/connect/facebook/reset'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 
-// Social posting
+// Social posting -- all accept optional force=true to bypass duplicate check
+async function postWithDupCheck(path, body) {
+  const resp = await fetch(api(path), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(body) })
+  if (resp.status === 409) {
+    const data = await resp.json()
+    if (data.error === 'duplicate') {
+      const ok = window.confirm(`${data.message}\n\nPost anyway?`)
+      if (!ok) throw new Error('Cancelled — duplicate post')
+      return postWithDupCheck(path, { ...body, force: true })
+    }
+  }
+  if (!resp.ok) { const e = await resp.json(); throw new Error(e.error) }
+  return resp.json()
+}
+
 export const postToFacebook = (caption, imageBase64, mediaType) =>
-  fetch(api('/post/facebook'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  postWithDupCheck('/post/facebook', { caption, image_base64: imageBase64, media_type: mediaType })
 export const postToInstagram = (caption, imageBase64, mediaType) =>
-  fetch(api('/post/instagram'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  postWithDupCheck('/post/instagram', { caption, image_base64: imageBase64, media_type: mediaType })
 
 // X / Twitter
 export const saveTwitterCredentials = (apiKey, apiSecret) =>
@@ -182,7 +196,7 @@ export const disconnectTwitter = () =>
 export const resetTwitter = () =>
   fetch(api('/connect/twitter/reset'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const postToTwitter = (caption, imageBase64, mediaType) =>
-  fetch(api('/post/twitter'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  postWithDupCheck('/post/twitter', { caption, image_base64: imageBase64, media_type: mediaType })
 
 // Google Business
 export const saveGoogleCredentials = (clientId, clientSecret) =>
@@ -194,7 +208,7 @@ export const disconnectGoogle = () =>
 export const resetGoogle = () =>
   fetch(api('/connect/google/reset'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const postToGoogle = (caption, imageBase64, mediaType) =>
-  fetch(api('/post/google'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  postWithDupCheck('/post/google', { caption, image_base64: imageBase64, media_type: mediaType })
 
 // WordPress
 export const saveWpCredentials = (siteUrl, username, appPassword) =>
@@ -204,7 +218,7 @@ export const getWpCategories = () =>
 export const disconnectWp = () =>
   fetch(api('/connect/wordpress/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const postToWordPress = (title, content, imageBase64, mediaType, categoryIds, publish = false) =>
-  fetch(api('/post/wordpress'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ title, content, image_base64: imageBase64, media_type: mediaType, category_ids: categoryIds, publish }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  postWithDupCheck('/post/wordpress', { title, content, image_base64: imageBase64, media_type: mediaType, category_ids: categoryIds, publish })
 
 // Scheduling
 export const schedulePosts = (posts, scheduledAt) =>
