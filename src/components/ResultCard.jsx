@@ -1,6 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
 import { allTags } from '../lib/parse'
+import { CROP_RATIOS, smartCrop, applyWatermark } from '../lib/crop'
 import CropStrip from './CropStrip'
+
+// Map platform to preferred crop ratio
+const PLATFORM_CROPS = {
+  tiktok: CROP_RATIOS.find(c => c.label.startsWith('TikTok')),
+  instagram: CROP_RATIOS.find(c => c.label === 'IG Square 1:1'),
+  facebook: CROP_RATIOS.find(c => c.label.startsWith('FB')),
+  twitter: CROP_RATIOS.find(c => c.label.startsWith('X ')),
+  google: CROP_RATIOS.find(c => c.label.startsWith('Google')),
+  blog: CROP_RATIOS.find(c => c.label.startsWith('FB')), // 16:9 for blog featured images
+}
 
 const PLATFORMS = [
   { key: 'tiktok', label: 'TikTok', color: '#2D9A5E' },
@@ -179,8 +190,22 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
     }
   }, [canPostWp, wpCatsLoaded])
 
-  const getImageBase64 = async () => {
+  const getImageBase64 = async (targetPlatform) => {
     if (!item.isImg || !item.file) return { imageBase64: null, mediaType: null }
+    const cropRatio = PLATFORM_CROPS[targetPlatform]
+    if (cropRatio) {
+      // Smart crop with face detection, then apply watermark
+      let blob = await smartCrop(item, cropRatio)
+      blob = await applyWatermark(blob, cropRatio.wm, apiUrl)
+      const imageBase64 = await new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => resolve(r.result.split(',')[1])
+        r.onerror = reject
+        r.readAsDataURL(blob)
+      })
+      return { imageBase64, mediaType: 'image/jpeg' }
+    }
+    // Fallback: raw file
     const imageBase64 = await new Promise((resolve, reject) => {
       const r = new FileReader()
       r.onload = () => resolve(r.result.split(',')[1])
@@ -194,7 +219,7 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
     setPosting(true)
     setPostStatus('')
     try {
-      const { imageBase64, mediaType } = await getImageBase64()
+      const { imageBase64, mediaType } = await getImageBase64(target)
       const api = await import('../api')
       if (target === 'facebook') {
         await api.postToFacebook(value, imageBase64, mediaType)
