@@ -71,6 +71,9 @@ export default function ScheduledPosts() {
               <div className="text-[10px] text-muted uppercase tracking-wide mb-1.5">Upcoming</div>
               {pending.map(p => (
                 <div key={p.uuid} className="flex items-center justify-between py-1.5 gap-2">
+                  {p.image_url && (
+                    <img src={p.image_url} className="w-10 h-10 rounded-sm object-cover flex-shrink-0" />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
@@ -98,6 +101,9 @@ export default function ScheduledPosts() {
               <div className="text-[10px] text-muted uppercase tracking-wide mb-1.5">History</div>
               {completed.slice(0, 10).map(p => (
                 <div key={p.uuid} className="flex items-center justify-between py-1 gap-2">
+                  {p.image_url && (
+                    <img src={p.image_url} className="w-7 h-7 rounded-sm object-cover flex-shrink-0" />
+                  )}
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: STATUS_COLORS[p.status] }} />
                     <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
