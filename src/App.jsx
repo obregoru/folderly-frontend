@@ -9,6 +9,7 @@ import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
 import ResultCard from './components/ResultCard'
 import ScheduledPosts from './components/ScheduledPosts'
+import ScheduleModal from './components/ScheduleModal'
 import HistoryModal from './components/HistoryModal'
 import RefineModal from './components/RefineModal'
 import AdminPanel from './components/AdminPanel'
@@ -26,6 +27,7 @@ export default function App() {
   const [generating, setGenerating] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [refineCtx, setRefineCtx] = useState(null)
   const [showAdmin, setShowAdmin] = useState(false)
   const [rules, setRules] = useState({ name: true, cta: true, brand: true, seo: true, hashtags: true })
@@ -289,6 +291,7 @@ export default function App() {
           <span className="text-[11px] text-muted hidden sm:inline">
             {connected ? `Connected` : 'Connecting...'}
           </span>
+          <button onClick={() => setScheduleOpen(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-[#6C5CE7] rounded-sm bg-[#f3f0ff] text-[#6C5CE7] cursor-pointer font-sans whitespace-nowrap">Scheduled</button>
           <button onClick={() => setHistoryOpen(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">History</button>
           <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium hidden sm:inline">Beta</span>
           {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">Admin</button>}
@@ -405,6 +408,7 @@ export default function App() {
       </div>
 
       {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} />}
+      {scheduleOpen && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
       {refineCtx && (
         <RefineModal
           ctx={refineCtx}
