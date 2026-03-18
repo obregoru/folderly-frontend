@@ -485,7 +485,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         setPostStatus('Posted!')
       } else if (target === 'twitter') {
         const result = await api.postToTwitter(value, imageBase64, mediaType)
-        setPostStatus('Posted to X!')
+        if (result.warning) {
+          setPostStatus('Warning: ' + result.warning)
+        } else {
+          setPostStatus('Posted to X!')
+        }
         if (result.tweet_url) window.open(result.tweet_url, '_blank')
       } else if (target === 'google') {
         await api.postToGoogle(value, imageBase64, mediaType)
@@ -638,7 +642,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
         <button onClick={() => onRefine(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Refine</button>
         {saved && <span className="text-[10px] text-sage">Saved</span>}
-        {postStatus && <span className={`text-[10px] ${postStatus.startsWith('Failed') ? 'text-[#c0392b]' : 'text-sage'}`}>{postStatus}</span>}
+        {postStatus && <span className={`text-[10px] ${postStatus.startsWith('Failed') ? 'text-[#c0392b]' : postStatus.startsWith('Warning') ? 'text-[#856404]' : 'text-sage'}`}>{postStatus}</span>}
         {scoreLabel && (
           <span
             className={`text-[10px] py-0.5 px-2 rounded-xl font-semibold border ${
