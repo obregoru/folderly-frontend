@@ -253,6 +253,10 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
   const [twClientId, setTwClientId] = useState('')
   const [twClientSecret, setTwClientSecret] = useState('')
   const [twSaving, setTwSaving] = useState(false)
+  const [showGoogleSetup, setShowGoogleSetup] = useState(false)
+  const [gClientId, setGClientId] = useState('')
+  const [gClientSecret, setGClientSecret] = useState('')
+  const [gSaving, setGSaving] = useState(false)
   const [showWpSetup, setShowWpSetup] = useState(false)
   const [wpUrl, setWpUrl] = useState('')
   const [wpUser, setWpUser] = useState('')
@@ -410,6 +414,60 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                 {twSaving ? 'Saving...' : 'Save'}
               </button>
               <button onClick={() => { setShowTwitterSetup(false); setTwClientId(''); setTwClientSecret('') }} className="px-2 py-0.5 text-[10px] border rounded">Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Google Business */}
+      <div className="text-xs py-0.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.google_connected ? '#2D9A5E' : '#ccc' }} />
+            <span>{s.google_connected ? `Google (${s.google_location_name})` : 'Google Business'}</span>
+          </div>
+          {!s.google_connected && !s.google_app_configured && !showGoogleSetup && (
+            <button onClick={() => setShowGoogleSetup(true)} className="text-[10px] text-accent hover:underline">Set up</button>
+          )}
+          {!s.google_connected && s.google_app_configured && (
+            <div className="flex gap-1">
+              <button onClick={async () => {
+                const data = await api.startGoogleConnect()
+                if (data.url) {
+                  const popup = window.open(data.url, 'google-connect', 'width=600,height=700')
+                  const handler = (e) => { if (e.data?.type === 'google-connected') { window.removeEventListener('message', handler); onRefresh() } }
+                  window.addEventListener('message', handler)
+                }
+              }} className="text-[10px] text-accent hover:underline">Connect</button>
+              <button onClick={async () => { await api.resetGoogle(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
+            </div>
+          )}
+          {s.google_connected && (
+            <div className="flex gap-1">
+              <button onClick={async () => { await api.disconnectGoogle(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Disconnect</button>
+              <button onClick={async () => { await api.resetGoogle(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
+            </div>
+          )}
+        </div>
+        {showGoogleSetup && (
+          <div className="mt-1 space-y-1">
+            <input value={gClientId} onChange={e => setGClientId(e.target.value)} placeholder="OAuth Client ID" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <input value={gClientSecret} onChange={e => setGClientSecret(e.target.value)} type="password" placeholder="OAuth Client Secret" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <p className="text-[9px] text-muted">From Google Cloud Console → APIs & Services → Credentials</p>
+            <div className="flex gap-1">
+              <button onClick={async () => {
+                setGSaving(true)
+                try {
+                  await api.saveGoogleCredentials(gClientId, gClientSecret)
+                  setShowGoogleSetup(false)
+                  setGClientId(''); setGClientSecret('')
+                  onRefresh()
+                } catch (e) { alert(e.message) }
+                setGSaving(false)
+              }} disabled={gSaving || !gClientId || !gClientSecret} className="px-2 py-0.5 text-[10px] bg-accent text-white rounded disabled:opacity-50">
+                {gSaving ? 'Saving...' : 'Save'}
+              </button>
+              <button onClick={() => { setShowGoogleSetup(false); setGClientId(''); setGClientSecret('') }} className="px-2 py-0.5 text-[10px] border rounded">Cancel</button>
             </div>
           </div>
         )}

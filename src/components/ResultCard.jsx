@@ -203,6 +203,7 @@ function PostAllBar({ item, available, settings, apiUrl }) {
     if (p.key === 'facebook' && settings?.fb_connected) return true
     if (p.key === 'instagram' && settings?.ig_connected) return true
     if (p.key === 'twitter' && settings?.twitter_connected) return true
+    if (p.key === 'google' && settings?.google_connected) return true
     if (p.key === 'blog' && settings?.wp_site_url) return true
     return false
   })
@@ -246,6 +247,9 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           newResults[p.key] = 'success'
         } else if (p.key === 'twitter') {
           await api.postToTwitter(caption, imageBase64, mediaType)
+          newResults[p.key] = 'success'
+        } else if (p.key === 'google') {
+          await api.postToGoogle(caption, imageBase64, mediaType)
           newResults[p.key] = 'success'
         } else if (p.key === 'blog') {
           const blogCap = item.captions[p.key]
@@ -425,6 +429,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const canPostFb = platform === 'facebook' && settings?.fb_connected
   const canPostIg = platform === 'instagram' && settings?.ig_connected
   const canPostTw = platform === 'twitter' && settings?.twitter_connected
+  const canPostGoogle = platform === 'google' && settings?.google_connected
   const canPostWp = platform === 'blog' && settings?.wp_site_url
   const [wpCategories, setWpCategories] = useState([])
   const [selectedCats, setSelectedCats] = useState([])
@@ -482,6 +487,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         const result = await api.postToTwitter(value, imageBase64, mediaType)
         setPostStatus('Posted to X!')
         if (result.tweet_url) window.open(result.tweet_url, '_blank')
+      } else if (target === 'google') {
+        await api.postToGoogle(value, imageBase64, mediaType)
+        setPostStatus('Posted to Google!')
       } else if (target === 'wordpress') {
         const wpTitle = title || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
         const result = await api.postToWordPress(wpTitle, value, imageBase64, mediaType, selectedCats, wpPublish)
@@ -582,6 +590,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333] disabled:opacity-50"
           >
             {posting ? 'Posting...' : 'Post to X'}
+          </button>
+        )}
+        {canPostGoogle && (
+          <button
+            onClick={() => handlePost('google')}
+            disabled={posting}
+            className="text-[11px] py-1 px-2.5 border border-[#4285F4] rounded-sm bg-[#4285F4] text-white cursor-pointer font-sans hover:bg-[#3574d4] disabled:opacity-50"
+          >
+            {posting ? 'Posting...' : 'Post to Google'}
           </button>
         )}
         {canPostWp && (
