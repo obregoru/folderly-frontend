@@ -299,7 +299,7 @@ export default function App() {
 
       {/* Shell */}
       <div className="flex md:grid md:grid-cols-[260px_1fr] h-[calc(100vh-52px)] overflow-x-hidden">
-        <div className={`fixed md:static inset-y-0 left-0 z-40 w-[280px] md:w-auto transform transition-transform md:transform-none ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+        <div className={`fixed md:static inset-y-0 left-0 z-40 w-[280px] md:w-auto transform transition-transform md:transform-none overflow-y-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <Sidebar
           settings={settings}
           onSave={saveSettingsToServer}
