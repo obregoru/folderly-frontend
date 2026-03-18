@@ -223,8 +223,10 @@ export const postToWordPress = (title, content, imageBase64, mediaType, category
 // Scheduling
 export const schedulePosts = (posts, scheduledAt) =>
   fetch(api('/schedule'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ posts, scheduled_at: scheduledAt }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
-export const getScheduledPosts = () =>
-  fetch(api('/schedule'), { credentials: 'include' }).then(r => r.json())
+export const getScheduledPosts = (params = {}) => {
+  const qs = new URLSearchParams(Object.entries(params).filter(([,v]) => v)).toString()
+  return fetch(api('/schedule' + (qs ? '?' + qs : '')), { credentials: 'include' }).then(r => r.json())
+}
 export const cancelScheduledPost = (uuid) =>
   fetch(api(`/schedule/${uuid}/cancel`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const retryScheduledPost = (uuid, scheduledAt) =>

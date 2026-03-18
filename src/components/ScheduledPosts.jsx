@@ -12,8 +12,9 @@ export default function ScheduledPosts() {
 
   const load = async () => {
     try {
-      const data = await api.getScheduledPosts()
-      if (Array.isArray(data)) setPosts(data)
+      const data = await api.getScheduledPosts({ status: 'pending', limit: 20 })
+      if (data.posts) setPosts(data.posts)
+      else if (Array.isArray(data)) setPosts(data)
     } catch {}
     setLoading(false)
   }
