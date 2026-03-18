@@ -85,6 +85,7 @@ export default function ScheduleModal({ onClose }) {
     pending: posts.filter(p => p.status === 'pending').length,
     posted: posts.filter(p => p.status === 'posted').length,
     failed: posts.filter(p => p.status === 'failed').length,
+    cancelled: posts.filter(p => p.status === 'cancelled').length,
   }
 
   return (
@@ -98,7 +99,7 @@ export default function ScheduleModal({ onClose }) {
 
         {/* Filter tabs */}
         <div className="flex gap-1 px-5 py-2 border-b border-border bg-[#fafafa]">
-          {['all', 'pending', 'posted', 'failed'].map(f => (
+          {['all', 'pending', 'posted', 'failed', 'cancelled'].map(f => (
             <button
               key={f}
               onClick={() => { setFilter(f); setExpandedTime(null) }}
