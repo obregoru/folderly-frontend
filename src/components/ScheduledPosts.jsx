@@ -1,0 +1,125 @@
+import { useState, useEffect } from 'react'
+import * as api from '../api'
+
+const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress' }
+const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B' }
+const STATUS_COLORS = { pending: '#6C5CE7', posted: '#2D9A5E', failed: '#c0392b', cancelled: '#999' }
+
+export default function ScheduledPosts() {
+  const [posts, setPosts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(true)
+
+  const load = async () => {
+    try {
+      const data = await api.getScheduledPosts()
+      if (Array.isArray(data)) setPosts(data)
+    } catch {}
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  const handleCancel = async (uuid) => {
+    try {
+      await api.cancelScheduledPost(uuid)
+      load()
+    } catch (err) {
+      alert('Cancel failed: ' + err.message)
+    }
+  }
+
+  const handleDelete = async (uuid) => {
+    try {
+      await api.deleteScheduledPost(uuid)
+      load()
+    } catch {}
+  }
+
+  if (loading) return null
+
+  const pending = posts.filter(p => p.status === 'pending')
+  const completed = posts.filter(p => p.status !== 'pending')
+
+  if (posts.length === 0) return null
+
+  return (
+    <div className="bg-white border border-border rounded mb-2.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between py-2.5 px-3.5 border-b border-border bg-[#f3f0ff] rounded-t cursor-pointer border-none font-sans"
+      >
+        <span className="text-xs font-medium text-[#6C5CE7]">
+          Scheduled Posts {pending.length > 0 && `(${pending.length} pending)`}
+        </span>
+        <span className="text-[10px] text-muted">{expanded ? 'Hide' : 'Show'}</span>
+      </button>
+
+      {expanded && (
+        <div className="divide-y divide-border">
+          {pending.length > 0 && (
+            <div className="px-3.5 py-2">
+              <div className="text-[10px] text-muted uppercase tracking-wide mb-1.5">Upcoming</div>
+              {pending.map(p => (
+                <div key={p.uuid} className="flex items-center justify-between py-1.5 gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
+                        {PLATFORM_LABELS[p.platform] || p.platform}
+                      </span>
+                      <span className="text-[10px] text-muted">
+                        {new Date(p.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-ink truncate mt-0.5" title={p.caption}>
+                      {p.title ? <><strong>{p.title}</strong> — </> : ''}{p.caption.slice(0, 80)}{p.caption.length > 80 ? '...' : ''}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleCancel(p.uuid)}
+                    className="text-[10px] text-red-500 hover:underline flex-shrink-0"
+                  >Cancel</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {completed.length > 0 && (
+            <div className="px-3.5 py-2">
+              <div className="text-[10px] text-muted uppercase tracking-wide mb-1.5">History</div>
+              {completed.slice(0, 10).map(p => (
+                <div key={p.uuid} className="flex items-center justify-between py-1 gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: STATUS_COLORS[p.status] }} />
+                    <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
+                      {PLATFORM_LABELS[p.platform] || p.platform}
+                    </span>
+                    <span className="text-[10px] text-muted capitalize">{p.status}</span>
+                    {p.error_message && (
+                      <span className="text-[10px] text-[#c0392b] truncate" title={p.error_message}>
+                        {p.error_message.slice(0, 40)}
+                      </span>
+                    )}
+                    {p.posted_at && (
+                      <span className="text-[10px] text-muted">
+                        {new Date(p.posted_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleDelete(p.uuid)}
+                    className="text-[10px] text-muted hover:underline flex-shrink-0"
+                  >Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="px-3.5 py-1.5">
+            <button onClick={load} className="text-[10px] text-muted hover:underline">Refresh</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

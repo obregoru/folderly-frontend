@@ -180,6 +180,10 @@ function PostAllBar({ item, available, settings, apiUrl }) {
   const [posting, setPosting] = useState(false)
   const [results, setResults] = useState({}) // { platform: 'success' | 'Failed: ...' }
   const [wpPublishAll, setWpPublishAll] = useState(false)
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [scheduleDate, setScheduleDate] = useState('')
+  const [scheduling, setScheduling] = useState(false)
+  const [scheduleStatus, setScheduleStatus] = useState('')
 
   // Determine which platforms can actually post
   const postable = available.filter(p => {
@@ -247,6 +251,58 @@ function PostAllBar({ item, available, settings, apiUrl }) {
     setPosting(false)
   }
 
+  const buildPostsPayload = async () => {
+    const posts = []
+    for (const p of postable) {
+      const caption = getText(item.captions[p.key])
+      if (!caption) continue
+
+      let imageBase64 = null, mediaType = null
+      if (item.isImg && item.file) {
+        const cropRatio = PLATFORM_CROPS[p.key]
+        if (cropRatio) {
+          let blob = await smartCrop(item, cropRatio)
+          blob = await applyWatermark(blob, cropRatio.wm, apiUrl)
+          imageBase64 = await new Promise((resolve, reject) => {
+            const r = new FileReader()
+            r.onload = () => resolve(r.result.split(',')[1])
+            r.onerror = reject
+            r.readAsDataURL(blob)
+          })
+          mediaType = 'image/jpeg'
+        }
+      }
+
+      const post = { platform: p.key, caption, image_base64: imageBase64, media_type: mediaType }
+      if (p.key === 'blog') {
+        const blogCap = item.captions[p.key]
+        post.title = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
+        post.wp_publish = wpPublishAll
+      }
+      posts.push(post)
+    }
+    return posts
+  }
+
+  const handleScheduleAll = async () => {
+    if (!scheduleDate) return
+    setScheduling(true)
+    setScheduleStatus('')
+    try {
+      const api = await import('../api')
+      const posts = await buildPostsPayload()
+      const result = await api.schedulePosts(posts, new Date(scheduleDate).toISOString())
+      setScheduleStatus(`Scheduled ${result.scheduled.length} posts`)
+      setShowSchedule(false)
+      setScheduleDate('')
+      setTimeout(() => setScheduleStatus(''), 4000)
+    } catch (err) {
+      setScheduleStatus('Failed: ' + err.message)
+      setTimeout(() => setScheduleStatus(''), 5000)
+    }
+    setScheduling(false)
+  }
+
   const hasResults = Object.keys(results).length > 0
 
   return (
@@ -254,16 +310,26 @@ function PostAllBar({ item, available, settings, apiUrl }) {
       <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={handlePostAll}
-          disabled={posting}
+          disabled={posting || scheduling}
           className="text-[11px] py-1.5 px-3 rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#248a50] disabled:opacity-50 border-none"
         >
           {posting ? 'Posting...' : `Post All (${postable.length})`}
+        </button>
+        <button
+          onClick={() => setShowSchedule(!showSchedule)}
+          disabled={posting || scheduling}
+          className="text-[11px] py-1.5 px-3 rounded-sm bg-[#6C5CE7] text-white cursor-pointer font-sans font-medium hover:bg-[#5a4bd6] disabled:opacity-50 border-none"
+        >
+          Schedule
         </button>
         {postable.some(p => p.key === 'blog') && (
           <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
             <input type="checkbox" checked={wpPublishAll} onChange={e => setWpPublishAll(e.target.checked)} className="accent-[#21759B]" />
             WP: {wpPublishAll ? 'Publish' : 'Draft'}
           </label>
+        )}
+        {scheduleStatus && (
+          <span className={`text-[10px] ${scheduleStatus.startsWith('Failed') ? 'text-[#c0392b]' : 'text-[#6C5CE7]'}`}>{scheduleStatus}</span>
         )}
         {hasResults && postable.map(p => {
           const r = results[p.key]
@@ -277,6 +343,28 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           )
         })}
       </div>
+      {showSchedule && (
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <input
+            type="datetime-local"
+            value={scheduleDate}
+            onChange={e => setScheduleDate(e.target.value)}
+            min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+            className="text-xs border border-border rounded px-2 py-1 bg-white"
+          />
+          <button
+            onClick={handleScheduleAll}
+            disabled={scheduling || !scheduleDate}
+            className="text-[11px] py-1 px-2.5 rounded-sm bg-[#6C5CE7] text-white cursor-pointer font-sans hover:bg-[#5a4bd6] disabled:opacity-50 border-none"
+          >
+            {scheduling ? 'Scheduling...' : `Schedule All (${postable.length})`}
+          </button>
+          <button
+            onClick={() => { setShowSchedule(false); setScheduleDate('') }}
+            className="text-[10px] text-muted hover:underline"
+          >Cancel</button>
+        </div>
+      )}
     </div>
   )
 }

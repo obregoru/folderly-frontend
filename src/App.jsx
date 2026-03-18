@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar'
 import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
 import ResultCard from './components/ResultCard'
+import ScheduledPosts from './components/ScheduledPosts'
 import HistoryModal from './components/HistoryModal'
 import RefineModal from './components/RefineModal'
 import AdminPanel from './components/AdminPanel'
@@ -384,6 +385,7 @@ export default function App() {
               </div>
             </div>
           )}
+          <ScheduledPosts />
           {files.filter(f => f.status).map(item => {
             return (
               <ErrorBoundary key={item.id} name={item.file?.name}>

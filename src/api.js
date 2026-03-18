@@ -193,3 +193,13 @@ export const disconnectWp = () =>
   fetch(api('/connect/wordpress/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const postToWordPress = (title, content, imageBase64, mediaType, categoryIds, publish = false) =>
   fetch(api('/post/wordpress'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ title, content, image_base64: imageBase64, media_type: mediaType, category_ids: categoryIds, publish }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
+// Scheduling
+export const schedulePosts = (posts, scheduledAt) =>
+  fetch(api('/schedule'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ posts, scheduled_at: scheduledAt }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const getScheduledPosts = () =>
+  fetch(api('/schedule'), { credentials: 'include' }).then(r => r.json())
+export const cancelScheduledPost = (uuid) =>
+  fetch(api(`/schedule/${uuid}/cancel`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const deleteScheduledPost = (uuid) =>
+  fetch(api(`/schedule/${uuid}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
