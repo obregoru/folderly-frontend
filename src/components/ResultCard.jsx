@@ -177,7 +177,7 @@ function PostAllBar({ item, available, settings, apiUrl }) {
     return false
   })
 
-  if (postable.length < 2) return null // No point if only 1 or 0 platforms
+  if (postable.length === 0) return null
 
   const handlePostAll = async () => {
     setPosting(true)
