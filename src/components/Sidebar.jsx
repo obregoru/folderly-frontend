@@ -373,7 +373,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
             <span>{s.twitter_connected ? `@${s.twitter_username}` : 'X / Twitter'}</span>
           </div>
           {!s.twitter_connected && !s.twitter_app_configured && !showTwitterSetup && (
-            <button onClick={() => setShowTwitterSetup(true)} className="text-[10px] text-accent hover:underline">Set up</button>
+            <button onClick={() => setShowTwitterSetup(true)} className="text-[10px] text-[#2D9A5E] hover:underline">Set up</button>
           )}
           {!s.twitter_connected && s.twitter_app_configured && (
             <div className="flex gap-1">
@@ -384,7 +384,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                   const handler = (e) => { if (e.data?.type === 'twitter-connected') { window.removeEventListener('message', handler); onRefresh() } }
                   window.addEventListener('message', handler)
                 }
-              }} className="text-[10px] text-accent hover:underline">Connect</button>
+              }} className="text-[10px] text-[#2D9A5E] hover:underline">Connect</button>
               <button onClick={async () => { await api.resetTwitter(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
             </div>
           )}
@@ -410,7 +410,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                   onRefresh()
                 } catch (e) { alert(e.message) }
                 setTwSaving(false)
-              }} disabled={twSaving || !twClientId || !twClientSecret} className="px-2 py-0.5 text-[10px] bg-accent text-white rounded disabled:opacity-50">
+              }} disabled={twSaving || !twClientId || !twClientSecret} className="px-2 py-0.5 text-[10px] bg-[#2D9A5E] text-white rounded disabled:opacity-50">
                 {twSaving ? 'Saving...' : 'Save'}
               </button>
               <button onClick={() => { setShowTwitterSetup(false); setTwClientId(''); setTwClientSecret('') }} className="px-2 py-0.5 text-[10px] border rounded">Cancel</button>
@@ -427,7 +427,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
             <span>{s.google_connected ? `Google (${s.google_location_name})` : 'Google Business'}</span>
           </div>
           {!s.google_connected && !s.google_app_configured && !showGoogleSetup && (
-            <button onClick={() => setShowGoogleSetup(true)} className="text-[10px] text-accent hover:underline">Set up</button>
+            <button onClick={() => setShowGoogleSetup(true)} className="text-[10px] text-[#2D9A5E] hover:underline">Set up</button>
           )}
           {!s.google_connected && s.google_app_configured && (
             <div className="flex gap-1">
@@ -438,7 +438,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                   const handler = (e) => { if (e.data?.type === 'google-connected') { window.removeEventListener('message', handler); onRefresh() } }
                   window.addEventListener('message', handler)
                 }
-              }} className="text-[10px] text-accent hover:underline">Connect</button>
+              }} className="text-[10px] text-[#2D9A5E] hover:underline">Connect</button>
               <button onClick={async () => { await api.resetGoogle(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
             </div>
           )}
@@ -464,7 +464,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                   onRefresh()
                 } catch (e) { alert(e.message) }
                 setGSaving(false)
-              }} disabled={gSaving || !gClientId || !gClientSecret} className="px-2 py-0.5 text-[10px] bg-accent text-white rounded disabled:opacity-50">
+              }} disabled={gSaving || !gClientId || !gClientSecret} className="px-2 py-0.5 text-[10px] bg-[#2D9A5E] text-white rounded disabled:opacity-50">
                 {gSaving ? 'Saving...' : 'Save'}
               </button>
               <button onClick={() => { setShowGoogleSetup(false); setGClientId(''); setGClientSecret('') }} className="px-2 py-0.5 text-[10px] border rounded">Cancel</button>
@@ -481,7 +481,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
             <span>{s.wp_site_url ? `WordPress (${s.wp_username})` : 'WordPress'}</span>
           </div>
           {!s.wp_site_url && !showWpSetup && (
-            <button onClick={() => setShowWpSetup(true)} className="text-[10px] text-accent hover:underline">Set up</button>
+            <button onClick={() => setShowWpSetup(true)} className="text-[10px] text-[#2D9A5E] hover:underline">Set up</button>
           )}
           {s.wp_site_url && (
             <div className="flex gap-1">
@@ -506,7 +506,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                   onRefresh()
                 } catch (e) { alert(e.message) }
                 setWpSaving(false)
-              }} disabled={wpSaving || !wpUrl || !wpUser || !wpPass} className="px-2 py-0.5 text-[10px] bg-accent text-white rounded disabled:opacity-50">
+              }} disabled={wpSaving || !wpUrl || !wpUser || !wpPass} className="px-2 py-0.5 text-[10px] bg-[#2D9A5E] text-white rounded disabled:opacity-50">
                 {wpSaving ? 'Testing...' : 'Save & test'}
               </button>
               <button onClick={() => setShowWpSetup(false)} className="px-2 py-0.5 text-[10px] text-muted hover:underline">Cancel</button>
