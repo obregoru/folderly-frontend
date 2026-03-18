@@ -27,6 +27,11 @@ function getText(cap) {
   return typeof cap === 'object' ? (cap.text || '') : cap
 }
 
+function getTitle(cap) {
+  if (!cap || typeof cap !== 'object') return ''
+  return cap.title || ''
+}
+
 function getId(cap) {
   if (!cap) return null
   return typeof cap === 'object' ? cap.id : null
@@ -140,6 +145,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
               <div key={p.key} className="py-3 px-3.5">
                 <CaptionEditor
                   text={getText(cap)}
+                  blogTitle={getTitle(cap)}
                   captionId={getId(cap)}
                   score={getScore(cap)}
                   platform={p.key}
@@ -218,8 +224,9 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           await api.postToTwitter(caption, imageBase64, mediaType)
           newResults[p.key] = 'success'
         } else if (p.key === 'blog') {
-          const title = item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
-          await api.postToWordPress(title, caption, imageBase64, mediaType, [], wpPublishAll)
+          const blogCap = item.captions[p.key]
+          const wpTitle = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
+          await api.postToWordPress(wpTitle, caption, imageBase64, mediaType, [], wpPublishAll)
           newResults[p.key] = wpPublishAll ? 'success' : 'draft'
         }
       } catch (err) {
@@ -267,14 +274,16 @@ function PostAllBar({ item, available, settings, apiUrl }) {
   )
 }
 
-function CaptionEditor({ text, captionId, score, platform, item, settings, onSave, onRegen, onRefine }) {
+function CaptionEditor({ text, blogTitle, captionId, score, platform, item, settings, onSave, onRegen, onRefine }) {
   const [value, setValue] = useState(text)
+  const [title, setTitle] = useState(blogTitle || '')
   const [saved, setSaved] = useState(false)
   const [posting, setPosting] = useState(false)
   const [postStatus, setPostStatus] = useState('')
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
+  useEffect(() => { setTitle(blogTitle || '') }, [blogTitle])
 
   const handleBlur = () => {
     if (value !== text) {
@@ -345,8 +354,8 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
         setPostStatus('Posted to X!')
         if (result.tweet_url) window.open(result.tweet_url, '_blank')
       } else if (target === 'wordpress') {
-        const title = item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
-        const result = await api.postToWordPress(title, value, imageBase64, mediaType, selectedCats, wpPublish)
+        const wpTitle = title || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
+        const result = await api.postToWordPress(wpTitle, value, imageBase64, mediaType, selectedCats, wpPublish)
         if (wpPublish) {
           setPostStatus('Published to WordPress!')
         } else {
@@ -370,6 +379,14 @@ function CaptionEditor({ text, captionId, score, platform, item, settings, onSav
 
   return (
     <>
+      {platform === 'blog' && (
+        <input
+          className="w-full text-xs font-medium text-ink border border-transparent rounded-sm py-1.5 px-2 font-sans bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white mb-1"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="Blog post title..."
+        />
+      )}
       <textarea
         className="w-full text-xs leading-relaxed whitespace-pre-wrap text-ink border border-transparent rounded-sm py-1.5 px-2 font-sans resize-y min-h-[60px] bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white"
         value={value}
