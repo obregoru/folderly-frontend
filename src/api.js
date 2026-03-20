@@ -205,7 +205,10 @@ export const resetTwitter = () =>
 export const postToTwitter = (caption, imageBase64, mediaType) =>
   postWithDupCheck('/post/twitter', { caption, image_base64: imageBase64, media_type: mediaType })
 
-// TikTok
+export const postToTiktok = (caption, imageBase64, mediaType) =>
+  postWithDupCheck('/post/tiktok', { caption, image_base64: imageBase64, media_type: mediaType })
+
+// TikTok connection
 export const saveTiktokCredentials = (clientKey, clientSecret) =>
   fetch(api('/connect/tiktok/credentials'), { method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include', body: JSON.stringify({ client_key: clientKey, client_secret: clientSecret }) }).then(r => r.json())
 export const startTiktokConnect = () =>

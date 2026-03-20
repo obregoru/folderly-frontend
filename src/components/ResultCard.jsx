@@ -617,6 +617,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           setPostStatus('Posted to X!')
         }
         if (result.tweet_url) window.open(result.tweet_url, '_blank')
+      } else if (target === 'tiktok') {
+        const result = await api.postToTiktok(value, imageBase64, mediaType)
+        if (result.fallback) {
+          // API not enabled or not approved -- copy to clipboard as fallback
+          navigator.clipboard.writeText(value)
+          setPostStatus(result.message || 'Caption copied — post manually on TikTok')
+        } else {
+          setPostStatus('Posted to TikTok!')
+        }
       } else if (target === 'google') {
         await api.postToGoogle(value, imageBase64, mediaType)
         setPostStatus('Posted to Google!')
