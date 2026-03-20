@@ -4,10 +4,14 @@ export const CROP_RATIOS = [
   { label: 'TikTok 9:16', w: 1080, h: 1920, wm: 'top-left' },
   { label: 'IG Square 1:1', w: 1080, h: 1080, wm: 'top-right' },
   { label: 'IG Portrait 4:5', w: 1080, h: 1350, wm: 'top-right' },
+  { label: 'IG Story 9:16', w: 1080, h: 1920, wm: 'top-right', key: 'story' },
   { label: 'FB 16:9', w: 1200, h: 630, wm: 'bottom-right' },
   { label: 'X 16:9', w: 1200, h: 675, wm: 'bottom-right' },
   { label: 'Google 4:3', w: 1200, h: 900, wm: 'bottom-right' },
 ]
+
+// Story-specific ratio for programmatic use (same dimensions, different context)
+export const STORY_RATIO = { label: 'IG Story 9:16', w: 1080, h: 1920, wm: 'top-right', key: 'story' }
 
 let faceModelLoaded = false
 
