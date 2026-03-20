@@ -293,6 +293,10 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
   const [gClientId, setGClientId] = useState('')
   const [gClientSecret, setGClientSecret] = useState('')
   const [gSaving, setGSaving] = useState(false)
+  const [showTiktokSetup, setShowTiktokSetup] = useState(false)
+  const [tkClientKey, setTkClientKey] = useState('')
+  const [tkClientSecret, setTkClientSecret] = useState('')
+  const [tkSaving, setTkSaving] = useState(false)
   const [showWpSetup, setShowWpSetup] = useState(false)
   const [wpUrl, setWpUrl] = useState('')
   const [wpUser, setWpUser] = useState('')
@@ -504,6 +508,60 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                 {gSaving ? 'Saving...' : 'Save'}
               </button>
               <button onClick={() => { setShowGoogleSetup(false); setGClientId(''); setGClientSecret('') }} className="px-2 py-0.5 text-[10px] border rounded">Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* TikTok */}
+      <div className="text-xs py-0.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.tiktok_connected ? '#2D9A5E' : '#ccc' }} />
+            <span>{s.tiktok_connected ? `TikTok @${s.tiktok_username}` : 'TikTok'}</span>
+          </div>
+          {!s.tiktok_connected && !s.tiktok_app_configured && !showTiktokSetup && (
+            <button onClick={() => setShowTiktokSetup(true)} className="text-[10px] text-[#2D9A5E] hover:underline">Set up</button>
+          )}
+          {!s.tiktok_connected && s.tiktok_app_configured && (
+            <div className="flex gap-1">
+              <button onClick={async () => {
+                const data = await api.startTiktokConnect()
+                if (data.url) {
+                  const popup = window.open(data.url, 'tiktok-connect', 'width=600,height=700')
+                  const handler = (e) => { if (e.data?.type === 'tiktok-connected') { window.removeEventListener('message', handler); onRefresh() } }
+                  window.addEventListener('message', handler)
+                }
+              }} className="text-[10px] text-[#2D9A5E] hover:underline">Connect</button>
+              <button onClick={async () => { await api.resetTiktok(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
+            </div>
+          )}
+          {s.tiktok_connected && (
+            <div className="flex gap-1">
+              <button onClick={async () => { await api.disconnectTiktok(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Disconnect</button>
+              <button onClick={async () => { await api.resetTiktok(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
+            </div>
+          )}
+        </div>
+        {showTiktokSetup && (
+          <div className="mt-1 space-y-1">
+            <input value={tkClientKey} onChange={e => setTkClientKey(e.target.value)} placeholder="Client Key" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <input value={tkClientSecret} onChange={e => setTkClientSecret(e.target.value)} type="password" placeholder="Client Secret" className="w-full px-2 py-1 text-xs border rounded bg-white" />
+            <p className="text-[9px] text-muted">From developers.tiktok.com → your app → App credentials</p>
+            <div className="flex gap-1">
+              <button onClick={async () => {
+                setTkSaving(true)
+                try {
+                  await api.saveTiktokCredentials(tkClientKey, tkClientSecret)
+                  setShowTiktokSetup(false)
+                  setTkClientKey(''); setTkClientSecret('')
+                  onRefresh()
+                } catch (e) { alert(e.message) }
+                setTkSaving(false)
+              }} disabled={tkSaving || !tkClientKey || !tkClientSecret} className="px-2 py-0.5 text-[10px] bg-[#2D9A5E] text-white rounded disabled:opacity-50">
+                {tkSaving ? 'Saving...' : 'Save'}
+              </button>
+              <button onClick={() => { setShowTiktokSetup(false); setTkClientKey(''); setTkClientSecret('') }} className="px-2 py-0.5 text-[10px] border rounded">Cancel</button>
             </div>
           </div>
         )}
