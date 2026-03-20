@@ -55,6 +55,8 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
     : []
 
   const [tab, setTab] = useState('')
+  const [storyEnabled, setStoryEnabled] = useState(false)
+  const [storyCaptionStyle, setStoryCaptionStyle] = useState('none') // 'none' or 'overlay'
 
   // Set tab when captions arrive or change
   useEffect(() => {
@@ -479,6 +481,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       if (target === 'facebook') {
         await api.postToFacebook(value, imageBase64, mediaType)
         setPostStatus('Posted!')
+      } else if (target === 'instagram_story') {
+        if (!imageBase64) throw new Error('Instagram Stories requires a photo')
+        await api.postToInstagramStory(value, imageBase64, mediaType, storyCaptionStyle)
+        setPostStatus('Story posted!')
       } else if (target === 'instagram') {
         if (!imageBase64) throw new Error('Instagram requires a photo')
         await api.postToInstagram(value, imageBase64, mediaType)
@@ -579,13 +585,42 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           </button>
         )}
         {canPostIg && (
-          <button
-            onClick={() => handlePost('instagram')}
-            disabled={posting}
-            className="text-[11px] py-1 px-2.5 border border-[#E1306C] rounded-sm bg-[#E1306C] text-white cursor-pointer font-sans hover:bg-[#c1255b] disabled:opacity-50"
-          >
-            {posting ? 'Posting...' : 'Post to Instagram'}
-          </button>
+          <>
+            <button
+              onClick={() => handlePost('instagram')}
+              disabled={posting}
+              className="text-[11px] py-1 px-2.5 border border-[#E1306C] rounded-sm bg-[#E1306C] text-white cursor-pointer font-sans hover:bg-[#c1255b] disabled:opacity-50"
+            >
+              {posting ? 'Posting...' : 'Post to Instagram'}
+            </button>
+            <button
+              onClick={() => handlePost('instagram_story')}
+              disabled={posting || !storyEnabled}
+              className={`text-[11px] py-1 px-2.5 border rounded-sm cursor-pointer font-sans disabled:opacity-50 ${storyEnabled ? 'border-[#833AB4] bg-[#833AB4] text-white hover:bg-[#6d2e96]' : 'border-[#ddd] bg-white text-muted'}`}
+            >
+              {posting ? 'Posting...' : 'Post Story'}
+            </button>
+          </>
+        )}
+        {canPostIg && (
+          <div className="w-full flex flex-col gap-1 mt-1 border-t border-border pt-1.5">
+            <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+              <input type="checkbox" checked={storyEnabled} onChange={e => setStoryEnabled(e.target.checked)} />
+              <span>Instagram Stories</span>
+            </label>
+            {storyEnabled && (
+              <div className="flex gap-3 ml-5 text-[10px]">
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="radio" name={`story-style-${item.id}`} value="none" checked={storyCaptionStyle === 'none'} onChange={() => setStoryCaptionStyle('none')} />
+                  No caption (visual only)
+                </label>
+                <label className="flex items-center gap-1 cursor-pointer">
+                  <input type="radio" name={`story-style-${item.id}`} value="overlay" checked={storyCaptionStyle === 'overlay'} onChange={() => setStoryCaptionStyle('overlay')} />
+                  Text overlay on image
+                </label>
+              </div>
+            )}
+          </div>
         )}
         {canPostTw && (
           <button
