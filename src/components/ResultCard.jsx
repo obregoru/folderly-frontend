@@ -412,12 +412,24 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [storyEnabled, setStoryEnabled] = useState(false)
   const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
   const [storyPreview, setStoryPreview] = useState(null)
-  const [overlayYPct, setOverlayYPct] = useState(70) // 0-100, percentage within safe zone (15%-85%)
+  const [overlayYPct, setOverlayYPct] = useState(70)
+  const [storyText, setStoryText] = useState('')
+  const [storyFontSize, setStoryFontSize] = useState(48)
+  const [storyFontFamily, setStoryFontFamily] = useState('sans-serif')
+  const [storyFontColor, setStoryFontColor] = useState('#ffffff')
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
   useEffect(() => { setTitle(blogTitle || '') }, [blogTitle])
   useEffect(() => { setTags(ytTags || []) }, [ytTags])
+
+  // Init story text from first sentence of caption
+  useEffect(() => {
+    if (storyCaptionStyle === 'overlay' && !storyText && value) {
+      const first = value.split(/[.!?]\s/)[0].replace(/[.!?]$/, '').trim()
+      if (first) setStoryText(first)
+    }
+  }, [storyCaptionStyle, value])
 
   // Generate story preview when enabled
   useEffect(() => {
@@ -433,61 +445,56 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         const ctx = canvas.getContext('2d')
         ctx.drawImage(img, 0, 0, 1080, 1920)
 
-        if (storyCaptionStyle === 'overlay' && value) {
-          // Safe zone: top 15% and bottom 15% are covered by IG/FB UI
-          const SAFE_TOP = Math.round(1920 * 0.15) // 288
-          const SAFE_BOTTOM = Math.round(1920 * 0.85) // 1632
-          const SAFE_HEIGHT = SAFE_BOTTOM - SAFE_TOP // 1344
+        if (storyCaptionStyle === 'overlay' && storyText) {
+          const SAFE_TOP = Math.round(1920 * 0.15)
+          const SAFE_BOTTOM = Math.round(1920 * 0.85)
 
-          const firstSentence = value.split(/[.!?]\s/)[0].replace(/[.!?]$/, '').trim()
-          if (firstSentence) {
-            const words = firstSentence.split(' ')
-            const lines = []
-            let line = ''
-            for (const w of words) {
-              if ((line + ' ' + w).trim().length > 30 && line) { lines.push(line.trim()); line = w }
-              else line = (line + ' ' + w).trim()
-            }
-            if (line) lines.push(line.trim())
-
-            const fontSize = 48
-            const lineH = fontSize * 1.4
-            const blockH = lines.length * lineH + 40
-
-            // Position overlay within safe zone based on overlayYPct
-            const maxTop = SAFE_BOTTOM - blockH - 20
-            const minTop = SAFE_TOP + 20
-            const gradTop = Math.round(minTop + ((maxTop - minTop) * overlayYPct / 100))
-            const gradH = blockH + 40
-
-            // Gradient bar
-            const grad = ctx.createLinearGradient(0, gradTop - 20, 0, gradTop + gradH + 20)
-            grad.addColorStop(0, 'rgba(0,0,0,0)')
-            grad.addColorStop(0.15, 'rgba(0,0,0,0.55)')
-            grad.addColorStop(0.85, 'rgba(0,0,0,0.55)')
-            grad.addColorStop(1, 'rgba(0,0,0,0)')
-            ctx.fillStyle = grad
-            ctx.fillRect(0, gradTop - 20, 1080, gradH + 40)
-
-            // Text
-            ctx.font = `600 ${fontSize}px sans-serif`
-            ctx.fillStyle = 'white'
-            ctx.textAlign = 'center'
-            ctx.shadowColor = 'rgba(0,0,0,0.7)'
-            ctx.shadowBlur = 6
-            ctx.shadowOffsetY = 2
-            lines.forEach((l, i) => {
-              ctx.fillText(l, 540, gradTop + 20 + (i * lineH) + fontSize)
-            })
-
-            // Draw safe zone guides (subtle dashed lines)
-            ctx.setLineDash([8, 8])
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-            ctx.lineWidth = 1
-            ctx.beginPath(); ctx.moveTo(0, SAFE_TOP); ctx.lineTo(1080, SAFE_TOP); ctx.stroke()
-            ctx.beginPath(); ctx.moveTo(0, SAFE_BOTTOM); ctx.lineTo(1080, SAFE_BOTTOM); ctx.stroke()
-            ctx.setLineDash([])
+          const charsPerLine = Math.max(15, Math.round(40 * (48 / storyFontSize)))
+          const words = storyText.split(' ')
+          const lines = []
+          let line = ''
+          for (const w of words) {
+            if ((line + ' ' + w).trim().length > charsPerLine && line) { lines.push(line.trim()); line = w }
+            else line = (line + ' ' + w).trim()
           }
+          if (line) lines.push(line.trim())
+
+          const lineH = storyFontSize * 1.4
+          const blockH = lines.length * lineH + 40
+
+          const maxTop = SAFE_BOTTOM - blockH - 20
+          const minTop = SAFE_TOP + 20
+          const gradTop = Math.round(minTop + ((maxTop - minTop) * overlayYPct / 100))
+          const gradH = blockH + 40
+
+          // Gradient bar
+          const grad = ctx.createLinearGradient(0, gradTop - 20, 0, gradTop + gradH + 20)
+          grad.addColorStop(0, 'rgba(0,0,0,0)')
+          grad.addColorStop(0.15, 'rgba(0,0,0,0.55)')
+          grad.addColorStop(0.85, 'rgba(0,0,0,0.55)')
+          grad.addColorStop(1, 'rgba(0,0,0,0)')
+          ctx.fillStyle = grad
+          ctx.fillRect(0, gradTop - 20, 1080, gradH + 40)
+
+          // Text with custom font
+          ctx.font = `600 ${storyFontSize}px ${storyFontFamily}`
+          ctx.fillStyle = storyFontColor
+          ctx.textAlign = 'center'
+          ctx.shadowColor = 'rgba(0,0,0,0.7)'
+          ctx.shadowBlur = 6
+          ctx.shadowOffsetY = 2
+          lines.forEach((l, i) => {
+            ctx.fillText(l, 540, gradTop + 20 + (i * lineH) + storyFontSize)
+          })
+
+          // Safe zone guides
+          ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
+          ctx.setLineDash([8, 8])
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+          ctx.lineWidth = 1
+          ctx.beginPath(); ctx.moveTo(0, SAFE_TOP); ctx.lineTo(1080, SAFE_TOP); ctx.stroke()
+          ctx.beginPath(); ctx.moveTo(0, SAFE_BOTTOM); ctx.lineTo(1080, SAFE_BOTTOM); ctx.stroke()
+          ctx.setLineDash([])
         }
 
         canvas.toBlob(b => {
@@ -497,7 +504,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       img.src = URL.createObjectURL(blob)
     })}).catch(() => {})
     return () => { cancelled = true }
-  }, [storyEnabled, storyCaptionStyle, value, item, overlayYPct])
+  }, [storyEnabled, storyCaptionStyle, storyText, item, overlayYPct, storyFontSize, storyFontFamily, storyFontColor])
 
   const CHAR_LIMITS = { twitter: 280, instagram: 2200, tiktok: 4000, google: 750 }
   const charLimit = CHAR_LIMITS[platform] || null
@@ -565,7 +572,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         setPostStatus('Posted!')
       } else if (target === 'instagram_story') {
         if (!imageBase64) throw new Error('Instagram Stories requires a photo')
-        await api.postToInstagramStory(value, imageBase64, mediaType, storyCaptionStyle, overlayYPct)
+        await api.postToInstagramStory(
+          storyCaptionStyle === 'overlay' ? storyText : value,
+          imageBase64, mediaType, storyCaptionStyle, overlayYPct,
+          { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor }
+        )
         setPostStatus('Story posted!')
       } else if (target === 'instagram') {
         if (!imageBase64) throw new Error('Instagram requires a photo')
@@ -726,10 +737,37 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       }}
                     />
                     {storyCaptionStyle === 'overlay' && (
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className="text-[9px] text-muted">Top</span>
-                        <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
-                        <span className="text-[9px] text-muted">Bottom</span>
+                      <div className="mt-1.5 space-y-1">
+                        <textarea
+                          className="w-full text-[11px] border border-border rounded p-1.5 font-sans resize-none bg-white"
+                          rows={2}
+                          value={storyText}
+                          onChange={e => setStoryText(e.target.value)}
+                          placeholder="Story overlay text..."
+                        />
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)}>
+                            <option value="sans-serif">Sans Serif</option>
+                            <option value="serif">Serif</option>
+                            <option value="Georgia, serif">Georgia</option>
+                            <option value="'Courier New', monospace">Mono</option>
+                            <option value="'Comic Sans MS', cursive">Casual</option>
+                            <option value="Impact, sans-serif">Impact</option>
+                          </select>
+                          <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontSize} onChange={e => setStoryFontSize(Number(e.target.value))}>
+                            <option value={32}>Small</option>
+                            <option value={40}>Medium</option>
+                            <option value={48}>Large</option>
+                            <option value={56}>XL</option>
+                            <option value={64}>XXL</option>
+                          </select>
+                          <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] text-muted">Top</span>
+                          <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
+                          <span className="text-[9px] text-muted">Bottom</span>
+                        </div>
                       </div>
                     )}
                   </div>
