@@ -188,8 +188,8 @@ export const postToFacebook = (caption, imageBase64, mediaType) =>
   postWithDupCheck('/post/facebook', { caption, image_base64: imageBase64, media_type: mediaType })
 export const postToInstagram = (caption, imageBase64, mediaType) =>
   postWithDupCheck('/post/instagram', { caption, image_base64: imageBase64, media_type: mediaType })
-export const postToInstagramStory = (caption, imageBase64, mediaType, captionStyle) =>
-  postWithDupCheck('/post/instagram/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle })
+export const postToInstagramStory = (caption, imageBase64, mediaType, captionStyle, overlayYPct) =>
+  postWithDupCheck('/post/instagram/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct })
 
 // X / Twitter
 export const saveTwitterCredentials = (apiKey, apiSecret) =>

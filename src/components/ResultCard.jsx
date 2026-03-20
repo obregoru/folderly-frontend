@@ -412,6 +412,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [storyEnabled, setStoryEnabled] = useState(false)
   const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
   const [storyPreview, setStoryPreview] = useState(null)
+  const [overlayYPct, setOverlayYPct] = useState(70) // 0-100, percentage within safe zone (15%-85%)
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
@@ -433,7 +434,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         ctx.drawImage(img, 0, 0, 1080, 1920)
 
         if (storyCaptionStyle === 'overlay' && value) {
-          // Draw gradient bar + text
+          // Safe zone: top 15% and bottom 15% are covered by IG/FB UI
+          const SAFE_TOP = Math.round(1920 * 0.15) // 288
+          const SAFE_BOTTOM = Math.round(1920 * 0.85) // 1632
+          const SAFE_HEIGHT = SAFE_BOTTOM - SAFE_TOP // 1344
+
           const firstSentence = value.split(/[.!?]\s/)[0].replace(/[.!?]$/, '').trim()
           if (firstSentence) {
             const words = firstSentence.split(' ')
@@ -447,16 +452,22 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
 
             const fontSize = 48
             const lineH = fontSize * 1.4
-            const blockH = lines.length * lineH + 60
-            const gradTop = 1920 - blockH - 80
+            const blockH = lines.length * lineH + 40
 
-            // Gradient
-            const grad = ctx.createLinearGradient(0, gradTop, 0, 1920)
+            // Position overlay within safe zone based on overlayYPct
+            const maxTop = SAFE_BOTTOM - blockH - 20
+            const minTop = SAFE_TOP + 20
+            const gradTop = Math.round(minTop + ((maxTop - minTop) * overlayYPct / 100))
+            const gradH = blockH + 40
+
+            // Gradient bar
+            const grad = ctx.createLinearGradient(0, gradTop - 20, 0, gradTop + gradH + 20)
             grad.addColorStop(0, 'rgba(0,0,0,0)')
-            grad.addColorStop(0.3, 'rgba(0,0,0,0.6)')
-            grad.addColorStop(1, 'rgba(0,0,0,0.8)')
+            grad.addColorStop(0.15, 'rgba(0,0,0,0.55)')
+            grad.addColorStop(0.85, 'rgba(0,0,0,0.55)')
+            grad.addColorStop(1, 'rgba(0,0,0,0)')
             ctx.fillStyle = grad
-            ctx.fillRect(0, gradTop, 1080, 1920 - gradTop)
+            ctx.fillRect(0, gradTop - 20, 1080, gradH + 40)
 
             // Text
             ctx.font = `600 ${fontSize}px sans-serif`
@@ -466,8 +477,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             ctx.shadowBlur = 6
             ctx.shadowOffsetY = 2
             lines.forEach((l, i) => {
-              ctx.fillText(l, 540, gradTop + 50 + (i * lineH) + fontSize)
+              ctx.fillText(l, 540, gradTop + 20 + (i * lineH) + fontSize)
             })
+
+            // Draw safe zone guides (subtle dashed lines)
+            ctx.setLineDash([8, 8])
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)'
+            ctx.lineWidth = 1
+            ctx.beginPath(); ctx.moveTo(0, SAFE_TOP); ctx.lineTo(1080, SAFE_TOP); ctx.stroke()
+            ctx.beginPath(); ctx.moveTo(0, SAFE_BOTTOM); ctx.lineTo(1080, SAFE_BOTTOM); ctx.stroke()
+            ctx.setLineDash([])
           }
         }
 
@@ -478,7 +497,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       img.src = URL.createObjectURL(blob)
     })}).catch(() => {})
     return () => { cancelled = true }
-  }, [storyEnabled, storyCaptionStyle, value, item])
+  }, [storyEnabled, storyCaptionStyle, value, item, overlayYPct])
 
   const CHAR_LIMITS = { twitter: 280, instagram: 2200, tiktok: 4000, google: 750 }
   const charLimit = CHAR_LIMITS[platform] || null
@@ -546,7 +565,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         setPostStatus('Posted!')
       } else if (target === 'instagram_story') {
         if (!imageBase64) throw new Error('Instagram Stories requires a photo')
-        await api.postToInstagramStory(value, imageBase64, mediaType, storyCaptionStyle)
+        await api.postToInstagramStory(value, imageBase64, mediaType, storyCaptionStyle, overlayYPct)
         setPostStatus('Story posted!')
       } else if (target === 'instagram') {
         if (!imageBase64) throw new Error('Instagram requires a photo')
@@ -685,8 +704,34 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 </div>
                 {storyPreview && (
                   <div className="ml-5 mt-1.5">
-                    <p className="text-[10px] text-muted mb-1">Story preview</p>
-                    <img src={storyPreview} className="w-[120px] h-[213px] object-cover rounded border border-border" alt="Story preview" />
+                    <p className="text-[10px] text-muted mb-1">Story preview <span className="text-[9px]">(dashed lines = safe zone)</span></p>
+                    <img
+                      src={storyPreview}
+                      className="w-[120px] h-[213px] object-cover rounded border border-border cursor-ns-resize"
+                      alt="Story preview"
+                      draggable={false}
+                      onMouseDown={e => {
+                        if (storyCaptionStyle !== 'overlay') return
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const startY = e.clientY
+                        const startPct = overlayYPct
+                        const onMove = (ev) => {
+                          const dy = ev.clientY - startY
+                          const pctDelta = (dy / rect.height) * 100
+                          setOverlayYPct(Math.max(0, Math.min(100, startPct + pctDelta)))
+                        }
+                        const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+                        document.addEventListener('mousemove', onMove)
+                        document.addEventListener('mouseup', onUp)
+                      }}
+                    />
+                    {storyCaptionStyle === 'overlay' && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-[9px] text-muted">Top</span>
+                        <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
+                        <span className="text-[9px] text-muted">Bottom</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </>
