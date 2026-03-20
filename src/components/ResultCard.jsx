@@ -522,6 +522,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const canPostTw = platform === 'twitter' && settings?.twitter_connected
   const canPostGoogle = platform === 'google' && settings?.google_connected
   const canPostWp = platform === 'blog' && settings?.wp_site_url
+  const canPostTk = platform === 'tiktok' && settings?.tiktok_connected
+  const isTiktok = platform === 'tiktok'
   const [wpCategories, setWpCategories] = useState([])
   const [selectedCats, setSelectedCats] = useState([])
   const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
@@ -818,6 +820,28 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           >
             {posting ? 'Posting...' : 'Post to X'}
           </button>
+        )}
+        {isTiktok && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => { navigator.clipboard.writeText(value); setPostStatus('Copied!'); setTimeout(() => setPostStatus(''), 2000) }}
+              className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333]"
+            >
+              Copy caption
+            </button>
+            {canPostTk && (
+              <button
+                onClick={() => handlePost('tiktok')}
+                disabled={posting}
+                className="text-[11px] py-1 px-2.5 border border-[#fe2c55] rounded-sm bg-[#fe2c55] text-white cursor-pointer font-sans hover:bg-[#e0264c] disabled:opacity-50"
+              >
+                {posting ? 'Posting...' : 'Post to TikTok'}
+              </button>
+            )}
+            {!canPostTk && !settings?.tiktok_connected && (
+              <span className="text-[10px] text-muted">Connect TikTok in settings to post directly</span>
+            )}
+          </div>
         )}
         {canPostGoogle && (
           <button
