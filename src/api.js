@@ -210,7 +210,7 @@ export const postToTiktok = (caption, imageBase64, mediaType) =>
 
 // TikTok connection
 export const saveTiktokCredentials = (clientKey, clientSecret) =>
-  fetch(api('/connect/tiktok/credentials'), { method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include', body: JSON.stringify({ client_key: clientKey, client_secret: clientSecret }) }).then(r => r.json())
+  fetch(api('/connect/tiktok/credentials'), { method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include', body: JSON.stringify({ client_key: clientKey, client_secret: clientSecret }) }).then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t.slice(0, 200)) }); return r.json() })
 export const startTiktokConnect = () =>
   fetch(api('/connect/tiktok'), { credentials: 'include' }).then(r => r.json())
 export const disconnectTiktok = () =>
