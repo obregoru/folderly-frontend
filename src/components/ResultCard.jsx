@@ -537,7 +537,24 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   }, [canPostWp, wpCatsLoaded])
 
   const getImageBase64 = async (targetPlatform) => {
-    if (!item.isImg || !item.file) return { imageBase64: null, mediaType: null }
+    if (!item.file) return { imageBase64: null, mediaType: null }
+
+    const isStory = targetPlatform === 'instagram_story' || targetPlatform === 'facebook_story'
+    const isVideo = item.file.type && item.file.type.startsWith('video/')
+
+    // For video stories, send raw video -- backend does the processing
+    if (isStory && isVideo) {
+      const imageBase64 = await new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => resolve(r.result.split(',')[1])
+        r.onerror = reject
+        r.readAsDataURL(item.file)
+      })
+      return { imageBase64, mediaType: item.file.type }
+    }
+
+    if (!item.isImg) return { imageBase64: null, mediaType: null }
+
     const cropRatio = PLATFORM_CROPS[targetPlatform]
     if (cropRatio) {
       // Smart crop with face detection, then apply watermark
