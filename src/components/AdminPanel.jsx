@@ -61,7 +61,7 @@ export default function AdminPanel({ user, onBack, onLogout }) {
           ))}
         </div>
 
-        {tab === 'Tenants' && <TenantsPanel tenants={tenants} isSuperAdmin={isSuperAdmin} onRefresh={loadAll} error={error} setError={setError} />}
+        {tab === 'Tenants' && <TenantsPanel tenants={tenants} isSuperAdmin={isSuperAdmin} currentUser={user} onRefresh={loadAll} error={error} setError={setError} />}
         {tab === 'Users' && <UsersPanel users={users} tenants={tenants} isSuperAdmin={isSuperAdmin} onRefresh={loadAll} error={error} setError={setError} />}
         {tab === 'Throttle' && <ThrottlePanel configs={throttle} onRefresh={loadAll} />}
         {tab === 'IP Blocklist' && <BlocklistPanel items={blocklist} onRefresh={loadAll} error={error} setError={setError} />}
@@ -70,7 +70,7 @@ export default function AdminPanel({ user, onBack, onLogout }) {
   )
 }
 
-function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
+function TenantsPanel({ tenants, isSuperAdmin, currentUser, onRefresh, error, setError }) {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [targetUrl, setTargetUrl] = useState('')
@@ -94,14 +94,28 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
 
   const startEdit = (t) => {
     setEditing(t.id)
-    setEditData({ name: t.name, slug: t.slug, target_url: t.target_url || '' })
+    setEditData({
+      name: t.name, slug: t.slug, target_url: t.target_url || '',
+      notify_enabled: t.notify_enabled || false, notify_email: t.notify_email || '',
+      notify_minutes_before: t.notify_minutes_before || 15,
+      email_provider: t.email_provider || 'smtp',
+      smtp_host: t.smtp_host || '', smtp_port: t.smtp_port || 587,
+      smtp_username: t.smtp_username || '', smtp_password: '',
+      smtp_from_email: t.smtp_from_email || '',
+      sendgrid_api_key: '', resend_api_key: '',
+    })
   }
 
   const handleSaveEdit = async (e) => {
     e.preventDefault()
     setError('')
     try {
-      await api.updateTenant(editing, editData)
+      // Save all fields (including notification) via admin endpoint
+      const data = { ...editData }
+      if (!data.smtp_password) delete data.smtp_password
+      if (!data.sendgrid_api_key) delete data.sendgrid_api_key
+      if (!data.resend_api_key) delete data.resend_api_key
+      await api.updateTenant(editing, data)
       setEditing(null)
       onRefresh()
     } catch (err) { setError(err.message) }
@@ -119,16 +133,106 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
             <form onSubmit={handleSaveEdit}>
               <div className="mb-3">
                 <label className="block text-xs font-medium text-muted mb-1">Name</label>
-                <input className={inp} value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} required />
+                <input className={inp} value={editData.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))} required disabled={!isSuperAdmin} />
               </div>
               <div className="mb-3">
                 <label className="block text-xs font-medium text-muted mb-1">Slug</label>
-                <input className={inp} value={editData.slug} onChange={e => setEditData(d => ({ ...d, slug: e.target.value }))} required />
+                <input className={inp} value={editData.slug} onChange={e => setEditData(d => ({ ...d, slug: e.target.value }))} required disabled={!isSuperAdmin} />
+                {!isSuperAdmin && <p className="text-[10px] text-muted mt-0.5">Only super admins can change the slug</p>}
               </div>
               <div className="mb-4">
                 <label className="block text-xs font-medium text-muted mb-1">Target URL</label>
                 <input className={inp} value={editData.target_url} onChange={e => setEditData(d => ({ ...d, target_url: e.target.value }))} placeholder="https://book.example.com" />
               </div>
+
+              <hr className="my-4 border-border" />
+              <h3 className="font-serif text-base mb-3">Email Notifications</h3>
+
+              <div className="mb-3 flex items-center gap-2">
+                <input type="checkbox" id="notify_enabled" checked={editData.notify_enabled} onChange={e => setEditData(d => ({ ...d, notify_enabled: e.target.checked }))} />
+                <label htmlFor="notify_enabled" className="text-xs">Enable email reminders for scheduled posts</label>
+              </div>
+
+              {editData.notify_enabled && (
+                <>
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-muted mb-1">Notification email (or carrier SMS gateway)</label>
+                    <input className={inp} value={editData.notify_email} onChange={e => setEditData(d => ({ ...d, notify_email: e.target.value }))} placeholder="you@example.com or 5551234567@vtext.com" />
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-muted mb-1">Remind before</label>
+                    <select className={inp} value={editData.notify_minutes_before} onChange={e => setEditData(d => ({ ...d, notify_minutes_before: parseInt(e.target.value) }))}>
+                      <option value={5}>5 minutes</option>
+                      <option value={10}>10 minutes</option>
+                      <option value={15}>15 minutes</option>
+                      <option value={30}>30 minutes</option>
+                      <option value={60}>1 hour</option>
+                    </select>
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-muted mb-1">Email provider</label>
+                    <select className={inp} value={editData.email_provider} onChange={e => setEditData(d => ({ ...d, email_provider: e.target.value }))}>
+                      <option value="smtp">SMTP</option>
+                      <option value="sendgrid">SendGrid</option>
+                      <option value="resend">Resend</option>
+                    </select>
+                  </div>
+
+                  {editData.email_provider === 'smtp' && (
+                    <>
+                      <div className="mb-2">
+                        <label className="block text-xs font-medium text-muted mb-1">SMTP Host</label>
+                        <input className={inp} value={editData.smtp_host} onChange={e => setEditData(d => ({ ...d, smtp_host: e.target.value }))} placeholder="smtp.gmail.com" />
+                      </div>
+                      <div className="mb-2 flex gap-2">
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-muted mb-1">Port</label>
+                          <input className={inp} type="number" value={editData.smtp_port} onChange={e => setEditData(d => ({ ...d, smtp_port: parseInt(e.target.value) }))} />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-medium text-muted mb-1">Username</label>
+                          <input className={inp} value={editData.smtp_username} onChange={e => setEditData(d => ({ ...d, smtp_username: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="mb-2">
+                        <label className="block text-xs font-medium text-muted mb-1">Password (leave blank to keep current)</label>
+                        <input className={inp} type="password" value={editData.smtp_password} onChange={e => setEditData(d => ({ ...d, smtp_password: e.target.value }))} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-muted mb-1">From email</label>
+                        <input className={inp} value={editData.smtp_from_email} onChange={e => setEditData(d => ({ ...d, smtp_from_email: e.target.value }))} placeholder="noreply@yourdomain.com" />
+                      </div>
+                    </>
+                  )}
+
+                  {editData.email_provider === 'sendgrid' && (
+                    <>
+                      <div className="mb-2">
+                        <label className="block text-xs font-medium text-muted mb-1">SendGrid API Key (leave blank to keep current)</label>
+                        <input className={inp} type="password" value={editData.sendgrid_api_key} onChange={e => setEditData(d => ({ ...d, sendgrid_api_key: e.target.value }))} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-muted mb-1">From email</label>
+                        <input className={inp} value={editData.smtp_from_email} onChange={e => setEditData(d => ({ ...d, smtp_from_email: e.target.value }))} placeholder="noreply@yourdomain.com" />
+                      </div>
+                    </>
+                  )}
+
+                  {editData.email_provider === 'resend' && (
+                    <>
+                      <div className="mb-2">
+                        <label className="block text-xs font-medium text-muted mb-1">Resend API Key (leave blank to keep current)</label>
+                        <input className={inp} type="password" value={editData.resend_api_key} onChange={e => setEditData(d => ({ ...d, resend_api_key: e.target.value }))} />
+                      </div>
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-muted mb-1">From email</label>
+                        <input className={inp} value={editData.smtp_from_email} onChange={e => setEditData(d => ({ ...d, smtp_from_email: e.target.value }))} placeholder="noreply@yourdomain.com" />
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
               {error && <p className="text-[#c0392b] text-[13px] mb-3">{error}</p>}
               <div className="flex gap-2 justify-end">
                 <button type="button" onClick={() => setEditing(null)} className="py-2 px-4 border border-border rounded text-[13px] font-sans cursor-pointer bg-transparent hover:bg-cream">Cancel</button>
@@ -176,11 +280,11 @@ function TenantsPanel({ tenants, isSuperAdmin, onRefresh, error, setError }) {
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M6 3H3v10h10v-3M9 2h5v5M14 2L7 9" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </a>
                 <Badge type={t.is_active ? 'green' : 'red'}>{t.is_active ? 'Active' : 'Inactive'}</Badge>
-                {isSuperAdmin && (
-                  <>
-                    <button onClick={() => startEdit(t)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>
-                    {t.is_active && <button onClick={() => handleDeactivate(t.id)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream text-[#c0392b]">Off</button>}
-                  </>
+                {(isSuperAdmin || t.id === currentUser?.tenant_id) && (
+                  <button onClick={() => startEdit(t)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>
+                )}
+                {isSuperAdmin && t.is_active && (
+                  <button onClick={() => handleDeactivate(t.id)} className="text-[10px] py-1 px-2 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream text-[#c0392b]">Off</button>
                 )}
               </div>
             </div>
@@ -196,6 +300,10 @@ function UsersPanel({ users, tenants, isSuperAdmin, onRefresh, error, setError }
   const [password, setPassword] = useState('')
   const [role, setRole] = useState('tenant_admin')
   const [tenantId, setTenantId] = useState('')
+  const [editing, setEditing] = useState(null)
+  const [editData, setEditData] = useState({})
+
+  const inp = "w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage"
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -213,25 +321,91 @@ function UsersPanel({ users, tenants, isSuperAdmin, onRefresh, error, setError }
     api.deactivateUser(id).then(onRefresh)
   }
 
+  const handleReactivate = async (id) => {
+    try {
+      await api.updateUser(id, { is_active: true })
+      onRefresh()
+    } catch (err) { setError(err.message) }
+  }
+
+  const startEditUser = (u) => {
+    setEditing(u.id)
+    setEditData({ email: u.email, role: u.role, tenant_id: u.tenant_id || '', password: '' })
+  }
+
+  const handleSaveUser = async (e) => {
+    e.preventDefault()
+    setError('')
+    try {
+      const data = { email: editData.email, role: editData.role }
+      if (isSuperAdmin) data.tenant_id = editData.tenant_id || null
+      if (editData.password) data.password = editData.password
+      await api.updateUser(editing, data)
+      setEditing(null)
+      onRefresh()
+    } catch (err) { setError(err.message) }
+  }
+
   return (
     <>
+      {/* Edit user modal */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditing(null)}>
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-[480px] p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="font-serif text-xl mb-4">Edit User</h2>
+            <form onSubmit={handleSaveUser}>
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-muted mb-1">Email</label>
+                <input type="email" className={inp} value={editData.email} onChange={e => setEditData(d => ({ ...d, email: e.target.value }))} required />
+              </div>
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-muted mb-1">New password (leave blank to keep current)</label>
+                <input type="password" className={inp} value={editData.password} onChange={e => setEditData(d => ({ ...d, password: e.target.value }))} minLength={8} placeholder="Enter new password" />
+              </div>
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-muted mb-1">Role</label>
+                <select className={inp} value={editData.role} onChange={e => setEditData(d => ({ ...d, role: e.target.value }))}>
+                  <option value="tenant_admin">Tenant Admin</option>
+                  <option value="tenant_user">Tenant User</option>
+                  {isSuperAdmin && <option value="super_admin">Super Admin</option>}
+                </select>
+              </div>
+              {isSuperAdmin && (
+                <div className="mb-4">
+                  <label className="block text-xs font-medium text-muted mb-1">Tenant</label>
+                  <select className={inp} value={editData.tenant_id || ''} onChange={e => setEditData(d => ({ ...d, tenant_id: e.target.value }))}>
+                    <option value="">-- None --</option>
+                    {tenants.filter(t => t.is_active).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+              )}
+              {error && <p className="text-[#c0392b] text-[13px] mb-3">{error}</p>}
+              <div className="flex gap-2 justify-end">
+                <button type="button" onClick={() => setEditing(null)} className="py-2 px-4 border border-border rounded text-[13px] font-sans cursor-pointer bg-transparent hover:bg-cream">Cancel</button>
+                <button type="submit" className="py-2 px-4 bg-sage text-white border-none rounded text-[13px] font-semibold cursor-pointer font-sans hover:bg-[#4a6650]">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded shadow-sm border border-border p-4 md:p-6 mb-5">
         <h2 className="font-serif text-xl mb-4">Create User</h2>
         <form onSubmit={handleCreate}>
           <div className="flex gap-3 mb-3.5 flex-wrap">
             <div className="flex-1 min-w-[180px]">
               <label className="block text-xs font-medium text-muted mb-1">Email</label>
-              <input type="email" className="w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage" value={email} onChange={e => setEmail(e.target.value)} required />
+              <input type="email" className={inp} value={email} onChange={e => setEmail(e.target.value)} required />
             </div>
             <div className="flex-1 min-w-[180px]">
               <label className="block text-xs font-medium text-muted mb-1">Password</label>
-              <input type="password" className="w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} />
+              <input type="password" className={inp} value={password} onChange={e => setPassword(e.target.value)} required minLength={8} />
             </div>
           </div>
           <div className="flex gap-3 mb-3.5 flex-wrap">
             <div className="flex-1 min-w-[180px]">
               <label className="block text-xs font-medium text-muted mb-1">Role</label>
-              <select className="w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage" value={role} onChange={e => setRole(e.target.value)}>
+              <select className={inp} value={role} onChange={e => setRole(e.target.value)}>
                 <option value="tenant_admin">Tenant Admin</option>
                 <option value="tenant_user">Tenant User</option>
                 {isSuperAdmin && <option value="super_admin">Super Admin</option>}
@@ -239,7 +413,7 @@ function UsersPanel({ users, tenants, isSuperAdmin, onRefresh, error, setError }
             </div>
             <div className="flex-1 min-w-[180px]">
               <label className="block text-xs font-medium text-muted mb-1">Tenant</label>
-              <select className="w-full py-2 px-3 border border-[#ddd] rounded text-[13px] font-sans focus:outline-none focus:border-sage" value={tenantId} onChange={e => setTenantId(e.target.value)}>
+              <select className={inp} value={tenantId} onChange={e => setTenantId(e.target.value)}>
                 <option value="">-- Select --</option>
                 {tenants.filter(t => t.is_active).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
@@ -272,8 +446,12 @@ function UsersPanel({ users, tenants, isSuperAdmin, onRefresh, error, setError }
                 <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{u.tenant_name || '--'}</td>
                 <td className="py-2.5 px-3 border-b border-[#f0ebe3]"><Badge type={u.is_active ? 'green' : 'red'}>{u.is_active ? 'Active' : 'Inactive'}</Badge></td>
                 <td className="py-2.5 px-3 border-b border-[#f0ebe3]">{u.last_login ? fmtDate(u.last_login) : 'Never'}</td>
-                <td className="py-2.5 px-3 border-b border-[#f0ebe3]">
-                  {u.is_active && <button onClick={() => handleDeactivate(u.id)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Deactivate</button>}
+                <td className="py-2.5 px-3 border-b border-[#f0ebe3] space-x-1">
+                  <button onClick={() => startEditUser(u)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream">Edit</button>
+                  {u.is_active
+                    ? <button onClick={() => handleDeactivate(u.id)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream text-[#c0392b]">Deactivate</button>
+                    : <button onClick={() => handleReactivate(u.id)} className="text-xs py-1 px-2.5 border border-border rounded bg-transparent cursor-pointer font-sans hover:bg-cream text-[#3a6b42]">Reactivate</button>
+                  }
                 </td>
               </tr>
             ))}

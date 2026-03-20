@@ -130,6 +130,23 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         <SocialConnections settings={s} apiUrl={apiUrl} onRefresh={() => api.getSettings().then(s => onSave(s))} />
       </div>
 
+      {/* Notifications */}
+      <NotificationSettings settings={s} />
+
+      {/* TikTok settings */}
+      {s.platform_tiktok && (
+        <div>
+          <div className="s-head">TikTok settings</div>
+          <label className="text-[11px] text-muted block mb-0.5">Default TikTok hashtags</label>
+          <input className="field-input" placeholder="#fyp #smallbusiness" value={s.tiktok_default_hashtags || ''} onChange={e => save('tiktok_default_hashtags', e.target.value)} />
+          <label className="text-[11px] text-muted block mt-2 mb-0.5">Custom hook styles (comma-separated)</label>
+          <input className="field-input" placeholder="POV:, Wait for it..." value={(s.tiktok_hooks || []).join(', ')} onChange={e => {
+            const hooks = e.target.value.split(',').map(h => h.trim()).filter(Boolean);
+            save('tiktok_hooks', hooks);
+          }} />
+        </div>
+      )}
+
       {/* This batch */}
       <div>
         <div className="s-head">This batch</div>
@@ -238,6 +255,25 @@ function WatermarkUpload({ path, onUploaded }) {
         <input type="file" accept="image/png" className="hidden" onChange={handleFile} />
       </label>
       {status && !uploading && <span className="text-[10px] text-sage">{status}</span>}
+    </div>
+  )
+}
+
+function NotificationSettings({ settings }) {
+  const s = settings
+
+  return (
+    <div>
+      <div className="s-head">Notifications</div>
+      {s.notify_enabled ? (
+        <div className="text-[11px] text-muted">
+          Reminders → <strong>{s.notify_email || 'not set'}</strong>
+          <br />{s.notify_minutes_before || 15} min before scheduled posts
+          {!s.email_configured && <p className="text-[#c0392b] mt-1">Email provider not configured. Set up in Admin → Edit Tenant.</p>}
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted">Disabled. Enable in Admin → Edit Tenant.</p>
+      )}
     </div>
   )
 }

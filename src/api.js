@@ -56,6 +56,8 @@ export const getMe = () => fetch(`${BASE}/api/auth/me`, { credentials: 'include'
 // Settings
 export const getSettings = () => fetch(api('/settings'), { credentials: 'include' }).then(r => r.json())
 export const saveSettings = (s) => fetch(api('/settings'), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(s) })
+export const saveNotificationSettings = (data) => fetch(api('/settings/notifications'), { method: 'PUT', headers: { ...h(), ...csrf() }, credentials: 'include', body: JSON.stringify(data) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const testNotificationEmail = () => fetch(api('/settings/notifications/test'), { method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const uploadWatermark = (file) => {
   const fd = new FormData()
   fd.append('watermark', file)
@@ -149,6 +151,7 @@ export const updateTenant = (id, data) => fetch(adm(`/tenants/${id}`), { method:
 export const deactivateTenant = (id) => fetch(adm(`/tenants/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 export const getUsers = () => fetch(adm('/users'), { credentials: 'include' }).then(r => r.json())
 export const createUser = (data) => fetch(adm('/users'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const updateUser = (id, data) => fetch(adm(`/users/${id}`), { method: 'PUT', headers: { ...h(), ...csrf() }, credentials: 'include', body: JSON.stringify(data) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const deactivateUser = (id) => fetch(adm(`/users/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 export const getThrottleConfig = () => fetch(adm('/throttle'), { credentials: 'include' }).then(r => r.json())
 export const updateThrottle = (id, data) => fetch(adm(`/throttle/${id}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) })
