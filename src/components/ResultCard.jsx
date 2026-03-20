@@ -55,8 +55,6 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
     : []
 
   const [tab, setTab] = useState('')
-  const [storyEnabled, setStoryEnabled] = useState(false)
-  const [storyCaptionStyle, setStoryCaptionStyle] = useState('none') // 'none' or 'overlay'
 
   // Set tab when captions arrive or change
   useEffect(() => {
@@ -411,6 +409,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [saved, setSaved] = useState(false)
   const [posting, setPosting] = useState(false)
   const [postStatus, setPostStatus] = useState('')
+  const [storyEnabled, setStoryEnabled] = useState(false)
+  const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
