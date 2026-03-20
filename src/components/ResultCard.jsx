@@ -422,8 +422,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   useEffect(() => {
     if (!storyEnabled || !item.isImg) { setStoryPreview(null); return }
     let cancelled = false
-    const { smartCrop, STORY_RATIO } = require('../lib/crop')
-    smartCrop(item, STORY_RATIO || { w: 1080, h: 1920 }).then(blob => {
+    import('../lib/crop').then(({ smartCrop, STORY_RATIO }) => {
+    return smartCrop(item, STORY_RATIO || { w: 1080, h: 1920 }).then(blob => {
       if (cancelled) return
       const img = new Image()
       img.onload = () => {
@@ -476,7 +476,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         }, 'image/jpeg', 0.8)
       }
       img.src = URL.createObjectURL(blob)
-    }).catch(() => {})
+    })}).catch(() => {})
     return () => { cancelled = true }
   }, [storyEnabled, storyCaptionStyle, value, item])
 
