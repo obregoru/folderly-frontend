@@ -29,7 +29,14 @@
   </ul>
 
   <h2>Third-Party Services</h2>
-  <p>When you connect social media accounts, we interact with their APIs (Meta/Facebook, X/Twitter, WordPress) to post content you authorize. Each platform has its own privacy policy governing your data on their service.</p>
+  <p>When you connect social media accounts, we interact with their APIs (Meta/Facebook, TikTok, X/Twitter, WordPress) to post content you authorize. Each platform has its own privacy policy governing your data on their service.</p>
+  <ul>
+    <li><strong>Meta (Facebook/Instagram):</strong> We use the Meta Graph API to post photos, stories, and captions to your connected Pages and Instagram accounts.</li>
+    <li><strong>TikTok:</strong> We use the TikTok Content Posting API to publish photos and videos to your TikTok account. We store your TikTok access token (encrypted) and open_id to authenticate requests on your behalf. We do not access your TikTok messages, followers list, or analytics.</li>
+    <li><strong>X/Twitter:</strong> We use the X API to post tweets with images on your behalf.</li>
+    <li><strong>WordPress:</strong> We use the WordPress REST API to publish blog posts to your self-hosted WordPress site.</li>
+    <li><strong>Anthropic (Claude AI):</strong> Uploaded images are sent to Claude AI for caption generation. Images are not stored by Anthropic beyond the API request.</li>
+  </ul>
 
   <h2>Data Storage and Security</h2>
   <ul>
