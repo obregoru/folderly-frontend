@@ -411,11 +411,74 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [postStatus, setPostStatus] = useState('')
   const [storyEnabled, setStoryEnabled] = useState(false)
   const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
+  const [storyPreview, setStoryPreview] = useState(null)
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
   useEffect(() => { setTitle(blogTitle || '') }, [blogTitle])
   useEffect(() => { setTags(ytTags || []) }, [ytTags])
+
+  // Generate story preview when enabled
+  useEffect(() => {
+    if (!storyEnabled || !item.isImg) { setStoryPreview(null); return }
+    let cancelled = false
+    const { smartCrop, STORY_RATIO } = require('../lib/crop')
+    smartCrop(item, STORY_RATIO || { w: 1080, h: 1920 }).then(blob => {
+      if (cancelled) return
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = 1080; canvas.height = 1920
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(img, 0, 0, 1080, 1920)
+
+        if (storyCaptionStyle === 'overlay' && value) {
+          // Draw gradient bar + text
+          const firstSentence = value.split(/[.!?]\s/)[0].replace(/[.!?]$/, '').trim()
+          if (firstSentence) {
+            const words = firstSentence.split(' ')
+            const lines = []
+            let line = ''
+            for (const w of words) {
+              if ((line + ' ' + w).trim().length > 30 && line) { lines.push(line.trim()); line = w }
+              else line = (line + ' ' + w).trim()
+            }
+            if (line) lines.push(line.trim())
+
+            const fontSize = 48
+            const lineH = fontSize * 1.4
+            const blockH = lines.length * lineH + 60
+            const gradTop = 1920 - blockH - 80
+
+            // Gradient
+            const grad = ctx.createLinearGradient(0, gradTop, 0, 1920)
+            grad.addColorStop(0, 'rgba(0,0,0,0)')
+            grad.addColorStop(0.3, 'rgba(0,0,0,0.6)')
+            grad.addColorStop(1, 'rgba(0,0,0,0.8)')
+            ctx.fillStyle = grad
+            ctx.fillRect(0, gradTop, 1080, 1920 - gradTop)
+
+            // Text
+            ctx.font = `600 ${fontSize}px sans-serif`
+            ctx.fillStyle = 'white'
+            ctx.textAlign = 'center'
+            ctx.shadowColor = 'rgba(0,0,0,0.7)'
+            ctx.shadowBlur = 6
+            ctx.shadowOffsetY = 2
+            lines.forEach((l, i) => {
+              ctx.fillText(l, 540, gradTop + 50 + (i * lineH) + fontSize)
+            })
+          }
+        }
+
+        canvas.toBlob(b => {
+          if (!cancelled) setStoryPreview(URL.createObjectURL(b))
+        }, 'image/jpeg', 0.8)
+      }
+      img.src = URL.createObjectURL(blob)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [storyEnabled, storyCaptionStyle, value, item])
 
   const CHAR_LIMITS = { twitter: 280, instagram: 2200, tiktok: 4000, google: 750 }
   const charLimit = CHAR_LIMITS[platform] || null
@@ -609,16 +672,24 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
               <span>Instagram Stories</span>
             </label>
             {storyEnabled && (
-              <div className="flex gap-3 ml-5 text-[10px]">
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="radio" name={`story-style-${item.id}`} value="none" checked={storyCaptionStyle === 'none'} onChange={() => setStoryCaptionStyle('none')} />
-                  No caption (visual only)
-                </label>
-                <label className="flex items-center gap-1 cursor-pointer">
-                  <input type="radio" name={`story-style-${item.id}`} value="overlay" checked={storyCaptionStyle === 'overlay'} onChange={() => setStoryCaptionStyle('overlay')} />
-                  Text overlay on image
-                </label>
-              </div>
+              <>
+                <div className="flex gap-3 ml-5 text-[10px]">
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name={`story-style-${item.id}`} value="none" checked={storyCaptionStyle === 'none'} onChange={() => setStoryCaptionStyle('none')} />
+                    No caption (visual only)
+                  </label>
+                  <label className="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name={`story-style-${item.id}`} value="overlay" checked={storyCaptionStyle === 'overlay'} onChange={() => setStoryCaptionStyle('overlay')} />
+                    Text overlay on image
+                  </label>
+                </div>
+                {storyPreview && (
+                  <div className="ml-5 mt-1.5">
+                    <p className="text-[10px] text-muted mb-1">Story preview</p>
+                    <img src={storyPreview} className="w-[120px] h-[213px] object-cover rounded border border-border" alt="Story preview" />
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
