@@ -556,6 +556,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       return { imageBase64, mediaType: item.file.type }
     }
 
+    // For video posts (TikTok, etc.), read the raw video file
+    if (isVideo) {
+      const imageBase64 = await new Promise((resolve, reject) => {
+        const r = new FileReader()
+        r.onload = () => resolve(r.result.split(',')[1])
+        r.onerror = reject
+        r.readAsDataURL(item.file)
+      })
+      return { imageBase64, mediaType: item.file.type }
+    }
+
     if (!item.isImg && !item.file?.type?.startsWith('image/')) return { imageBase64: null, mediaType: null }
 
     const cropRatio = PLATFORM_CROPS[targetPlatform]
