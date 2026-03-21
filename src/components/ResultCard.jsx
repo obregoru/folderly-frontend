@@ -258,6 +258,10 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           if (!imageBase64) throw new Error('Requires a photo')
           await api.postToPinterest(caption, imageBase64, mediaType)
           newResults[p.key] = 'success'
+        } else if (p.key === 'youtube') {
+          if (!imageBase64 || !item.file?.type?.startsWith('video/')) throw new Error('Requires a video')
+          await api.postToYoutubeShorts(caption, imageBase64, item.file.type)
+          newResults[p.key] = 'success'
         } else if (p.key === 'blog') {
           const blogCap = item.captions[p.key]
           const wpTitle = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
@@ -531,6 +535,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const canPostPinterest = platform === 'pinterest' && settings?.pinterest_connected
   const canPostWp = platform === 'blog' && settings?.wp_site_url
   const canPostTk = platform === 'tiktok' && settings?.tiktok_connected
+  const isVideo = item.file?.type?.startsWith('video/')
+  const canPostYt = platform === 'youtube' && settings?.youtube_connected && isVideo
   const isTiktok = platform === 'tiktok'
   const [wpCategories, setWpCategories] = useState([])
   const [selectedCats, setSelectedCats] = useState([])
@@ -662,6 +668,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           } catch (e) { results.push('Gallery failed: ' + e.message) }
         }
         setPostStatus(results.join(' | ') || 'Posted to Google!')
+      } else if (target === 'youtube') {
+        if (!imageBase64) throw new Error('YouTube Shorts requires a video')
+        await api.postToYoutubeShorts(value, imageBase64, mediaType)
+        setPostStatus('Uploaded to YouTube Shorts!')
       } else if (target === 'pinterest') {
         if (!imageBase64) throw new Error('Pinterest requires an image')
         await api.postToPinterest(value, imageBase64, mediaType)
@@ -926,6 +936,18 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           >
             {posting ? 'Pinning...' : 'Pin to Pinterest'}
           </button>
+        )}
+        {canPostYt && (
+          <button
+            onClick={() => handlePost('youtube')}
+            disabled={posting}
+            className="text-[11px] py-1 px-2.5 border border-[#FF0000] rounded-sm bg-[#FF0000] text-white cursor-pointer font-sans hover:bg-[#cc0000] disabled:opacity-50"
+          >
+            {posting ? 'Uploading...' : 'Upload to YouTube Shorts'}
+          </button>
+        )}
+        {!canPostYt && platform === 'youtube' && !isVideo && (
+          <span className="text-[10px] text-muted italic">YouTube Shorts requires a video</span>
         )}
         {canPostWp && (
           <>
