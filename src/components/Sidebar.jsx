@@ -545,6 +545,38 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
         )}
       </div>
 
+      {/* YouTube */}
+      <div className="flex items-center justify-between text-xs py-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.youtube_connected ? '#2D9A5E' : '#ccc' }} />
+          <span>{s.youtube_connected ? `YouTube (${s.youtube_channel_name})` : 'YouTube'}</span>
+        </div>
+        {s.youtube_connected
+          ? <button onClick={async () => { if (!confirm('Disconnect YouTube?')) return; await api.disconnectYoutube(); onRefresh() }} className={`${btn} text-[#c0392b]`}>Disconnect</button>
+          : s.youtube_app_configured
+            ? <button onClick={async () => {
+                try {
+                  const data = await api.startYoutubeConnect()
+                  if (data.error) return
+                  if (data.url) {
+                    const popup = window.open(data.url, 'youtube-connect', 'width=600,height=700')
+                    const handler = (e) => {
+                      if (e.data && e.data.type === 'youtube-connected') {
+                        window.removeEventListener('message', handler)
+                        onRefresh()
+                      }
+                    }
+                    window.addEventListener('message', handler)
+                    const check = setInterval(() => {
+                      if (popup && popup.closed) { clearInterval(check); onRefresh() }
+                    }, 1000)
+                  }
+                } catch (err) { console.error(err) }
+              }} className={`${btn} bg-[#FF0000] text-white border-[#FF0000]`}>Connect</button>
+            : <span className="text-[10px] text-muted italic">Not available</span>
+        }
+      </div>
+
       {/* Pinterest */}
       <div className="flex items-center justify-between text-xs py-0.5">
         <div className="flex items-center gap-1.5">

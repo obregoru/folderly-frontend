@@ -228,6 +228,14 @@ export const resetGoogle = () =>
 export const postToGoogle = (caption, imageBase64, mediaType, opts = {}) =>
   postWithDupCheck(`/post/google${opts.type === 'gallery' ? '/gallery' : ''}`, { caption, image_base64: imageBase64, media_type: mediaType })
 
+// YouTube
+export const startYoutubeConnect = () =>
+  fetch(api('/connect/youtube'), { credentials: 'include' }).then(r => r.json())
+export const disconnectYoutube = () =>
+  fetch(api('/connect/youtube/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
+export const postToYoutubeShorts = (caption, imageBase64, mediaType) =>
+  postWithDupCheck('/post/youtube', { caption, image_base64: imageBase64, media_type: mediaType })
+
 // Pinterest
 export const startPinterestConnect = () =>
   fetch(api('/connect/pinterest'), { credentials: 'include' }).then(r => r.json())
