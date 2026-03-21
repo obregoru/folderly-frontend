@@ -541,31 +541,31 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     }
   }, [canPostWp, wpCatsLoaded])
 
+  // Read file as ArrayBuffer and convert to base64 (works on iOS unlike readAsDataURL for large files)
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => {
+      const bytes = new Uint8Array(r.result)
+      let binary = ''
+      const chunk = 8192
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+      }
+      resolve(btoa(binary))
+    }
+    r.onerror = reject
+    r.readAsArrayBuffer(file)
+  })
+
   const getImageBase64 = async (targetPlatform) => {
     if (!item.file) return { imageBase64: null, mediaType: null }
 
     const isStory = targetPlatform === 'instagram_story' || targetPlatform === 'facebook_story'
     const isVideo = item.file.type && item.file.type.startsWith('video/')
 
-    // For video stories, send raw video -- backend does the processing
-    if (isStory && isVideo) {
-      const imageBase64 = await new Promise((resolve, reject) => {
-        const r = new FileReader()
-        r.onload = () => resolve(r.result.split(',')[1])
-        r.onerror = reject
-        r.readAsDataURL(item.file)
-      })
-      return { imageBase64, mediaType: item.file.type }
-    }
-
-    // For video posts (TikTok, etc.), read the raw video file
+    // For videos, use ArrayBuffer approach (iOS Safari fails with readAsDataURL on large files)
     if (isVideo) {
-      const imageBase64 = await new Promise((resolve, reject) => {
-        const r = new FileReader()
-        r.onload = () => resolve(r.result.split(',')[1])
-        r.onerror = reject
-        r.readAsDataURL(item.file)
-      })
+      const imageBase64 = await fileToBase64(item.file)
       return { imageBase64, mediaType: item.file.type }
     }
 
