@@ -30,6 +30,37 @@
   }
 }
 
+/* Mobile-specific overrides */
+@media (max-width: 768px) {
+  /* Prevent iOS auto-zoom on input focus */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+  /* Minimum tap target size */
+  button, .chip, .tog, label[class*="cursor-pointer"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Chips need larger tap targets */
+  .chip {
+    @apply text-[13px] py-2.5 px-3;
+  }
+  /* Toggle switches larger on mobile */
+  .tog {
+    @apply w-11 h-6;
+  }
+  .tog::after {
+    @apply w-4 h-4 top-[4px] left-[4px];
+  }
+  .tog.on::after {
+    transform: translateX(20px);
+  }
+  /* Field inputs more spacious */
+  .field-input {
+    @apply py-3 px-3 text-sm;
+  }
+}
+
 @keyframes shimmer {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }

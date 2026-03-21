@@ -279,23 +279,24 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
-      <nav className="flex items-center justify-between px-4 md:px-6 h-[52px] border-b border-border bg-white sticky top-0 z-20">
-        <div className="flex items-center gap-2.5">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden text-ink p-1 -ml-1 cursor-pointer bg-transparent border-none">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
+      <nav className="flex items-center justify-between px-3 md:px-6 h-[52px] md:h-[52px] border-b border-border bg-white sticky top-0 z-20">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden text-ink p-2 -ml-1 cursor-pointer bg-transparent border-none min-h-[44px] min-w-[44px] flex items-center justify-center">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="currentColor"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/></svg>
           </button>
-          <div className="font-serif text-[19px]">posty<span className="text-terra"> posty</span></div>
+          <div className="font-serif text-[17px] md:text-[19px]">posty<span className="text-terra"> posty</span></div>
+          <span className={`w-[7px] h-[7px] rounded-full inline-block flex-shrink-0 md:hidden ${connected ? 'bg-tk' : 'bg-border'}`} />
         </div>
-        <div className="flex items-center gap-1.5 md:gap-2.5 flex-shrink-0">
-          <span className={`w-[7px] h-[7px] rounded-full inline-block flex-shrink-0 ${connected ? 'bg-tk' : 'bg-border'}`} />
-          <span className="text-[11px] text-muted hidden sm:inline">
+        <div className="flex items-center gap-1 md:gap-2.5 flex-shrink-0">
+          <span className={`w-[7px] h-[7px] rounded-full inline-block flex-shrink-0 hidden md:inline ${connected ? 'bg-tk' : 'bg-border'}`} />
+          <span className="text-[11px] text-muted hidden md:inline">
             {connected ? `Connected` : 'Connecting...'}
           </span>
-          <button onClick={() => setScheduleOpen(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-[#6C5CE7] rounded-sm bg-[#f3f0ff] text-[#6C5CE7] cursor-pointer font-sans whitespace-nowrap">Scheduled</button>
-          <button onClick={() => setHistoryOpen(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">History</button>
-          <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium hidden sm:inline">Beta</span>
-          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">Admin</button>}
-          <button onClick={handleLogout} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap">Sign out</button>
+          <button onClick={() => setScheduleOpen(true)} className="text-[11px] md:text-[11px] py-2 px-2.5 md:px-3 border border-[#6C5CE7] rounded-sm bg-[#f3f0ff] text-[#6C5CE7] cursor-pointer font-sans whitespace-nowrap min-h-[44px] md:min-h-0">Sched</button>
+          <button onClick={() => setHistoryOpen(true)} className="text-[11px] md:text-[11px] py-2 px-2.5 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap min-h-[44px] md:min-h-0 hidden sm:block">History</button>
+          <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium hidden md:inline">Beta</span>
+          {isAdmin && <button onClick={() => setShowAdmin(true)} className="text-[11px] md:text-[11px] py-2 px-2.5 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap min-h-[44px] md:min-h-0">Admin</button>}
+          <button onClick={handleLogout} className="text-[11px] md:text-[11px] py-2 px-2.5 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap min-h-[44px] md:min-h-0">Out</button>
         </div>
       </nav>
 
@@ -318,7 +319,7 @@ export default function App() {
         />
         </div>
 
-        <main className="flex-1 p-3 md:p-5 overflow-y-auto overflow-x-hidden flex flex-col gap-4 max-w-[640px] mx-auto w-full min-w-0">
+        <main className="flex-1 p-3 md:p-5 overflow-y-auto overflow-x-hidden flex flex-col gap-3 md:gap-4 max-w-full md:max-w-[640px] mx-auto w-full min-w-0">
           {/* Tips */}
           <div className="text-xs text-muted leading-relaxed text-center">
             <p className="mb-2"><strong className="text-ink">Tip:</strong> Descriptive names help the AI write better captions.</p>
