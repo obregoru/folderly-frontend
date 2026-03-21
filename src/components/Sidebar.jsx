@@ -361,7 +361,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
       <div className="flex items-center justify-between text-xs py-0.5">
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.fb_connected ? '#2D9A5E' : '#ccc' }} />
-          <span>{s.fb_connected ? s.fb_page_name : 'Facebook'}</span>
+          <span>{s.fb_connected ? `Facebook (${s.fb_page_name})` : 'Facebook'}</span>
         </div>
         {s.fb_connected
           ? <div className="flex gap-1">
@@ -397,7 +397,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
       <div className="flex items-center justify-between text-xs py-0.5">
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.ig_connected ? '#2D9A5E' : '#ccc' }} />
-          <span>{s.ig_connected ? `@${s.ig_username}` : 'Instagram'}</span>
+          <span>{s.ig_connected ? `Instagram @${s.ig_username}` : 'Instagram'}</span>
         </div>
         {s.ig_connected
           ? <span className="text-[10px] text-sage">Via Facebook</span>
@@ -410,7 +410,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.twitter_connected ? '#2D9A5E' : '#ccc' }} />
-            <span>{s.twitter_connected ? `@${s.twitter_username}` : 'X / Twitter'}</span>
+            <span>{s.twitter_connected ? `X @${s.twitter_username}` : 'X / Twitter'}</span>
           </div>
           {!s.twitter_connected && !s.twitter_app_configured && !showTwitterSetup && (
             <button onClick={() => setShowTwitterSetup(true)} className="text-[10px] text-[#2D9A5E] hover:underline">Set up</button>
