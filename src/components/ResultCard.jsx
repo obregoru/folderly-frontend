@@ -158,6 +158,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
                   platform={p.key}
                   item={item}
                   settings={settings}
+                  apiUrl={apiUrl}
                   onSave={(newText) => onUpdateCaption(p.key, newText, getId(cap))}
                   onRegen={onRegen}
                   onRefine={(val) => onRefine(val, p.key, getId(cap))}
@@ -402,7 +403,7 @@ function PostAllBar({ item, available, settings, apiUrl }) {
   )
 }
 
-function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, item, settings, onSave, onRegen, onRefine }) {
+function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, item, settings, apiUrl, onSave, onRegen, onRefine }) {
   const [value, setValue] = useState(text)
   const [title, setTitle] = useState(blogTitle || '')
   const [tags, setTags] = useState(ytTags || [])
