@@ -227,8 +227,8 @@ export const disconnectGoogle = () =>
   fetch(api('/connect/google/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const resetGoogle = () =>
   fetch(api('/connect/google/reset'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
-export const postToGoogle = (caption, imageBase64, mediaType) =>
-  postWithDupCheck('/post/google', { caption, image_base64: imageBase64, media_type: mediaType })
+export const postToGoogle = (caption, imageBase64, mediaType, opts = {}) =>
+  postWithDupCheck(`/post/google${opts.type === 'gallery' ? '/gallery' : ''}`, { caption, image_base64: imageBase64, media_type: mediaType })
 
 // WordPress
 export const saveWpCredentials = (siteUrl, username, appPassword) =>

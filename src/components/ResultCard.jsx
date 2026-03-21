@@ -527,6 +527,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const isTiktok = platform === 'tiktok'
   const [wpCategories, setWpCategories] = useState([])
   const [selectedCats, setSelectedCats] = useState([])
+  const [googlePostEnabled, setGooglePostEnabled] = useState(true)
+  const [googleGalleryEnabled, setGoogleGalleryEnabled] = useState(true)
   const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
   const [wpPublish, setWpPublish] = useState(false)
 
@@ -592,7 +594,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     return { imageBase64, mediaType: item.file.type || 'image/jpeg' }
   }
 
-  const handlePost = async (target) => {
+  const handlePost = async (target, opts = {}) => {
     setPosting(true)
     setPostStatus('')
     try {
@@ -639,8 +641,20 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           setPostStatus('Posted to TikTok!')
         }
       } else if (target === 'google') {
-        await api.postToGoogle(value, imageBase64, mediaType)
-        setPostStatus('Posted to Google!')
+        const results = []
+        if (opts.googlePost) {
+          try {
+            await api.postToGoogle(value, imageBase64, mediaType, { type: 'post' })
+            results.push('Post created')
+          } catch (e) { results.push('Post failed: ' + e.message) }
+        }
+        if (opts.googleGallery) {
+          try {
+            await api.postToGoogle(value, imageBase64, mediaType, { type: 'gallery' })
+            results.push('Photo added to gallery')
+          } catch (e) { results.push('Gallery failed: ' + e.message) }
+        }
+        setPostStatus(results.join(' | ') || 'Posted to Google!')
       } else if (target === 'wordpress') {
         const wpTitle = title || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
         const result = await api.postToWordPress(wpTitle, value, imageBase64, mediaType, selectedCats, wpPublish)
@@ -865,13 +879,25 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           </div>
         )}
         {canPostGoogle && (
-          <button
-            onClick={() => handlePost('google')}
-            disabled={posting}
-            className="text-[11px] py-1 px-2.5 border border-[#4285F4] rounded-sm bg-[#4285F4] text-white cursor-pointer font-sans hover:bg-[#3574d4] disabled:opacity-50"
-          >
-            {posting ? 'Posting...' : 'Post to Google'}
-          </button>
+          <div className="flex flex-col gap-1">
+            <div className="flex gap-2">
+              <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
+                <input type="checkbox" checked={googlePostEnabled} onChange={e => setGooglePostEnabled(e.target.checked)} className="w-3 h-3" />
+                Google Post
+              </label>
+              <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
+                <input type="checkbox" checked={googleGalleryEnabled} onChange={e => setGoogleGalleryEnabled(e.target.checked)} className="w-3 h-3" />
+                Photo gallery
+              </label>
+            </div>
+            <button
+              onClick={() => handlePost('google', { googlePost: googlePostEnabled, googleGallery: googleGalleryEnabled })}
+              disabled={posting || (!googlePostEnabled && !googleGalleryEnabled)}
+              className="text-[11px] py-1 px-2.5 border border-[#4285F4] rounded-sm bg-[#4285F4] text-white cursor-pointer font-sans hover:bg-[#3574d4] disabled:opacity-50"
+            >
+              {posting ? 'Posting...' : `Post to Google${googlePostEnabled && googleGalleryEnabled ? ' (Post + Gallery)' : googlePostEnabled ? ' (Post)' : ' (Gallery)'}`}
+            </button>
+          </div>
         )}
         {canPostWp && (
           <>
