@@ -320,15 +320,31 @@ export default function App() {
         </div>
 
         <main className="flex-1 p-3 md:p-5 overflow-y-auto overflow-x-hidden flex flex-col gap-3 md:gap-4 max-w-full md:max-w-[640px] mx-auto w-full min-w-0">
-          {/* Tips */}
-          <div className="text-xs text-muted leading-relaxed text-center">
+          {/* Mobile: content hint first (primary brief method on mobile) */}
+          <div className="md:hidden">
+            <label className="text-[13px] text-ink font-medium">Describe this photo</label>
+            <textarea
+              rows={3}
+              value={userHint}
+              onChange={e => setUserHint(e.target.value)}
+              className="field-input resize-y mt-1.5"
+              placeholder="e.g. Girls night, wine canvas painting"
+            />
+          </div>
+
+          {error && <div className="bg-[#FBF0F7] border border-[#F4C0D1] rounded-sm py-2 px-3 text-xs text-[#A32D2D]">{error}</div>}
+
+          <Dropzone onFiles={addFiles} />
+
+          {/* Desktop: tips and content hint below dropzone */}
+          <div className="hidden md:block text-xs text-muted leading-relaxed text-center">
             <p className="mb-2"><strong className="text-ink">Tip:</strong> Descriptive names help the AI write better captions.</p>
             <p>Name your files with keywords like <strong className="text-ink">couple-reveal-reaction.jpg</strong> instead of IMG_4382.jpg</p>
             <p className="mt-1">Uploading a folder? Name it too — <strong className="text-ink">birthday-group/</strong> tells the AI it's a birthday event. <em className="text-muted">(Optional)</em></p>
           </div>
 
-          {/* User hint */}
-          <div>
+          {/* Desktop: context hint */}
+          <div className="hidden md:block">
             <label className="text-[11px] text-muted">Context hint <span className="italic text-[10px]">(optional — tell the AI what's happening)</span></label>
             <textarea
               rows={2}
@@ -338,10 +354,6 @@ export default function App() {
               placeholder="e.g. This is how many cans of beer we drank during the snow storm"
             />
           </div>
-
-          {error && <div className="bg-[#FBF0F7] border border-[#F4C0D1] rounded-sm py-2 px-3 text-xs text-[#A32D2D]">{error}</div>}
-
-          <Dropzone onFiles={addFiles} />
 
           <p className="text-[11px] text-muted text-center">Captions are generated for each photo — copy, edit, and post to your platforms.</p>
 
