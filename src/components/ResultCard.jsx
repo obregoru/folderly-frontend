@@ -697,11 +697,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         </>
       )}
       <textarea
-        className={`w-full text-xs leading-relaxed whitespace-pre-wrap text-ink border rounded-sm py-1.5 px-2 font-sans resize-y min-h-[60px] bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white ${charLimit && value.length > charLimit ? 'border-[#c0392b]' : 'border-transparent'}`}
+        className={`w-full text-xs md:text-xs text-[14px] leading-relaxed whitespace-pre-wrap text-ink border rounded-sm py-2 md:py-1.5 px-3 md:px-2 font-sans resize-y min-h-[80px] md:min-h-[60px] bg-transparent transition-all hover:border-border focus:outline-none focus:border-sage focus:bg-white select-text ${charLimit && value.length > charLimit ? 'border-[#c0392b]' : 'border-transparent'}`}
         value={value}
         onChange={e => setValue(e.target.value)}
         onBlur={handleBlur}
         rows={Math.max(3, Math.ceil(value.length / 60))}
+        style={{ WebkitUserSelect: 'text', userSelect: 'text' }}
       />
       {charLimit && (
         <div className={`text-[10px] text-right mt-0.5 ${value.length > charLimit ? 'text-[#c0392b] font-medium' : 'text-muted'}`}>
@@ -720,6 +721,13 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           >Copy tags</button>
         </div>
       )}
+      {/* Mobile: full-width copy button */}
+      <button
+        onClick={() => { navigator.clipboard.writeText(value); setPostStatus('Copied!'); setTimeout(() => setPostStatus(''), 2000) }}
+        className="md:hidden w-full py-3 text-[14px] font-medium border border-sage rounded-sm bg-sage-light text-sage cursor-pointer font-sans active:bg-sage active:text-white min-h-[48px] mt-2"
+      >
+        {postStatus === 'Copied!' ? 'Copied!' : 'Copy Caption'}
+      </button>
       <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
         {platform === 'youtube' && (
           <button
