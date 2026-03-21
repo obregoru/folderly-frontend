@@ -289,10 +289,6 @@ function NotificationSettings({ settings }) {
 
 function SocialConnections({ settings, apiUrl, onRefresh }) {
   const s = settings
-  const [showFbSetup, setShowFbSetup] = useState(false)
-  const [fbAppId, setFbAppId] = useState('')
-  const [fbAppSecret, setFbAppSecret] = useState('')
-  const [fbSaving, setFbSaving] = useState(false)
   const [fbError, setFbError] = useState('')
   const [showTwitterSetup, setShowTwitterSetup] = useState(false)
   const [twClientId, setTwClientId] = useState('')
@@ -311,23 +307,6 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
   const [wpUser, setWpUser] = useState('')
   const [wpPass, setWpPass] = useState('')
   const [wpSaving, setWpSaving] = useState(false)
-
-  const handleSaveFbCreds = async () => {
-    if (!fbAppId || !fbAppSecret) return
-    setFbSaving(true)
-    setFbError('')
-    try {
-      const data = await api.saveFbCredentials(fbAppId, fbAppSecret)
-      if (data.ok) {
-        setShowFbSetup(false)
-        setFbAppId(''); setFbAppSecret('')
-        onRefresh()
-      } else {
-        setFbError(data.error || 'Failed')
-      }
-    } catch (err) { setFbError(err.message) }
-    setFbSaving(false)
-  }
 
   const handleConnectFb = async () => {
     try {
@@ -356,7 +335,7 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
   }
 
   const handleResetFb = async () => {
-    if (!confirm('Reset Facebook credentials? You will need to re-enter the App ID and Secret.')) return
+    if (!confirm('Disconnect Facebook and reset?')) return
     await api.resetFb()
     onRefresh()
   }
@@ -375,32 +354,13 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
         {s.fb_connected
           ? <div className="flex gap-1">
               <button onClick={handleDisconnectFb} className={`${btn} text-[#c0392b]`}>Disconnect</button>
-              <button onClick={handleResetFb} className={`${btn} text-muted`}>Reset</button>
             </div>
-          : <div className="flex gap-1">
-              {s.fb_app_configured && <button onClick={handleConnectFb} className={`${btn} bg-[#1877F2] text-white border-[#1877F2]`}>Connect Page</button>}
-              <button onClick={() => setShowFbSetup(true)} className={`${btn}`}>{s.fb_app_configured ? 'Edit' : 'Set up'}</button>
-            </div>
+          : s.fb_app_configured
+            ? <button onClick={handleConnectFb} className={`${btn} bg-[#1877F2] text-white border-[#1877F2]`}>Connect Page</button>
+            : <span className="text-[10px] text-muted italic">Not available</span>
         }
       </div>
-      {showFbSetup && (
-        <div className="bg-[#fff3cd] border-2 border-[#856404] rounded p-2 text-[11px]">
-          <p className="text-muted mb-1.5">Enter your Facebook App credentials from <a href="https://developers.facebook.com" target="_blank" rel="noopener" className="text-sage underline">developers.facebook.com</a></p>
-          <input className={`${inp} mb-1.5`} placeholder="App ID" value={fbAppId} onChange={e => setFbAppId(e.target.value)} />
-          <input className={`${inp} mb-1.5`} placeholder="App Secret" type="password" value={fbAppSecret} onChange={e => setFbAppSecret(e.target.value)} />
-          {fbError && <p className="text-[#c0392b] text-[10px] mb-1">{fbError}</p>}
-          <div className="flex gap-1">
-            <button onClick={handleSaveFbCreds} disabled={fbSaving} className={`${btn} bg-sage text-white border-sage`}>{fbSaving ? 'Saving...' : 'Save'}</button>
-            <button onClick={() => setShowFbSetup(false)} className={btn}>Cancel</button>
-          </div>
-        </div>
-      )}
-      {s.fb_app_configured && !s.fb_connected && (
-        <div className="flex items-center justify-between pl-3.5">
-          <span className="text-[10px] text-muted">App configured</span>
-          <button onClick={handleResetFb} className={`${btn} text-[#c0392b]`}>Reset</button>
-        </div>
-      )}
+      {fbError && <p className="text-[#c0392b] text-[10px] pl-3.5">{fbError}</p>}
 
       {/* Instagram (auto-connected via Facebook Page link) */}
       <div className="flex items-center justify-between text-xs py-0.5">

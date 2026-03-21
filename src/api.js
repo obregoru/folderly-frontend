@@ -160,8 +160,6 @@ export const blockIp = (data) => fetch(adm('/ip-blocklist'), { method: 'POST', h
 export const unblockIp = (id) => fetch(adm(`/ip-blocklist/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
 // Social connections
-export const saveFbCredentials = (appId, appSecret) =>
-  fetch(api('/connect/facebook/credentials'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ app_id: appId, app_secret: appSecret }) }).then(r => r.json())
 export const startFbConnect = () =>
   fetch(api('/connect/facebook'), { credentials: 'include' }).then(r => r.json())
 export const disconnectFb = () =>
