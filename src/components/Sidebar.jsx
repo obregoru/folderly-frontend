@@ -66,7 +66,14 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
   }
 
   return (
-    <aside className="bg-white border-r border-border p-4 overflow-y-auto flex flex-col gap-5">
+    <aside className="bg-white border-r border-border p-4 md:p-4 overflow-y-auto flex flex-col gap-4 md:gap-5 h-full">
+      {/* Mobile drawer header */}
+      <div className="md:hidden flex items-center justify-between pb-2 border-b border-border -mx-4 px-4 -mt-2 pt-2">
+        <span className="font-serif text-[17px]">Settings</span>
+        <button onClick={() => { /* Close handled by overlay in App.jsx */ const evt = new CustomEvent('close-sidebar'); window.dispatchEvent(evt) }} className="p-2 text-muted min-h-[44px] min-w-[44px] flex items-center justify-center">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 5l10 10M15 5L5 15"/></svg>
+        </button>
+      </div>
       {/* Brand Profile */}
       <div>
         <div className="s-head">Brand profile</div>
