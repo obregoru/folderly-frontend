@@ -34,7 +34,7 @@ export default function Dropzone({ onFiles }) {
         <label className="flex items-center justify-center gap-2 w-full py-4 bg-ink text-white rounded-sm cursor-pointer font-sans text-[15px] font-medium min-h-[56px] active:bg-[#333]">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
           Upload Photos
-          <input ref={fileRef} type="file" multiple accept="image/*,video/*" capture="environment" className="hidden" onChange={e => handleFileChange(e, false)} />
+          <input ref={fileRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={e => handleFileChange(e, false)} />
         </label>
         <label className="flex items-center justify-center w-full py-2.5 mt-1.5 border border-border rounded-sm bg-cream text-ink cursor-pointer font-sans text-[13px] min-h-[44px] active:bg-white">
           Upload Folder
