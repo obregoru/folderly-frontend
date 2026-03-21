@@ -260,7 +260,9 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           newResults[p.key] = 'success'
         } else if (p.key === 'youtube') {
           if (!imageBase64 || !item.file?.type?.startsWith('video/')) throw new Error('Requires a video')
-          await api.postToYoutubeShorts(caption, imageBase64, item.file.type)
+          const ytCap = item.captions?.youtube
+          const ytCaption = JSON.stringify({ title: (ytCap && typeof ytCap === 'object' ? ytCap.title : null) || item.name || 'Short', description: caption, tags: (ytCap && typeof ytCap === 'object' ? ytCap.tags : null) || [] })
+          await api.postToYoutubeShorts(ytCaption, imageBase64, item.file.type)
           newResults[p.key] = 'success'
         } else if (p.key === 'blog') {
           const blogCap = item.captions[p.key]
@@ -670,7 +672,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         setPostStatus(results.join(' | ') || 'Posted to Google!')
       } else if (target === 'youtube') {
         if (!imageBase64) throw new Error('YouTube Shorts requires a video')
-        await api.postToYoutubeShorts(value, imageBase64, mediaType)
+        const ytCaption = JSON.stringify({ title: title || item.name || 'Short', description: value, tags })
+        await api.postToYoutubeShorts(ytCaption, imageBase64, mediaType)
         setPostStatus('Uploaded to YouTube Shorts!')
       } else if (target === 'pinterest') {
         if (!imageBase64) throw new Error('Pinterest requires an image')
