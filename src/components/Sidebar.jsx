@@ -31,8 +31,10 @@ function Toggle({ on, onChange, title }) {
 }
 
 function ChipGrid({ items, active, onToggle, cols = 3, multi = false }) {
+  const mobileCols = Math.min(cols, 2)
   return (
-    <div className="grid gap-[5px]" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+    <div className="grid gap-1.5 md:gap-[5px]" style={{ '--mobile-cols': mobileCols, '--desktop-cols': cols, gridTemplateColumns: `repeat(var(--desktop-cols), 1fr)` }}>
+      <style>{`@media(max-width:768px){[style*="--mobile-cols"]{grid-template-columns:repeat(var(--mobile-cols),1fr) !important}}`}</style>
       {items.map(item => {
         const isOn = multi ? active.includes(item.value) : active === item.value
         return (
@@ -205,7 +207,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       <div>
         <div className="s-head">Platforms</div>
         {[['platform_tiktok', 'TikTok', true], ['platform_instagram', 'Instagram', true], ['platform_facebook', 'Facebook', true], ['platform_twitter', 'X / Twitter', false], ['platform_google', 'Google Business', false], ['platform_blog', 'Blog post', false], ['platform_youtube', 'YouTube', false]].map(([key, label, defaultOn]) => (
-          <div key={key} className="flex items-center justify-between text-xs py-0.5 mt-1.5">
+          <div key={key} className="flex items-center justify-between text-xs md:text-xs text-[13px] py-2 md:py-0.5 mt-1 md:mt-1.5 min-h-[44px] md:min-h-0">
             <span>{label}</span>
             <Toggle on={defaultOn ? s[key] !== false : s[key] === true} onChange={v => save(key, v)} />
           </div>
