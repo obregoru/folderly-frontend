@@ -556,7 +556,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       return { imageBase64, mediaType: item.file.type }
     }
 
-    if (!item.isImg) return { imageBase64: null, mediaType: null }
+    if (!item.isImg && !item.file?.type?.startsWith('image/')) return { imageBase64: null, mediaType: null }
 
     const cropRatio = PLATFORM_CROPS[targetPlatform]
     if (cropRatio) {
