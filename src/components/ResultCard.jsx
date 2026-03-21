@@ -10,6 +10,7 @@ const PLATFORM_CROPS = {
   facebook: CROP_RATIOS.find(c => c.label.startsWith('FB')),
   twitter: CROP_RATIOS.find(c => c.label.startsWith('X ')),
   google: CROP_RATIOS.find(c => c.label.startsWith('Google')),
+  pinterest: CROP_RATIOS.find(c => c.label.startsWith('Pinterest')),
   blog: CROP_RATIOS.find(c => c.label.startsWith('FB')), // 16:9 for blog featured images
 }
 
@@ -19,6 +20,7 @@ const PLATFORMS = [
   { key: 'facebook', label: 'Facebook', color: '#1877F2' },
   { key: 'twitter', label: 'X', color: '#000000' },
   { key: 'google', label: 'Google', color: '#4285F4' },
+  { key: 'pinterest', label: 'Pinterest', color: '#E60023' },
   { key: 'blog', label: 'Blog', color: '#E67E22' },
   { key: 'youtube', label: 'YouTube', color: '#FF0000' },
 ]
@@ -251,6 +253,10 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           newResults[p.key] = 'success'
         } else if (p.key === 'google') {
           await api.postToGoogle(caption, imageBase64, mediaType)
+          newResults[p.key] = 'success'
+        } else if (p.key === 'pinterest') {
+          if (!imageBase64) throw new Error('Requires a photo')
+          await api.postToPinterest(caption, imageBase64, mediaType)
           newResults[p.key] = 'success'
         } else if (p.key === 'blog') {
           const blogCap = item.captions[p.key]
@@ -522,6 +528,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const canPostIg = platform === 'instagram' && settings?.ig_connected
   const canPostTw = platform === 'twitter' && settings?.twitter_connected
   const canPostGoogle = platform === 'google' && settings?.google_connected
+  const canPostPinterest = platform === 'pinterest' && settings?.pinterest_connected
   const canPostWp = platform === 'blog' && settings?.wp_site_url
   const canPostTk = platform === 'tiktok' && settings?.tiktok_connected
   const isTiktok = platform === 'tiktok'
@@ -655,6 +662,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           } catch (e) { results.push('Gallery failed: ' + e.message) }
         }
         setPostStatus(results.join(' | ') || 'Posted to Google!')
+      } else if (target === 'pinterest') {
+        if (!imageBase64) throw new Error('Pinterest requires an image')
+        await api.postToPinterest(value, imageBase64, mediaType)
+        setPostStatus('Pinned!')
       } else if (target === 'wordpress') {
         const wpTitle = title || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
         const result = await api.postToWordPress(wpTitle, value, imageBase64, mediaType, selectedCats, wpPublish)
@@ -906,6 +917,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
               {posting ? 'Posting...' : `Post to Google${googlePostEnabled && googleGalleryEnabled ? ' (Post + Gallery)' : googlePostEnabled ? ' (Post)' : ' (Gallery)'}`}
             </button>
           </div>
+        )}
+        {canPostPinterest && (
+          <button
+            onClick={() => handlePost('pinterest')}
+            disabled={posting}
+            className="text-[11px] py-1 px-2.5 border border-[#E60023] rounded-sm bg-[#E60023] text-white cursor-pointer font-sans hover:bg-[#cc001e] disabled:opacity-50"
+          >
+            {posting ? 'Pinning...' : 'Pin to Pinterest'}
+          </button>
         )}
         {canPostWp && (
           <>

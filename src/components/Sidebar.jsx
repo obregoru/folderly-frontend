@@ -213,7 +213,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       {/* Platforms */}
       <div>
         <div className="s-head">Platforms</div>
-        {[['platform_tiktok', 'TikTok', true], ['platform_instagram', 'Instagram', true], ['platform_facebook', 'Facebook', true], ['platform_twitter', 'X / Twitter', false], ['platform_google', 'Google Business', false], ['platform_blog', 'Blog post', false], ['platform_youtube', 'YouTube', false]].map(([key, label, defaultOn]) => (
+        {[['platform_tiktok', 'TikTok', true], ['platform_instagram', 'Instagram', true], ['platform_facebook', 'Facebook', true], ['platform_twitter', 'X / Twitter', false], ['platform_google', 'Google Business', false], ['platform_pinterest', 'Pinterest', false], ['platform_blog', 'Blog post', false], ['platform_youtube', 'YouTube', false]].map(([key, label, defaultOn]) => (
           <div key={key} className="flex items-center justify-between text-xs md:text-xs text-[13px] py-2 md:py-0.5 mt-1 md:mt-1.5 min-h-[44px] md:min-h-0">
             <span>{label}</span>
             <Toggle on={defaultOn ? s[key] !== false : s[key] === true} onChange={v => save(key, v)} />
@@ -543,6 +543,38 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Pinterest */}
+      <div className="flex items-center justify-between text-xs py-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: s.pinterest_connected ? '#2D9A5E' : '#ccc' }} />
+          <span>{s.pinterest_connected ? `Pinterest @${s.pinterest_username} (${s.pinterest_board_name})` : 'Pinterest'}</span>
+        </div>
+        {s.pinterest_connected
+          ? <button onClick={async () => { if (!confirm('Disconnect Pinterest?')) return; await api.disconnectPinterest(); onRefresh() }} className={`${btn} text-[#c0392b]`}>Disconnect</button>
+          : s.pinterest_app_configured
+            ? <button onClick={async () => {
+                try {
+                  const data = await api.startPinterestConnect()
+                  if (data.error) return
+                  if (data.url) {
+                    const popup = window.open(data.url, 'pinterest-connect', 'width=600,height=700')
+                    const handler = (e) => {
+                      if (e.data && e.data.type === 'pinterest-connected') {
+                        window.removeEventListener('message', handler)
+                        onRefresh()
+                      }
+                    }
+                    window.addEventListener('message', handler)
+                    const check = setInterval(() => {
+                      if (popup && popup.closed) { clearInterval(check); onRefresh() }
+                    }, 1000)
+                  }
+                } catch (err) { console.error(err) }
+              }} className={`${btn} bg-[#E60023] text-white border-[#E60023]`}>Connect</button>
+            : <span className="text-[10px] text-muted italic">Not available</span>
+        }
       </div>
 
       {/* WordPress */}

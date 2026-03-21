@@ -8,6 +8,7 @@ export const CROP_RATIOS = [
   { label: 'FB 16:9', w: 1200, h: 630, wm: 'bottom-right' },
   { label: 'X 16:9', w: 1200, h: 675, wm: 'bottom-right' },
   { label: 'Google 4:3', w: 1200, h: 900, wm: 'bottom-right' },
+  { label: 'Pinterest 2:3', w: 1000, h: 1500, wm: 'bottom-right' },
 ]
 
 // Story-specific ratio for programmatic use (same dimensions, different context)

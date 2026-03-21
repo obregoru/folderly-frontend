@@ -228,6 +228,14 @@ export const resetGoogle = () =>
 export const postToGoogle = (caption, imageBase64, mediaType, opts = {}) =>
   postWithDupCheck(`/post/google${opts.type === 'gallery' ? '/gallery' : ''}`, { caption, image_base64: imageBase64, media_type: mediaType })
 
+// Pinterest
+export const startPinterestConnect = () =>
+  fetch(api('/connect/pinterest'), { credentials: 'include' }).then(r => r.json())
+export const disconnectPinterest = () =>
+  fetch(api('/connect/pinterest/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
+export const postToPinterest = (caption, imageBase64, mediaType) =>
+  postWithDupCheck('/post/pinterest', { caption, image_base64: imageBase64, media_type: mediaType })
+
 // WordPress
 export const saveWpCredentials = (siteUrl, username, appPassword) =>
   fetch(api('/connect/wordpress/credentials'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ site_url: siteUrl, username, app_password: appPassword }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
