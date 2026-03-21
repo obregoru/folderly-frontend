@@ -531,6 +531,9 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                   const popup = window.open(data.url, 'tiktok-connect', 'width=600,height=700')
                   const handler = (e) => { if (e.data?.type === 'tiktok-connected') { window.removeEventListener('message', handler); onRefresh() } }
                   window.addEventListener('message', handler)
+                  const check = setInterval(() => {
+                    if (popup && popup.closed) { clearInterval(check); onRefresh() }
+                  }, 1000)
                 }
               }} className="text-[10px] text-[#2D9A5E] hover:underline">Connect</button>
               <button onClick={async () => { await api.resetTiktok(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
