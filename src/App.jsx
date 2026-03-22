@@ -208,8 +208,24 @@ export default function App() {
     return allCaps
   }
 
+  // Check if a filename looks like a generic camera name (IMG_1234.jpg, DSC00123.MOV, etc.)
+  const isGenericFilename = (name) => /^(IMG|DSC|VID|MOV|MVI|DSCN|P|PXL|Screenshot|Screen Shot|Photo|Video|Clip|trim|output)[_\s-]?\d/i.test(name)
+
   const runAll = async () => {
     if (!files.length) return
+
+    // On mobile, always require a hint
+    const isMobile = window.innerWidth < 768
+    if (isMobile && !userHint.trim()) {
+      showError('Please describe what\'s in the photo or video — this helps the AI write better captions.')
+      return
+    }
+    // On desktop, require hint only if all filenames are generic
+    if (!isMobile && !userHint.trim() && files.every(f => isGenericFilename(f.file?.name || ''))) {
+      showError('Your files have generic names (like IMG_1234). Add a context hint so the AI knows what\'s happening.')
+      return
+    }
+
     setGenerating(true)
     // hint is saved server-side in generate endpoint
     try {
@@ -331,7 +347,7 @@ export default function App() {
           {/* Mobile: content hint first (primary brief method on mobile) */}
           <div className="md:hidden">
             <div className="flex items-center justify-between">
-              <label className="text-[13px] text-ink font-medium">Describe this photo</label>
+              <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span></label>
               {!userHint && settings.last_hint && (
                 <button onClick={() => setUserHint(settings.last_hint)} className="text-[11px] text-sage hover:underline">Reuse last</button>
               )}
