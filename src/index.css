@@ -69,3 +69,25 @@
   @apply bg-border rounded h-[11px] my-1;
   animation: shimmer 1.3s ease-in-out infinite;
 }
+
+/* Week planner strip */
+.week-strip {
+  @apply flex gap-1.5 overflow-x-auto pb-1;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.week-strip::-webkit-scrollbar { display: none; }
+.week-card {
+  @apply flex-shrink-0 rounded-sm border border-border bg-white p-1.5 cursor-pointer text-left font-sans;
+  scroll-snap-align: start;
+  width: 68px;
+  min-height: 64px;
+}
+@media (min-width: 768px) { .week-card { width: 80px; } }
+.week-card.selected { @apply border-[#6C5CE7] bg-[#f3f0ff]; }
+.week-card.current { border-color: #2D9A5E; }
+.week-fill {
+  @apply h-[3px] rounded-full mt-1;
+  background: var(--fill-color, #ddd);
+}

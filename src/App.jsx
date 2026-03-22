@@ -13,6 +13,7 @@ import ScheduleModal from './components/ScheduleModal'
 import HistoryModal from './components/HistoryModal'
 import RefineModal from './components/RefineModal'
 import AdminPanel from './components/AdminPanel'
+import WeekPlanner from './components/WeekPlanner'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -33,6 +34,7 @@ export default function App() {
   const [rules, setRules] = useState({ name: true, cta: true, brand: true, seo: true, hashtags: true })
   const [userHint, setUserHint] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [targetWeek, setTargetWeek] = useState(null)
 
   const tenantSlug = api.tenantSlug()
   const apiUrl = `${import.meta.env.VITE_API_URL || ''}/api/t/${tenantSlug}`
@@ -363,6 +365,8 @@ export default function App() {
 
           {error && <div className="bg-[#FBF0F7] border border-[#F4C0D1] rounded-sm py-2 px-3 text-xs text-[#A32D2D]">{error}</div>}
 
+          <WeekPlanner settings={settings} targetWeek={targetWeek} onWeekSelect={setTargetWeek} />
+
           <Dropzone onFiles={addFiles} />
 
           {/* Desktop: tips and content hint below dropzone */}
@@ -447,6 +451,7 @@ export default function App() {
                   onRefine={(textVal, platform, captionId) => setRefineCtx({ item, textarea: textVal, platform, captionId })}
                   apiUrl={apiUrl}
                   settings={settings}
+                  targetWeek={targetWeek}
                 />
               </ErrorBoundary>
             )

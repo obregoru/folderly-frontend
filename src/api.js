@@ -258,6 +258,9 @@ export const postToWordPress = (title, content, imageBase64, mediaType, category
   postWithDupCheck('/post/wordpress', { title, content, image_base64: imageBase64, media_type: mediaType, category_ids: categoryIds, publish })
 
 // Scheduling
+export const getWeekSummary = (from, weeks = 8) =>
+  fetch(api(`/schedule/week-summary?from=${from}&weeks=${weeks}`), { credentials: 'include' }).then(r => r.json())
+
 export const schedulePosts = (posts, scheduledAt) =>
   fetch(api('/schedule'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ posts, scheduled_at: scheduledAt }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const getScheduledPosts = (params = {}) => {

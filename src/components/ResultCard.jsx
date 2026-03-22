@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { allTags } from '../lib/parse'
 import { CROP_RATIOS, smartCrop, applyWatermark } from '../lib/crop'
+import { getWeekStart, slotToDate, getAvailableSlots, formatWeekRange } from '../lib/weekSlots'
 import CropStrip from './CropStrip'
 
 // Map platform to preferred crop ratio
@@ -50,7 +51,7 @@ function getScore(cap) {
   return cap.ai_score || null
 }
 
-export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings }) {
+export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings, targetWeek }) {
   // Find which platforms have captions
   const available = item.captions
     ? PLATFORMS.filter(p => item.captions[p.key])
@@ -124,7 +125,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
 
       {/* Post All */}
       {available.length > 0 && (
-        <PostAllBar item={item} available={available} settings={settings} apiUrl={apiUrl} />
+        <PostAllBar item={item} available={available} settings={settings} apiUrl={apiUrl} targetWeek={targetWeek} />
       )}
 
       {/* Caption tabs + content */}
@@ -179,7 +180,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
 const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress', tiktok: 'TikTok', google: 'Google' }
 const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B', tiktok: '#2D9A5E', google: '#4285F4' }
 
-function PostAllBar({ item, available, settings, apiUrl }) {
+function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [posting, setPosting] = useState(false)
   const [results, setResults] = useState({}) // { platform: 'success' | 'Failed: ...' }
   const [wpPublishAll, setWpPublishAll] = useState(false)
@@ -352,9 +353,10 @@ function PostAllBar({ item, available, settings, apiUrl }) {
       const api = await import('../api')
       const posts = await buildPostsPayload()
 
-      if (useSuggestedTimes && settings?.posting_schedule?.schedule) {
-        // Schedule each platform at its next suggested time
+      if ((useSuggestedTimes || targetWeek) && settings?.posting_schedule?.schedule) {
+        // Schedule each platform at its best time (within target week if set, otherwise next available)
         const schedule = settings.posting_schedule.schedule
+        const weekStart = targetWeek ? getWeekStart(targetWeek) : null
         let totalScheduled = 0
         for (const post of posts) {
           const platSchedule = schedule.find(s =>
@@ -362,22 +364,29 @@ function PostAllBar({ item, available, settings, apiUrl }) {
             post.platform.includes(s.platform.toLowerCase())
           )
           if (platSchedule?.slots?.length > 0) {
-            // Find the nearest future slot
-            const slotDates = platSchedule.slots
-              .map(s => ({ ...s, date: getNextSlotDate(s.day, s.time) }))
-              .filter(s => s.date && s.date > new Date())
-              .sort((a, b) => a.date - b.date)
+            let slotDates
+            if (weekStart) {
+              // Map slots to the target week
+              slotDates = getAvailableSlots(platSchedule, weekStart)
+            } else {
+              // Find the nearest future slot from now
+              slotDates = platSchedule.slots
+                .map(s => ({ ...s, date: getNextSlotDate(s.day, s.time) }))
+                .filter(s => s.date && s.date > new Date())
+                .sort((a, b) => a.date - b.date)
+            }
 
             const targetDate = slotDates[0]?.date || new Date(Date.now() + 3600000)
             const result = await api.schedulePosts([post], targetDate.toISOString())
             totalScheduled += result.scheduled?.length || 0
           } else {
-            // No schedule for this platform — schedule 1 hour from now
-            const result = await api.schedulePosts([post], new Date(Date.now() + 3600000).toISOString())
+            const fallback = weekStart ? new Date(weekStart.getTime() + 2 * 86400000 + 11 * 3600000) : new Date(Date.now() + 3600000)
+            const result = await api.schedulePosts([post], fallback.toISOString())
             totalScheduled += result.scheduled?.length || 0
           }
         }
-        setScheduleStatus(`Scheduled ${totalScheduled} posts at suggested times`)
+        const weekLabel = weekStart ? ` for ${formatWeekRange(weekStart)}` : ' at suggested times'
+        setScheduleStatus(`Scheduled ${totalScheduled} posts${weekLabel}`)
       } else {
         if (!scheduleDate) { setScheduling(false); return }
         const result = await api.schedulePosts(posts, new Date(scheduleDate).toISOString())
@@ -406,11 +415,11 @@ function PostAllBar({ item, available, settings, apiUrl }) {
           {posting ? 'Posting...' : `Post All (${postable.length})`}
         </button>
         <button
-          onClick={() => setShowSchedule(!showSchedule)}
+          onClick={() => targetWeek ? handleScheduleAll() : setShowSchedule(!showSchedule)}
           disabled={posting || scheduling}
           className="text-[11px] py-1.5 px-3 rounded-sm bg-[#6C5CE7] text-white cursor-pointer font-sans font-medium hover:bg-[#5a4bd6] disabled:opacity-50 border-none"
         >
-          Schedule
+          {scheduling ? 'Scheduling...' : targetWeek ? `Schedule for ${formatWeekRange(getWeekStart(targetWeek))}` : 'Schedule'}
         </button>
         {postable.some(p => p.key === 'blog') && (
           <>
