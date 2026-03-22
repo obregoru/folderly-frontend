@@ -3,9 +3,11 @@ import * as api from '../api'
 import { getWeekStart, formatWeekRange, isCurrentWeek, getWeekSaturation } from '../lib/weekSlots'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', tiktok: '#2D9A5E', google: '#4285F4', youtube: '#FF0000', pinterest: '#E60023', blog: '#21759B' }
+const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', tiktok: 'TikTok', google: 'Google', youtube: 'YouTube', pinterest: 'Pinterest', blog: 'WordPress' }
 
 function WeekCard({ week, selected, isCurrent, maxPerPlatform, onClick }) {
-  const start = new Date(week.week_start)
   const total = week.total_scheduled + week.total_posted
   const maxTotal = maxPerPlatform || 10
   const fillPct = Math.min(100, (total / maxTotal) * 100)
@@ -17,7 +19,7 @@ function WeekCard({ week, selected, isCurrent, maxPerPlatform, onClick }) {
       className={`week-card ${selected ? 'selected' : ''} ${isCurrent ? 'current' : ''}`}
     >
       <div className="text-[9px] font-medium text-ink leading-tight">
-        {start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+        {new Date(week.week_start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
       </div>
       <div className="text-[8px] text-muted leading-tight">
         {new Date(new Date(week.week_start).getTime() + 6 * 86400000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
@@ -36,19 +38,86 @@ function MonthJump({ onSelect, onClose }) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
     months.push(d)
   }
-
   return (
     <div className="mt-1.5 flex flex-wrap gap-1">
       {months.map((d, i) => (
-        <button
-          key={i}
-          onClick={() => onSelect(d)}
-          className="text-[10px] py-1 px-2 border border-border rounded bg-white hover:bg-[#f3f0ff] hover:border-[#6C5CE7] cursor-pointer font-sans"
-        >
+        <button key={i} onClick={() => onSelect(d)} className="text-[10px] py-1 px-2 border border-border rounded bg-white hover:bg-[#f3f0ff] hover:border-[#6C5CE7] cursor-pointer font-sans">
           {MONTHS[d.getMonth()]} {d.getFullYear() !== now.getFullYear() ? d.getFullYear() : ''}
         </button>
       ))}
       <button onClick={onClose} className="text-[10px] text-muted hover:underline ml-1">Cancel</button>
+    </div>
+  )
+}
+
+function PlatDot({ platform }) {
+  return <span className="inline-block w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ background: PLATFORM_COLORS[platform] || '#999' }} />
+}
+
+function WeekDetail({ weekStart, onSelect }) {
+  const [posts, setPosts] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const from = new Date(weekStart)
+    const to = new Date(from); to.setDate(to.getDate() + 7)
+    api.getScheduledPosts({ from: from.toISOString(), to: to.toISOString(), limit: 100 })
+      .then(data => { setPosts(data.posts || []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [weekStart])
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart); d.setDate(d.getDate() + i); return d
+  })
+
+  const isToday = (d) => {
+    const now = new Date()
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  }
+
+  if (loading) return <div className="text-[10px] text-muted text-center py-2">Loading...</div>
+
+  return (
+    <div className="mt-1.5 border-t border-border pt-1.5">
+      {days.map((day, i) => {
+        const dayPosts = posts.filter(p => {
+          const pd = new Date(p.scheduled_at)
+          return pd.getFullYear() === day.getFullYear() && pd.getMonth() === day.getMonth() && pd.getDate() === day.getDate()
+        }).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+
+        return (
+          <div key={i} className={`py-1 ${i < 6 ? 'border-b border-border/30' : ''} ${isToday(day) ? 'bg-[#faf8ff]' : ''}`}>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-medium min-w-[32px] ${isToday(day) ? 'text-[#6C5CE7]' : 'text-ink'}`}>
+                {DAY_NAMES[day.getDay()]}
+              </span>
+              <span className="text-[9px] text-muted min-w-[38px]">
+                {day.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+              {dayPosts.length === 0 ? (
+                <span className="text-[9px] text-border">—</span>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {dayPosts.map(p => (
+                    <div key={p.uuid} className="flex items-center gap-0.5">
+                      <PlatDot platform={p.platform} />
+                      <span className="text-[8px]" style={{ color: PLATFORM_COLORS[p.platform] }}>
+                        {new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      <button
+        onClick={() => onSelect(new Date(weekStart))}
+        className="mt-1.5 w-full text-[10px] py-1 border border-[#6C5CE7] rounded-sm bg-[#f3f0ff] text-[#6C5CE7] cursor-pointer font-sans hover:bg-[#6C5CE7] hover:text-white"
+      >
+        Plan content for this week
+      </button>
     </div>
   )
 }
@@ -59,6 +128,7 @@ export default function WeekPlanner({ settings, targetWeek, onWeekSelect }) {
   const [weekData, setWeekData] = useState([])
   const [loading, setLoading] = useState(false)
   const [viewStart, setViewStart] = useState(() => getWeekStart(new Date()))
+  const [detailWeek, setDetailWeek] = useState(null) // week_start string for detail view
   const stripRef = useRef(null)
 
   const schedule = settings?.posting_schedule?.schedule || []
@@ -83,15 +153,25 @@ export default function WeekPlanner({ settings, targetWeek, onWeekSelect }) {
     if (expanded) {
       setExpanded(false)
       setShowMonthJump(false)
+      setDetailWeek(null)
     } else {
       setExpanded(true)
     }
   }
 
   const handleWeekClick = (week) => {
-    const ws = new Date(week.week_start)
+    // Toggle detail view for this week
+    if (detailWeek === week.week_start) {
+      setDetailWeek(null)
+    } else {
+      setDetailWeek(week.week_start)
+    }
+  }
+
+  const handleSelectWeek = (ws) => {
     onWeekSelect(ws)
     setExpanded(false)
+    setDetailWeek(null)
     setShowMonthJump(false)
   }
 
@@ -99,33 +179,30 @@ export default function WeekPlanner({ settings, targetWeek, onWeekSelect }) {
     e.stopPropagation()
     onWeekSelect(null)
     setExpanded(false)
+    setDetailWeek(null)
   }
 
   const handleMonthSelect = (monthDate) => {
     const ws = getWeekStart(monthDate)
     setViewStart(ws)
     setShowMonthJump(false)
+    setDetailWeek(null)
   }
 
   const handleNav = (dir) => {
     const next = new Date(viewStart)
-    next.setDate(next.getDate() + dir * 7 * 4) // Jump 4 weeks
+    next.setDate(next.getDate() + dir * 7 * 4)
     setViewStart(next)
+    setDetailWeek(null)
   }
 
   // Summary for pill display
   const currentWeekStart = getWeekStart(new Date())
-  const currentWeekData = weekData.find(w => {
-    const ws = new Date(w.week_start)
-    return ws.getTime() === currentWeekStart.getTime()
-  })
+  const currentWeekData = weekData.find(w => new Date(w.week_start).getTime() === currentWeekStart.getTime())
   const currentTotal = currentWeekData ? currentWeekData.total_scheduled + currentWeekData.total_posted : 0
 
   // Saturation for selected week
-  const selectedWeekData = targetWeek ? weekData.find(w => {
-    const ws = new Date(w.week_start)
-    return ws.getTime() === getWeekStart(targetWeek).getTime()
-  }) : null
+  const selectedWeekData = targetWeek ? weekData.find(w => new Date(w.week_start).getTime() === getWeekStart(targetWeek).getTime()) : null
   const saturation = selectedWeekData ? getWeekSaturation(selectedWeekData, schedule) : []
   const fullPlatforms = saturation.filter(s => s.status === 'full' || s.status === 'over')
 
@@ -158,7 +235,7 @@ export default function WeekPlanner({ settings, targetWeek, onWeekSelect }) {
         </div>
       </button>
 
-      {/* Expanded: week strip + controls */}
+      {/* Expanded */}
       {expanded && (
         <div className="mt-1.5 border border-border rounded-sm bg-white p-2">
           {/* Navigation + month jump */}
@@ -181,11 +258,11 @@ export default function WeekPlanner({ settings, targetWeek, onWeekSelect }) {
                 <div className="text-[10px] text-muted text-center py-3">Loading...</div>
               ) : (
                 <div className="week-strip" ref={stripRef}>
-                  {weekData.map((week, i) => (
+                  {weekData.map((week) => (
                     <WeekCard
                       key={week.week_start}
                       week={week}
-                      selected={targetWeek && getWeekStart(targetWeek).toISOString().slice(0, 10) === week.week_start}
+                      selected={detailWeek === week.week_start}
                       isCurrent={isCurrentWeek(week.week_start)}
                       maxPerPlatform={maxPerPlatform}
                       onClick={() => handleWeekClick(week)}
@@ -194,8 +271,13 @@ export default function WeekPlanner({ settings, targetWeek, onWeekSelect }) {
                 </div>
               )}
 
-              {/* Saturation details for selected week */}
-              {targetWeek && saturation.length > 0 && (
+              {/* Week detail view — shows days/times/networks */}
+              {detailWeek && (
+                <WeekDetail weekStart={detailWeek} onSelect={handleSelectWeek} />
+              )}
+
+              {/* Saturation for selected planning week */}
+              {targetWeek && saturation.length > 0 && !detailWeek && (
                 <div className="mt-1.5 pt-1.5 border-t border-border">
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                     {saturation.map(s => (
