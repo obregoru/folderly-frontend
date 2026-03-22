@@ -4,6 +4,22 @@ import { CROP_RATIOS, smartCrop, applyWatermark } from '../lib/crop'
 import { getWeekStart, slotToDate, getAvailableSlots, formatWeekRange } from '../lib/weekSlots'
 import CropStrip from './CropStrip'
 
+// Read file as ArrayBuffer and convert to base64 (works on iOS unlike readAsDataURL for large files)
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+  const r = new FileReader()
+  r.onload = () => {
+    const bytes = new Uint8Array(r.result)
+    let binary = ''
+    const chunk = 8192
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+    }
+    resolve(btoa(binary))
+  }
+  r.onerror = reject
+  r.readAsArrayBuffer(file)
+})
+
 // Map platform to preferred crop ratio
 const PLATFORM_CROPS = {
   tiktok: CROP_RATIOS.find(c => c.label.startsWith('TikTok')),
@@ -800,21 +816,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     }
   }, [canPostWp, wpCatsLoaded])
 
-  // Read file as ArrayBuffer and convert to base64 (works on iOS unlike readAsDataURL for large files)
-  const fileToBase64 = (file) => new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => {
-      const bytes = new Uint8Array(r.result)
-      let binary = ''
-      const chunk = 8192
-      for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
-      }
-      resolve(btoa(binary))
-    }
-    r.onerror = reject
-    r.readAsArrayBuffer(file)
-  })
+  // fileToBase64 is defined at module level
 
   const getImageBase64 = async (targetPlatform) => {
     if (!item.file) return { imageBase64: null, mediaType: null }
