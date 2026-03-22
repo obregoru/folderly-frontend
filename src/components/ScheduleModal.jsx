@@ -55,31 +55,75 @@ function PlatDot({ platform, size = 6 }) {
   return <span className="inline-block rounded-full flex-shrink-0" style={{ width: size, height: size, background: PLATFORM_COLORS[platform] || '#999' }} title={PLATFORM_LABELS[platform] || platform} />
 }
 
-// Single post row (compact)
+// Single post row — tap to expand and see full details
 function PostRow({ post, onCancel, onRetry, onDelete }) {
+  const [expanded, setExpanded] = useState(false)
   const st = STATUS_STYLES[post.status] || STATUS_STYLES.pending
   const time = new Date(post.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  const fullDate = new Date(post.scheduled_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   return (
-    <div className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-none">
-      <span className="text-[10px] text-muted min-w-[52px] pt-0.5">{time}</span>
-      <PlatDot platform={post.platform} size={8} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[post.platform] }}>
-            {PLATFORM_LABELS[post.platform] || post.platform}
-          </span>
-          <span className="text-[8px] py-0.5 px-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
+    <div className="border-b border-border/30 last:border-none">
+      {/* Compact row — tap to expand */}
+      <div className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-[#fafafa]" onClick={() => setExpanded(!expanded)}>
+        <span className="text-[10px] text-muted min-w-[52px] pt-0.5">{time}</span>
+        <PlatDot platform={post.platform} size={8} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[post.platform] }}>
+              {PLATFORM_LABELS[post.platform] || post.platform}
+            </span>
+            <span className="text-[8px] py-0.5 px-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
+          </div>
+          <div className="text-[9px] text-muted truncate">{post.caption?.slice(0, 80)}</div>
         </div>
-        <div className="text-[9px] text-muted truncate">{post.caption?.slice(0, 80)}</div>
-        {post.error_message && <div className="text-[9px] text-[#c0392b] truncate">{post.error_message}</div>}
+        <span className="text-[9px] text-muted flex-shrink-0 pt-0.5">{expanded ? '▾' : '▸'}</span>
       </div>
-      <div className="flex gap-1 flex-shrink-0">
-        {post.status === 'pending' && <button onClick={() => onCancel(post.uuid)} className="text-[9px] text-[#c0392b] hover:underline">Cancel</button>}
-        {post.status === 'failed' && <button onClick={() => onRetry(post.uuid)} className="text-[9px] text-[#6C5CE7] hover:underline">Retry</button>}
-        {(post.status === 'posted' || post.status === 'failed' || post.status === 'cancelled') && (
-          <button onClick={() => onDelete(post.uuid)} className="text-[9px] text-muted hover:underline">Del</button>
-        )}
-      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="pb-2 pl-[60px] pr-2">
+          {/* Image/video preview */}
+          {post.image_url && (
+            <img src={post.image_url} className="w-full max-w-[200px] h-auto rounded mb-1.5 object-cover" />
+          )}
+
+          {/* Full details */}
+          <div className="text-[10px] text-ink mb-1">
+            <span className="font-medium" style={{ color: PLATFORM_COLORS[post.platform] }}>{PLATFORM_LABELS[post.platform] || post.platform}</span>
+            {post.platform.includes('story') && <span className="text-[9px] text-muted ml-1">(Story)</span>}
+          </div>
+          <div className="text-[10px] text-muted mb-1">{fullDate}</div>
+
+          {post.title && <div className="text-[10px] font-medium text-ink mb-0.5">{post.title}</div>}
+
+          {/* Full caption */}
+          <div className="text-[10px] text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 mb-1.5 max-h-[150px] overflow-y-auto">
+            {post.caption}
+          </div>
+
+          {post.error_message && (
+            <div className="text-[10px] text-[#c0392b] bg-[#fdeaea] rounded p-1.5 mb-1.5">{post.error_message}</div>
+          )}
+
+          {/* Copy caption button */}
+          <div className="flex gap-2 items-center flex-wrap">
+            <button
+              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(post.caption); }}
+              className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
+            >Copy caption</button>
+
+            {post.status === 'pending' && (
+              <button onClick={(e) => { e.stopPropagation(); onCancel(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Cancel</button>
+            )}
+            {post.status === 'failed' && (
+              <button onClick={(e) => { e.stopPropagation(); onRetry(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Retry</button>
+            )}
+            {(post.status === 'posted' || post.status === 'failed' || post.status === 'cancelled') && (
+              <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Delete</button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
