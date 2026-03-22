@@ -211,7 +211,7 @@ export default function App() {
   const runAll = async () => {
     if (!files.length) return
     setGenerating(true)
-    if (userHint) localStorage.setItem('posty_last_hint', userHint)
+    // hint is saved server-side in generate endpoint
     try {
       const batch = await api.createBatch(folderCtx?.name, files.length)
       for (let i = 0; i < files.length; i++) {
@@ -332,8 +332,8 @@ export default function App() {
           <div className="md:hidden">
             <div className="flex items-center justify-between">
               <label className="text-[13px] text-ink font-medium">Describe this photo</label>
-              {!userHint && localStorage.getItem('posty_last_hint') && (
-                <button onClick={() => setUserHint(localStorage.getItem('posty_last_hint'))} className="text-[11px] text-sage hover:underline">Reuse last</button>
+              {!userHint && settings.last_hint && (
+                <button onClick={() => setUserHint(settings.last_hint)} className="text-[11px] text-sage hover:underline">Reuse last</button>
               )}
             </div>
             <textarea
@@ -360,8 +360,8 @@ export default function App() {
           <div className="hidden md:block">
             <div className="flex items-center justify-between">
               <label className="text-[11px] text-muted">Context hint <span className="italic text-[10px]">(optional — tell the AI what's happening)</span></label>
-              {!userHint && localStorage.getItem('posty_last_hint') && (
-                <button onClick={() => setUserHint(localStorage.getItem('posty_last_hint'))} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
+              {!userHint && settings.last_hint && (
+                <button onClick={() => setUserHint(settings.last_hint)} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
               )}
             </div>
             <textarea
