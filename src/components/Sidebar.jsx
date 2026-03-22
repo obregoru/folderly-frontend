@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import * as api from '../api'
 
 const BUSINESS_TYPES = [
@@ -630,10 +630,17 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
 }
 
 function PostingSchedule({ settings }) {
-  const [schedule, setSchedule] = useState(settings?.posting_schedule || null)
+  const saved = settings?.posting_schedule
+  const parsed = saved ? (typeof saved === 'string' ? (() => { try { return JSON.parse(saved) } catch { return null } })() : saved) : null
+  const [schedule, setSchedule] = useState(parsed)
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [error, setError] = useState('')
+
+  // Sync when settings load/change
+  useEffect(() => {
+    if (parsed && !schedule) setSchedule(parsed)
+  }, [parsed])
 
   const generate = async () => {
     setLoading(true)
