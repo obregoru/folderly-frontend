@@ -218,6 +218,13 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [scheduling, setScheduling] = useState(false)
   const [scheduleStatus, setScheduleStatus] = useState('')
   const [useSuggestedTimes, setUseSuggestedTimes] = useState(false)
+  const [includeStories, setIncludeStories] = useState(false)
+  const [schedStoryCaptionStyle, setSchedStoryCaptionStyle] = useState('none')
+  const [schedStoryText, setSchedStoryText] = useState('')
+  const [schedOverlayYPct, setSchedOverlayYPct] = useState(70)
+  const [schedStoryFontSize, setSchedStoryFontSize] = useState(48)
+  const [schedStoryFontFamily, setSchedStoryFontFamily] = useState('sans-serif')
+  const [schedStoryFontColor, setSchedStoryFontColor] = useState('#ffffff')
 
   const hasWp = available.some(p => p.key === 'blog') && settings?.wp_site_url
   useEffect(() => {
@@ -342,6 +349,24 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         post.wp_category_ids = selectedCats
       }
       posts.push(post)
+
+      // Add story post for FB/IG if stories are included
+      if (includeStories && (p.key === 'facebook' || p.key === 'instagram')) {
+        const storyPlatform = p.key === 'facebook' ? 'facebook_story' : 'instagram_story'
+        const storyCaption = schedStoryCaptionStyle === 'overlay' ? (schedStoryText || caption) : caption
+        posts.push({
+          platform: storyPlatform,
+          caption: storyCaption,
+          image_base64: imageBase64,
+          media_type: mediaType,
+          caption_style: schedStoryCaptionStyle,
+          overlay_y_pct: schedOverlayYPct,
+          font_size: schedStoryFontSize,
+          font_family: schedStoryFontFamily,
+          font_color: schedStoryFontColor,
+          _story_offset: true, // flag for scheduler to offset by 45 min
+        })
+      }
     }
     return posts
   }
@@ -387,18 +412,29 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         const schedule = settings.posting_schedule.schedule
         const weekStart = targetWeek ? getWeekStart(targetWeek) : null
         let totalScheduled = 0
+        const scheduledTimes = {} // track feed post times for story offset
         for (const post of posts) {
+          const isStoryPost = post._story_offset
+          // For stories, use the parent platform's scheduled time + 45 min
+          const basePlatform = post.platform.replace('_story', '')
+
+          if (isStoryPost && scheduledTimes[basePlatform]) {
+            const storyTime = new Date(scheduledTimes[basePlatform].getTime() + 45 * 60 * 1000)
+            const result = await api.schedulePosts([post], storyTime.toISOString())
+            totalScheduled += result.scheduled?.length || 0
+            continue
+          }
+
+          const lookupPlatform = basePlatform
           const platSchedule = schedule.find(s =>
-            s.platform.toLowerCase().includes(post.platform) ||
-            post.platform.includes(s.platform.toLowerCase())
+            s.platform.toLowerCase().includes(lookupPlatform) ||
+            lookupPlatform.includes(s.platform.toLowerCase())
           )
           if (platSchedule?.slots?.length > 0) {
             let slotDates
             if (weekStart) {
-              // Map slots to the target week
               slotDates = getAvailableSlots(platSchedule, weekStart)
             } else {
-              // Find the nearest future slot from now
               slotDates = platSchedule.slots
                 .map(s => ({ ...s, date: getNextSlotDate(s.day, s.time) }))
                 .filter(s => s.date && s.date > new Date())
@@ -406,10 +442,12 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
             }
 
             const targetDate = slotDates[0]?.date || new Date(Date.now() + 3600000)
+            scheduledTimes[basePlatform] = targetDate
             const result = await api.schedulePosts([post], targetDate.toISOString())
             totalScheduled += result.scheduled?.length || 0
           } else {
             const fallback = weekStart ? new Date(weekStart.getTime() + 2 * 86400000 + 11 * 3600000) : new Date(Date.now() + 3600000)
+            scheduledTimes[basePlatform] = fallback
             const result = await api.schedulePosts([post], fallback.toISOString())
             totalScheduled += result.scheduled?.length || 0
           }
@@ -418,8 +456,17 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         setScheduleStatus(`Scheduled ${totalScheduled} posts${weekLabel}`)
       } else {
         if (!scheduleDate) { setScheduling(false); return }
-        const result = await api.schedulePosts(posts, new Date(scheduleDate).toISOString())
-        setScheduleStatus(`Scheduled ${result.scheduled.length} posts`)
+        const feedPosts = posts.filter(p => !p._story_offset)
+        const storyPosts = posts.filter(p => p._story_offset)
+        const baseTime = new Date(scheduleDate)
+        const result = await api.schedulePosts(feedPosts, baseTime.toISOString())
+        let storyCount = 0
+        if (storyPosts.length > 0) {
+          const storyTime = new Date(baseTime.getTime() + 45 * 60 * 1000)
+          const storyResult = await api.schedulePosts(storyPosts, storyTime.toISOString())
+          storyCount = storyResult.scheduled?.length || 0
+        }
+        setScheduleStatus(`Scheduled ${result.scheduled.length + storyCount} posts${storyCount ? ` (${storyCount} stories +45min)` : ''}`)
       }
       setShowSchedule(false)
       setScheduleDate('')
@@ -532,6 +579,50 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                       </div>
                     )
                   })}
+                </div>
+              )}
+            </>
+          )}
+          {/* Include stories option */}
+          {postable.some(p => p.key === 'facebook' || p.key === 'instagram') && item.isImg && (
+            <>
+              <label className="flex items-center gap-1.5 text-[11px] text-ink cursor-pointer select-none">
+                <input type="checkbox" checked={includeStories} onChange={e => setIncludeStories(e.target.checked)} className="accent-[#E1306C]" />
+                Include stories (+45min after feed post)
+              </label>
+              {includeStories && (
+                <div className="bg-[#fef3f8] rounded px-2.5 py-1.5 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted min-w-[50px]">Caption:</span>
+                    <select value={schedStoryCaptionStyle} onChange={e => setSchedStoryCaptionStyle(e.target.value)} className="text-[10px] border border-border rounded px-1 py-0.5 bg-white">
+                      <option value="none">No overlay</option>
+                      <option value="overlay">Text overlay</option>
+                    </select>
+                  </div>
+                  {schedStoryCaptionStyle === 'overlay' && (
+                    <>
+                      <textarea
+                        rows={2}
+                        value={schedStoryText}
+                        onChange={e => setSchedStoryText(e.target.value)}
+                        placeholder="Story overlay text..."
+                        className="w-full text-[10px] border border-border rounded px-2 py-1 bg-white resize-y"
+                      />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <label className="text-[9px] text-muted">Position:
+                          <input type="range" min={10} max={90} value={schedOverlayYPct} onChange={e => setSchedOverlayYPct(Number(e.target.value))} className="w-16 ml-1 align-middle" />
+                        </label>
+                        <label className="text-[9px] text-muted">Size:
+                          <select value={schedStoryFontSize} onChange={e => setSchedStoryFontSize(Number(e.target.value))} className="text-[9px] border border-border rounded px-1 bg-white ml-1">
+                            <option value={32}>Small</option><option value={48}>Medium</option><option value={64}>Large</option>
+                          </select>
+                        </label>
+                        <label className="text-[9px] text-muted">Color:
+                          <input type="color" value={schedStoryFontColor} onChange={e => setSchedStoryFontColor(e.target.value)} className="w-5 h-4 ml-1 align-middle border-none" />
+                        </label>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
             </>
