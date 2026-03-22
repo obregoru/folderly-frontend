@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import * as api from '../api'
 
-const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress', google: 'Google' }
-const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B', google: '#4285F4' }
+const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress', google: 'Google', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest' }
+const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B', google: '#4285F4', tiktok: '#2D9A5E', youtube: '#FF0000', pinterest: '#E60023' }
 const STATUS_STYLES = {
   pending: { bg: '#f3f0ff', text: '#6C5CE7', label: 'Pending' },
   posted: { bg: '#e8efe9', text: '#2D9A5E', label: 'Posted' },
@@ -10,8 +10,15 @@ const STATUS_STYLES = {
   cancelled: { bg: '#f5f5f5', text: '#999', label: 'Cancelled' },
 }
 
-const VIEWS = ['week', 'month', 'all']
-const FILTERS = ['all', 'pending', 'posted', 'failed', 'completed']
+const VIEWS = ['day', 'week', 'month']
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const FILTERS = ['all', 'pending', 'posted', 'failed']
+
+function getDayRange(date) {
+  const from = new Date(date); from.setHours(0, 0, 0, 0)
+  const to = new Date(from); to.setDate(to.getDate() + 1)
+  return { from, to }
+}
 
 function getWeekRange(date) {
   const d = new Date(date)
@@ -28,39 +35,193 @@ function getMonthRange(date) {
 }
 
 function formatRange(view, anchor) {
+  if (view === 'day') return anchor.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
   if (view === 'week') {
     const { from, to } = getWeekRange(anchor)
     const toDay = new Date(to); toDay.setDate(toDay.getDate() - 1)
     return `${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} — ${toDay.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
   }
-  if (view === 'month') {
-    return anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-  }
-  return 'All time'
+  return anchor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 }
 
-function groupByTime(posts) {
-  const groups = {}
-  for (const p of posts) {
-    const key = new Date(p.scheduled_at).toISOString().slice(0, 16)
-    if (!groups[key]) groups[key] = []
-    groups[key].push(p)
-  }
-  return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]))
+function isSameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
-function summarizeGroup(posts) {
-  const platforms = [...new Set(posts.map(p => PLATFORM_LABELS[p.platform] || p.platform))]
-  const pending = posts.filter(p => p.status === 'pending').length
-  const posted = posts.filter(p => p.status === 'posted').length
-  const failed = posts.filter(p => p.status === 'failed').length
-  const cancelled = posts.filter(p => p.status === 'cancelled').length
-  const parts = []
-  if (posted) parts.push(`${posted} posted`)
-  if (pending) parts.push(`${pending} pending`)
-  if (failed) parts.push(`${failed} failed`)
-  if (cancelled) parts.push(`${cancelled} cancelled`)
-  return { platforms, statusSummary: parts.join(', ') || 'Empty', primaryStatus: pending ? 'pending' : posted ? 'posted' : failed ? 'failed' : 'cancelled' }
+function isToday(date) { return isSameDay(date, new Date()) }
+
+// Platform dot
+function PlatDot({ platform, size = 6 }) {
+  return <span className="inline-block rounded-full flex-shrink-0" style={{ width: size, height: size, background: PLATFORM_COLORS[platform] || '#999' }} title={PLATFORM_LABELS[platform] || platform} />
+}
+
+// Single post row (compact)
+function PostRow({ post, onCancel, onRetry, onDelete }) {
+  const st = STATUS_STYLES[post.status] || STATUS_STYLES.pending
+  const time = new Date(post.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return (
+    <div className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-none">
+      <span className="text-[10px] text-muted min-w-[52px] pt-0.5">{time}</span>
+      <PlatDot platform={post.platform} size={8} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[post.platform] }}>
+            {PLATFORM_LABELS[post.platform] || post.platform}
+          </span>
+          <span className="text-[8px] py-0.5 px-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
+        </div>
+        <div className="text-[9px] text-muted truncate">{post.caption?.slice(0, 80)}</div>
+        {post.error_message && <div className="text-[9px] text-[#c0392b] truncate">{post.error_message}</div>}
+      </div>
+      <div className="flex gap-1 flex-shrink-0">
+        {post.status === 'pending' && <button onClick={() => onCancel(post.uuid)} className="text-[9px] text-[#c0392b] hover:underline">Cancel</button>}
+        {post.status === 'failed' && <button onClick={() => onRetry(post.uuid)} className="text-[9px] text-[#6C5CE7] hover:underline">Retry</button>}
+        {(post.status === 'posted' || post.status === 'failed' || post.status === 'cancelled') && (
+          <button onClick={() => onDelete(post.uuid)} className="text-[9px] text-muted hover:underline">Del</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Day View: timeline for a single day ──
+function DayView({ posts, onCancel, onRetry, onDelete }) {
+  const sorted = [...posts].sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+  if (sorted.length === 0) return <div className="text-xs text-muted py-8 text-center">No posts scheduled</div>
+  return (
+    <div className="px-4 py-2">
+      {sorted.map(p => <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />)}
+    </div>
+  )
+}
+
+// ── Week View: 7-column grid ──
+function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete }) {
+  const { from } = getWeekRange(anchor)
+  const [selectedDay, setSelectedDay] = useState(null)
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(from); d.setDate(d.getDate() + i); return d
+  })
+
+  const postsByDay = days.map(d =>
+    posts.filter(p => isSameDay(new Date(p.scheduled_at), d))
+      .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
+  )
+
+  const handleDayClick = (day, dayPosts) => {
+    if (dayPosts.length === 0) return
+    setSelectedDay(selectedDay && isSameDay(selectedDay, day) ? null : day)
+  }
+
+  return (
+    <div>
+      {/* Day headers */}
+      <div className="grid grid-cols-7 border-b border-border">
+        {days.map((d, i) => (
+          <div key={i} className={`text-center py-1.5 text-[10px] border-r border-border last:border-r-0 ${isToday(d) ? 'bg-[#f3f0ff]' : ''}`}>
+            <div className="text-muted">{DAY_NAMES[d.getDay()]}</div>
+            <div className={`font-medium ${isToday(d) ? 'text-[#6C5CE7]' : 'text-ink'}`}>{d.getDate()}</div>
+          </div>
+        ))}
+      </div>
+      {/* Day cells */}
+      <div className="grid grid-cols-7 min-h-[120px]">
+        {days.map((d, i) => {
+          const dayPosts = postsByDay[i]
+          const isSelected = selectedDay && isSameDay(selectedDay, d)
+          return (
+            <div
+              key={i}
+              onClick={() => handleDayClick(d, dayPosts)}
+              className={`border-r border-border last:border-r-0 p-1 min-h-[100px] cursor-pointer hover:bg-[#fafafa] ${isToday(d) ? 'bg-[#faf8ff]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
+            >
+              {dayPosts.map(p => (
+                <div key={p.uuid} className="flex items-center gap-0.5 mb-0.5">
+                  <PlatDot platform={p.platform} />
+                  <span className="text-[8px] text-muted truncate">
+                    {new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                </div>
+              ))}
+              {dayPosts.length === 0 && <div className="text-[8px] text-border text-center mt-6">—</div>}
+            </div>
+          )
+        })}
+      </div>
+      {/* Expanded day detail */}
+      {selectedDay && (
+        <div className="border-t border-border bg-[#fafafa] px-3 py-2">
+          <div className="text-[10px] font-medium text-ink mb-1">
+            {selectedDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+          {postsByDay[days.findIndex(d => isSameDay(d, selectedDay))]?.map(p => (
+            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Month View: calendar grid ──
+function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
+  const [selectedDay, setSelectedDay] = useState(null)
+  const year = anchor.getFullYear(), month = anchor.getMonth()
+  const firstDay = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  // Build calendar cells: leading blanks + actual days
+  const cells = []
+  for (let i = 0; i < firstDay; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d))
+
+  const getPostsForDay = (d) => d ? posts.filter(p => isSameDay(new Date(p.scheduled_at), d)).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)) : []
+
+  return (
+    <div>
+      {/* Day headers */}
+      <div className="grid grid-cols-7">
+        {DAY_NAMES.map(n => (
+          <div key={n} className="text-center text-[9px] text-muted py-1 border-b border-border">{n}</div>
+        ))}
+      </div>
+      {/* Calendar cells */}
+      <div className="grid grid-cols-7">
+        {cells.map((d, i) => {
+          const dayPosts = getPostsForDay(d)
+          const isSelected = d && selectedDay && isSameDay(selectedDay, d)
+          return (
+            <div
+              key={i}
+              onClick={() => d && dayPosts.length > 0 && setSelectedDay(isSelected ? null : d)}
+              className={`border-b border-r border-border min-h-[48px] md:min-h-[56px] p-0.5 ${d ? 'cursor-pointer hover:bg-[#fafafa]' : 'bg-[#fafafa]'} ${d && isToday(d) ? 'bg-[#faf8ff]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
+            >
+              {d && (
+                <>
+                  <div className={`text-[9px] ${isToday(d) ? 'text-[#6C5CE7] font-medium' : 'text-muted'}`}>{d.getDate()}</div>
+                  <div className="flex flex-wrap gap-px mt-px">
+                    {dayPosts.slice(0, 5).map(p => <PlatDot key={p.uuid} platform={p.platform} />)}
+                    {dayPosts.length > 5 && <span className="text-[7px] text-muted">+{dayPosts.length - 5}</span>}
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {/* Selected day detail */}
+      {selectedDay && (
+        <div className="border-t border-border bg-[#fafafa] px-3 py-2">
+          <div className="text-[10px] font-medium text-ink mb-1">
+            {selectedDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+          {getPostsForDay(selectedDay).map(p => (
+            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function ScheduleModal({ onClose }) {
@@ -72,17 +233,20 @@ export default function ScheduleModal({ onClose }) {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(1)
-  const [expandedTime, setExpandedTime] = useState(null)
-  const LIMIT = 30
+  const LIMIT = 100
 
   const load = useCallback(async () => {
     setLoading(true)
     const params = { page, limit: LIMIT, status: filter }
-    if (view === 'week') {
+    if (view === 'day') {
+      const r = getDayRange(anchor)
+      params.from = r.from.toISOString()
+      params.to = r.to.toISOString()
+    } else if (view === 'week') {
       const r = getWeekRange(anchor)
       params.from = r.from.toISOString()
       params.to = r.to.toISOString()
-    } else if (view === 'month') {
+    } else {
       const r = getMonthRange(anchor)
       params.from = r.from.toISOString()
       params.to = r.to.toISOString()
@@ -100,196 +264,83 @@ export default function ScheduleModal({ onClose }) {
 
   const navigate = (dir) => {
     const d = new Date(anchor)
-    if (view === 'week') d.setDate(d.getDate() + dir * 7)
-    else if (view === 'month') d.setMonth(d.getMonth() + dir)
+    if (view === 'day') d.setDate(d.getDate() + dir)
+    else if (view === 'week') d.setDate(d.getDate() + dir * 7)
+    else d.setMonth(d.getMonth() + dir)
     setAnchor(d)
     setPage(1)
-    setExpandedTime(null)
   }
 
-  const goToday = () => { setAnchor(new Date()); setPage(1); setExpandedTime(null) }
+  const goToday = () => { setAnchor(new Date()); setPage(1) }
 
-  const handleCancel = async (uuid) => {
-    try { await api.cancelScheduledPost(uuid); load() } catch (err) { alert(err.message) }
-  }
-  const handleRetry = async (uuid) => {
-    try { await api.retryScheduledPost(uuid); load() } catch (err) { alert(err.message) }
-  }
-  const handleDelete = async (uuid) => {
-    try { await api.deleteScheduledPost(uuid); load() } catch {}
-  }
-  const handleCancelGroup = async (groupPosts) => {
-    for (const p of groupPosts.filter(p => p.status === 'pending')) {
-      try { await api.cancelScheduledPost(p.uuid) } catch {}
-    }
-    load()
-  }
-
-  const groups = groupByTime(posts)
+  const handleCancel = async (uuid) => { try { await api.cancelScheduledPost(uuid); load() } catch (err) { alert(err.message) } }
+  const handleRetry = async (uuid) => { try { await api.retryScheduledPost(uuid); load() } catch (err) { alert(err.message) } }
+  const handleDelete = async (uuid) => { try { await api.deleteScheduledPost(uuid); load() } catch {} }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[40px] bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-[640px] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20px] md:pt-[40px] bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-[720px] max-h-[90vh] flex flex-col mx-2" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h2 className="text-sm font-medium text-ink">Scheduled Posts</h2>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+          <h2 className="text-sm font-medium text-ink">Schedule</h2>
           <button onClick={onClose} className="text-muted hover:text-ink text-lg leading-none bg-transparent border-none cursor-pointer">&times;</button>
         </div>
 
-        {/* View toggle + date navigation */}
-        <div className="flex items-center justify-between px-5 py-2 border-b border-border bg-[#fafafa]">
+        {/* View toggle + nav */}
+        <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-[#fafafa]">
           <div className="flex gap-1">
             {VIEWS.map(v => (
               <button
                 key={v}
-                onClick={() => { setView(v); setPage(1); setExpandedTime(null) }}
+                onClick={() => { setView(v); setPage(1) }}
                 className={`text-[10px] py-0.5 px-2 rounded border font-sans cursor-pointer capitalize ${
                   view === v ? 'bg-ink text-white border-ink' : 'bg-white text-muted border-border'
                 }`}
               >{v}</button>
             ))}
           </div>
-          {view !== 'all' && (
-            <div className="flex items-center gap-2">
-              <button onClick={() => navigate(-1)} className="text-muted hover:text-ink text-sm bg-transparent border-none cursor-pointer">‹</button>
-              <span className="text-[11px] text-ink font-medium min-w-[140px] text-center">{formatRange(view, anchor)}</span>
-              <button onClick={() => navigate(1)} className="text-muted hover:text-ink text-sm bg-transparent border-none cursor-pointer">›</button>
-              <button onClick={goToday} className="text-[10px] text-[#6C5CE7] hover:underline">Today</button>
-            </div>
-          )}
-          <button onClick={load} className="text-[10px] text-muted hover:underline">Refresh</button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => navigate(-1)} className="text-muted hover:text-ink text-sm bg-transparent border-none cursor-pointer px-1">‹</button>
+            <span className="text-[10px] text-ink font-medium min-w-[100px] md:min-w-[160px] text-center truncate">{formatRange(view, anchor)}</span>
+            <button onClick={() => navigate(1)} className="text-muted hover:text-ink text-sm bg-transparent border-none cursor-pointer px-1">›</button>
+            <button onClick={goToday} className="text-[9px] text-[#6C5CE7] hover:underline">Today</button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] text-muted">{total}</span>
+            <button onClick={load} className="text-[9px] text-muted hover:underline">Refresh</button>
+          </div>
         </div>
 
-        {/* Status filters */}
-        <div className="flex gap-1 px-5 py-1.5 border-b border-border">
+        {/* Filters */}
+        <div className="flex gap-1 px-4 py-1 border-b border-border">
           {FILTERS.map(f => (
             <button
               key={f}
-              onClick={() => { setFilter(f); setPage(1); setExpandedTime(null) }}
-              className={`text-[10px] py-0.5 px-2 rounded-full border font-sans cursor-pointer capitalize ${
-                filter === f ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-muted border-border hover:bg-[#f3f0ff]'
+              onClick={() => { setFilter(f); setPage(1) }}
+              className={`text-[9px] py-0.5 px-1.5 rounded-full border font-sans cursor-pointer capitalize ${
+                filter === f ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-muted border-border'
               }`}
             >{f}</button>
           ))}
-          <span className="text-[10px] text-muted ml-auto self-center">{total} total</span>
         </div>
 
-        {/* Grouped list */}
+        {/* Calendar content */}
         <div className="flex-1 overflow-y-auto">
-          {loading && <div className="text-xs text-muted py-4 text-center">Loading...</div>}
-
-          {!loading && groups.length === 0 && (
-            <div className="text-xs text-muted py-8 text-center">No posts for this period</div>
-          )}
-
-          {groups.map(([timeKey, groupPosts]) => {
-            const date = new Date(timeKey)
-            const { platforms, statusSummary, primaryStatus } = summarizeGroup(groupPosts)
-            const isExpanded = expandedTime === timeKey
-            const st = STATUS_STYLES[primaryStatus] || STATUS_STYLES.pending
-            const previewImg = groupPosts.find(p => p.image_url)?.image_url
-
-            return (
-              <div key={timeKey} className="border-b border-border last:border-none">
-                <button
-                  onClick={() => setExpandedTime(isExpanded ? null : timeKey)}
-                  className="w-full flex items-center gap-3 px-5 py-2.5 hover:bg-[#fafafa] cursor-pointer bg-transparent border-none font-sans text-left"
-                >
-                  {previewImg ? (
-                    <img src={previewImg} className="w-10 h-10 rounded object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-10 h-10 rounded bg-[#f3f0ff] flex items-center justify-center flex-shrink-0">
-                      <span className="text-[10px] text-[#6C5CE7]">{groupPosts.length}</span>
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] font-medium text-ink">
-                        {date.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                      </span>
-                      <span className="text-[9px] py-0.5 px-1.5 rounded-full font-medium" style={{ background: st.bg, color: st.text }}>
-                        {statusSummary}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-muted">
-                      {groupPosts.length} post{groupPosts.length !== 1 ? 's' : ''} — {platforms.join(', ')}
-                    </div>
-                  </div>
-                  <span className="text-muted text-xs flex-shrink-0">{isExpanded ? '▾' : '▸'}</span>
-                </button>
-
-                {isExpanded && (
-                  <div className="px-5 pb-2.5 bg-[#fafafa]">
-                    {groupPosts.filter(p => p.status === 'pending').length > 1 && (
-                      <div className="mb-2">
-                        <button onClick={() => handleCancelGroup(groupPosts)} className="text-[10px] text-red-500 hover:underline">Cancel all in this group</button>
-                      </div>
-                    )}
-                    {groupPosts.map(p => {
-                      const pst = STATUS_STYLES[p.status] || STATUS_STYLES.pending
-                      return (
-                        <div key={p.uuid} className="flex gap-2.5 py-2 border-b border-border/50 last:border-none">
-                          {p.image_url ? (
-                            <img src={p.image_url} className="w-12 h-12 rounded object-cover flex-shrink-0" />
-                          ) : (
-                            <div className="w-12 h-12 rounded bg-white flex items-center justify-center flex-shrink-0 border border-border">
-                              <span className="text-[9px] text-muted">Text</span>
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="text-[11px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
-                                {PLATFORM_LABELS[p.platform] || p.platform}
-                              </span>
-                              <span className="text-[9px] py-0.5 px-1 rounded-full" style={{ background: pst.bg, color: pst.text }}>
-                                {pst.label}
-                              </span>
-                            </div>
-                            {p.title && <div className="text-[10px] font-medium text-ink truncate">{p.title}</div>}
-                            <div className="text-[10px] text-muted truncate" title={p.caption}>
-                              {p.caption.slice(0, 100)}{p.caption.length > 100 ? '...' : ''}
-                            </div>
-                            {p.error_message && (
-                              <div className="text-[10px] text-[#c0392b] mt-0.5 truncate" title={p.error_message}>{p.error_message}</div>
-                            )}
-                            <div className="flex gap-2 mt-1">
-                              {p.status === 'pending' && (
-                                <button onClick={() => handleCancel(p.uuid)} className="text-[10px] text-red-500 hover:underline">Cancel</button>
-                              )}
-                              {p.status === 'failed' && (
-                                <button onClick={() => handleRetry(p.uuid)} className="text-[10px] text-[#6C5CE7] hover:underline">Retry</button>
-                              )}
-                              {(p.status === 'posted' || p.status === 'failed' || p.status === 'cancelled') && (
-                                <button onClick={() => handleDelete(p.uuid)} className="text-[10px] text-muted hover:underline">Remove</button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
+          {loading && <div className="text-xs text-muted py-8 text-center">Loading...</div>}
+          {!loading && view === 'day' && <DayView posts={posts} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
+          {!loading && view === 'week' && <WeekView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
+          {!loading && view === 'month' && <MonthView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
         </div>
 
-        {/* Pagination */}
-        {pages > 1 && (
-          <div className="flex items-center justify-center gap-2 px-5 py-2 border-t border-border">
-            <button
-              onClick={() => setPage(p => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="text-[10px] py-0.5 px-2 border border-border rounded bg-white cursor-pointer disabled:opacity-30"
-            >Prev</button>
-            <span className="text-[10px] text-muted">Page {page} of {pages}</span>
-            <button
-              onClick={() => setPage(p => Math.min(pages, p + 1))}
-              disabled={page >= pages}
-              className="text-[10px] py-0.5 px-2 border border-border rounded bg-white cursor-pointer disabled:opacity-30"
-            >Next</button>
-          </div>
-        )}
+        {/* Legend */}
+        <div className="flex flex-wrap gap-2 px-4 py-1.5 border-t border-border bg-[#fafafa]">
+          {Object.entries(PLATFORM_COLORS).filter(([k]) => PLATFORM_LABELS[k]).map(([k, color]) => (
+            <div key={k} className="flex items-center gap-1">
+              <span className="inline-block w-[6px] h-[6px] rounded-full" style={{ background: color }} />
+              <span className="text-[8px] text-muted">{PLATFORM_LABELS[k]}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
