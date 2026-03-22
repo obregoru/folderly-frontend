@@ -486,15 +486,52 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
       {showSchedule && (
         <div className="mt-2 space-y-2">
           {settings?.posting_schedule?.schedule && (
-            <label className="flex items-center gap-1.5 text-[11px] text-ink cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={useSuggestedTimes}
-                onChange={e => setUseSuggestedTimes(e.target.checked)}
-                className="accent-[#6C5CE7]"
-              />
-              Post at suggested times for each platform
-            </label>
+            <>
+              <label className="flex items-center gap-1.5 text-[11px] text-ink cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={useSuggestedTimes}
+                  onChange={e => setUseSuggestedTimes(e.target.checked)}
+                  className="accent-[#6C5CE7]"
+                />
+                Post at suggested times for each platform
+              </label>
+              {useSuggestedTimes && (
+                <div className="bg-[#f3f0ff] rounded px-2.5 py-1.5 space-y-0.5">
+                  {postable.map(p => {
+                    const schedule = settings.posting_schedule.schedule
+                    const weekStart = targetWeek ? getWeekStart(targetWeek) : null
+                    const platSched = schedule.find(s =>
+                      s.platform.toLowerCase().includes(p.key) || p.key.includes(s.platform.toLowerCase())
+                    )
+                    let slotDate = null, slotLabel = ''
+                    if (platSched?.slots?.length > 0) {
+                      if (weekStart) {
+                        const slots = getAvailableSlots(platSched, weekStart)
+                        if (slots[0]?.date) { slotDate = slots[0].date }
+                      } else {
+                        const slots = platSched.slots
+                          .map(s => ({ ...s, date: getNextSlotDate(s.day, s.time) }))
+                          .filter(s => s.date && s.date > new Date())
+                          .sort((a, b) => a.date - b.date)
+                        if (slots[0]?.date) { slotDate = slots[0].date }
+                      }
+                    }
+                    if (slotDate) {
+                      slotLabel = slotDate.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                    } else {
+                      slotLabel = 'No slot available'
+                    }
+                    return (
+                      <div key={p.key} className="flex items-center gap-2 text-[10px]">
+                        <span className="font-medium min-w-[65px]" style={{ color: PLATFORM_COLORS[p.key] }}>{PLATFORM_LABELS[p.key]}</span>
+                        <span className="text-ink">{slotLabel}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
           )}
           <div className="flex items-center gap-2 flex-wrap">
             {!useSuggestedTimes && (
