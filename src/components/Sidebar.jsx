@@ -620,6 +620,76 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
           </div>
         )}
       </div>
+
+      {/* Posting Schedule */}
+      <PostingSchedule />
+    </div>
+  )
+}
+
+function PostingSchedule() {
+  const [schedule, setSchedule] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [error, setError] = useState('')
+
+  const generate = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await api.getPostingSchedule()
+      if (data.error) { setError(data.error); return }
+      setSchedule(data)
+      setExpanded(true)
+    } catch (err) { setError(err.message) }
+    setLoading(false)
+  }
+
+  const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+  return (
+    <div className="mt-3 pt-2 border-t border-border">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[11px] font-medium text-ink">Best times to post</span>
+        <button
+          onClick={schedule ? () => setExpanded(!expanded) : generate}
+          disabled={loading}
+          className="text-[10px] py-0.5 px-2 border border-sage rounded-sm bg-sage-light text-sage cursor-pointer font-sans hover:bg-sage hover:text-white disabled:opacity-50"
+        >
+          {loading ? 'Analyzing...' : schedule ? (expanded ? 'Hide' : 'Show') : 'Suggest schedule'}
+        </button>
+      </div>
+      {error && <p className="text-[10px] text-[#c0392b]">{error}</p>}
+      {expanded && schedule && (
+        <div className="mt-1 space-y-2">
+          {schedule.schedule?.map((plat, i) => (
+            <div key={i}>
+              <div className="text-[10px] font-medium text-ink mb-0.5">{plat.platform}</div>
+              {plat.slots?.sort((a, b) => dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day)).map((slot, j) => (
+                <div key={j} className="flex items-start gap-1.5 pl-2 py-0.5">
+                  <span className="text-[10px] text-ink font-medium min-w-[65px]">{slot.day}</span>
+                  <span className="text-[10px] text-sage font-medium min-w-[55px]">{slot.time}</span>
+                  <span className="text-[10px] text-muted">{slot.reason}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+          {schedule.tips?.length > 0 && (
+            <div className="mt-1.5 pt-1.5 border-t border-border">
+              <div className="text-[10px] font-medium text-ink mb-0.5">Tips</div>
+              {schedule.tips.map((tip, i) => (
+                <p key={i} className="text-[10px] text-muted pl-2">- {tip}</p>
+              ))}
+            </div>
+          )}
+          {schedule.posting_frequency && (
+            <p className="text-[10px] text-muted italic mt-1">{schedule.posting_frequency}</p>
+          )}
+          <button onClick={generate} disabled={loading} className="text-[10px] text-sage hover:underline mt-1">
+            {loading ? 'Regenerating...' : 'Regenerate'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
