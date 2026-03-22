@@ -203,8 +203,8 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   )
 }
 
-const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress', tiktok: 'TikTok', google: 'Google' }
-const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B', tiktok: '#2D9A5E', google: '#4285F4' }
+const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress', tiktok: 'TikTok', google: 'Google', youtube: 'YouTube', pinterest: 'Pinterest' }
+const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B', tiktok: '#2D9A5E', google: '#4285F4', youtube: '#FF0000', pinterest: '#E60023' }
 
 function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [posting, setPosting] = useState(false)
@@ -236,6 +236,9 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
     if (p.key === 'twitter' && settings?.twitter_connected) return true
     if (p.key === 'google' && settings?.google_connected) return true
     if (p.key === 'blog' && settings?.wp_site_url) return true
+    if (p.key === 'tiktok' && settings?.tiktok_connected) return true
+    if (p.key === 'youtube' && settings?.youtube_connected) return true
+    if (p.key === 'pinterest' && settings?.pinterest_connected) return true
     return false
   })
 
