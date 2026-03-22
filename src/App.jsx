@@ -15,6 +15,15 @@ import RefineModal from './components/RefineModal'
 import AdminPanel from './components/AdminPanel'
 import WeekPlanner from './components/WeekPlanner'
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = window.atob(base64)
+  const arr = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; ++i) arr[i] = raw.charCodeAt(i)
+  return arr
+}
+
 export default function App() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
@@ -93,6 +102,52 @@ export default function App() {
       if (m) api.setTenantSlug(m[1])
     }
   }
+
+  // Register service worker and subscribe to push notifications
+  useEffect(() => {
+    if (!user || !('serviceWorker' in navigator) || !('PushManager' in window)) return
+    let cancelled = false
+
+    async function setupPush() {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js')
+        // Check if already subscribed
+        const existing = await reg.pushManager.getSubscription()
+        if (existing) return // Already subscribed
+
+        // Get VAPID key
+        const { publicKey } = await api.getVapidKey()
+        if (!publicKey || cancelled) return
+
+        // Request permission
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted' || cancelled) return
+
+        // Subscribe
+        const subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        })
+
+        // Save to server
+        await api.subscribePush(subscription.toJSON())
+      } catch (err) {
+        console.error('Push setup error:', err)
+      }
+    }
+
+    // Listen for navigation messages from service worker (notification click)
+    const swListener = (event) => {
+      if (event.data?.type === 'navigate' && event.data.url) {
+        window.location.href = event.data.url
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', swListener)
+
+    // Delay push prompt slightly so it doesn't interrupt initial load
+    const timer = setTimeout(setupPush, 3000)
+    return () => { cancelled = true; clearTimeout(timer); navigator.serviceWorker.removeEventListener('message', swListener) }
+  }, [user])
 
   const showError = msg => { setError(msg); setTimeout(() => setError(null), 7000) }
 

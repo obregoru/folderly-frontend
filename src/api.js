@@ -258,6 +258,16 @@ export const postToWordPress = (title, content, imageBase64, mediaType, category
   postWithDupCheck('/post/wordpress', { title, content, image_base64: imageBase64, media_type: mediaType, category_ids: categoryIds, publish })
 
 // Scheduling
+// Push notifications
+export const getVapidKey = () =>
+  fetch(api('/push/vapid-key'), { credentials: 'include' }).then(r => r.json())
+export const subscribePush = (subscription) =>
+  fetch(api('/push/subscribe'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ subscription }) }).then(r => r.json())
+export const unsubscribePush = (endpoint) =>
+  fetch(api('/push/unsubscribe'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ endpoint }) }).then(r => r.json())
+export const testPush = () =>
+  fetch(api('/push/test'), { method: 'POST', headers: h(), credentials: 'include' }).then(r => r.json())
+
 export const getWeekSummary = (from, weeks = 8) =>
   fetch(api(`/schedule/week-summary?from=${from}&weeks=${weeks}`), { credentials: 'include' }).then(r => r.json())
 
