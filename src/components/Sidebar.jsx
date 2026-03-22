@@ -622,13 +622,13 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
       </div>
 
       {/* Posting Schedule */}
-      <PostingSchedule />
+      <PostingSchedule settings={s} />
     </div>
   )
 }
 
-function PostingSchedule() {
-  const [schedule, setSchedule] = useState(null)
+function PostingSchedule({ settings }) {
+  const [schedule, setSchedule] = useState(settings?.posting_schedule || null)
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [error, setError] = useState('')

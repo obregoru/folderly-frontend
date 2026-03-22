@@ -190,6 +190,7 @@ function PostAllBar({ item, available, settings, apiUrl }) {
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduling, setScheduling] = useState(false)
   const [scheduleStatus, setScheduleStatus] = useState('')
+  const [useSuggestedTimes, setUseSuggestedTimes] = useState(false)
 
   const hasWp = available.some(p => p.key === 'blog') && settings?.wp_site_url
   useEffect(() => {
@@ -315,15 +316,73 @@ function PostAllBar({ item, available, settings, apiUrl }) {
     return posts
   }
 
+  // Find the next occurrence of a day/time slot from now
+  const getNextSlotDate = (day, timeStr) => {
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    const targetDay = dayNames.indexOf(day)
+    if (targetDay === -1) return null
+
+    // Parse time like "11:30 AM" or "7:00 PM"
+    const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+    if (!match) return null
+    let hours = parseInt(match[1])
+    const mins = parseInt(match[2])
+    const ampm = match[3].toUpperCase()
+    if (ampm === 'PM' && hours !== 12) hours += 12
+    if (ampm === 'AM' && hours === 12) hours = 0
+
+    const now = new Date()
+    const result = new Date()
+    result.setHours(hours, mins, 0, 0)
+
+    // Find the next occurrence of this day
+    const currentDay = now.getDay()
+    let daysAhead = targetDay - currentDay
+    if (daysAhead < 0) daysAhead += 7
+    if (daysAhead === 0 && result <= now) daysAhead = 7
+    result.setDate(result.getDate() + daysAhead)
+
+    return result
+  }
+
   const handleScheduleAll = async () => {
-    if (!scheduleDate) return
     setScheduling(true)
     setScheduleStatus('')
     try {
       const api = await import('../api')
       const posts = await buildPostsPayload()
-      const result = await api.schedulePosts(posts, new Date(scheduleDate).toISOString())
-      setScheduleStatus(`Scheduled ${result.scheduled.length} posts`)
+
+      if (useSuggestedTimes && settings?.posting_schedule?.schedule) {
+        // Schedule each platform at its next suggested time
+        const schedule = settings.posting_schedule.schedule
+        let totalScheduled = 0
+        for (const post of posts) {
+          const platSchedule = schedule.find(s =>
+            s.platform.toLowerCase().includes(post.platform) ||
+            post.platform.includes(s.platform.toLowerCase())
+          )
+          if (platSchedule?.slots?.length > 0) {
+            // Find the nearest future slot
+            const slotDates = platSchedule.slots
+              .map(s => ({ ...s, date: getNextSlotDate(s.day, s.time) }))
+              .filter(s => s.date && s.date > new Date())
+              .sort((a, b) => a.date - b.date)
+
+            const targetDate = slotDates[0]?.date || new Date(Date.now() + 3600000)
+            const result = await api.schedulePosts([post], targetDate.toISOString())
+            totalScheduled += result.scheduled?.length || 0
+          } else {
+            // No schedule for this platform — schedule 1 hour from now
+            const result = await api.schedulePosts([post], new Date(Date.now() + 3600000).toISOString())
+            totalScheduled += result.scheduled?.length || 0
+          }
+        }
+        setScheduleStatus(`Scheduled ${totalScheduled} posts at suggested times`)
+      } else {
+        if (!scheduleDate) { setScheduling(false); return }
+        const result = await api.schedulePosts(posts, new Date(scheduleDate).toISOString())
+        setScheduleStatus(`Scheduled ${result.scheduled.length} posts`)
+      }
       setShowSchedule(false)
       setScheduleDate('')
       setTimeout(() => setScheduleStatus(''), 4000)
@@ -390,25 +449,40 @@ function PostAllBar({ item, available, settings, apiUrl }) {
         })}
       </div>
       {showSchedule && (
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
-          <input
-            type="datetime-local"
-            value={scheduleDate}
-            onChange={e => setScheduleDate(e.target.value)}
-            min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
-            className="text-xs border border-border rounded px-2 py-1 bg-white"
-          />
-          <button
-            onClick={handleScheduleAll}
-            disabled={scheduling || !scheduleDate}
-            className="text-[11px] py-1 px-2.5 rounded-sm bg-[#6C5CE7] text-white cursor-pointer font-sans hover:bg-[#5a4bd6] disabled:opacity-50 border-none"
-          >
-            {scheduling ? 'Scheduling...' : `Schedule All (${postable.length})`}
-          </button>
-          <button
-            onClick={() => { setShowSchedule(false); setScheduleDate('') }}
-            className="text-[10px] text-muted hover:underline"
-          >Cancel</button>
+        <div className="mt-2 space-y-2">
+          {settings?.posting_schedule?.schedule && (
+            <label className="flex items-center gap-1.5 text-[11px] text-ink cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={useSuggestedTimes}
+                onChange={e => setUseSuggestedTimes(e.target.checked)}
+                className="accent-[#6C5CE7]"
+              />
+              Post at suggested times for each platform
+            </label>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {!useSuggestedTimes && (
+              <input
+                type="datetime-local"
+                value={scheduleDate}
+                onChange={e => setScheduleDate(e.target.value)}
+                min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                className="text-xs border border-border rounded px-2 py-1 bg-white"
+              />
+            )}
+            <button
+              onClick={handleScheduleAll}
+              disabled={scheduling || (!useSuggestedTimes && !scheduleDate)}
+              className="text-[11px] py-1 px-2.5 rounded-sm bg-[#6C5CE7] text-white cursor-pointer font-sans hover:bg-[#5a4bd6] disabled:opacity-50 border-none"
+            >
+              {scheduling ? 'Scheduling...' : useSuggestedTimes ? `Schedule at best times (${postable.length})` : `Schedule All (${postable.length})`}
+            </button>
+            <button
+              onClick={() => { setShowSchedule(false); setScheduleDate(''); setUseSuggestedTimes(false) }}
+              className="text-[10px] text-muted hover:underline"
+            >Cancel</button>
+          </div>
         </div>
       )}
     </div>
