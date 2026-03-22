@@ -55,23 +55,67 @@ function PlatDot({ platform, size = 6 }) {
   return <span className="inline-block rounded-full flex-shrink-0" style={{ width: size, height: size, background: PLATFORM_COLORS[platform] || '#999' }} title={PLATFORM_LABELS[platform] || platform} />
 }
 
+// Media type helpers
+function getMediaType(post) {
+  if (!post.media_type && !post.image_url) return 'text'
+  const mt = post.media_type || ''
+  if (mt.startsWith('video/')) return 'video'
+  if (post.platform === 'youtube' || post.platform === 'youtube_shorts') return 'short'
+  return 'image'
+}
+const MEDIA_BADGES = {
+  image: { label: 'Image', bg: '#e8efe9', text: '#2D9A5E' },
+  video: { label: 'Video', bg: '#fff3cd', text: '#856404' },
+  short: { label: 'Short', bg: '#fdeaea', text: '#FF0000' },
+  text: { label: 'Text', bg: '#f5f5f5', text: '#999' },
+}
+
+// Lightbox for viewing scheduled media
+function MediaLightbox({ url, mediaType, onClose }) {
+  const isVideo = mediaType?.startsWith('video/')
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="relative max-w-[90vw] max-h-[85vh]" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10">&times;</button>
+        {isVideo ? (
+          <video src={url} controls autoPlay playsInline className="max-w-full max-h-[80vh] rounded" />
+        ) : (
+          <img src={url} className="max-w-full max-h-[80vh] rounded object-contain" />
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Single post row — tap to expand and see full details
 function PostRow({ post, onCancel, onRetry, onDelete }) {
   const [expanded, setExpanded] = useState(false)
+  const [showMedia, setShowMedia] = useState(false)
   const st = STATUS_STYLES[post.status] || STATUS_STYLES.pending
   const time = new Date(post.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
   const fullDate = new Date(post.scheduled_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const mType = getMediaType(post)
+  const mBadge = MEDIA_BADGES[mType]
+  const isStory = post.platform?.includes('story')
+
   return (
     <div className="border-b border-border/30 last:border-none">
+      {/* Media lightbox */}
+      {showMedia && post.image_url && (
+        <MediaLightbox url={post.image_url} mediaType={post.media_type} onClose={() => setShowMedia(false)} />
+      )}
+
       {/* Compact row — tap to expand */}
       <div className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-[#fafafa]" onClick={() => setExpanded(!expanded)}>
         <span className="text-[10px] text-muted min-w-[52px] pt-0.5">{time}</span>
-        <PlatDot platform={post.platform} size={8} />
+        <PlatDot platform={post.platform?.replace('_story', '')} size={8} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[post.platform] }}>
-              {PLATFORM_LABELS[post.platform] || post.platform}
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[post.platform?.replace('_story', '')] }}>
+              {PLATFORM_LABELS[post.platform?.replace('_story', '')] || post.platform}
             </span>
+            {isStory && <span className="text-[8px] py-0.5 px-1 rounded-full bg-[#f3e8ff] text-[#9333ea]">Story</span>}
+            <span className="text-[8px] py-0.5 px-1 rounded-full" style={{ background: mBadge.bg, color: mBadge.text }}>{mBadge.label}</span>
             <span className="text-[8px] py-0.5 px-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
           </div>
           <div className="text-[9px] text-muted truncate">{post.caption?.slice(0, 80)}</div>
@@ -82,15 +126,33 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
       {/* Expanded detail */}
       {expanded && (
         <div className="pb-2 pl-[60px] pr-2">
-          {/* Image/video preview */}
+          {/* Media preview — click to open lightbox */}
           {post.image_url && (
-            <img src={post.image_url} className="w-full max-w-[200px] h-auto rounded mb-1.5 object-cover" />
+            <div
+              onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
+              className="relative cursor-pointer group mb-1.5 inline-block"
+            >
+              {mType === 'video' || mType === 'short' ? (
+                <div className="relative">
+                  <img src={post.image_url} className="max-w-[200px] h-auto rounded object-cover group-hover:opacity-80" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="w-10 h-10 rounded-full bg-black/60 text-white text-lg flex items-center justify-center">▶</span>
+                  </div>
+                </div>
+              ) : (
+                <img src={post.image_url} className="max-w-[200px] h-auto rounded object-cover group-hover:opacity-80" />
+              )}
+              <span className="text-[8px] text-muted mt-0.5 block">Tap to view full size</span>
+            </div>
           )}
 
           {/* Full details */}
           <div className="text-[10px] text-ink mb-1">
-            <span className="font-medium" style={{ color: PLATFORM_COLORS[post.platform] }}>{PLATFORM_LABELS[post.platform] || post.platform}</span>
-            {post.platform.includes('story') && <span className="text-[9px] text-muted ml-1">(Story)</span>}
+            <span className="font-medium" style={{ color: PLATFORM_COLORS[post.platform?.replace('_story', '')] }}>
+              {PLATFORM_LABELS[post.platform?.replace('_story', '')] || post.platform}
+            </span>
+            {isStory && <span className="text-[9px] text-[#9333ea] ml-1">(Story)</span>}
+            <span className="text-[9px] text-muted ml-1">({mBadge.label})</span>
           </div>
           <div className="text-[10px] text-muted mb-1">{fullDate}</div>
 
@@ -105,13 +167,18 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
             <div className="text-[10px] text-[#c0392b] bg-[#fdeaea] rounded p-1.5 mb-1.5">{post.error_message}</div>
           )}
 
-          {/* Copy caption button */}
+          {/* Actions */}
           <div className="flex gap-2 items-center flex-wrap">
             <button
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(post.caption); }}
               className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
             >Copy caption</button>
-
+            {post.image_url && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
+                className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
+              >{mType === 'video' || mType === 'short' ? 'Play video' : 'View image'}</button>
+            )}
             {post.status === 'pending' && (
               <button onClick={(e) => { e.stopPropagation(); onCancel(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Cancel</button>
             )}
