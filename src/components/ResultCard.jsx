@@ -82,13 +82,39 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
     : (item.uploadResult?.thumbnail_path
       ? (item.uploadResult.thumbnail_path.startsWith('http') ? item.uploadResult.thumbnail_path : `/uploads/${item.uploadResult.thumbnail_path}`)
       : null)
+  const isVideo = item.file?.type?.startsWith('video/')
+  const [showPreview, setShowPreview] = useState(false)
 
   return (
     <div className="bg-white border border-border rounded mb-2.5">
+      {/* Media preview lightbox */}
+      {showPreview && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setShowPreview(false)}>
+          <div className="relative max-w-[90vw] max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowPreview(false)} className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10">&times;</button>
+            {isVideo ? (
+              <video
+                src={URL.createObjectURL(item.file)}
+                controls
+                autoPlay
+                playsInline
+                className="max-w-full max-h-[80vh] rounded"
+              />
+            ) : (
+              <img
+                src={thumbSrc}
+                className="max-w-full max-h-[80vh] rounded object-contain"
+              />
+            )}
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center gap-2.5 py-2.5 px-3.5 border-b border-border bg-cream">
         {thumbSrc ? (
-          <img src={thumbSrc} className="w-9 h-9 rounded-sm object-cover flex-shrink-0" />
+          <img src={thumbSrc} onClick={() => setShowPreview(true)} className="w-9 h-9 rounded-sm object-cover flex-shrink-0 cursor-pointer hover:opacity-80" />
+        ) : isVideo ? (
+          <div onClick={() => setShowPreview(true)} className="w-9 h-9 rounded-sm bg-ink flex items-center justify-center text-white text-[13px] flex-shrink-0 cursor-pointer hover:bg-[#333]">▶</div>
         ) : (
           <div className="w-9 h-9 rounded-sm bg-ink flex items-center justify-center text-white text-[13px] flex-shrink-0">▶</div>
         )}
