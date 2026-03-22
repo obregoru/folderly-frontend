@@ -116,7 +116,11 @@ export default function App() {
         if (existing) return // Already subscribed
 
         // Get VAPID key
-        const { publicKey } = await api.getVapidKey()
+        let publicKey
+        try {
+          const vapidData = await api.getVapidKey()
+          publicKey = vapidData?.publicKey
+        } catch { return }
         if (!publicKey || cancelled) return
 
         // Request permission
@@ -206,7 +210,9 @@ export default function App() {
   const genCaptions = async (item, batchId) => {
     // Upload file first
     let videoThumb = null
-    if (!item.isImg) videoThumb = await captureVideoFrame(item.file)
+    if (!item.isImg) {
+      try { videoThumb = await captureVideoFrame(item.file) } catch { videoThumb = null }
+    }
 
     const uploadResult = await api.uploadFile(
       item.file,
@@ -284,7 +290,7 @@ export default function App() {
     }
 
     setGenerating(true)
-    // hint is saved server-side in generate endpoint
+    if (userHint) localStorage.setItem('posty_last_hint', userHint)
     try {
       const batch = await api.createBatch(folderCtx?.name, files.length)
       for (let i = 0; i < files.length; i++) {
@@ -405,8 +411,8 @@ export default function App() {
           <div className="md:hidden">
             <div className="flex items-center justify-between">
               <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span></label>
-              {!userHint && settings.last_hint && (
-                <button onClick={() => setUserHint(settings.last_hint)} className="text-[11px] text-sage hover:underline">Reuse last</button>
+              {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
+                <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[11px] text-sage hover:underline">Reuse last</button>
               )}
             </div>
             <textarea
@@ -435,8 +441,8 @@ export default function App() {
           <div className="hidden md:block">
             <div className="flex items-center justify-between">
               <label className="text-[11px] text-muted">Context hint <span className="italic text-[10px]">(optional — tell the AI what's happening)</span></label>
-              {!userHint && settings.last_hint && (
-                <button onClick={() => setUserHint(settings.last_hint)} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
+              {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
+                <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
               )}
             </div>
             <textarea
