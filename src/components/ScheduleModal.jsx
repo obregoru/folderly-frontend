@@ -102,7 +102,15 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
     <div className="border-b border-border/30 last:border-none">
       {/* Media lightbox */}
       {showMedia && post.image_url && (
-        <MediaLightbox url={post.image_url} mediaType={post.media_type} onClose={() => setShowMedia(false)} />
+        <MediaLightbox url={post.image_url} mediaType={post.media_type || ''} onClose={() => setShowMedia(false)} />
+      )}
+      {showMedia && !post.image_url && (
+        <div className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4" onClick={() => setShowMedia(false)}>
+          <div className="bg-white rounded p-6 text-center" onClick={e => e.stopPropagation()}>
+            <p className="text-sm text-muted">No media preview available</p>
+            <button onClick={() => setShowMedia(false)} className="mt-2 text-[10px] text-sage hover:underline">Close</button>
+          </div>
+        </div>
       )}
 
       {/* Compact row — tap to expand */}
@@ -173,20 +181,21 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(post.caption); }}
               className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
             >Copy caption</button>
-            {post.image_url && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
-                className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
-              >{mType === 'video' || mType === 'short' ? 'Play video' : 'View image'}</button>
-            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
+              className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
+            >{mType === 'video' || mType === 'short' ? 'Play video' : 'View media'}</button>
             {post.status === 'pending' && (
-              <button onClick={(e) => { e.stopPropagation(); onCancel(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Cancel</button>
+              <button onClick={(e) => { e.stopPropagation(); if (confirm('Remove this scheduled post?')) onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Remove</button>
             )}
             {post.status === 'failed' && (
-              <button onClick={(e) => { e.stopPropagation(); onRetry(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Retry</button>
+              <>
+                <button onClick={(e) => { e.stopPropagation(); onRetry(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Retry</button>
+                <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
+              </>
             )}
-            {(post.status === 'posted' || post.status === 'failed' || post.status === 'cancelled') && (
-              <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Delete</button>
+            {(post.status === 'posted' || post.status === 'cancelled') && (
+              <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
             )}
           </div>
         </div>
