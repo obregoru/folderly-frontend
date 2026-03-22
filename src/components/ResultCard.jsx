@@ -326,6 +326,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
       if (!caption) continue
 
       let imageBase64 = null, mediaType = null
+      const isVideo = item.file?.type?.startsWith('video/')
       if (item.isImg && item.file) {
         const cropRatio = PLATFORM_CROPS[p.key]
         if (cropRatio) {
@@ -339,6 +340,9 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
           })
           mediaType = 'image/jpeg'
         }
+      } else if (isVideo && item.file) {
+        try { imageBase64 = await fileToBase64(item.file) } catch { imageBase64 = null }
+        mediaType = item.file.type
       }
 
       const post = { platform: p.key, caption, image_base64: imageBase64, media_type: mediaType }
