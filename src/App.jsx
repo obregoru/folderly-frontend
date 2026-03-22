@@ -211,6 +211,7 @@ export default function App() {
   const runAll = async () => {
     if (!files.length) return
     setGenerating(true)
+    if (userHint) localStorage.setItem('posty_last_hint', userHint)
     try {
       const batch = await api.createBatch(folderCtx?.name, files.length)
       for (let i = 0; i < files.length; i++) {
@@ -329,7 +330,12 @@ export default function App() {
         <main className="flex-1 p-3 md:p-5 overflow-y-auto overflow-x-hidden flex flex-col gap-3 md:gap-4 max-w-full md:max-w-[640px] mx-auto w-full min-w-0">
           {/* Mobile: content hint first (primary brief method on mobile) */}
           <div className="md:hidden">
-            <label className="text-[13px] text-ink font-medium">Describe this photo</label>
+            <div className="flex items-center justify-between">
+              <label className="text-[13px] text-ink font-medium">Describe this photo</label>
+              {!userHint && localStorage.getItem('posty_last_hint') && (
+                <button onClick={() => setUserHint(localStorage.getItem('posty_last_hint'))} className="text-[11px] text-sage hover:underline">Reuse last</button>
+              )}
+            </div>
             <textarea
               rows={3}
               value={userHint}
@@ -352,7 +358,12 @@ export default function App() {
 
           {/* Desktop: context hint */}
           <div className="hidden md:block">
-            <label className="text-[11px] text-muted">Context hint <span className="italic text-[10px]">(optional — tell the AI what's happening)</span></label>
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] text-muted">Context hint <span className="italic text-[10px]">(optional — tell the AI what's happening)</span></label>
+              {!userHint && localStorage.getItem('posty_last_hint') && (
+                <button onClick={() => setUserHint(localStorage.getItem('posty_last_hint'))} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
+              )}
+            </div>
             <textarea
               rows={2}
               value={userHint}
