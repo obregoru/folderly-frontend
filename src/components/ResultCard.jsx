@@ -229,14 +229,14 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
     }
   }, [hasWp, wpCatsLoaded])
 
-  // Determine which platforms can actually post
+  // Determine which platforms can post or should be scheduled (even if manual-only)
   const postable = available.filter(p => {
     if (p.key === 'facebook' && settings?.fb_connected) return true
     if (p.key === 'instagram' && settings?.ig_connected) return true
     if (p.key === 'twitter' && settings?.twitter_connected) return true
     if (p.key === 'google' && settings?.google_connected) return true
     if (p.key === 'blog' && settings?.wp_site_url) return true
-    if (p.key === 'tiktok' && settings?.tiktok_connected) return true
+    if (p.key === 'tiktok') return true // Always include — manual posting with notifications
     if (p.key === 'youtube' && settings?.youtube_connected) return true
     if (p.key === 'pinterest' && settings?.pinterest_connected) return true
     return false
