@@ -114,26 +114,26 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
       )}
 
       {/* Compact row — tap to expand */}
-      <div className="flex items-start gap-2 py-1.5 cursor-pointer hover:bg-[#fafafa]" onClick={() => setExpanded(!expanded)}>
-        <span className="text-[10px] text-muted min-w-[52px] pt-0.5">{time}</span>
+      <div className="flex items-start gap-2 md:gap-3 py-1.5 md:py-2.5 cursor-pointer hover:bg-[#fafafa]" onClick={() => setExpanded(!expanded)}>
+        <span className="text-[10px] md:text-xs text-muted min-w-[52px] md:min-w-[60px] pt-0.5">{time}</span>
         <PlatDot platform={post.platform?.replace('_story', '')} size={8} />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 flex-wrap">
-            <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[post.platform?.replace('_story', '')] }}>
+          <div className="flex items-center gap-1 md:gap-1.5 flex-wrap">
+            <span className="text-[10px] md:text-sm font-medium" style={{ color: PLATFORM_COLORS[post.platform?.replace('_story', '')] }}>
               {PLATFORM_LABELS[post.platform?.replace('_story', '')] || post.platform}
             </span>
-            {isStory && <span className="text-[8px] py-0.5 px-1 rounded-full bg-[#f3e8ff] text-[#9333ea]">Story</span>}
-            <span className="text-[8px] py-0.5 px-1 rounded-full" style={{ background: mBadge.bg, color: mBadge.text }}>{mBadge.label}</span>
-            <span className="text-[8px] py-0.5 px-1 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
+            {isStory && <span className="text-[8px] md:text-[10px] py-0.5 px-1 md:px-1.5 rounded-full bg-[#f3e8ff] text-[#9333ea]">Story</span>}
+            <span className="text-[8px] md:text-[10px] py-0.5 px-1 md:px-1.5 rounded-full" style={{ background: mBadge.bg, color: mBadge.text }}>{mBadge.label}</span>
+            <span className="text-[8px] md:text-[10px] py-0.5 px-1 md:px-1.5 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
           </div>
-          <div className="text-[9px] text-muted truncate">{post.caption?.slice(0, 80)}</div>
+          <div className="text-[9px] md:text-xs text-muted truncate">{post.caption?.slice(0, 80)}</div>
         </div>
-        <span className="text-[9px] text-muted flex-shrink-0 pt-0.5">{expanded ? '▾' : '▸'}</span>
+        <span className="text-[9px] md:text-xs text-muted flex-shrink-0 pt-0.5">{expanded ? '▾' : '▸'}</span>
       </div>
 
       {/* Expanded detail */}
       {expanded && (
-        <div className="pb-2 pl-[60px] pr-2">
+        <div className="pb-2 md:pb-3 pl-[60px] md:pl-[76px] pr-2 md:pr-4">
           {/* Media preview — click to open lightbox */}
           {post.image_url && (
             <div
@@ -155,19 +155,19 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
           )}
 
           {/* Full details */}
-          <div className="text-[10px] text-ink mb-1">
+          <div className="text-[10px] md:text-sm text-ink mb-1">
             <span className="font-medium" style={{ color: PLATFORM_COLORS[post.platform?.replace('_story', '')] }}>
               {PLATFORM_LABELS[post.platform?.replace('_story', '')] || post.platform}
             </span>
-            {isStory && <span className="text-[9px] text-[#9333ea] ml-1">(Story)</span>}
-            <span className="text-[9px] text-muted ml-1">({mBadge.label})</span>
+            {isStory && <span className="text-[9px] md:text-xs text-[#9333ea] ml-1">(Story)</span>}
+            <span className="text-[9px] md:text-xs text-muted ml-1">({mBadge.label})</span>
           </div>
-          <div className="text-[10px] text-muted mb-1">{fullDate}</div>
+          <div className="text-[10px] md:text-xs text-muted mb-1">{fullDate}</div>
 
-          {post.title && <div className="text-[10px] font-medium text-ink mb-0.5">{post.title}</div>}
+          {post.title && <div className="text-[10px] md:text-sm font-medium text-ink mb-0.5">{post.title}</div>}
 
           {/* Full caption */}
-          <div className="text-[10px] text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 mb-1.5 max-h-[150px] overflow-y-auto">
+          <div className="text-[10px] md:text-sm text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 md:p-3 mb-1.5 max-h-[150px] md:max-h-[250px] overflow-y-auto">
             {post.caption}
           </div>
 
@@ -179,23 +179,23 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
           <div className="flex gap-2 items-center flex-wrap">
             <button
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(post.caption); }}
-              className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
+              className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
             >Copy caption</button>
             <button
               onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
-              className="text-[9px] py-0.5 px-2 border border-border rounded bg-white hover:bg-cream cursor-pointer"
+              className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
             >{mType === 'video' || mType === 'short' ? 'Play video' : 'View media'}</button>
             {post.status === 'pending' && (
-              <button onClick={(e) => { e.stopPropagation(); if (confirm('Remove this scheduled post?')) onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Remove</button>
+              <button onClick={(e) => { e.stopPropagation(); if (confirm('Remove this scheduled post?')) onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Remove</button>
             )}
             {post.status === 'failed' && (
               <>
-                <button onClick={(e) => { e.stopPropagation(); onRetry(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Retry</button>
-                <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
+                <button onClick={(e) => { e.stopPropagation(); onRetry(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Retry</button>
+                <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
               </>
             )}
             {(post.status === 'posted' || post.status === 'cancelled') && (
-              <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] py-0.5 px-2 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
+              <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
             )}
           </div>
         </div>
@@ -238,14 +238,14 @@ function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete }) {
       {/* Day headers */}
       <div className="grid grid-cols-7 border-b border-border">
         {days.map((d, i) => (
-          <div key={i} className={`text-center py-1.5 text-[10px] border-r border-border last:border-r-0 ${isToday(d) ? 'bg-[#f3f0ff]' : ''}`}>
+          <div key={i} className={`text-center py-1.5 md:py-2 text-[10px] md:text-xs border-r border-border last:border-r-0 ${isToday(d) ? 'bg-[#f3f0ff]' : ''}`}>
             <div className="text-muted">{DAY_NAMES[d.getDay()]}</div>
             <div className={`font-medium ${isToday(d) ? 'text-[#6C5CE7]' : 'text-ink'}`}>{d.getDate()}</div>
           </div>
         ))}
       </div>
       {/* Day cells */}
-      <div className="grid grid-cols-7 min-h-[120px]">
+      <div className="grid grid-cols-7 min-h-[120px] md:min-h-[180px]">
         {days.map((d, i) => {
           const dayPosts = postsByDay[i]
           const isSelected = selectedDay && isSameDay(selectedDay, d)
@@ -256,14 +256,14 @@ function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete }) {
               className={`border-r border-border last:border-r-0 p-1 min-h-[100px] cursor-pointer hover:bg-[#fafafa] ${isToday(d) ? 'bg-[#faf8ff]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
             >
               {dayPosts.map(p => (
-                <div key={p.uuid} className="flex items-center gap-0.5 mb-0.5">
+                <div key={p.uuid} className="flex items-center gap-0.5 md:gap-1 mb-0.5 md:mb-1">
                   <PlatDot platform={p.platform} />
-                  <span className="text-[8px] text-muted truncate">
+                  <span className="text-[8px] md:text-[11px] text-muted truncate">
                     {new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                   </span>
                 </div>
               ))}
-              {dayPosts.length === 0 && <div className="text-[8px] text-border text-center mt-6">—</div>}
+              {dayPosts.length === 0 && <div className="text-[8px] md:text-xs text-border text-center mt-6 md:mt-10">—</div>}
             </div>
           )
         })}
@@ -302,7 +302,7 @@ function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
       {/* Day headers */}
       <div className="grid grid-cols-7">
         {DAY_NAMES.map(n => (
-          <div key={n} className="text-center text-[9px] text-muted py-1 border-b border-border">{n}</div>
+          <div key={n} className="text-center text-[9px] md:text-xs text-muted py-1 md:py-1.5 border-b border-border">{n}</div>
         ))}
       </div>
       {/* Calendar cells */}
@@ -314,11 +314,11 @@ function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
             <div
               key={i}
               onClick={() => d && dayPosts.length > 0 && setSelectedDay(isSelected ? null : d)}
-              className={`border-b border-r border-border min-h-[48px] md:min-h-[56px] p-0.5 ${d ? 'cursor-pointer hover:bg-[#fafafa]' : 'bg-[#fafafa]'} ${d && isToday(d) ? 'bg-[#faf8ff]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
+              className={`border-b border-r border-border min-h-[48px] md:min-h-[72px] p-0.5 md:p-1 ${d ? 'cursor-pointer hover:bg-[#fafafa]' : 'bg-[#fafafa]'} ${d && isToday(d) ? 'bg-[#faf8ff]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
             >
               {d && (
                 <>
-                  <div className={`text-[9px] ${isToday(d) ? 'text-[#6C5CE7] font-medium' : 'text-muted'}`}>{d.getDate()}</div>
+                  <div className={`text-[9px] md:text-xs ${isToday(d) ? 'text-[#6C5CE7] font-medium' : 'text-muted'}`}>{d.getDate()}</div>
                   <div className="flex flex-wrap gap-px mt-px">
                     {dayPosts.slice(0, 5).map(p => <PlatDot key={p.uuid} platform={p.platform} />)}
                     {dayPosts.length > 5 && <span className="text-[7px] text-muted">+{dayPosts.length - 5}</span>}
@@ -399,45 +399,45 @@ export default function ScheduleModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20px] md:pt-[40px] bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-[720px] max-h-[90vh] flex flex-col mx-2" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-[720px] md:max-w-[900px] max-h-[90vh] flex flex-col mx-2" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-          <h2 className="text-sm font-medium text-ink">Schedule</h2>
-          <button onClick={onClose} className="text-muted hover:text-ink text-lg leading-none bg-transparent border-none cursor-pointer">&times;</button>
+        <div className="flex items-center justify-between px-4 md:px-6 py-2.5 md:py-3.5 border-b border-border">
+          <h2 className="text-sm md:text-base font-medium text-ink">Schedule</h2>
+          <button onClick={onClose} className="text-muted hover:text-ink text-lg md:text-xl leading-none bg-transparent border-none cursor-pointer">&times;</button>
         </div>
 
         {/* View toggle + nav */}
-        <div className="flex items-center justify-between px-4 py-1.5 border-b border-border bg-[#fafafa]">
-          <div className="flex gap-1">
+        <div className="flex items-center justify-between px-4 md:px-6 py-1.5 md:py-2.5 border-b border-border bg-[#fafafa]">
+          <div className="flex gap-1 md:gap-1.5">
             {VIEWS.map(v => (
               <button
                 key={v}
                 onClick={() => { setView(v); setPage(1) }}
-                className={`text-[10px] py-0.5 px-2 rounded border font-sans cursor-pointer capitalize ${
+                className={`text-[10px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 rounded border font-sans cursor-pointer capitalize ${
                   view === v ? 'bg-ink text-white border-ink' : 'bg-white text-muted border-border'
                 }`}
               >{v}</button>
             ))}
           </div>
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => navigate(-1)} className="text-muted hover:text-ink text-sm bg-transparent border-none cursor-pointer px-1">‹</button>
-            <span className="text-[10px] text-ink font-medium min-w-[100px] md:min-w-[160px] text-center truncate">{formatRange(view, anchor)}</span>
-            <button onClick={() => navigate(1)} className="text-muted hover:text-ink text-sm bg-transparent border-none cursor-pointer px-1">›</button>
-            <button onClick={goToday} className="text-[9px] text-[#6C5CE7] hover:underline">Today</button>
+          <div className="flex items-center gap-1.5 md:gap-2">
+            <button onClick={() => navigate(-1)} className="text-muted hover:text-ink text-sm md:text-base bg-transparent border-none cursor-pointer px-1">‹</button>
+            <span className="text-[10px] md:text-sm text-ink font-medium min-w-[100px] md:min-w-[200px] text-center truncate">{formatRange(view, anchor)}</span>
+            <button onClick={() => navigate(1)} className="text-muted hover:text-ink text-sm md:text-base bg-transparent border-none cursor-pointer px-1">›</button>
+            <button onClick={goToday} className="text-[9px] md:text-xs text-[#6C5CE7] hover:underline">Today</button>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[9px] text-muted">{total}</span>
-            <button onClick={load} className="text-[9px] text-muted hover:underline">Refresh</button>
+            <span className="text-[9px] md:text-xs text-muted">{total}</span>
+            <button onClick={load} className="text-[9px] md:text-xs text-muted hover:underline">Refresh</button>
           </div>
         </div>
 
         {/* Filters */}
-        <div className="flex gap-1 px-4 py-1 border-b border-border">
+        <div className="flex gap-1 md:gap-1.5 px-4 md:px-6 py-1 md:py-2 border-b border-border">
           {FILTERS.map(f => (
             <button
               key={f}
               onClick={() => { setFilter(f); setPage(1) }}
-              className={`text-[9px] py-0.5 px-1.5 rounded-full border font-sans cursor-pointer capitalize ${
+              className={`text-[9px] md:text-xs py-0.5 md:py-1 px-1.5 md:px-2.5 rounded-full border font-sans cursor-pointer capitalize ${
                 filter === f ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-muted border-border'
               }`}
             >{f}</button>
@@ -453,11 +453,11 @@ export default function ScheduleModal({ onClose }) {
         </div>
 
         {/* Legend */}
-        <div className="flex flex-wrap gap-2 px-4 py-1.5 border-t border-border bg-[#fafafa]">
+        <div className="flex flex-wrap gap-2 md:gap-3 px-4 md:px-6 py-1.5 md:py-2 border-t border-border bg-[#fafafa]">
           {Object.entries(PLATFORM_COLORS).filter(([k]) => PLATFORM_LABELS[k]).map(([k, color]) => (
             <div key={k} className="flex items-center gap-1">
-              <span className="inline-block w-[6px] h-[6px] rounded-full" style={{ background: color }} />
-              <span className="text-[8px] text-muted">{PLATFORM_LABELS[k]}</span>
+              <span className="inline-block w-[6px] md:w-[8px] h-[6px] md:h-[8px] rounded-full" style={{ background: color }} />
+              <span className="text-[8px] md:text-[11px] text-muted">{PLATFORM_LABELS[k]}</span>
             </div>
           ))}
         </div>
