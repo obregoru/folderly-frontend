@@ -406,7 +406,7 @@ export default function App() {
         />
         </div>
 
-        <main className="flex-1 p-3 md:p-5 overflow-y-auto overflow-x-hidden flex flex-col gap-3 md:gap-4 max-w-full md:max-w-[640px] mx-auto w-full min-w-0">
+        <main className="flex-1 p-3 md:p-5 pb-24 md:pb-32 overflow-y-auto overflow-x-hidden flex flex-col gap-3 md:gap-4 max-w-full md:max-w-[640px] mx-auto w-full min-w-0">
           {/* Mobile: content hint first (primary brief method on mobile) */}
           <div className="md:hidden">
             <div className="flex items-center justify-between">
