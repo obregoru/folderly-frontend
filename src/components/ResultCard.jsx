@@ -368,6 +368,13 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         post.wp_publish = wpPublishAll
         post.wp_category_ids = selectedCats
       }
+      if (p.key === 'youtube') {
+        const ytCap = item.captions[p.key]
+        const ytTitle = (ytCap && typeof ytCap === 'object' ? ytCap.title : null) || item.name || 'Short video'
+        const ytTags = (ytCap && typeof ytCap === 'object' ? ytCap.tags : null) || ['Shorts']
+        post.title = ytTitle
+        post.caption = JSON.stringify({ title: ytTitle, description: caption, tags: ytTags })
+      }
       posts.push(post)
 
       // Add story post for FB/IG if stories are included
