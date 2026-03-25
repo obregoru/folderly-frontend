@@ -449,13 +449,16 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
             ? <button onClick={async () => { if (!confirm('Disconnect Google Business?')) return; await api.disconnectGoogle(); onRefresh() }} className={`${btn} text-[#c0392b]`}>Disconnect</button>
             : s.google_app_configured
               ? <button onClick={async () => {
-                  const data = await api.startGoogleConnect()
-                  if (data.url) {
-                    const popup = window.open(data.url, 'google-connect', 'width=600,height=700')
-                    const handler = (e) => { if (e.data?.type === 'google-connected') { window.removeEventListener('message', handler); onRefresh() } }
-                    window.addEventListener('message', handler)
-                    const check = setInterval(() => { if (popup && popup.closed) { clearInterval(check); onRefresh() } }, 1000)
-                  }
+                  const popup = window.open('about:blank', 'google-connect', 'width=600,height=700')
+                  try {
+                    const data = await api.startGoogleConnect()
+                    if (data.url) {
+                      popup.location = data.url
+                      const handler = (e) => { if (e.data?.type === 'google-connected') { window.removeEventListener('message', handler); onRefresh() } }
+                      window.addEventListener('message', handler)
+                      const check = setInterval(() => { if (popup && popup.closed) { clearInterval(check); onRefresh() } }, 1000)
+                    } else { popup.close() }
+                  } catch (err) { popup.close(); console.error(err) }
                 }} className={`${btn} text-[#2D9A5E]`}>Connect</button>
               : null
           }
