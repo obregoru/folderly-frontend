@@ -235,6 +235,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         <div className="flex items-center justify-between text-xs py-0.5"><span>AI detection scoring</span><Toggle on={s.ai_detection_enabled === true} onChange={v => save('ai_detection_enabled', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (YouTube)</span><Toggle on={s.humanize_youtube === true} onChange={v => save('humanize_youtube', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (Blog)</span><Toggle on={s.humanize_blog === true} onChange={v => save('humanize_blog', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Facebook Stories (default)</span><Toggle on={s.fb_stories_default === true} onChange={v => save('fb_stories_default', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>YouTube Shorts (default)</span><Toggle on={s.youtube_shorts_default !== false} onChange={v => save('youtube_shorts_default', v)} /></div>
       </div>
     </aside>
