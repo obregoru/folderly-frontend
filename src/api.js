@@ -220,14 +220,10 @@ export const resetTiktok = () =>
   fetch(api('/connect/tiktok/reset'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 
 // Google Business
-export const saveGoogleCredentials = (clientId, clientSecret) =>
-  fetch(api('/connect/google/credentials'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }) }).then(r => r.json())
 export const startGoogleConnect = () =>
   fetch(api('/connect/google'), { credentials: 'include' }).then(r => r.json())
 export const disconnectGoogle = () =>
   fetch(api('/connect/google/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
-export const resetGoogle = () =>
-  fetch(api('/connect/google/reset'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const postToGoogle = (caption, imageBase64, mediaType, opts = {}) =>
   postWithDupCheck(`/post/google${opts.type === 'gallery' ? '/gallery' : ''}`, { caption, image_base64: imageBase64, media_type: mediaType })
 
