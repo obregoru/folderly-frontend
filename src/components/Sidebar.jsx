@@ -316,11 +316,12 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
   const [wpSaving, setWpSaving] = useState(false)
 
   const handleConnectFb = async () => {
+    const popup = window.open('about:blank', 'fb-connect', 'width=600,height=700')
     try {
       const data = await api.startFbConnect()
-      if (data.error) { setFbError(data.error); return }
+      if (data.error) { popup.close(); setFbError(data.error); return }
       if (data.url) {
-        const popup = window.open(data.url, 'fb-connect', 'width=600,height=700')
+        popup.location = data.url
         const handler = (e) => {
           if (e.data && e.data.type === 'fb-connected') {
             window.removeEventListener('message', handler)
@@ -331,8 +332,8 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
         const check = setInterval(() => {
           if (popup && popup.closed) { clearInterval(check); onRefresh() }
         }, 1000)
-      }
-    } catch (err) { setFbError(err.message) }
+      } else { popup.close() }
+    } catch (err) { popup.close(); setFbError(err.message) }
   }
 
   const handleDisconnectFb = async () => {
@@ -394,15 +395,16 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
           {!s.twitter_connected && s.twitter_app_configured && (
             <div className="flex gap-1">
               <button onClick={async () => {
-                const data = await api.startTwitterConnect()
-                if (data.url) {
-                  const popup = window.open(data.url, 'twitter-connect', 'width=600,height=700')
-                  const handler = (e) => { if (e.data?.type === 'twitter-connected') { window.removeEventListener('message', handler); onRefresh() } }
-                  window.addEventListener('message', handler)
-                  const check = setInterval(() => {
-                    if (popup && popup.closed) { clearInterval(check); onRefresh() }
-                  }, 1000)
-                }
+                const popup = window.open('about:blank', 'twitter-connect', 'width=600,height=700')
+                try {
+                  const data = await api.startTwitterConnect()
+                  if (data.url) {
+                    popup.location = data.url
+                    const handler = (e) => { if (e.data?.type === 'twitter-connected') { window.removeEventListener('message', handler); onRefresh() } }
+                    window.addEventListener('message', handler)
+                    const check = setInterval(() => { if (popup && popup.closed) { clearInterval(check); onRefresh() } }, 1000)
+                  } else { popup.close() }
+                } catch (err) { popup.close(); console.error(err) }
               }} className="text-[10px] text-[#2D9A5E] hover:underline">Connect</button>
               <button onClick={async () => { await api.resetTwitter(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
             </div>
@@ -478,15 +480,16 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
           {!s.tiktok_connected && s.tiktok_app_configured && (
             <div className="flex gap-1">
               <button onClick={async () => {
-                const data = await api.startTiktokConnect()
-                if (data.url) {
-                  const popup = window.open(data.url, 'tiktok-connect', 'width=600,height=700')
-                  const handler = (e) => { if (e.data?.type === 'tiktok-connected') { window.removeEventListener('message', handler); onRefresh() } }
-                  window.addEventListener('message', handler)
-                  const check = setInterval(() => {
-                    if (popup && popup.closed) { clearInterval(check); onRefresh() }
-                  }, 1000)
-                }
+                const popup = window.open('about:blank', 'tiktok-connect', 'width=600,height=700')
+                try {
+                  const data = await api.startTiktokConnect()
+                  if (data.url) {
+                    popup.location = data.url
+                    const handler = (e) => { if (e.data?.type === 'tiktok-connected') { window.removeEventListener('message', handler); onRefresh() } }
+                    window.addEventListener('message', handler)
+                    const check = setInterval(() => { if (popup && popup.closed) { clearInterval(check); onRefresh() } }, 1000)
+                  } else { popup.close() }
+                } catch (err) { popup.close(); console.error(err) }
               }} className="text-[10px] text-[#2D9A5E] hover:underline">Connect</button>
               <button onClick={async () => { await api.resetTiktok(); onRefresh() }} className="text-[10px] text-red-500 hover:underline">Reset</button>
             </div>
@@ -532,11 +535,12 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
           ? <button onClick={async () => { if (!confirm('Disconnect YouTube?')) return; await api.disconnectYoutube(); onRefresh() }} className={`${btn} text-[#c0392b]`}>Disconnect</button>
           : s.youtube_app_configured
             ? <button onClick={async () => {
+                const popup = window.open('about:blank', 'youtube-connect', 'width=600,height=700')
                 try {
                   const data = await api.startYoutubeConnect()
-                  if (data.error) return
+                  if (data.error) { popup.close(); return }
                   if (data.url) {
-                    const popup = window.open(data.url, 'youtube-connect', 'width=600,height=700')
+                    popup.location = data.url
                     const handler = (e) => {
                       if (e.data && e.data.type === 'youtube-connected') {
                         window.removeEventListener('message', handler)
@@ -547,8 +551,8 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
                     const check = setInterval(() => {
                       if (popup && popup.closed) { clearInterval(check); onRefresh() }
                     }, 1000)
-                  }
-                } catch (err) { console.error(err) }
+                  } else { popup.close() }
+                } catch (err) { popup.close(); console.error(err) }
               }} className={`${btn} bg-[#FF0000] text-white border-[#FF0000]`}>Connect</button>
             : <span className="text-[10px] text-muted italic">Not available</span>
         }
