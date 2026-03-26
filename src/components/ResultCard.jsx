@@ -352,6 +352,21 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
 
   const buildPostsPayload = async () => {
     const posts = []
+
+    // If there's a pre-generated overlay preview, convert it to base64 once
+    let overlayBase64 = null
+    if (item._overlayPreviewUrl && isVideoFile) {
+      try {
+        const resp = await fetch(item._overlayPreviewUrl)
+        const blob = await resp.blob()
+        overlayBase64 = await new Promise(resolve => {
+          const r = new FileReader()
+          r.onload = () => resolve(r.result.split(',')[1])
+          r.readAsDataURL(blob)
+        })
+      } catch (e) { console.error('Failed to read overlay preview:', e) }
+    }
+
     for (const p of postable) {
       const caption = getText(item.captions[p.key])
       if (!caption) continue
@@ -398,21 +413,38 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         opening_duration: schedOpeningDuration, closing_duration: schedClosingDuration,
       } : {}
 
-      if (p.key === 'instagram' && schedDests.ig_post) posts.push(post)
-      else if (p.key === 'facebook' && schedDests.fb_post) posts.push(post)
-      else if (p.key !== 'instagram' && p.key !== 'facebook') posts.push(post) // other platforms always
+      if (p.key === 'instagram' && schedDests.ig_post) {
+        // For IG reel (video), use pre-rendered overlay if available
+        if (isVideo && usePreRendered) { post.image_base64 = overlayBase64; post.media_type = 'video/mp4' }
+        else if (isVideo && schedOverlay === 'overlay') Object.assign(post, overlayOpts)
+        posts.push(post)
+      }
+      else if (p.key === 'facebook' && schedDests.fb_post) posts.push(post) // FB post = no overlays
+      else if (p.key === 'youtube' && schedDests.yt_shorts) {
+        // YT Shorts: use pre-rendered overlay if available
+        if (usePreRendered) { post.image_base64 = overlayBase64; post.media_type = 'video/mp4' }
+        else if (schedOverlay === 'overlay') Object.assign(post, overlayOpts)
+        posts.push(post)
+      }
+      else if (p.key !== 'instagram' && p.key !== 'facebook' && p.key !== 'youtube') posts.push(post)
+
+      // For overlay destinations: use pre-generated preview if available, otherwise pass overlay opts for backend processing
+      const usePreRendered = overlayBase64 && schedOverlay === 'overlay'
+      const overlayB64 = usePreRendered ? overlayBase64 : imageBase64
+      const overlayMt = usePreRendered ? 'video/mp4' : mediaType
+      const overlayPostOpts = usePreRendered ? {} : overlayOpts // skip overlay opts if already processed
 
       // Add IG story
       if (p.key === 'instagram' && schedDests.ig_story) {
-        posts.push({ platform: 'instagram_story', caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts, _story_offset: true })
+        posts.push({ platform: 'instagram_story', caption, image_base64: overlayB64, media_type: overlayMt, ...overlayPostOpts, _story_offset: true })
       }
       // Add FB story
       if (p.key === 'facebook' && schedDests.fb_story) {
-        posts.push({ platform: 'facebook_story', caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts, _story_offset: true })
+        posts.push({ platform: 'facebook_story', caption, image_base64: overlayB64, media_type: overlayMt, ...overlayPostOpts, _story_offset: true })
       }
       // Add FB reel
       if (p.key === 'facebook' && isVideoFile && schedDests.fb_reel) {
-        posts.push({ platform: 'facebook_reel', caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts })
+        posts.push({ platform: 'facebook_reel', caption, image_base64: overlayB64, media_type: overlayMt, ...overlayPostOpts })
       }
       // Add YT Shorts (if not already the youtube platform post)
       if (p.key === 'youtube' && schedDests.yt_shorts) {
@@ -811,7 +843,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
 
         if (storyCaptionStyle === 'overlay' && storyText) {
           const SAFE_TOP = Math.round(1920 * 0.15)
-          const SAFE_BOTTOM = Math.round(1920 * 0.85)
+          const SAFE_BOTTOM = Math.round(1920 * 0.75)
 
           const charsPerLine = Math.max(15, Math.round(40 * (48 / storyFontSize)))
           const words = storyText.split(' ')
@@ -1154,7 +1186,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <>
                               <video ref={videoPreviewRef} src={videoSrc} className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} muted loop playsInline onTimeUpdate={e => setVideoTime(e.target.currentTime)} onLoadedMetadata={e => setVideoDuration(e.target.duration)} />
                               <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                              <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                              <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '75%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
                               {(() => {
                                 const SCALE = 120 / 1080
                                 const hasTimedOverlays = openingText || closingText
@@ -1167,7 +1199,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 const previewH = Math.round(120 / 9 * 16)
                                 const scaledFontSize = Math.max(5, Math.round(storyFontSize * SCALE))
                                 const safeTopPx = Math.round(previewH * 0.15)
-                                const safeBottomPx = Math.round(previewH * 0.85)
+                                const safeBottomPx = Math.round(previewH * 0.75)
                                 const textBlockPx = scaledFontSize * 2.5
                                 const yPosPx = Math.round(safeTopPx + ((safeBottomPx - textBlockPx - safeTopPx) * overlayYPct / 100)) + Math.round(10 * SCALE)
                                 const scaledBorderW = Math.max(0.3, 3 * SCALE)
@@ -1192,7 +1224,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           )}
                         </div>
                         {!generatedPreviewUrl && (
-                          <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.15}px` }}>
+                          <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.25}px` }}>
                             <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
                           </div>
                         )}
@@ -1274,6 +1306,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               const url = await api.previewStory(storyCaptionStyle === 'overlay' ? (storyText || value) : value, imageBase64, mediaType, storyCaptionStyle, overlayYPct, { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration })
                               if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
                               setGeneratedPreviewUrl(url)
+                              item._overlayPreviewUrl = url // share with PostAllBar
                             } catch (err) { console.error(err); alert('Preview failed: ' + err.message) }
                             setGeneratingPreview(false)
                           }}
