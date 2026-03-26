@@ -235,6 +235,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
+  const [schedTimes, setSchedTimes] = useState({})
   const [scheduling, setScheduling] = useState(false)
   const [scheduleStatus, setScheduleStatus] = useState('')
   const [useSuggestedTimes, setUseSuggestedTimes] = useState(false)
@@ -577,18 +578,38 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         const weekLabel = weekStart ? ` for ${formatWeekRange(weekStart)}` : ' at suggested times'
         setScheduleStatus(`Scheduled ${totalScheduled} posts${weekLabel}`)
       } else {
-        if (!scheduleDate) { setScheduling(false); return }
-        const feedPosts = posts.filter(p => !p._story_offset)
-        const storyPosts = posts.filter(p => p._story_offset)
-        const baseTime = new Date(scheduleDate)
-        const result = await api.schedulePosts(feedPosts, baseTime.toISOString())
-        let storyCount = 0
-        if (storyPosts.length > 0) {
-          const storyTime = new Date(baseTime.getTime() + 45 * 60 * 1000)
-          const storyResult = await api.schedulePosts(storyPosts, storyTime.toISOString())
-          storyCount = storyResult.scheduled?.length || 0
+        // Per-channel manual scheduling
+        const hasAnyTime = Object.values(schedTimes).some(Boolean) || scheduleDate
+        if (!hasAnyTime) { setScheduling(false); return }
+
+        let totalScheduled = 0
+        // Map post platforms to their schedTimes key
+        const PLAT_TO_DEST = {
+          'instagram': 'ig_post', 'instagram_story': 'ig_story',
+          'facebook': 'fb_post', 'facebook_story': 'fb_story', 'facebook_reel': 'fb_reel',
+          'youtube': schedDests.yt_shorts ? 'yt_shorts' : 'yt_video',
+          'twitter': 'twitter', 'tiktok': 'tiktok', 'google': 'google', 'blog': 'blog', 'pinterest': 'pinterest',
         }
-        setScheduleStatus(`Scheduled ${result.scheduled.length + storyCount} posts${storyCount ? ` (${storyCount} stories +45min)` : ''}`)
+        const STORY_PARENTS = { 'ig_story': 'ig_post', 'fb_story': 'fb_post' }
+
+        for (const post of posts) {
+          const destKey = PLAT_TO_DEST[post.platform] || post.platform
+          let time = schedTimes[destKey]
+
+          // Story auto-offset: if no explicit time, use parent +45min
+          if (!time && STORY_PARENTS[destKey]) {
+            const parentTime = schedTimes[STORY_PARENTS[destKey]]
+            if (parentTime) time = new Date(new Date(parentTime).getTime() + 45 * 60000).toISOString().slice(0, 16)
+          }
+
+          // Fallback to the old single datetime
+          if (!time) time = scheduleDate
+          if (!time) continue
+
+          const result = await api.schedulePosts([post], new Date(time).toISOString())
+          totalScheduled += result.scheduled?.length || 0
+        }
+        setScheduleStatus(`Scheduled ${totalScheduled} posts`)
       }
       setShowSchedule(false)
       setScheduleDate('')
@@ -791,25 +812,57 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
               )}
             </div>
           )}
+          {/* Per-channel datetime pickers (manual mode) */}
+          {!useSuggestedTimes && (
+            <div className="space-y-1">
+              <p className="text-[9px] text-muted">Set time per destination (stories auto-offset +45min from feed):</p>
+              {(() => {
+                const DEST_CONFIG = [
+                  { key: 'ig_post', label: isVideoFile ? 'IG Reel' : 'IG Post', color: '#E1306C', parent: null, show: schedDests.ig_post },
+                  { key: 'ig_story', label: 'IG Story', color: '#833AB4', parent: 'ig_post', show: schedDests.ig_story },
+                  { key: 'fb_post', label: 'FB Post', color: '#1877F2', parent: null, show: schedDests.fb_post },
+                  { key: 'fb_reel', label: 'FB Reel', color: '#1877F2', parent: null, show: schedDests.fb_reel },
+                  { key: 'fb_story', label: 'FB Story', color: '#4267B2', parent: 'fb_post', show: schedDests.fb_story },
+                  { key: 'yt_shorts', label: 'YT Shorts', color: '#FF0000', parent: null, show: schedDests.yt_shorts },
+                  { key: 'yt_video', label: 'YT Video', color: '#FF0000', parent: null, show: schedDests.yt_video },
+                ]
+                // Also include non-checkbox platforms (twitter, tiktok, google, blog, pinterest)
+                const otherPlats = postable.filter(p => !['instagram', 'facebook', 'youtube'].includes(p.key))
+                otherPlats.forEach(p => DEST_CONFIG.push({ key: p.key, label: PLATFORM_LABELS[p.key], color: PLATFORM_COLORS[p.key], parent: null, show: true }))
+
+                return DEST_CONFIG.filter(d => d.show).map(d => {
+                  const isStory = d.parent
+                  const parentTime = isStory && schedTimes[d.parent]
+                  const autoTime = parentTime ? new Date(new Date(parentTime).getTime() + 45 * 60000).toISOString().slice(0, 16) : ''
+                  return (
+                    <div key={d.key} className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-medium min-w-[65px]" style={{ color: d.color }}>{d.label}</span>
+                      <input
+                        type="datetime-local"
+                        value={schedTimes[d.key] || (isStory ? autoTime : '')}
+                        onChange={e => setSchedTimes(t => ({...t, [d.key]: e.target.value}))}
+                        min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                        className="text-[10px] border border-border rounded px-1.5 py-0.5 bg-white flex-1"
+                      />
+                      {isStory && parentTime && !schedTimes[d.key] && (
+                        <span className="text-[8px] text-muted">auto +45min</span>
+                      )}
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          )}
           <div className="flex items-center gap-2 flex-wrap">
-            {!useSuggestedTimes && (
-              <input
-                type="datetime-local"
-                value={scheduleDate}
-                onChange={e => setScheduleDate(e.target.value)}
-                min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
-                className="text-xs border border-border rounded px-2 py-1 bg-white"
-              />
-            )}
             <button
               onClick={handleScheduleAll}
-              disabled={scheduling || (!useSuggestedTimes && !scheduleDate)}
+              disabled={scheduling || (!useSuggestedTimes && !Object.values(schedTimes).some(Boolean) && !scheduleDate)}
               className="text-[11px] py-1 px-2.5 rounded-sm bg-[#6C5CE7] text-white cursor-pointer font-sans hover:bg-[#5a4bd6] disabled:opacity-50 border-none"
             >
-              {scheduling ? 'Scheduling...' : useSuggestedTimes ? `Schedule at best times (${postable.length})` : `Schedule All (${postable.length})`}
+              {scheduling ? 'Scheduling...' : useSuggestedTimes ? `Schedule at best times` : `Schedule Selected`}
             </button>
             <button
-              onClick={() => { setShowSchedule(false); setScheduleDate(''); setUseSuggestedTimes(false) }}
+              onClick={() => { setShowSchedule(false); setScheduleDate(''); setUseSuggestedTimes(false); setSchedTimes({}) }}
               className="text-[10px] text-muted hover:underline"
             >Cancel</button>
           </div>
