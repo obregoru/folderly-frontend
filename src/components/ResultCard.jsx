@@ -1159,18 +1159,23 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   const minYPx = safeTopPx
                                   const yPosPx = Math.round(minYPx + ((maxYPx - minYPx) * overlayYPct / 100)) + Math.round(10 * SCALE)
                                   const scaledBorderW = Math.max(0.3, 3 * SCALE)
+                                  const lineH = Math.round(scaledFontSize * 1.3)
+                                  const textLines = displayText.split(/\n/).filter(Boolean)
                                   return (
                                     <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-0.5" style={{ top: `${yPosPx}px` }}>
                                       {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded-sm" style={{ margin: `${-2 * SCALE}px ${-4 * SCALE}px` }} />}
-                                      <span className="relative text-center leading-tight" style={{
-                                        fontSize: `${scaledFontSize}px`,
-                                        fontFamily: storyFontFamily,
-                                        color: storyFontColor,
-                                        fontWeight: 600,
-                                        ...(storyFontOutline
-                                          ? { WebkitTextStroke: `${scaledBorderW}px black`, paintOrder: 'stroke fill' }
-                                          : { textShadow: `0 ${Math.round(2 * SCALE)}px ${Math.round(4 * SCALE)}px rgba(0,0,0,0.7)` }),
-                                      }}>{displayText}</span>
+                                      {textLines.map((line, i) => (
+                                        <span key={i} className="relative text-center block" style={{
+                                          fontSize: `${scaledFontSize}px`,
+                                          lineHeight: `${lineH}px`,
+                                          fontFamily: storyFontFamily,
+                                          color: storyFontColor,
+                                          fontWeight: 600,
+                                          ...(storyFontOutline
+                                            ? { WebkitTextStroke: `${scaledBorderW}px black`, paintOrder: 'stroke fill' }
+                                            : { textShadow: `0 ${Math.round(2 * SCALE)}px ${Math.round(4 * SCALE)}px rgba(0,0,0,0.7)` }),
+                                        }}>{line}</span>
+                                      ))}
                                     </div>
                                   )
                                 })()}
@@ -1264,7 +1269,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <p className="text-[9px] text-muted font-medium">Video overlays (fade in/out)</p>
                             <div className="flex gap-1.5">
                               <div className="flex-1">
-                                <input className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder="Opening text..." />
+                                <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder="Opening text&#10;(Enter for new line)" />
                                 <div className="flex items-center gap-1 mt-0.5">
                                   <span className="text-[9px] text-muted">Duration:</span>
                                   <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={openingDuration} onChange={e => setOpeningDuration(Number(e.target.value))}>
@@ -1273,7 +1278,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 </div>
                               </div>
                               <div className="flex-1">
-                                <input className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={closingText} onChange={e => setClosingText(e.target.value)} placeholder="Closing text..." />
+                                <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={closingText} onChange={e => setClosingText(e.target.value)} placeholder="Closing text&#10;(Enter for new line)" />
                                 <div className="flex items-center gap-1 mt-0.5">
                                   <span className="text-[9px] text-muted">Duration:</span>
                                   <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={closingDuration} onChange={e => setClosingDuration(Number(e.target.value))}>
