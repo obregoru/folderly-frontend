@@ -1102,32 +1102,47 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     <p className="text-[10px] text-muted mb-1">Story preview {!isVideoFile && <span className="text-[9px]">(dashed lines = safe zone)</span>}</p>
                     {isVideoFile ? (
                       <div>
-                        <div className="relative w-[120px] h-[213px] rounded border border-border overflow-hidden bg-black">
-                          {generatedPreviewUrl ? (
-                            <video
-                              src={generatedPreviewUrl}
-                              className="w-full h-full object-cover"
-                              controls
-                              muted
-                              autoPlay
-                              loop
-                              playsInline
-                            />
-                          ) : (
-                            <video
-                              src={item.url || (item.file && URL.createObjectURL(item.file))}
-                              className="w-full h-full object-cover"
-                              muted
-                              playsInline
-                            />
-                          )}
-                          {/* Safe zone guides — 15% and 85% */}
-                          <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                          <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                          {/* Overlay position indicator */}
+                        <div className="flex gap-1">
+                          <div className="relative w-[120px] h-[213px] rounded border border-border overflow-hidden bg-black flex-shrink-0">
+                            {generatedPreviewUrl ? (
+                              <video
+                                src={generatedPreviewUrl}
+                                className="w-full h-full object-cover"
+                                controls
+                                muted
+                                autoPlay
+                                loop
+                                playsInline
+                              />
+                            ) : (
+                              <video
+                                src={item.url || (item.file && URL.createObjectURL(item.file))}
+                                className="w-full h-full object-cover"
+                                muted
+                                playsInline
+                              />
+                            )}
+                            {/* Safe zone guides — 15% and 85% */}
+                            <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                            <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                            {/* Overlay position indicator */}
+                            {storyCaptionStyle === 'overlay' && (
+                              <div className="absolute left-0 right-0 pointer-events-none flex items-center justify-center" style={{ top: `${15 + (overlayYPct / 100) * 70}%` }}>
+                                <div className="bg-[#2D9A5E]/60 h-[2px] w-full" />
+                              </div>
+                            )}
+                          </div>
+                          {/* Vertical slider for overlay position, aligned to safe zone */}
                           {storyCaptionStyle === 'overlay' && (
-                            <div className="absolute left-0 right-0 pointer-events-none flex items-center justify-center" style={{ top: `${15 + (overlayYPct / 100) * 70}%` }}>
-                              <div className="bg-white/30 h-[1px] w-full" />
+                            <div className="flex flex-col items-center" style={{ height: 213, paddingTop: `${213 * 0.15}px`, paddingBottom: `${213 * 0.15}px` }}>
+                              <input
+                                type="range"
+                                min="0" max="100"
+                                value={overlayYPct}
+                                onChange={e => setOverlayYPct(Number(e.target.value))}
+                                className="h-full cursor-pointer"
+                                style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }}
+                              />
                             </div>
                           )}
                         </div>
@@ -1231,11 +1246,13 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             Outline
                           </label>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] text-muted">Top</span>
-                          <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
-                          <span className="text-[9px] text-muted">Bottom</span>
-                        </div>
+                        {!isVideoFile && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] text-muted">Top</span>
+                            <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
+                            <span className="text-[9px] text-muted">Bottom</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
