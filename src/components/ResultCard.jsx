@@ -651,7 +651,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                         </label>
                         <label className="text-[9px] text-muted">Size:
                           <select value={schedStoryFontSize} onChange={e => setSchedStoryFontSize(Number(e.target.value))} className="text-[9px] border border-border rounded px-1 bg-white ml-1">
-                            <option value={32}>Small</option><option value={48}>Medium</option><option value={64}>Large</option>
+                            <option value={32}>Small</option><option value={48}>Medium</option><option value={64}>Large</option><option value={80}>XXXL</option>
                           </select>
                         </label>
                         <label className="text-[9px] text-muted">Color:
@@ -1287,6 +1287,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <option value={48}>Large</option>
                             <option value={56}>XL</option>
                             <option value={64}>XXL</option>
+                            <option value={80}>XXXL</option>
                           </select>
                           <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
                           <label className="flex items-center gap-1 text-[10px] cursor-pointer">
