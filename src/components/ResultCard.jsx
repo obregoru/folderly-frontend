@@ -900,22 +900,23 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       if (target === 'facebook') {
         await api.postToFacebook(value, imageBase64, mediaType)
         setPostStatus('Posted!')
-      } else if (target === 'facebook_story') {
-        if (!imageBase64) throw new Error('Facebook Stories requires a photo')
-        await api.postToFacebookStory(
-          storyCaptionStyle === 'overlay' ? storyText : value,
-          imageBase64, mediaType, storyCaptionStyle, overlayYPct,
-          { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
-        )
-        setPostStatus('FB Story posted!')
-      } else if (target === 'instagram_story') {
-        if (!imageBase64) throw new Error('Instagram Stories requires a photo')
-        await api.postToInstagramStory(
-          storyCaptionStyle === 'overlay' ? storyText : value,
-          imageBase64, mediaType, storyCaptionStyle, overlayYPct,
-          { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
-        )
-        setPostStatus('Story posted!')
+      } else if (target === 'facebook_story' || target === 'instagram_story') {
+        if (!imageBase64) throw new Error('Stories require media')
+        const hasOverlays = storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)
+        if (hasOverlays && !generatedPreviewUrl) {
+          if (!confirm('You have text overlays but haven\'t previewed. The overlays will be burned into the video. Post anyway?')) {
+            setPosting(false); return
+          }
+        }
+        const storyCaption = storyCaptionStyle === 'overlay' ? storyText : value
+        const fontOpts = { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
+        if (target === 'facebook_story') {
+          await api.postToFacebookStory(storyCaption, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts)
+          setPostStatus('FB Story posted!')
+        } else {
+          await api.postToInstagramStory(storyCaption, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts)
+          setPostStatus('Story posted!')
+        }
       } else if (target === 'instagram') {
         if (!imageBase64) throw new Error('Instagram requires a photo')
         await api.postToInstagram(value, imageBase64, mediaType)
