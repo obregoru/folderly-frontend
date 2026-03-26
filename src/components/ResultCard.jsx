@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { allTags } from '../lib/parse'
 import { CROP_RATIOS, smartCrop, applyWatermark } from '../lib/crop'
 import { getWeekStart, slotToDate, getAvailableSlots, formatWeekRange } from '../lib/weekSlots'
@@ -730,7 +730,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
 
   // Generate story preview when enabled (images only — videos use inline player)
   const isVideoFile = item.file?.type?.startsWith('video/')
-  const videoPreviewRef = React.useRef(null)
+  const videoPreviewRef = useRef(null)
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
 
