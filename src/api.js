@@ -197,6 +197,8 @@ export const previewStory = async (caption, imageBase64, mediaType, captionStyle
 }
 export const postToFacebookStory = (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) =>
   postWithDupCheck('/post/facebook/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, fade_time: fontOpts?.fadeTime })
+export const postToFacebookReel = (caption, imageBase64, mediaType, overlayOpts) =>
+  postWithDupCheck('/post/facebook/reel', { caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts })
 export const postToInstagramStory = (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) =>
   postWithDupCheck('/post/instagram/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, fade_time: fontOpts?.fadeTime })
 

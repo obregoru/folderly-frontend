@@ -722,6 +722,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     ig_post: platform === 'instagram',
     ig_story: platform === 'instagram' && settings?.fb_stories_default === true,
     fb_post: platform === 'facebook',
+    fb_reel: false,
     fb_story: platform === 'facebook' && settings?.fb_stories_default === true,
     yt_shorts: platform === 'youtube',
   })
@@ -1057,6 +1058,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     <input type="checkbox" checked={postDests.fb_post} onChange={e => setPostDests(d => ({...d, fb_post: e.target.checked}))} className="accent-[#1877F2]" />
                     <span>FB Post</span>
                   </label>
+                  {isVideoFile && (
+                    <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                      <input type="checkbox" checked={postDests.fb_reel} onChange={e => setPostDests(d => ({...d, fb_reel: e.target.checked}))} className="accent-[#1877F2]" />
+                      <span>FB Reel</span>
+                    </label>
+                  )}
                   <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
                     <input type="checkbox" checked={postDests.fb_story} onChange={e => setPostDests(d => ({...d, fb_story: e.target.checked}))} className="accent-[#4267B2]" />
                     <span>FB Story</span>
@@ -1072,7 +1079,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             </div>
 
             {/* Video overlay controls — shown when any overlay-supporting destination is checked */}
-            {isVideoFile && (postDests.ig_post || postDests.ig_story || postDests.fb_story || postDests.yt_shorts) && (
+            {isVideoFile && (postDests.ig_post || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts) && (
               <div className="mt-2 border-t border-border pt-2">
                 <div className="flex gap-3 text-[10px] mb-1">
                   <label className="flex items-center gap-1 cursor-pointer">
@@ -1231,7 +1238,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 )}
                 {/* Note about which destinations get overlays */}
                 {storyCaptionStyle === 'overlay' && (
-                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
+                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
                 )}
               </div>
             )}
@@ -1281,6 +1288,13 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       // FB post always gets raw video, no overlays
                       try { await api.postToFacebook(value, rawBase64, rawType); results.push('FB') } catch (e) { results.push(`FB failed: ${e.message}`) }
                     }
+                    if (postDests.fb_reel) {
+                      const useProcessed = hasOverlays && processedBase64
+                      const b64 = useProcessed ? processedBase64 : rawBase64
+                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      try { await api.postToFacebookReel(value, b64, mt, overlayOpts); results.push('FB Reel') } catch (e) { results.push(`FB Reel failed: ${e.message}`) }
+                    }
                     if (postDests.fb_story) {
                       const useProcessed = hasOverlays && processedBase64
                       const b64 = useProcessed ? processedBase64 : rawBase64
@@ -1303,7 +1317,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 disabled={posting}
                 className="mt-2 w-full text-[12px] py-2 border border-[#2D9A5E] rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#258a50] disabled:opacity-50"
               >
-                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(' + ')}`}
+                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(' + ')}`}
               </button>
             )}
           </div>
