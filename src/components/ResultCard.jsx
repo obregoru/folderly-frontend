@@ -241,6 +241,11 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [schedStoryFontSize, setSchedStoryFontSize] = useState(48)
   const [schedStoryFontFamily, setSchedStoryFontFamily] = useState('sans-serif')
   const [schedStoryFontColor, setSchedStoryFontColor] = useState('#ffffff')
+  const [schedStoryFontOutline, setSchedStoryFontOutline] = useState(false)
+  const [schedOpeningText, setSchedOpeningText] = useState('')
+  const [schedClosingText, setSchedClosingText] = useState('')
+  const [schedOpeningDuration, setSchedOpeningDuration] = useState(3)
+  const [schedClosingDuration, setSchedClosingDuration] = useState(3)
 
   const hasWp = available.some(p => p.key === 'blog') && settings?.wp_site_url
   useEffect(() => {
@@ -391,6 +396,11 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
           font_size: schedStoryFontSize,
           font_family: schedStoryFontFamily,
           font_color: schedStoryFontColor,
+          font_outline: schedStoryFontOutline,
+          opening_text: schedOpeningText,
+          closing_text: schedClosingText,
+          opening_duration: schedOpeningDuration,
+          closing_duration: schedClosingDuration,
           _story_offset: true, // flag for scheduler to offset by 45 min
         })
       }
@@ -697,6 +707,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [storyFontSize, setStoryFontSize] = useState(48)
   const [storyFontFamily, setStoryFontFamily] = useState('sans-serif')
   const [storyFontColor, setStoryFontColor] = useState('#ffffff')
+  const [storyFontOutline, setStoryFontOutline] = useState(false)
+  const [openingText, setOpeningText] = useState('')
+  const [closingText, setClosingText] = useState('')
+  const [openingDuration, setOpeningDuration] = useState(3)
+  const [closingDuration, setClosingDuration] = useState(3)
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
@@ -876,7 +891,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         await api.postToFacebookStory(
           storyCaptionStyle === 'overlay' ? storyText : value,
           imageBase64, mediaType, storyCaptionStyle, overlayYPct,
-          { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor }
+          { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
         )
         setPostStatus('FB Story posted!')
       } else if (target === 'instagram_story') {
@@ -884,7 +899,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         await api.postToInstagramStory(
           storyCaptionStyle === 'overlay' ? storyText : value,
           imageBase64, mediaType, storyCaptionStyle, overlayYPct,
-          { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor }
+          { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
         )
         setPostStatus('Story posted!')
       } else if (target === 'instagram') {
@@ -1093,14 +1108,39 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       }}
                     />
                     {storyCaptionStyle === 'overlay' && (
-                      <div className="mt-1.5 space-y-1">
+                      <div className="mt-1.5 space-y-1.5">
                         <textarea
                           className="w-full text-[11px] border border-border rounded p-1.5 font-sans resize-none bg-white"
                           rows={2}
                           value={storyText}
                           onChange={e => setStoryText(e.target.value)}
-                          placeholder="Story overlay text..."
+                          placeholder="Full overlay text (shown entire video if no opening/closing set)..."
                         />
+                        {item.file?.type?.startsWith('video/') && (
+                          <div className="space-y-1 border border-border rounded p-1.5 bg-[#fafafa]">
+                            <p className="text-[9px] text-muted font-medium">Video overlays (fade in/out)</p>
+                            <div className="flex gap-1.5">
+                              <div className="flex-1">
+                                <input className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder="Opening text..." />
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className="text-[9px] text-muted">Duration:</span>
+                                  <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={openingDuration} onChange={e => setOpeningDuration(Number(e.target.value))}>
+                                    {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="flex-1">
+                                <input className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={closingText} onChange={e => setClosingText(e.target.value)} placeholder="Closing text..." />
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <span className="text-[9px] text-muted">Duration:</span>
+                                  <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={closingDuration} onChange={e => setClosingDuration(Number(e.target.value))}>
+                                    {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)}>
                             <option value="sans-serif">Sans Serif</option>
@@ -1118,6 +1158,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <option value={64}>XXL</option>
                           </select>
                           <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
+                          <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                            <input type="checkbox" checked={storyFontOutline} onChange={e => setStoryFontOutline(e.target.checked)} />
+                            Outline
+                          </label>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[9px] text-muted">Top</span>
