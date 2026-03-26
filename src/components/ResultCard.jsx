@@ -1102,6 +1102,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     <p className="text-[10px] text-muted mb-1">Story preview {!isVideoFile && <span className="text-[9px]">(dashed lines = safe zone)</span>}</p>
                     {isVideoFile ? (
                       <div>
+                        {/* Live preview with CSS overlays OR generated preview */}
                         <div className="flex gap-1">
                           <div className="relative w-[120px] h-[213px] rounded border border-border overflow-hidden bg-black flex-shrink-0">
                             {generatedPreviewUrl ? (
@@ -1115,25 +1116,56 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 playsInline
                               />
                             ) : (
-                              <video
-                                src={item.url || (item.file && URL.createObjectURL(item.file))}
-                                className="w-full h-full object-cover"
-                                muted
-                                playsInline
-                              />
-                            )}
-                            {/* Safe zone guides — 15% and 85% */}
-                            <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                            <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                            {/* Overlay position indicator */}
-                            {storyCaptionStyle === 'overlay' && (
-                              <div className="absolute left-0 right-0 pointer-events-none flex items-center justify-center" style={{ top: `${15 + (overlayYPct / 100) * 70}%` }}>
-                                <div className="bg-[#2D9A5E]/60 h-[2px] w-full" />
-                              </div>
+                              <>
+                                <video
+                                  ref={videoPreviewRef}
+                                  src={item.url || (item.file && URL.createObjectURL(item.file))}
+                                  className="w-full h-full object-cover"
+                                  muted
+                                  loop
+                                  playsInline
+                                  onTimeUpdate={e => setVideoTime(e.target.currentTime)}
+                                  onLoadedMetadata={e => setVideoDuration(e.target.duration)}
+                                />
+                                {/* Safe zone guides */}
+                                <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                                <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                                {/* Live CSS text overlay */}
+                                {storyCaptionStyle === 'overlay' && (() => {
+                                  const hasTimedOverlays = openingText || closingText
+                                  const closingStart = Math.max(0, videoDuration - closingDuration)
+                                  const showOpening = hasTimedOverlays && openingText && videoTime >= 0 && videoTime <= openingDuration
+                                  const showClosing = hasTimedOverlays && closingText && videoDuration > 0 && videoTime >= closingStart
+                                  const showFull = !hasTimedOverlays && storyText
+                                  const displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
+                                  if (!displayText) return null
+                                  const yPct = 15 + (overlayYPct / 100) * 70
+                                  const scaledFontSize = Math.round(storyFontSize / 7)
+                                  return (
+                                    <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-1" style={{ top: `${yPct}%` }}>
+                                      {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded" style={{ margin: '-2px -4px', padding: '2px 4px' }} />}
+                                      <span className="relative text-center leading-tight" style={{
+                                        fontSize: `${scaledFontSize}px`,
+                                        fontFamily: storyFontFamily,
+                                        color: storyFontColor,
+                                        fontWeight: 600,
+                                        ...(storyFontOutline ? { WebkitTextStroke: '0.5px black', paintOrder: 'stroke fill' } : { textShadow: '0 1px 3px rgba(0,0,0,0.7)' }),
+                                      }}>{displayText}</span>
+                                    </div>
+                                  )
+                                })()}
+                                {/* Play controls */}
+                                <div className="absolute bottom-1 left-1 right-1 flex items-center gap-0.5">
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) { v.currentTime = Math.max(0, v.currentTime - 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.paused ? v.play() : v.pause() }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) { v.currentTime = Math.min(v.duration || 0, v.currentTime + 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
+                                  <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
+                                </div>
+                              </>
                             )}
                           </div>
-                          {/* Vertical slider for overlay position, aligned to safe zone */}
-                          {storyCaptionStyle === 'overlay' && (
+                          {/* Vertical slider for overlay position */}
+                          {storyCaptionStyle === 'overlay' && !generatedPreviewUrl && (
                             <div className="flex flex-col items-center" style={{ height: 213, paddingTop: `${213 * 0.15}px`, paddingBottom: `${213 * 0.15}px` }}>
                               <input
                                 type="range"
@@ -1146,27 +1178,35 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             </div>
                           )}
                         </div>
-                        <button
-                          onClick={async () => {
-                            setGeneratingPreview(true)
-                            try {
-                              const { imageBase64, mediaType } = await getImageBase64('facebook_story')
-                              const api = await import('../api')
-                              const url = await api.previewStory(
-                                storyCaptionStyle === 'overlay' ? (storyText || value) : value,
-                                imageBase64, mediaType, storyCaptionStyle, overlayYPct,
-                                { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
-                              )
-                              if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
-                              setGeneratedPreviewUrl(url)
-                            } catch (err) { console.error(err); alert('Preview failed: ' + err.message) }
-                            setGeneratingPreview(false)
-                          }}
-                          disabled={generatingPreview}
-                          className="mt-1.5 text-[10px] py-1 px-2 border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
-                        >
-                          {generatingPreview ? 'Generating...' : generatedPreviewUrl ? 'Regenerate Preview' : 'Generate Preview'}
-                        </button>
+                        <div className="flex gap-1 mt-1.5">
+                          {generatedPreviewUrl && (
+                            <button
+                              onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }}
+                              className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer"
+                            >Back to edit</button>
+                          )}
+                          <button
+                            onClick={async () => {
+                              setGeneratingPreview(true)
+                              try {
+                                const { imageBase64, mediaType } = await getImageBase64('facebook_story')
+                                const api = await import('../api')
+                                const url = await api.previewStory(
+                                  storyCaptionStyle === 'overlay' ? (storyText || value) : value,
+                                  imageBase64, mediaType, storyCaptionStyle, overlayYPct,
+                                  { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
+                                )
+                                if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
+                                setGeneratedPreviewUrl(url)
+                              } catch (err) { console.error(err); alert('Preview failed: ' + err.message) }
+                              setGeneratingPreview(false)
+                            }}
+                            disabled={generatingPreview}
+                            className="text-[10px] py-1 px-2 border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
+                          >
+                            {generatingPreview ? 'Generating...' : generatedPreviewUrl ? 'Regenerate' : 'Generate Preview'}
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <img
