@@ -898,6 +898,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       const { imageBase64, mediaType } = await getImageBase64(target)
       const api = await import('../api')
       if (target === 'facebook') {
+        if (storyEnabled && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)) {
+          if (!confirm('You have story overlays set up. This posts to the Facebook feed (no overlays). Use the "FB Story" button for stories with overlays. Post to feed anyway?')) {
+            setPosting(false); return
+          }
+        }
         await api.postToFacebook(value, imageBase64, mediaType)
         setPostStatus('Posted!')
       } else if (target === 'facebook_story' || target === 'instagram_story') {
@@ -918,6 +923,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           setPostStatus('Story posted!')
         }
       } else if (target === 'instagram') {
+        if (storyEnabled && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)) {
+          if (!confirm('You have story overlays set up. This posts to the Instagram feed (no overlays). Use the "Post Story" button for stories with overlays. Post to feed anyway?')) {
+            setPosting(false); return
+          }
+        }
         if (!imageBase64) throw new Error('Instagram requires a photo')
         await api.postToInstagram(value, imageBase64, mediaType)
         setPostStatus('Posted!')
@@ -1054,13 +1064,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             >
               {posting ? 'Posting...' : 'Post to Facebook'}
             </button>
-            <button
-              onClick={() => handlePost('facebook_story')}
-              disabled={posting || !storyEnabled}
-              className={`text-[11px] py-1 px-2.5 border rounded-sm cursor-pointer font-sans disabled:opacity-50 ${storyEnabled ? 'border-[#1877F2] bg-[#4267B2] text-white hover:bg-[#365899]' : 'border-[#ddd] bg-white text-muted'}`}
-            >
-              {posting ? 'Posting...' : 'FB Story'}
-            </button>
+            {storyEnabled && (
+              <button
+                onClick={() => handlePost('facebook_story')}
+                disabled={posting}
+                className="text-[11px] py-1 px-2.5 border border-[#4267B2] rounded-sm bg-[#4267B2] text-white cursor-pointer font-sans hover:bg-[#365899] disabled:opacity-50"
+              >
+                {posting ? 'Posting...' : 'FB Story'}
+              </button>
+            )}
           </>
         )}
         {canPostIg && (
@@ -1072,13 +1084,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             >
               {posting ? 'Posting...' : 'Post to Instagram'}
             </button>
-            <button
-              onClick={() => handlePost('instagram_story')}
-              disabled={posting || !storyEnabled}
-              className={`text-[11px] py-1 px-2.5 border rounded-sm cursor-pointer font-sans disabled:opacity-50 ${storyEnabled ? 'border-[#833AB4] bg-[#833AB4] text-white hover:bg-[#6d2e96]' : 'border-[#ddd] bg-white text-muted'}`}
-            >
-              {posting ? 'Posting...' : 'Post Story'}
-            </button>
+            {storyEnabled && (
+              <button
+                onClick={() => handlePost('instagram_story')}
+                disabled={posting}
+                className="text-[11px] py-1 px-2.5 border border-[#833AB4] rounded-sm bg-[#833AB4] text-white cursor-pointer font-sans hover:bg-[#6d2e96] disabled:opacity-50"
+              >
+                {posting ? 'Posting...' : 'IG Story'}
+              </button>
+            )}
           </>
         )}
         {(canPostFb || canPostIg) && (
