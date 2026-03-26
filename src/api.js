@@ -133,6 +133,12 @@ export const reviewHint = (text, platforms) =>
 export const getPostingSchedule = () =>
   fetch(api('/generate/posting-schedule'), { method: 'POST', headers: h(), credentials: 'include' }).then(r => r.json())
 
+export const analyzeAnalytics = (platform, rawText) =>
+  fetch(api('/generate/analyze-analytics'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ platform, raw_text: rawText }) }).then(r => r.json())
+
+export const getAnalytics = () =>
+  fetch(api('/generate/analytics'), { credentials: 'include' }).then(r => r.json())
+
 // History
 export const getHistory = (limit = 80) =>
   fetch(api(`/history?limit=${limit}`), { credentials: 'include' }).then(r => r.json())

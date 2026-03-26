@@ -605,6 +605,108 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
 
       {/* Posting Schedule */}
       <PostingSchedule settings={s} />
+
+      {/* Platform Analytics */}
+      <PlatformAnalytics />
+    </div>
+  )
+}
+
+const ANALYTICS_PLATFORMS = [
+  { key: 'instagram', label: 'Instagram', color: '#E1306C', where: 'Instagram app → Professional dashboard → Insights → Audience → Most Active Times' },
+  { key: 'facebook', label: 'Facebook', color: '#1877F2', where: 'Meta Business Suite → Insights → Audience → When Your Fans Are Online' },
+  { key: 'tiktok', label: 'TikTok', color: '#000', where: 'TikTok app → Profile → Creator tools → Analytics → Followers → Most Active Times' },
+  { key: 'youtube', label: 'YouTube', color: '#FF0000', where: 'YouTube Studio → Analytics → Audience → When Your Viewers Are on YouTube' },
+  { key: 'twitter', label: 'X / Twitter', color: '#000', where: 'X Analytics (analytics.x.com) → Tweet Activity → Engagement by time' },
+]
+
+function PlatformAnalytics() {
+  const [expanded, setExpanded] = useState(false)
+  const [analytics, setAnalytics] = useState(null)
+  const [activePlat, setActivePlat] = useState(null)
+  const [pasteText, setPasteText] = useState('')
+  const [analyzing, setAnalyzing] = useState(false)
+  const [result, setResult] = useState(null)
+
+  useEffect(() => {
+    api.getAnalytics().then(d => setAnalytics(d)).catch(() => {})
+  }, [])
+
+  const handleAnalyze = async (platform) => {
+    if (!pasteText.trim()) return
+    setAnalyzing(true); setResult(null)
+    try {
+      const r = await api.analyzeAnalytics(platform, pasteText)
+      if (r.error) { setResult({ error: r.error }); setAnalyzing(false); return }
+      setResult(r.data)
+      setAnalytics(prev => ({ ...prev, [platform]: { ...r.data, updated_at: new Date().toISOString() } }))
+      setPasteText('')
+    } catch (e) { setResult({ error: e.message }) }
+    setAnalyzing(false)
+  }
+
+  return (
+    <div className="mt-3 pt-2 border-t border-border">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[11px] font-medium text-ink">Platform analytics</span>
+        <button onClick={() => setExpanded(!expanded)} className="text-[10px] text-sage hover:underline">
+          {expanded ? 'Hide' : analytics && Object.keys(analytics).length > 0 ? `${Object.keys(analytics).length} platforms` : 'Set up'}
+        </button>
+      </div>
+      {expanded && (
+        <div className="space-y-2">
+          <p className="text-[9px] text-muted">Paste analytics data from each platform to improve AI posting time suggestions.</p>
+          <div className="flex flex-wrap gap-1">
+            {ANALYTICS_PLATFORMS.map(p => (
+              <button
+                key={p.key}
+                onClick={() => { setActivePlat(activePlat === p.key ? null : p.key); setResult(null); setPasteText('') }}
+                className={`text-[9px] py-0.5 px-1.5 rounded border cursor-pointer ${activePlat === p.key ? 'text-white border-transparent' : 'text-muted border-border bg-white hover:bg-cream'}`}
+                style={activePlat === p.key ? { background: p.color, borderColor: p.color } : {}}
+              >
+                {p.label} {analytics?.[p.key] ? '\u2713' : ''}
+              </button>
+            ))}
+          </div>
+          {activePlat && (() => {
+            const plat = ANALYTICS_PLATFORMS.find(p => p.key === activePlat)
+            const stored = analytics?.[activePlat]
+            return (
+              <div className="space-y-1.5">
+                <p className="text-[9px] text-muted">
+                  <strong>Where to find it:</strong> {plat.where}
+                </p>
+                {stored && (
+                  <div className="bg-[#f8f9fa] border border-border rounded p-1.5">
+                    <p className="text-[9px] text-muted mb-0.5">Last updated: {new Date(stored.updated_at).toLocaleDateString()}</p>
+                    {stored.summary && <p className="text-[10px] text-ink">{stored.summary}</p>}
+                    {stored.best_days?.length > 0 && <p className="text-[9px] text-muted mt-0.5">Best days: {stored.best_days.join(', ')}</p>}
+                    {stored.peak_times?.length > 0 && (
+                      <p className="text-[9px] text-muted">Peak: {stored.peak_times.slice(0, 5).map(t => `${t.day} ${t.time}`).join(', ')}</p>
+                    )}
+                  </div>
+                )}
+                <textarea
+                  rows={4}
+                  value={pasteText}
+                  onChange={e => setPasteText(e.target.value)}
+                  className="w-full text-[10px] border border-border rounded p-1.5 bg-white resize-y font-sans"
+                  placeholder={`Paste your ${plat.label} analytics/insights data here...\n\nCopy the text from your ${plat.label} insights page — AI will extract the useful data.`}
+                />
+                <button
+                  onClick={() => handleAnalyze(activePlat)}
+                  disabled={analyzing || !pasteText.trim()}
+                  className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+                >
+                  {analyzing ? 'Analyzing...' : stored ? 'Update analytics' : 'Analyze with AI'}
+                </button>
+                {result?.error && <p className="text-[9px] text-[#c0392b]">{result.error}</p>}
+                {result?.summary && !result.error && <p className="text-[9px] text-[#2D9A5E]">Updated: {result.summary}</p>}
+              </div>
+            )
+          })()}
+        </div>
+      )}
     </div>
   )
 }
