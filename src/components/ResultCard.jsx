@@ -723,6 +723,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     ig_story: platform === 'instagram' && settings?.fb_stories_default === true,
     fb_post: platform === 'facebook',
     fb_story: platform === 'facebook' && settings?.fb_stories_default === true,
+    yt_shorts: platform === 'youtube',
   })
   const storyEnabled = postDests.ig_story || postDests.fb_story
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
@@ -1034,7 +1035,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         )}
 
         {/* Destination checkboxes */}
-        {(canPostFb || canPostIg) && (
+        {(canPostFb || canPostIg || canPostYt) && (
           <div className="border-t border-border pt-2">
             <p className="text-[10px] text-muted font-medium mb-1.5">Post to:</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -1062,10 +1063,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                   </label>
                 </>
               )}
+              {canPostYt && (
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                  <input type="checkbox" checked={postDests.yt_shorts} onChange={e => setPostDests(d => ({...d, yt_shorts: e.target.checked}))} className="accent-[#FF0000]" />
+                  <span>YT Shorts</span>
+                </label>
+              )}
             </div>
 
             {/* Video overlay controls — shown when any overlay-supporting destination is checked */}
-            {isVideoFile && (postDests.ig_post || postDests.ig_story || postDests.fb_story) && (
+            {isVideoFile && (postDests.ig_post || postDests.ig_story || postDests.fb_story || postDests.yt_shorts) && (
               <div className="mt-2 border-t border-border pt-2">
                 <div className="flex gap-3 text-[10px] mb-1">
                   <label className="flex items-center gap-1 cursor-pointer">
@@ -1224,7 +1231,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 )}
                 {/* Note about which destinations get overlays */}
                 {storyCaptionStyle === 'overlay' && (
-                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_story && 'FB Story'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
+                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
                 )}
               </div>
             )}
@@ -1281,6 +1288,14 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const cs = useProcessed ? 'none' : storyCaptionStyle
                       try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOpts); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
                     }
+                    if (postDests.yt_shorts) {
+                      const useProcessed = hasOverlays && processedBase64
+                      const b64 = useProcessed ? processedBase64 : rawBase64
+                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Short', description: value, tags })
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT failed: ${e.message}`) }
+                    }
                     setPostStatus(`Posted: ${results.join(', ')}`)
                   } catch (err) { setPostStatus(`Failed: ${err.message}`) }
                   setPosting(false)
@@ -1288,7 +1303,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 disabled={posting}
                 className="mt-2 w-full text-[12px] py-2 border border-[#2D9A5E] rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#258a50] disabled:opacity-50"
               >
-                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_story && 'FB Story'].filter(Boolean).join(' + ')}`}
+                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(' + ')}`}
               </button>
             )}
           </div>
@@ -1340,15 +1355,6 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             className="text-[11px] py-1 px-2.5 border border-[#E60023] rounded-sm bg-[#E60023] text-white cursor-pointer font-sans hover:bg-[#cc001e] disabled:opacity-50"
           >
             {posting ? 'Pinning...' : 'Pin to Pinterest'}
-          </button>
-        )}
-        {canPostYt && (
-          <button
-            onClick={() => handlePost('youtube')}
-            disabled={posting}
-            className="text-[11px] py-1 px-2.5 border border-[#FF0000] rounded-sm bg-[#FF0000] text-white cursor-pointer font-sans hover:bg-[#cc0000] disabled:opacity-50"
-          >
-            {posting ? 'Uploading...' : 'Upload to YouTube Shorts'}
           </button>
         )}
         {!canPostYt && platform === 'youtube' && !isVideo && (
