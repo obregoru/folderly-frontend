@@ -699,7 +699,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [saved, setSaved] = useState(false)
   const [posting, setPosting] = useState(false)
   const [postStatus, setPostStatus] = useState('')
-  const storyEnabled = postDests.ig_story || postDests.fb_story
+  // storyEnabled is derived from postDests — defined after postDests below
   const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
   const [storyPreview, setStoryPreview] = useState(null)
   const [overlayYPct, setOverlayYPct] = useState(70)
@@ -720,6 +720,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     fb_post: platform === 'facebook',
     fb_story: platform === 'facebook' && settings?.fb_stories_default === true,
   })
+  const storyEnabled = postDests.ig_story || postDests.fb_story
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
 
   // Sync when text prop changes (e.g. after refine/regen)
