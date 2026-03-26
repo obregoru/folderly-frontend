@@ -1144,11 +1144,23 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   const showFull = !hasTimedOverlays && storyText
                                   const displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
                                   if (!displayText) return null
-                                  const yPct = 15 + (overlayYPct / 100) * 70
+                                  // Match ffmpeg's position math exactly:
+                                  // safeTop = H * 0.15, safeBottom = H * 0.85
+                                  // textBlockH = fontSize * 2.5
+                                  // maxY = safeBottom - textBlockH, minY = safeTop
+                                  // yPos = minY + ((maxY - minY) * overlayYPct / 100)
+                                  // text drawn at yPos + 10
+                                  const previewH = Math.round(120 / 9 * 16)
                                   const scaledFontSize = Math.max(5, Math.round(storyFontSize * SCALE))
+                                  const safeTopPx = Math.round(previewH * 0.15)
+                                  const safeBottomPx = Math.round(previewH * 0.85)
+                                  const textBlockPx = scaledFontSize * 2.5
+                                  const maxYPx = safeBottomPx - textBlockPx
+                                  const minYPx = safeTopPx
+                                  const yPosPx = Math.round(minYPx + ((maxYPx - minYPx) * overlayYPct / 100)) + Math.round(10 * SCALE)
                                   const scaledBorderW = Math.max(0.3, 3 * SCALE)
                                   return (
-                                    <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-0.5" style={{ top: `${yPct}%` }}>
+                                    <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-0.5" style={{ top: `${yPosPx}px` }}>
                                       {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded-sm" style={{ margin: `${-2 * SCALE}px ${-4 * SCALE}px` }} />}
                                       <span className="relative text-center leading-tight" style={{
                                         fontSize: `${scaledFontSize}px`,
