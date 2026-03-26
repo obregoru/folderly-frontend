@@ -139,6 +139,11 @@ export const analyzeAnalytics = (platform, rawText) =>
 export const getAnalytics = () =>
   fetch(api('/generate/analytics'), { credentials: 'include' }).then(r => r.json())
 
+export const saveOverlayTemplate = (template) =>
+  fetch(api('/settings/overlay-templates'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(template) }).then(r => r.json())
+export const deleteOverlayTemplate = (id) =>
+  fetch(api(`/settings/overlay-templates/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
+
 // History
 export const getHistory = (limit = 80) =>
   fetch(api(`/history?limit=${limit}`), { credentials: 'include' }).then(r => r.json())

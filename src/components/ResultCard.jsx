@@ -288,12 +288,33 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
     const api = await import('../api')
     const newResults = {}
 
+    // Get pre-rendered overlay if available
+    let overlayBase64 = null
+    const hasOverlay = isVideoFile && schedOverlay === 'overlay' && (schedOpeningText || schedClosingText)
+    if (hasOverlay && item._overlayPreviewUrl) {
+      try {
+        const resp = await fetch(item._overlayPreviewUrl)
+        const blob = await resp.blob()
+        overlayBase64 = await new Promise(resolve => {
+          const r = new FileReader()
+          r.onload = () => resolve(r.result.split(',')[1])
+          r.readAsDataURL(blob)
+        })
+      } catch (e) { console.error('Failed to read overlay preview:', e) }
+    }
+
+    const overlayOpts = hasOverlay && !overlayBase64 ? {
+      caption_style: 'overlay', overlay_y_pct: schedOverlayYPct,
+      font_size: schedFontSize, font_color: schedFontColor, font_outline: schedFontOutline,
+      opening_text: schedOpeningText, closing_text: schedClosingText,
+      opening_duration: schedOpeningDuration, closing_duration: schedClosingDuration,
+    } : {}
+
     for (const p of postable) {
       const caption = getText(item.captions[p.key])
       if (!caption) { newResults[p.key] = 'Skipped: no caption'; continue }
 
       try {
-        // Get platform-cropped watermarked image
         let imageBase64 = null, mediaType = null
         if (item.isImg && item.file) {
           const cropRatio = PLATFORM_CROPS[p.key]
@@ -308,42 +329,60 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
             })
             mediaType = 'image/jpeg'
           }
+        } else if (isVideoFile && item.file) {
+          try { imageBase64 = await fileToBase64(item.file) } catch { imageBase64 = null }
+          mediaType = item.file.type
         }
 
-        if (p.key === 'facebook') {
-          await api.postToFacebook(caption, imageBase64, mediaType)
-          newResults[p.key] = 'success'
-        } else if (p.key === 'instagram') {
-          if (!imageBase64) throw new Error('Requires a photo')
-          await api.postToInstagram(caption, imageBase64, mediaType)
-          newResults[p.key] = 'success'
-        } else if (p.key === 'twitter') {
-          await api.postToTwitter(caption, imageBase64, mediaType)
-          newResults[p.key] = 'success'
-        } else if (p.key === 'google') {
-          await api.postToGoogle(caption, imageBase64, mediaType)
-          newResults[p.key] = 'success'
-        } else if (p.key === 'pinterest') {
-          if (!imageBase64) throw new Error('Requires a photo')
-          await api.postToPinterest(caption, imageBase64, mediaType)
-          newResults[p.key] = 'success'
-        } else if (p.key === 'youtube') {
-          if (!imageBase64 || !item.file?.type?.startsWith('video/')) throw new Error('Requires a video')
+        // Use pre-rendered overlay for overlay destinations
+        const useOverlay = hasOverlay && overlayBase64
+        const oB64 = useOverlay ? overlayBase64 : imageBase64
+        const oMt = useOverlay ? 'video/mp4' : mediaType
+
+        // Feed posts
+        if (p.key === 'facebook' && schedDests.fb_post) {
+          try { await api.postToFacebook(caption, imageBase64, mediaType); newResults.fb_post = 'success' } catch (e) { newResults.fb_post = 'Failed: ' + e.message }
+        }
+        if (p.key === 'facebook' && isVideoFile && schedDests.fb_reel) {
+          try { await api.postToFacebookReel(caption, oB64, oMt, useOverlay ? {} : overlayOpts); newResults.fb_reel = 'success' } catch (e) { newResults.fb_reel = 'Failed: ' + e.message }
+        }
+        if (p.key === 'facebook' && schedDests.fb_story) {
+          try { await api.postToFacebookStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.fb_story = 'success' } catch (e) { newResults.fb_story = 'Failed: ' + e.message }
+        }
+        if (p.key === 'instagram' && schedDests.ig_post) {
+          try { await api.postToInstagram(caption, useOverlay ? oB64 : imageBase64, useOverlay ? oMt : mediaType, useOverlay ? {} : overlayOpts); newResults.ig_post = 'success' } catch (e) { newResults.ig_post = 'Failed: ' + e.message }
+        }
+        if (p.key === 'instagram' && schedDests.ig_story) {
+          try { await api.postToInstagramStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.ig_story = 'success' } catch (e) { newResults.ig_story = 'Failed: ' + e.message }
+        }
+        if (p.key === 'twitter') {
+          try { await api.postToTwitter(caption, imageBase64, mediaType); newResults.twitter = 'success' } catch (e) { newResults.twitter = 'Failed: ' + e.message }
+        }
+        if (p.key === 'google') {
+          try { await api.postToGoogle(caption, imageBase64, mediaType); newResults.google = 'success' } catch (e) { newResults.google = 'Failed: ' + e.message }
+        }
+        if (p.key === 'pinterest') {
+          try { await api.postToPinterest(caption, imageBase64, mediaType); newResults.pinterest = 'success' } catch (e) { newResults.pinterest = 'Failed: ' + e.message }
+        }
+        if (p.key === 'youtube' && schedDests.yt_shorts) {
           const ytCap = item.captions?.youtube
-          const ytCaption = JSON.stringify({ title: (ytCap && typeof ytCap === 'object' ? ytCap.title : null) || item.name || 'Short', description: caption, tags: (ytCap && typeof ytCap === 'object' ? ytCap.tags : null) || [] })
-          await api.postToYoutubeShorts(ytCaption, imageBase64, item.file.type)
-          newResults[p.key] = 'success'
-        } else if (p.key === 'blog') {
+          const ytCaption = JSON.stringify({ title: (ytCap && typeof ytCap === 'object' ? ytCap.title : null) || item.name || 'Short', description: caption, tags: (ytCap && typeof ytCap === 'object' ? ytCap.tags : null) || ['Shorts'] })
+          try { await api.postToYoutubeShorts(ytCaption, useOverlay ? oB64 : imageBase64, useOverlay ? oMt : (item.file?.type || mediaType), useOverlay ? {} : overlayOpts); newResults.yt_shorts = 'success' } catch (e) { newResults.yt_shorts = 'Failed: ' + e.message }
+        }
+        if (p.key === 'youtube' && schedDests.yt_video) {
+          const ytCap = item.captions?.youtube
+          const ytCaption = JSON.stringify({ title: (ytCap && typeof ytCap === 'object' ? ytCap.title : null) || item.name || 'Video', description: caption, tags: (ytCap && typeof ytCap === 'object' ? ytCap.tags : null) || [] })
+          try { await api.postToYoutubeVideo(ytCaption, imageBase64, item.file?.type || mediaType); newResults.yt_video = 'success' } catch (e) { newResults.yt_video = 'Failed: ' + e.message }
+        }
+        if (p.key === 'blog') {
           const blogCap = item.captions[p.key]
           const wpTitle = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
-          await api.postToWordPress(wpTitle, caption, imageBase64, mediaType, selectedCats, wpPublishAll)
-          newResults[p.key] = wpPublishAll ? 'success' : 'draft'
+          try { await api.postToWordPress(wpTitle, caption, imageBase64, mediaType, selectedCats, wpPublishAll); newResults.blog = wpPublishAll ? 'success' : 'draft' } catch (e) { newResults.blog = 'Failed: ' + e.message }
         }
       } catch (err) {
         newResults[p.key] = 'Failed: ' + err.message
       }
 
-      // Update results as we go
       setResults({ ...newResults })
     }
 
@@ -604,14 +643,12 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         {scheduleStatus && (
           <span className={`text-[10px] ${scheduleStatus.startsWith('Failed') ? 'text-[#c0392b]' : 'text-[#6C5CE7]'}`}>{scheduleStatus}</span>
         )}
-        {hasResults && postable.map(p => {
-          const r = results[p.key]
-          if (!r) return posting ? <span key={p.key} className="text-[10px] text-muted">{PLATFORM_LABELS[p.key]}: waiting...</span> : null
+        {hasResults && Object.entries(results).map(([key, r]) => {
           const isOk = r === 'success' || r === 'draft'
+          const DEST_LABELS = { fb_post: 'FB Post', fb_reel: 'FB Reel', fb_story: 'FB Story', ig_post: 'IG', ig_story: 'IG Story', yt_shorts: 'YT Shorts', yt_video: 'YT Video', twitter: 'X', google: 'Google', pinterest: 'Pinterest', blog: 'Blog', tiktok: 'TikTok' }
           return (
-            <span key={p.key} className={`text-[10px] ${isOk ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}`}>
-              <span className="font-medium" style={{ color: PLATFORM_COLORS[p.key] }}>{PLATFORM_LABELS[p.key]}:</span>{' '}
-              {r === 'success' ? 'Posted' : r === 'draft' ? 'Draft saved' : r}
+            <span key={key} className={`text-[10px] ${isOk ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}`}>
+              {DEST_LABELS[key] || key}: {r === 'success' ? 'Posted' : r === 'draft' ? 'Draft' : r}
             </span>
           )
         })}
@@ -1174,7 +1211,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             {/* Video overlay controls — shown when any overlay-supporting destination is checked */}
             {isVideoFile && (postDests.ig_post || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts) && (
               <div className="mt-2 border-t border-border pt-2">
-                <div className="flex gap-3 text-[10px] mb-1">
+                <div className="flex gap-3 text-[10px] mb-1 items-center">
                   <label className="flex items-center gap-1 cursor-pointer">
                     <input type="radio" name={`overlay-style-${item.id}`} value="none" checked={storyCaptionStyle === 'none'} onChange={() => setStoryCaptionStyle('none')} />
                     No overlay
@@ -1183,6 +1220,21 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     <input type="radio" name={`overlay-style-${item.id}`} value="overlay" checked={storyCaptionStyle === 'overlay'} onChange={() => setStoryCaptionStyle('overlay')} />
                     Text overlay
                   </label>
+                  {storyCaptionStyle === 'overlay' && settings?.overlay_templates?.length > 0 && (
+                    <select className="text-[9px] border border-border rounded px-1 py-0.5 bg-white ml-auto" defaultValue="" onChange={e => {
+                      const t = settings.overlay_templates.find(t => t.id === e.target.value)
+                      if (t) {
+                        setOpeningText(t.openingText || ''); setClosingText(t.closingText || '')
+                        setOpeningDuration(t.openingDuration || 3); setClosingDuration(t.closingDuration || 3)
+                        setStoryFontSize(t.fontSize || 48); setStoryFontColor(t.fontColor || '#ffffff')
+                        setStoryFontOutline(t.fontOutline || false); setOverlayYPct(t.overlayYPct || 50)
+                      }
+                      e.target.value = ''
+                    }}>
+                      <option value="" disabled>Load template...</option>
+                      {settings.overlay_templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  )}
                 </div>
                 {storyCaptionStyle === 'overlay' && (
                   <div className="mt-1.5 space-y-1.5">
@@ -1330,9 +1382,21 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     )}
                   </div>
                 )}
-                {/* Note about which destinations get overlays */}
+                {/* Save template + overlay info */}
                 {storyCaptionStyle === 'overlay' && (
-                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post || postDests.yt_video ? `. No overlay: ${[postDests.fb_post && 'FB Post', postDests.yt_video && 'YT Video'].filter(Boolean).join(', ')}.` : ''}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-[9px] text-muted flex-1">Overlays: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none'}{postDests.fb_post || postDests.yt_video ? `. No overlay: ${[postDests.fb_post && 'FB Post', postDests.yt_video && 'YT Video'].filter(Boolean).join(', ')}.` : ''}</p>
+                    <button
+                      onClick={async () => {
+                        const name = prompt('Template name:')
+                        if (!name) return
+                        const api = await import('../api')
+                        await api.saveOverlayTemplate({ name, openingText, closingText, openingDuration, closingDuration, fontSize: storyFontSize, fontColor: storyFontColor, fontOutline: storyFontOutline, overlayYPct })
+                        alert('Template saved! Reload to see it in the dropdown.')
+                      }}
+                      className="text-[9px] text-[#6C5CE7] hover:underline whitespace-nowrap"
+                    >Save template</button>
+                  </div>
                 )}
               </div>
             )}
