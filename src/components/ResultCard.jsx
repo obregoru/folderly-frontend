@@ -238,18 +238,24 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [scheduling, setScheduling] = useState(false)
   const [scheduleStatus, setScheduleStatus] = useState('')
   const [useSuggestedTimes, setUseSuggestedTimes] = useState(false)
-  const [includeStories, setIncludeStories] = useState(settings?.fb_stories_default === true)
-  const [schedStoryCaptionStyle, setSchedStoryCaptionStyle] = useState('none')
-  const [schedStoryText, setSchedStoryText] = useState('')
+  const [schedOverlay, setSchedOverlay] = useState('none')
   const [schedOverlayYPct, setSchedOverlayYPct] = useState(70)
-  const [schedStoryFontSize, setSchedStoryFontSize] = useState(48)
-  const [schedStoryFontFamily, setSchedStoryFontFamily] = useState('sans-serif')
-  const [schedStoryFontColor, setSchedStoryFontColor] = useState('#ffffff')
-  const [schedStoryFontOutline, setSchedStoryFontOutline] = useState(false)
+  const [schedFontSize, setSchedFontSize] = useState(48)
+  const [schedFontColor, setSchedFontColor] = useState('#ffffff')
+  const [schedFontOutline, setSchedFontOutline] = useState(false)
   const [schedOpeningText, setSchedOpeningText] = useState('')
   const [schedClosingText, setSchedClosingText] = useState('')
   const [schedOpeningDuration, setSchedOpeningDuration] = useState(3)
   const [schedClosingDuration, setSchedClosingDuration] = useState(3)
+  // Per-platform destination toggles for scheduling
+  const isVideoFile = item.file?.type?.startsWith('video/')
+  const [schedDests, setSchedDests] = useState(() => {
+    const d = {}
+    if (available.some(p => p.key === 'instagram') && settings?.ig_connected) { d.ig_post = true; d.ig_story = settings?.fb_stories_default === true }
+    if (available.some(p => p.key === 'facebook') && settings?.fb_connected) { d.fb_post = true; d.fb_reel = false; d.fb_story = settings?.fb_stories_default === true }
+    if (available.some(p => p.key === 'youtube') && settings?.youtube_connected) d.yt_shorts = true
+    return d
+  })
 
   const hasWp = available.some(p => p.key === 'blog') && settings?.wp_site_url
   useEffect(() => {
@@ -384,29 +390,33 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         post.title = ytTitle
         post.caption = JSON.stringify({ title: ytTitle, description: caption, tags: ytTags })
       }
-      posts.push(post)
+      // Only include feed post if the destination is checked
+      const overlayOpts = schedOverlay === 'overlay' ? {
+        caption_style: 'overlay', overlay_y_pct: schedOverlayYPct,
+        font_size: schedFontSize, font_color: schedFontColor, font_outline: schedFontOutline,
+        opening_text: schedOpeningText, closing_text: schedClosingText,
+        opening_duration: schedOpeningDuration, closing_duration: schedClosingDuration,
+      } : {}
 
-      // Add story post for FB/IG if stories are included
-      if (includeStories && (p.key === 'facebook' || p.key === 'instagram')) {
-        const storyPlatform = p.key === 'facebook' ? 'facebook_story' : 'instagram_story'
-        const storyCaption = schedStoryCaptionStyle === 'overlay' ? (schedStoryText || caption) : caption
-        posts.push({
-          platform: storyPlatform,
-          caption: storyCaption,
-          image_base64: imageBase64,
-          media_type: mediaType,
-          caption_style: schedStoryCaptionStyle,
-          overlay_y_pct: schedOverlayYPct,
-          font_size: schedStoryFontSize,
-          font_family: schedStoryFontFamily,
-          font_color: schedStoryFontColor,
-          font_outline: schedStoryFontOutline,
-          opening_text: schedOpeningText,
-          closing_text: schedClosingText,
-          opening_duration: schedOpeningDuration,
-          closing_duration: schedClosingDuration,
-          _story_offset: true, // flag for scheduler to offset by 45 min
-        })
+      if (p.key === 'instagram' && schedDests.ig_post) posts.push(post)
+      else if (p.key === 'facebook' && schedDests.fb_post) posts.push(post)
+      else if (p.key !== 'instagram' && p.key !== 'facebook') posts.push(post) // other platforms always
+
+      // Add IG story
+      if (p.key === 'instagram' && schedDests.ig_story) {
+        posts.push({ platform: 'instagram_story', caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts, _story_offset: true })
+      }
+      // Add FB story
+      if (p.key === 'facebook' && schedDests.fb_story) {
+        posts.push({ platform: 'facebook_story', caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts, _story_offset: true })
+      }
+      // Add FB reel
+      if (p.key === 'facebook' && isVideoFile && schedDests.fb_reel) {
+        posts.push({ platform: 'facebook_reel', caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts })
+      }
+      // Add YT Shorts (if not already the youtube platform post)
+      if (p.key === 'youtube' && schedDests.yt_shorts) {
+        // YouTube post is already added above with its special caption format
       }
     }
     return posts
@@ -624,49 +634,87 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
               )}
             </>
           )}
-          {/* Include stories option */}
-          {postable.some(p => p.key === 'facebook' || p.key === 'instagram') && item.isImg && (
-            <>
-              <label className="flex items-center gap-1.5 text-[11px] text-ink cursor-pointer select-none">
-                <input type="checkbox" checked={includeStories} onChange={e => setIncludeStories(e.target.checked)} className="accent-[#E1306C]" />
-                Include stories (+45min after feed post)
-              </label>
-              {includeStories && (
-                <div className="bg-[#fef3f8] rounded px-2.5 py-1.5 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted min-w-[50px]">Caption:</span>
-                    <select value={schedStoryCaptionStyle} onChange={e => setSchedStoryCaptionStyle(e.target.value)} className="text-[10px] border border-border rounded px-1 py-0.5 bg-white">
-                      <option value="none">No overlay</option>
-                      <option value="overlay">Text overlay</option>
-                    </select>
+          {/* Destination checkboxes for scheduling */}
+          {postable.some(p => ['facebook', 'instagram', 'youtube'].includes(p.key)) && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] text-muted font-medium">Schedule to:</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {settings?.ig_connected && available.some(p => p.key === 'instagram') && (
+                  <>
+                    <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                      <input type="checkbox" checked={schedDests.ig_post || false} onChange={e => setSchedDests(d => ({...d, ig_post: e.target.checked}))} className="accent-[#E1306C]" />
+                      {isVideoFile ? 'IG Reel' : 'IG Post'}
+                    </label>
+                    <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                      <input type="checkbox" checked={schedDests.ig_story || false} onChange={e => setSchedDests(d => ({...d, ig_story: e.target.checked}))} className="accent-[#833AB4]" />
+                      IG Story
+                    </label>
+                  </>
+                )}
+                {settings?.fb_connected && available.some(p => p.key === 'facebook') && (
+                  <>
+                    <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                      <input type="checkbox" checked={schedDests.fb_post || false} onChange={e => setSchedDests(d => ({...d, fb_post: e.target.checked}))} className="accent-[#1877F2]" />
+                      FB Post
+                    </label>
+                    {isVideoFile && (
+                      <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                        <input type="checkbox" checked={schedDests.fb_reel || false} onChange={e => setSchedDests(d => ({...d, fb_reel: e.target.checked}))} className="accent-[#1877F2]" />
+                        FB Reel
+                      </label>
+                    )}
+                    <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                      <input type="checkbox" checked={schedDests.fb_story || false} onChange={e => setSchedDests(d => ({...d, fb_story: e.target.checked}))} className="accent-[#4267B2]" />
+                      FB Story
+                    </label>
+                  </>
+                )}
+                {settings?.youtube_connected && available.some(p => p.key === 'youtube') && isVideoFile && (
+                  <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                    <input type="checkbox" checked={schedDests.yt_shorts || false} onChange={e => setSchedDests(d => ({...d, yt_shorts: e.target.checked}))} className="accent-[#FF0000]" />
+                    YT Shorts
+                  </label>
+                )}
+              </div>
+              {/* Overlay controls for video */}
+              {isVideoFile && (schedDests.ig_post || schedDests.ig_story || schedDests.fb_reel || schedDests.fb_story || schedDests.yt_shorts) && (
+                <div className="bg-[#f8f9fa] rounded px-2.5 py-1.5 space-y-1.5">
+                  <div className="flex gap-3 text-[10px]">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input type="radio" name="sched-overlay" value="none" checked={schedOverlay === 'none'} onChange={() => setSchedOverlay('none')} /> No overlay
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input type="radio" name="sched-overlay" value="overlay" checked={schedOverlay === 'overlay'} onChange={() => setSchedOverlay('overlay')} /> Text overlay
+                    </label>
                   </div>
-                  {schedStoryCaptionStyle === 'overlay' && (
+                  {schedOverlay === 'overlay' && (
                     <>
-                      <textarea
-                        rows={2}
-                        value={schedStoryText}
-                        onChange={e => setSchedStoryText(e.target.value)}
-                        placeholder="Story overlay text..."
-                        className="w-full text-[10px] border border-border rounded px-2 py-1 bg-white resize-y"
-                      />
+                      <div className="flex gap-1.5">
+                        <textarea rows={2} value={schedOpeningText} onChange={e => setSchedOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for line break)"} className="flex-1 text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" />
+                        <textarea rows={2} value={schedClosingText} onChange={e => setSchedClosingText(e.target.value)} placeholder={"Closing text\n(Enter for line break)"} className="flex-1 text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" />
+                      </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <label className="text-[9px] text-muted">Position:
-                          <input type="range" min={10} max={90} value={schedOverlayYPct} onChange={e => setSchedOverlayYPct(Number(e.target.value))} className="w-16 ml-1 align-middle" />
+                          <input type="range" min={0} max={100} value={schedOverlayYPct} onChange={e => setSchedOverlayYPct(Number(e.target.value))} className="w-16 ml-1 align-middle" />
                         </label>
-                        <label className="text-[9px] text-muted">Size:
-                          <select value={schedStoryFontSize} onChange={e => setSchedStoryFontSize(Number(e.target.value))} className="text-[9px] border border-border rounded px-1 bg-white ml-1">
-                            <option value={32}>Small</option><option value={48}>Medium</option><option value={64}>Large</option><option value={80}>XXXL</option>
-                          </select>
-                        </label>
-                        <label className="text-[9px] text-muted">Color:
-                          <input type="color" value={schedStoryFontColor} onChange={e => setSchedStoryFontColor(e.target.value)} className="w-5 h-4 ml-1 align-middle border-none" />
+                        <select value={schedFontSize} onChange={e => setSchedFontSize(Number(e.target.value))} className="text-[9px] border border-border rounded px-1 bg-white">
+                          <option value={32}>Small</option><option value={48}>Medium</option><option value={64}>Large</option><option value={80}>XXXL</option>
+                        </select>
+                        <input type="color" value={schedFontColor} onChange={e => setSchedFontColor(e.target.value)} className="w-5 h-4 border-none" />
+                        <label className="flex items-center gap-1 text-[9px] cursor-pointer">
+                          <input type="checkbox" checked={schedFontOutline} onChange={e => setSchedFontOutline(e.target.checked)} /> Outline
                         </label>
                       </div>
+                      <div className="flex gap-2">
+                        <label className="text-[9px] text-muted">Opening: <select value={schedOpeningDuration} onChange={e => setSchedOpeningDuration(Number(e.target.value))} className="text-[9px] border border-border rounded px-0.5 bg-white">{[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}</select></label>
+                        <label className="text-[9px] text-muted">Closing: <select value={schedClosingDuration} onChange={e => setSchedClosingDuration(Number(e.target.value))} className="text-[9px] border border-border rounded px-0.5 bg-white">{[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}</select></label>
+                      </div>
+                      <p className="text-[8px] text-muted">Overlays: {[schedDests.ig_post && 'IG Reel', schedDests.ig_story && 'IG Story', schedDests.fb_reel && 'FB Reel', schedDests.fb_story && 'FB Story', schedDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none'}{schedDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
                     </>
                   )}
                 </div>
               )}
-            </>
+            </div>
           )}
           <div className="flex items-center gap-2 flex-wrap">
             {!useSuggestedTimes && (
