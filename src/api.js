@@ -127,6 +127,9 @@ export const humanize = (text, platform) =>
 export const refine = (text, style, platform) =>
   fetch(api('/generate/refine'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ text, style, platform }) }).then(r => r.json())
 
+export const reviewHint = (text, platforms) =>
+  fetch(api('/generate/review-hint'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ text, platforms }) }).then(r => r.json())
+
 export const getPostingSchedule = () =>
   fetch(api('/generate/posting-schedule'), { method: 'POST', headers: h(), credentials: 'include' }).then(r => r.json())
 

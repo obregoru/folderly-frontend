@@ -42,6 +42,8 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false)
   const [rules, setRules] = useState({ name: true, cta: true, brand: true, seo: true, hashtags: true })
   const [userHint, setUserHint] = useState('')
+  const [reviewing, setReviewing] = useState(false)
+  const [reviewResult, setReviewResult] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [targetWeek, setTargetWeek] = useState(null)
 
@@ -411,14 +413,25 @@ export default function App() {
           <div className="md:hidden">
             <div className="flex items-center justify-between">
               <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span></label>
-              {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
-                <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[11px] text-sage hover:underline">Reuse last</button>
-              )}
+              <div className="flex gap-2">
+                {userHint.length > 20 && (
+                  <button onClick={async () => {
+                    setReviewing(true); setReviewResult(null)
+                    try { const r = await api.reviewHint(userHint); setReviewResult(r) } catch (e) { setReviewResult({ error: e.message }) }
+                    setReviewing(false)
+                  }} disabled={reviewing} className="text-[11px] text-[#6C5CE7] hover:underline disabled:opacity-50">
+                    {reviewing ? 'Reviewing...' : 'Review with AI'}
+                  </button>
+                )}
+                {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
+                  <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[11px] text-sage hover:underline">Reuse last</button>
+                )}
+              </div>
             </div>
             <textarea
               rows={3}
               value={userHint}
-              onChange={e => setUserHint(e.target.value)}
+              onChange={e => { setUserHint(e.target.value); setReviewResult(null) }}
               className="field-input resize-y mt-1.5"
               placeholder="e.g. Girls night, wine canvas painting"
             />
@@ -441,18 +454,53 @@ export default function App() {
           <div className="hidden md:block">
             <div className="flex items-center justify-between">
               <label className="text-[11px] text-muted">Context hint <span className="italic text-[10px]">(optional — tell the AI what's happening)</span></label>
-              {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
-                <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
-              )}
+              <div className="flex gap-2">
+                {userHint.length > 20 && (
+                  <button onClick={async () => {
+                    setReviewing(true); setReviewResult(null)
+                    try { const r = await api.reviewHint(userHint); setReviewResult(r) } catch (e) { setReviewResult({ error: e.message }) }
+                    setReviewing(false)
+                  }} disabled={reviewing} className="text-[10px] text-[#6C5CE7] hover:underline disabled:opacity-50">
+                    {reviewing ? 'Reviewing...' : 'Review with AI'}
+                  </button>
+                )}
+                {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
+                  <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
+                )}
+              </div>
             </div>
             <textarea
               rows={2}
               value={userHint}
-              onChange={e => setUserHint(e.target.value)}
+              onChange={e => { setUserHint(e.target.value); setReviewResult(null) }}
               className="field-input resize-y mt-1"
               placeholder="e.g. This is how many cans of beer we drank during the snow storm"
             />
           </div>
+          {/* Review result */}
+          {reviewResult && (
+            <div className="border border-[#6C5CE7]/30 rounded-sm p-2.5 bg-[#6C5CE7]/5">
+              {reviewResult.error ? (
+                <p className="text-[11px] text-[#c0392b]">{reviewResult.error}</p>
+              ) : (
+                <>
+                  <p className="text-[11px] text-muted mb-1.5">{reviewResult.review}</p>
+                  {Object.entries(reviewResult.scores || {}).map(([plat, score]) => (
+                    <div key={plat} className="mb-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-medium capitalize">{plat}</span>
+                        <span className={`text-[9px] py-0.5 px-1.5 rounded-full font-semibold ${score.score <= 30 ? 'bg-[#e8efe9] text-[#3a6b42]' : score.score <= 60 ? 'bg-[#fef3cd] text-[#856404]' : 'bg-[#fdeaea] text-[#c0392b]'}`}>
+                          AI: {score.score}%
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-ink mt-0.5 whitespace-pre-wrap">{reviewResult[plat]}</p>
+                      <button onClick={() => { navigator.clipboard.writeText(reviewResult[plat]); }} className="text-[9px] text-sage hover:underline mt-0.5">Copy</button>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
 
           <p className="text-[11px] text-muted text-center">Captions are generated for each photo — copy, edit, and post to your platforms.</p>
 
