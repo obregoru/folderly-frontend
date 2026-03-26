@@ -484,19 +484,17 @@ export default function App() {
                 <p className="text-[11px] text-[#c0392b]">{reviewResult.error}</p>
               ) : (
                 <>
-                  <p className="text-[11px] text-muted mb-1.5">{reviewResult.review}</p>
-                  {Object.entries(reviewResult.scores || {}).map(([plat, score]) => (
-                    <div key={plat} className="mb-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-medium capitalize">{plat}</span>
-                        <span className={`text-[9px] py-0.5 px-1.5 rounded-full font-semibold ${score.score <= 30 ? 'bg-[#e8efe9] text-[#3a6b42]' : score.score <= 60 ? 'bg-[#fef3cd] text-[#856404]' : 'bg-[#fdeaea] text-[#c0392b]'}`}>
-                          AI: {score.score}%
-                        </span>
-                      </div>
-                      <p className="text-[10px] text-ink mt-0.5 whitespace-pre-wrap">{reviewResult[plat]}</p>
-                      <button onClick={() => { navigator.clipboard.writeText(reviewResult[plat]); }} className="text-[9px] text-sage hover:underline mt-0.5">Copy</button>
-                    </div>
-                  ))}
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[10px] text-muted">{reviewResult.changes}</p>
+                    <span className={`text-[9px] py-0.5 px-1.5 rounded-full font-semibold ${reviewResult.score?.score <= 30 ? 'bg-[#e8efe9] text-[#3a6b42]' : reviewResult.score?.score <= 60 ? 'bg-[#fef3cd] text-[#856404]' : 'bg-[#fdeaea] text-[#c0392b]'}`}>
+                      AI: {reviewResult.score?.score || 0}%
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-ink whitespace-pre-wrap">{reviewResult.text}</p>
+                  <div className="flex gap-2 mt-1.5">
+                    <button onClick={() => { setUserHint(reviewResult.text); setReviewResult(null) }} className="text-[10px] text-[#2D9A5E] hover:underline font-medium">Use this</button>
+                    <button onClick={() => setReviewResult(null)} className="text-[10px] text-muted hover:underline">Dismiss</button>
+                  </div>
                 </>
               )}
             </div>
