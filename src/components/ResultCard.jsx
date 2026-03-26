@@ -1084,7 +1084,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       <div className="flex gap-1">
                         <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
                           {generatedPreviewUrl ? (
-                            <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls muted autoPlay loop playsInline />
+                            <>
+                              <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls muted autoPlay loop playsInline />
+                              <a href={generatedPreviewUrl} download={`${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`} className="absolute top-1 right-1 text-[7px] bg-black/60 text-white rounded px-1.5 py-0.5 no-underline hover:bg-black/80 z-10">Save</a>
+                            </>
                           ) : (
                             <>
                               <video ref={videoPreviewRef} src={videoSrc} className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} muted loop playsInline onTimeUpdate={e => setVideoTime(e.target.currentTime)} onLoadedMetadata={e => setVideoDuration(e.target.duration)} />
