@@ -702,10 +702,16 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                   </>
                 )}
                 {settings?.youtube_connected && available.some(p => p.key === 'youtube') && isVideoFile && (
-                  <label className="flex items-center gap-1 text-[10px] cursor-pointer">
-                    <input type="checkbox" checked={schedDests.yt_shorts || false} onChange={e => setSchedDests(d => ({...d, yt_shorts: e.target.checked}))} className="accent-[#FF0000]" />
-                    YT Shorts
-                  </label>
+                  <>
+                    <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                      <input type="checkbox" checked={schedDests.yt_shorts || false} onChange={e => setSchedDests(d => ({...d, yt_shorts: e.target.checked}))} className="accent-[#FF0000]" />
+                      YT Shorts
+                    </label>
+                    <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                      <input type="checkbox" checked={schedDests.yt_video || false} onChange={e => setSchedDests(d => ({...d, yt_video: e.target.checked}))} className="accent-[#FF0000]" />
+                      YT Video
+                    </label>
+                  </>
                 )}
               </div>
               {/* Overlay controls for video */}
@@ -805,6 +811,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     fb_reel: false,
     fb_story: platform === 'facebook' && settings?.fb_stories_default === true,
     yt_shorts: platform === 'youtube',
+    yt_video: false,
   })
   const storyEnabled = postDests.ig_story || postDests.fb_story
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
@@ -1151,10 +1158,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 </>
               )}
               {canPostYt && (
-                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
-                  <input type="checkbox" checked={postDests.yt_shorts} onChange={e => setPostDests(d => ({...d, yt_shorts: e.target.checked}))} className="accent-[#FF0000]" />
-                  <span>YT Shorts</span>
-                </label>
+                <>
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                    <input type="checkbox" checked={postDests.yt_shorts} onChange={e => setPostDests(d => ({...d, yt_shorts: e.target.checked}))} className="accent-[#FF0000]" />
+                    <span>YT Shorts</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                    <input type="checkbox" checked={postDests.yt_video} onChange={e => setPostDests(d => ({...d, yt_video: e.target.checked}))} className="accent-[#FF0000]" />
+                    <span>YT Video</span>
+                  </label>
+                </>
               )}
             </div>
 
@@ -1319,7 +1332,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 )}
                 {/* Note about which destinations get overlays */}
                 {storyCaptionStyle === 'overlay' && (
-                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
+                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post || postDests.yt_video ? `. No overlay: ${[postDests.fb_post && 'FB Post', postDests.yt_video && 'YT Video'].filter(Boolean).join(', ')}.` : ''}</p>
                 )}
               </div>
             )}
@@ -1389,7 +1402,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const mt = useProcessed ? 'video/mp4' : rawType
                       const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Short', description: value, tags })
                       const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
-                      try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT failed: ${e.message}`) }
+                      try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT Shorts failed: ${e.message}`) }
+                    }
+                    if (postDests.yt_video) {
+                      const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Video', description: value, tags })
+                      try { await api.postToYoutubeVideo(ytCaption, rawBase64, rawType); results.push('YT Video') } catch (e) { results.push(`YT Video failed: ${e.message}`) }
                     }
                     setPostStatus(`Posted: ${results.join(', ')}`)
                   } catch (err) { setPostStatus(`Failed: ${err.message}`) }
@@ -1398,7 +1415,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 disabled={posting}
                 className="mt-2 w-full text-[12px] py-2 border border-[#2D9A5E] rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#258a50] disabled:opacity-50"
               >
-                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(' + ')}`}
+                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts', postDests.yt_video && 'YT Video'].filter(Boolean).join(' + ')}`}
               </button>
             )}
           </div>

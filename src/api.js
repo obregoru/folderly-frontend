@@ -250,7 +250,9 @@ export const startYoutubeConnect = () =>
 export const disconnectYoutube = () =>
   fetch(api('/connect/youtube/disconnect'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const postToYoutubeShorts = (caption, imageBase64, mediaType, overlayOpts) =>
-  postWithDupCheck('/post/youtube', { caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts })
+  postWithDupCheck('/post/youtube', { caption, image_base64: imageBase64, media_type: mediaType, is_shorts: true, ...overlayOpts })
+export const postToYoutubeVideo = (caption, imageBase64, mediaType) =>
+  postWithDupCheck('/post/youtube', { caption, image_base64: imageBase64, media_type: mediaType, is_shorts: false })
 
 // Pinterest
 export const startPinterestConnect = () =>
