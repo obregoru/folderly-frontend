@@ -902,6 +902,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     fb_story: platform === 'facebook' && settings?.fb_stories_default === true,
     yt_shorts: platform === 'youtube',
     yt_video: false,
+    twitter: platform === 'twitter',
+    tiktok: platform === 'tiktok',
+    google: platform === 'google',
+    pinterest: platform === 'pinterest',
+    blog: platform === 'blog',
   })
   const storyEnabled = postDests.ig_story || postDests.fb_story
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
@@ -1213,7 +1218,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         )}
 
         {/* Destination checkboxes */}
-        {(canPostFb || canPostIg || canPostYt) && (
+        {(canPostFb || canPostIg || canPostYt || canPostTw || canPostTk || canPostGoogle || canPostWp || canPostPinterest || isTiktok) && (
           <div className="border-t border-border pt-2">
             <p className="text-[10px] text-muted font-medium mb-1.5">Post to:</p>
             <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -1258,6 +1263,36 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     <span>YT Video</span>
                   </label>
                 </>
+              )}
+              {canPostTw && (
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                  <input type="checkbox" checked={postDests.twitter || false} onChange={e => setPostDests(d => ({...d, twitter: e.target.checked}))} className="accent-[#000]" />
+                  <span>X / Twitter</span>
+                </label>
+              )}
+              {(canPostTk || isTiktok) && (
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                  <input type="checkbox" checked={postDests.tiktok || false} onChange={e => setPostDests(d => ({...d, tiktok: e.target.checked}))} className="accent-[#000]" />
+                  <span>TikTok {!canPostTk ? '(copy)' : ''}</span>
+                </label>
+              )}
+              {canPostGoogle && (
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                  <input type="checkbox" checked={postDests.google || false} onChange={e => setPostDests(d => ({...d, google: e.target.checked}))} className="accent-[#4285F4]" />
+                  <span>Google</span>
+                </label>
+              )}
+              {canPostPinterest && (
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                  <input type="checkbox" checked={postDests.pinterest || false} onChange={e => setPostDests(d => ({...d, pinterest: e.target.checked}))} className="accent-[#E60023]" />
+                  <span>Pinterest</span>
+                </label>
+              )}
+              {canPostWp && (
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                  <input type="checkbox" checked={postDests.blog || false} onChange={e => setPostDests(d => ({...d, blog: e.target.checked}))} className="accent-[#21759B]" />
+                  <span>Blog</span>
+                </label>
               )}
             </div>
 
@@ -1525,6 +1560,24 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Video', description: value, tags })
                       try { await api.postToYoutubeVideo(ytCaption, rawBase64, rawType); results.push('YT Video') } catch (e) { results.push(`YT Video failed: ${e.message}`) }
                     }
+                    if (postDests.twitter) {
+                      try { await api.postToTwitter(value, rawBase64, rawType); results.push('X') } catch (e) { results.push(`X failed: ${e.message}`) }
+                    }
+                    if (postDests.tiktok) {
+                      const r = await api.postToTiktok(value, rawBase64, rawType)
+                      if (r.fallback) { navigator.clipboard.writeText(value); results.push('TikTok (caption copied)') }
+                      else results.push('TikTok')
+                    }
+                    if (postDests.google) {
+                      try { await api.postToGoogle(value, rawBase64, rawType); results.push('Google') } catch (e) { results.push(`Google failed: ${e.message}`) }
+                    }
+                    if (postDests.pinterest) {
+                      try { await api.postToPinterest(value, rawBase64, rawType); results.push('Pinterest') } catch (e) { results.push(`Pinterest failed: ${e.message}`) }
+                    }
+                    if (postDests.blog) {
+                      const wpTitle = title || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
+                      try { await api.postToWordPress(wpTitle, value, rawBase64, rawType, [], false); results.push('Blog (draft)') } catch (e) { results.push(`Blog failed: ${e.message}`) }
+                    }
                     setPostStatus(`Posted: ${results.join(', ')}`)
                   } catch (err) { setPostStatus(`Failed: ${err.message}`) }
                   setPosting(false)
@@ -1532,98 +1585,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 disabled={posting}
                 className="mt-2 w-full text-[12px] py-2 border border-[#2D9A5E] rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#258a50] disabled:opacity-50"
               >
-                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts', postDests.yt_video && 'YT Video'].filter(Boolean).join(' + ')}`}
+                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts', postDests.yt_video && 'YT Video', postDests.twitter && 'X', postDests.tiktok && 'TikTok', postDests.google && 'Google', postDests.pinterest && 'Pinterest', postDests.blog && 'Blog'].filter(Boolean).join(' + ') || 'none'}`}
               </button>
             )}
           </div>
         )}
 
-        {/* Other platforms */}
         <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
-        {canPostTw && (
-          <button onClick={() => handlePost('twitter')} disabled={posting} className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333] disabled:opacity-50">
-            {posting ? 'Posting...' : 'Post to X'}
-          </button>
-        )}
-        {isTiktok && (
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => { navigator.clipboard.writeText(value); setPostStatus('Copied!'); setTimeout(() => setPostStatus(''), 2000) }} className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333]">Copy caption</button>
-            {canPostTk && (
-              <button onClick={() => handlePost('tiktok')} disabled={posting} className="text-[11px] py-1 px-2.5 border border-[#fe2c55] rounded-sm bg-[#fe2c55] text-white cursor-pointer font-sans hover:bg-[#e0264c] disabled:opacity-50">
-                {posting ? 'Posting...' : 'Post to TikTok'}
-              </button>
-            )}
-            {!canPostTk && !settings?.tiktok_connected && <span className="text-[10px] text-muted">Connect TikTok in settings to post directly</span>}
-          </div>
-        )}
-        {canPostGoogle && (
-          <div className="flex flex-col gap-1">
-            <div className="flex gap-2">
-              <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
-                <input type="checkbox" checked={googlePostEnabled} onChange={e => setGooglePostEnabled(e.target.checked)} className="w-3 h-3" />
-                Google Post
-              </label>
-              <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
-                <input type="checkbox" checked={googleGalleryEnabled} onChange={e => setGoogleGalleryEnabled(e.target.checked)} className="w-3 h-3" />
-                Photo gallery
-              </label>
-            </div>
-            <button
-              onClick={() => handlePost('google', { googlePost: googlePostEnabled, googleGallery: googleGalleryEnabled })}
-              disabled={posting || (!googlePostEnabled && !googleGalleryEnabled)}
-              className="text-[11px] py-1 px-2.5 border border-[#4285F4] rounded-sm bg-[#4285F4] text-white cursor-pointer font-sans hover:bg-[#3574d4] disabled:opacity-50"
-            >
-              {posting ? 'Posting...' : `Post to Google${googlePostEnabled && googleGalleryEnabled ? ' (Post + Gallery)' : googlePostEnabled ? ' (Post)' : ' (Gallery)'}`}
-            </button>
-          </div>
-        )}
-        {canPostPinterest && (
-          <button
-            onClick={() => handlePost('pinterest')}
-            disabled={posting}
-            className="text-[11px] py-1 px-2.5 border border-[#E60023] rounded-sm bg-[#E60023] text-white cursor-pointer font-sans hover:bg-[#cc001e] disabled:opacity-50"
-          >
-            {posting ? 'Pinning...' : 'Pin to Pinterest'}
-          </button>
-        )}
         {!canPostYt && platform === 'youtube' && !isVideo && (
-          <span className="text-[10px] text-muted italic">YouTube Shorts requires a video</span>
+          <span className="text-[10px] text-muted italic">YouTube requires a video</span>
         )}
-        {canPostWp && (
-          <>
-            {wpCategories.length > 0 && (
-              <select
-                multiple
-                value={selectedCats.map(String)}
-                onChange={e => setSelectedCats(Array.from(e.target.selectedOptions, o => Number(o.value)))}
-                className="text-[10px] border border-border rounded-sm bg-white px-1 py-0.5 max-h-[60px] min-w-[100px]"
-                title="Hold Ctrl/Cmd to select multiple categories"
-              >
-                {wpCategories.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            )}
-            <label className="flex items-center gap-1 text-[10px] text-muted cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={wpPublish}
-                onChange={e => setWpPublish(e.target.checked)}
-                className="accent-[#21759B]"
-              />
-              Publish immediately
-            </label>
-            <button
-              onClick={() => handlePost('wordpress')}
-              disabled={posting}
-              className="text-[11px] py-1 px-2.5 border border-[#21759B] rounded-sm bg-[#21759B] text-white cursor-pointer font-sans hover:bg-[#1a5f7a] disabled:opacity-50"
-            >
-              {posting ? 'Posting...' : wpPublish ? 'Publish to WordPress' : 'Save Draft to WordPress'}
-            </button>
-          </>
-        )}
-        </div>
-        <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
         <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regenerate</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
         <button onClick={() => onRefine(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Refine</button>
