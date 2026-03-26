@@ -92,12 +92,13 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
     ...allTags(item.parsed)
   ])]
 
-  // Thumbnail src
-  const thumbSrc = item.isImg
+  // Thumbnail src — memoized to prevent re-render blob URL churn
+  const [thumbSrc] = useState(() => item.isImg
     ? URL.createObjectURL(item.file)
     : (item.uploadResult?.thumbnail_path
       ? (item.uploadResult.thumbnail_path.startsWith('http') ? item.uploadResult.thumbnail_path : `/uploads/${item.uploadResult.thumbnail_path}`)
-      : null)
+      : null))
+  const [fileSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : null)
   const isVideo = item.file?.type?.startsWith('video/')
   const [showPreview, setShowPreview] = useState(false)
 
@@ -110,7 +111,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
             <button onClick={() => setShowPreview(false)} className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10">&times;</button>
             {isVideo ? (
               <video
-                src={URL.createObjectURL(item.file)}
+                src={fileSrc}
                 controls
                 autoPlay
                 playsInline
@@ -127,12 +128,15 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
       )}
       {/* Header */}
       <div className="flex items-center gap-2.5 py-2.5 px-3.5 border-b border-border bg-cream">
-        {thumbSrc ? (
+        {isVideo ? (
+          <div onClick={() => setShowPreview(true)} className="w-9 h-9 rounded-sm overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-80 relative bg-black">
+            <video src={fileSrc} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+            <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] bg-black/50 rounded-full w-5 h-5 flex items-center justify-center">▶</span></div>
+          </div>
+        ) : thumbSrc ? (
           <img src={thumbSrc} onClick={() => setShowPreview(true)} className="w-9 h-9 rounded-sm object-cover flex-shrink-0 cursor-pointer hover:opacity-80" />
-        ) : isVideo ? (
-          <div onClick={() => setShowPreview(true)} className="w-9 h-9 rounded-sm bg-ink flex items-center justify-center text-white text-[13px] flex-shrink-0 cursor-pointer hover:bg-[#333]">▶</div>
         ) : (
-          <div className="w-9 h-9 rounded-sm bg-ink flex items-center justify-center text-white text-[13px] flex-shrink-0">▶</div>
+          <div className="w-9 h-9 rounded-sm bg-ink flex items-center justify-center text-white text-[13px] flex-shrink-0">?</div>
         )}
         <div className="flex-1 min-w-0">
           <div className="text-xs font-medium truncate" title={item.file.name}>{item.file.name}</div>
