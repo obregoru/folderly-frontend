@@ -1195,7 +1195,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     {isVideoFile && (
                       <div className="flex gap-1">
                         {generatedPreviewUrl && (
-                          <button onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }} className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer">Back to edit</button>
+                          <>
+                            <button onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }} className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer">Back to edit</button>
+                            <a href={generatedPreviewUrl} download={`${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`} className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer no-underline text-center">Download</a>
+                          </>
                         )}
                         <button
                           onClick={async () => {
