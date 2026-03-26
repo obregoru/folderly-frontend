@@ -699,7 +699,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [saved, setSaved] = useState(false)
   const [posting, setPosting] = useState(false)
   const [postStatus, setPostStatus] = useState('')
-  const [storyEnabled, setStoryEnabled] = useState(settings?.fb_stories_default === true)
+  const storyEnabled = postDests.ig_story || postDests.fb_story
   const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
   const [storyPreview, setStoryPreview] = useState(null)
   const [overlayYPct, setOverlayYPct] = useState(70)
@@ -714,6 +714,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [closingDuration, setClosingDuration] = useState(3)
   const [generatedPreviewUrl, setGeneratedPreviewUrl] = useState(null)
   const [generatingPreview, setGeneratingPreview] = useState(false)
+  const [postDests, setPostDests] = useState({
+    ig_post: platform === 'instagram',
+    ig_story: platform === 'instagram' && settings?.fb_stories_default === true,
+    fb_post: platform === 'facebook',
+    fb_story: platform === 'facebook' && settings?.fb_stories_default === true,
+  })
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
 
   // Sync when text prop changes (e.g. after refine/regen)
@@ -897,41 +903,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     try {
       const { imageBase64, mediaType } = await getImageBase64(target)
       const api = await import('../api')
-      if (target === 'facebook') {
-        if (storyEnabled && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)) {
-          if (!confirm('You have story overlays set up. This posts to the Facebook feed (no overlays). Use the "FB Story" button for stories with overlays. Post to feed anyway?')) {
-            setPosting(false); return
-          }
-        }
-        await api.postToFacebook(value, imageBase64, mediaType)
-        setPostStatus('Posted!')
-      } else if (target === 'facebook_story' || target === 'instagram_story') {
-        if (!imageBase64) throw new Error('Stories require media')
-        const hasOverlays = storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)
-        if (hasOverlays && !generatedPreviewUrl) {
-          if (!confirm('You have text overlays but haven\'t previewed. The overlays will be burned into the video. Post anyway?')) {
-            setPosting(false); return
-          }
-        }
-        const storyCaption = storyCaptionStyle === 'overlay' ? storyText : value
-        const fontOpts = { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
-        if (target === 'facebook_story') {
-          await api.postToFacebookStory(storyCaption, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts)
-          setPostStatus('FB Story posted!')
-        } else {
-          await api.postToInstagramStory(storyCaption, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts)
-          setPostStatus('Story posted!')
-        }
-      } else if (target === 'instagram') {
-        if (storyEnabled && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)) {
-          if (!confirm('You have story overlays set up. This posts to the Instagram feed (no overlays). Use the "Post Story" button for stories with overlays. Post to feed anyway?')) {
-            setPosting(false); return
-          }
-        }
-        if (!imageBase64) throw new Error('Instagram requires a photo')
-        await api.postToInstagram(value, imageBase64, mediaType)
-        setPostStatus('Posted!')
-      } else if (target === 'twitter') {
+      if (target === 'twitter') {
         const result = await api.postToTwitter(value, imageBase64, mediaType)
         if (result.warning) {
           setPostStatus('Warning: ' + result.warning)
@@ -1045,331 +1017,259 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       >
         {postStatus === 'Copied!' ? 'Copied!' : 'Copy Caption'}
       </button>
-      <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
+      <div className="flex flex-col gap-2 mt-2">
         {platform === 'youtube' && (
           <button
             onClick={() => {
               const full = `${title}\n\n${value}${tags.length ? '\n\nTags: ' + tags.join(', ') : ''}`
               navigator.clipboard.writeText(full)
             }}
-            className="text-[11px] py-1 px-2.5 border border-[#FF0000] rounded-sm bg-[#FF0000] text-white cursor-pointer font-sans hover:bg-[#cc0000]"
+            className="text-[11px] py-1 px-2.5 border border-[#FF0000] rounded-sm bg-[#FF0000] text-white cursor-pointer font-sans hover:bg-[#cc0000] self-end"
           >Copy All for YouTube</button>
         )}
-        {canPostFb && (
-          <>
-            <button
-              onClick={() => handlePost('facebook')}
-              disabled={posting}
-              className="text-[11px] py-1 px-2.5 border border-[#1877F2] rounded-sm bg-[#1877F2] text-white cursor-pointer font-sans hover:bg-[#1565c0] disabled:opacity-50"
-            >
-              {posting ? 'Posting...' : 'Post to Facebook'}
-            </button>
-            {storyEnabled && (
-              <button
-                onClick={() => handlePost('facebook_story')}
-                disabled={posting}
-                className="text-[11px] py-1 px-2.5 border border-[#4267B2] rounded-sm bg-[#4267B2] text-white cursor-pointer font-sans hover:bg-[#365899] disabled:opacity-50"
-              >
-                {posting ? 'Posting...' : 'FB Story'}
-              </button>
-            )}
-          </>
-        )}
-        {canPostIg && (
-          <>
-            <button
-              onClick={() => handlePost('instagram')}
-              disabled={posting}
-              className="text-[11px] py-1 px-2.5 border border-[#E1306C] rounded-sm bg-[#E1306C] text-white cursor-pointer font-sans hover:bg-[#c1255b] disabled:opacity-50"
-            >
-              {posting ? 'Posting...' : 'Post to Instagram'}
-            </button>
-            {storyEnabled && (
-              <button
-                onClick={() => handlePost('instagram_story')}
-                disabled={posting}
-                className="text-[11px] py-1 px-2.5 border border-[#833AB4] rounded-sm bg-[#833AB4] text-white cursor-pointer font-sans hover:bg-[#6d2e96] disabled:opacity-50"
-              >
-                {posting ? 'Posting...' : 'IG Story'}
-              </button>
-            )}
-          </>
-        )}
+
+        {/* Destination checkboxes */}
         {(canPostFb || canPostIg) && (
-          <div className="w-full flex flex-col gap-1 mt-1 border-t border-border pt-1.5">
-            <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
-              <input type="checkbox" checked={storyEnabled} onChange={e => setStoryEnabled(e.target.checked)} />
-              <span>Stories {canPostFb && canPostIg ? '(FB + IG)' : canPostFb ? '(Facebook)' : '(Instagram)'}</span>
-            </label>
-            {storyEnabled && (
-              <>
-                <div className="flex gap-3 ml-5 text-[10px]">
+          <div className="border-t border-border pt-2">
+            <p className="text-[10px] text-muted font-medium mb-1.5">Post to:</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              {canPostIg && (
+                <>
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                    <input type="checkbox" checked={postDests.ig_post} onChange={e => setPostDests(d => ({...d, ig_post: e.target.checked}))} className="accent-[#E1306C]" />
+                    <span>{isVideoFile ? 'IG Reel' : 'IG Post'}</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                    <input type="checkbox" checked={postDests.ig_story} onChange={e => setPostDests(d => ({...d, ig_story: e.target.checked}))} className="accent-[#833AB4]" />
+                    <span>IG Story</span>
+                  </label>
+                </>
+              )}
+              {canPostFb && (
+                <>
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                    <input type="checkbox" checked={postDests.fb_post} onChange={e => setPostDests(d => ({...d, fb_post: e.target.checked}))} className="accent-[#1877F2]" />
+                    <span>FB Post</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                    <input type="checkbox" checked={postDests.fb_story} onChange={e => setPostDests(d => ({...d, fb_story: e.target.checked}))} className="accent-[#4267B2]" />
+                    <span>FB Story</span>
+                  </label>
+                </>
+              )}
+            </div>
+
+            {/* Video overlay controls — shown when any overlay-supporting destination is checked */}
+            {isVideoFile && (postDests.ig_post || postDests.ig_story || postDests.fb_story) && (
+              <div className="mt-2 border-t border-border pt-2">
+                <div className="flex gap-3 text-[10px] mb-1">
                   <label className="flex items-center gap-1 cursor-pointer">
-                    <input type="radio" name={`story-style-${item.id}`} value="none" checked={storyCaptionStyle === 'none'} onChange={() => setStoryCaptionStyle('none')} />
-                    No caption (visual only)
+                    <input type="radio" name={`overlay-style-${item.id}`} value="none" checked={storyCaptionStyle === 'none'} onChange={() => setStoryCaptionStyle('none')} />
+                    No overlay
                   </label>
                   <label className="flex items-center gap-1 cursor-pointer">
-                    <input type="radio" name={`story-style-${item.id}`} value="overlay" checked={storyCaptionStyle === 'overlay'} onChange={() => setStoryCaptionStyle('overlay')} />
-                    Text overlay on image
+                    <input type="radio" name={`overlay-style-${item.id}`} value="overlay" checked={storyCaptionStyle === 'overlay'} onChange={() => setStoryCaptionStyle('overlay')} />
+                    Text overlay
                   </label>
                 </div>
-                {(storyPreview || (storyEnabled && isVideoFile)) && (
-                  <div className="ml-5 mt-1.5">
-                    <p className="text-[10px] text-muted mb-1">Story preview {!isVideoFile && <span className="text-[9px]">(dashed lines = safe zone)</span>}</p>
-                    {isVideoFile ? (
-                      <div>
-                        {/* Live preview with CSS overlays OR generated preview */}
-                        <div className="flex gap-1">
-                          {/* 9:16 preview — matches 1080x1920 story output */}
-                          <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
-                            {generatedPreviewUrl ? (
-                              <video
-                                src={generatedPreviewUrl}
-                                className="w-full h-full object-contain"
-                                controls
-                                muted
-                                autoPlay
-                                loop
-                                playsInline
-                              />
-                            ) : (
-                              <>
-                                <video
-                                  ref={videoPreviewRef}
-                                  src={videoSrc}
-                                  className="w-full h-full object-cover"
-                                  style={{ objectPosition: 'center 33%' }}
-                                  muted
-                                  loop
-                                  playsInline
-                                  onTimeUpdate={e => setVideoTime(e.target.currentTime)}
-                                  onLoadedMetadata={e => setVideoDuration(e.target.duration)}
-                                />
-                                {/* Safe zone guides */}
-                                <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                                <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                                {/* Live CSS text overlay — scaled to match ffmpeg output */}
-                                {storyCaptionStyle === 'overlay' && (() => {
-                                  const SCALE = 120 / 1080 // preview px / output px
-                                  const hasTimedOverlays = openingText || closingText
-                                  const closingStart = Math.max(0, videoDuration - closingDuration)
-                                  const showOpening = hasTimedOverlays && openingText && videoTime >= 0 && videoTime <= openingDuration
-                                  const showClosing = hasTimedOverlays && closingText && videoDuration > 0 && videoTime >= closingStart
-                                  const showFull = !hasTimedOverlays && storyText
-                                  const displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
-                                  if (!displayText) return null
-                                  // Match ffmpeg's position math exactly:
-                                  // safeTop = H * 0.15, safeBottom = H * 0.85
-                                  // textBlockH = fontSize * 2.5
-                                  // maxY = safeBottom - textBlockH, minY = safeTop
-                                  // yPos = minY + ((maxY - minY) * overlayYPct / 100)
-                                  // text drawn at yPos + 10
-                                  const previewH = Math.round(120 / 9 * 16)
-                                  const scaledFontSize = Math.max(5, Math.round(storyFontSize * SCALE))
-                                  const safeTopPx = Math.round(previewH * 0.15)
-                                  const safeBottomPx = Math.round(previewH * 0.85)
-                                  const textBlockPx = scaledFontSize * 2.5
-                                  const maxYPx = safeBottomPx - textBlockPx
-                                  const minYPx = safeTopPx
-                                  const yPosPx = Math.round(minYPx + ((maxYPx - minYPx) * overlayYPct / 100)) + Math.round(10 * SCALE)
-                                  const scaledBorderW = Math.max(0.3, 3 * SCALE)
-                                  const lineH = Math.round(scaledFontSize * 1.3)
-                                  const textLines = displayText.split(/\n/).filter(Boolean)
-                                  return (
-                                    <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-0.5" style={{ top: `${yPosPx}px` }}>
-                                      {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded-sm" style={{ margin: `${-2 * SCALE}px ${-4 * SCALE}px` }} />}
-                                      {textLines.map((line, i) => (
-                                        <span key={i} className="relative text-center block" style={{
-                                          fontSize: `${scaledFontSize}px`,
-                                          lineHeight: `${lineH}px`,
-                                          fontFamily: storyFontFamily,
-                                          color: storyFontColor,
-                                          fontWeight: 600,
-                                          ...(storyFontOutline
-                                            ? { WebkitTextStroke: `${scaledBorderW}px black`, paintOrder: 'stroke fill' }
-                                            : { textShadow: `0 ${Math.round(2 * SCALE)}px ${Math.round(4 * SCALE)}px rgba(0,0,0,0.7)` }),
-                                        }}>{line}</span>
-                                      ))}
-                                    </div>
-                                  )
-                                })()}
-                                {/* Play controls */}
-                                <div className="absolute bottom-1 left-1 right-1 flex items-center gap-0.5">
-                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) { v.currentTime = Math.max(0, v.currentTime - 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
-                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.paused ? v.play() : v.pause() }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
-                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) { v.currentTime = Math.min(v.duration || 0, v.currentTime + 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
-                                  <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                          {/* Vertical slider for overlay position */}
-                          {storyCaptionStyle === 'overlay' && !generatedPreviewUrl && (
-                            <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.15}px` }}>
-                              <input
-                                type="range"
-                                min="0" max="100"
-                                value={overlayYPct}
-                                onChange={e => setOverlayYPct(Number(e.target.value))}
-                                className="h-full cursor-pointer"
-                                style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }}
-                              />
-                            </div>
+                {storyCaptionStyle === 'overlay' && (
+                  <div className="mt-1.5 space-y-1.5">
+                    {/* Video preview with live overlays */}
+                    {isVideoFile && (
+                      <div className="flex gap-1">
+                        <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
+                          {generatedPreviewUrl ? (
+                            <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls muted autoPlay loop playsInline />
+                          ) : (
+                            <>
+                              <video ref={videoPreviewRef} src={videoSrc} className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} muted loop playsInline onTimeUpdate={e => setVideoTime(e.target.currentTime)} onLoadedMetadata={e => setVideoDuration(e.target.duration)} />
+                              <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                              <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                              {(() => {
+                                const SCALE = 120 / 1080
+                                const hasTimedOverlays = openingText || closingText
+                                const closingStart = Math.max(0, videoDuration - closingDuration)
+                                const showOpening = hasTimedOverlays && openingText && videoTime >= 0 && videoTime <= openingDuration
+                                const showClosing = hasTimedOverlays && closingText && videoDuration > 0 && videoTime >= closingStart
+                                const showFull = !hasTimedOverlays && storyText
+                                const displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
+                                if (!displayText) return null
+                                const previewH = Math.round(120 / 9 * 16)
+                                const scaledFontSize = Math.max(5, Math.round(storyFontSize * SCALE))
+                                const safeTopPx = Math.round(previewH * 0.15)
+                                const safeBottomPx = Math.round(previewH * 0.85)
+                                const textBlockPx = scaledFontSize * 2.5
+                                const yPosPx = Math.round(safeTopPx + ((safeBottomPx - textBlockPx - safeTopPx) * overlayYPct / 100)) + Math.round(10 * SCALE)
+                                const scaledBorderW = Math.max(0.3, 3 * SCALE)
+                                const lineH = Math.round(scaledFontSize * 1.3)
+                                const textLines = displayText.split(/\n/).filter(Boolean)
+                                return (
+                                  <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-0.5" style={{ top: `${yPosPx}px` }}>
+                                    {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded-sm" />}
+                                    {textLines.map((line, i) => (
+                                      <span key={i} className="relative text-center block" style={{ fontSize: `${scaledFontSize}px`, lineHeight: `${lineH}px`, fontFamily: storyFontFamily, color: storyFontColor, fontWeight: 600, ...(storyFontOutline ? { WebkitTextStroke: `${scaledBorderW}px black`, paintOrder: 'stroke fill' } : { textShadow: `0 ${Math.round(2 * SCALE)}px ${Math.round(4 * SCALE)}px rgba(0,0,0,0.7)` }) }}>{line}</span>
+                                    ))}
+                                  </div>
+                                )
+                              })()}
+                              <div className="absolute bottom-1 left-1 right-1 flex items-center gap-0.5">
+                                <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.max(0, v.currentTime - 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
+                                <button onClick={() => { const v = videoPreviewRef.current; if (v) v.paused ? v.play() : v.pause() }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
+                                <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.min(v.duration || 0, v.currentTime + 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
+                                <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
+                              </div>
+                            </>
                           )}
                         </div>
-                        <div className="flex gap-1 mt-1.5">
-                          {generatedPreviewUrl && (
-                            <button
-                              onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }}
-                              className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer"
-                            >Back to edit</button>
-                          )}
-                          <button
-                            onClick={async () => {
-                              setGeneratingPreview(true)
-                              try {
-                                const { imageBase64, mediaType } = await getImageBase64('facebook_story')
-                                const api = await import('../api')
-                                const url = await api.previewStory(
-                                  storyCaptionStyle === 'overlay' ? (storyText || value) : value,
-                                  imageBase64, mediaType, storyCaptionStyle, overlayYPct,
-                                  { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
-                                )
-                                if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
-                                setGeneratedPreviewUrl(url)
-                              } catch (err) { console.error(err); alert('Preview failed: ' + err.message) }
-                              setGeneratingPreview(false)
-                            }}
-                            disabled={generatingPreview}
-                            className="text-[10px] py-1 px-2 border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
-                          >
-                            {generatingPreview ? 'Generating...' : generatedPreviewUrl ? 'Regenerate' : 'Generate Preview'}
-                          </button>
+                        {!generatedPreviewUrl && (
+                          <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.15}px` }}>
+                            <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* Opening/closing text */}
+                    {isVideoFile && (
+                      <div className="flex gap-1.5">
+                        <div className="flex-1">
+                          <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for new line)"} />
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-[9px] text-muted">Duration:</span>
+                            <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={openingDuration} onChange={e => setOpeningDuration(Number(e.target.value))}>
+                              {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="flex-1">
+                          <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={closingText} onChange={e => setClosingText(e.target.value)} placeholder={"Closing text\n(Enter for new line)"} />
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-[9px] text-muted">Duration:</span>
+                            <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={closingDuration} onChange={e => setClosingDuration(Number(e.target.value))}>
+                              {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
+                            </select>
+                          </div>
                         </div>
                       </div>
-                    ) : (
-                      <img
-                        src={storyPreview}
-                        className="w-[120px] h-[213px] object-cover rounded border border-border cursor-ns-resize"
-                        alt="Story preview"
-                        draggable={false}
-                        onMouseDown={e => {
-                          if (storyCaptionStyle !== 'overlay') return
-                          const rect = e.currentTarget.getBoundingClientRect()
-                          const startY = e.clientY
-                          const startPct = overlayYPct
-                          const onMove = (ev) => {
-                            const dy = ev.clientY - startY
-                            const pctDelta = (dy / rect.height) * 100
-                            setOverlayYPct(Math.max(0, Math.min(100, startPct + pctDelta)))
-                          }
-                          const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
-                          document.addEventListener('mousemove', onMove)
-                          document.addEventListener('mouseup', onUp)
-                        }}
-                      />
                     )}
-                    {storyCaptionStyle === 'overlay' && (
-                      <div className="mt-1.5 space-y-1.5">
-                        <textarea
-                          className="w-full text-[11px] border border-border rounded p-1.5 font-sans resize-none bg-white"
-                          rows={2}
-                          value={storyText}
-                          onChange={e => setStoryText(e.target.value)}
-                          placeholder="Full overlay text (shown entire video if no opening/closing set)..."
-                        />
-                        {item.file?.type?.startsWith('video/') && (
-                          <div className="space-y-1 border border-border rounded p-1.5 bg-[#fafafa]">
-                            <p className="text-[9px] text-muted font-medium">Video overlays (fade in/out)</p>
-                            <div className="flex gap-1.5">
-                              <div className="flex-1">
-                                <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder="Opening text&#10;(Enter for new line)" />
-                                <div className="flex items-center gap-1 mt-0.5">
-                                  <span className="text-[9px] text-muted">Duration:</span>
-                                  <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={openingDuration} onChange={e => setOpeningDuration(Number(e.target.value))}>
-                                    {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
-                                  </select>
-                                </div>
-                              </div>
-                              <div className="flex-1">
-                                <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={closingText} onChange={e => setClosingText(e.target.value)} placeholder="Closing text&#10;(Enter for new line)" />
-                                <div className="flex items-center gap-1 mt-0.5">
-                                  <span className="text-[9px] text-muted">Duration:</span>
-                                  <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={closingDuration} onChange={e => setClosingDuration(Number(e.target.value))}>
-                                    {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
-                                  </select>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
+                    {/* Image overlay text */}
+                    {!isVideoFile && (
+                      <textarea className="w-full text-[11px] border border-border rounded p-1.5 font-sans resize-none bg-white" rows={2} value={storyText} onChange={e => setStoryText(e.target.value)} placeholder="Overlay text..." />
+                    )}
+                    {/* Font controls */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)}>
+                        <option value="sans-serif">Sans Serif</option>
+                        <option value="serif">Serif</option>
+                        <option value="Georgia, serif">Georgia</option>
+                        <option value="'Courier New', monospace">Mono</option>
+                        <option value="'Comic Sans MS', cursive">Casual</option>
+                        <option value="Impact, sans-serif">Impact</option>
+                      </select>
+                      <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontSize} onChange={e => setStoryFontSize(Number(e.target.value))}>
+                        <option value={32}>Small</option>
+                        <option value={40}>Medium</option>
+                        <option value={48}>Large</option>
+                        <option value={56}>XL</option>
+                        <option value={64}>XXL</option>
+                        <option value={80}>XXXL</option>
+                      </select>
+                      <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
+                      <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                        <input type="checkbox" checked={storyFontOutline} onChange={e => setStoryFontOutline(e.target.checked)} />
+                        Outline
+                      </label>
+                    </div>
+                    {!isVideoFile && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] text-muted">Top</span>
+                        <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
+                        <span className="text-[9px] text-muted">Bottom</span>
+                      </div>
+                    )}
+                    {/* Generate preview / back to edit */}
+                    {isVideoFile && (
+                      <div className="flex gap-1">
+                        {generatedPreviewUrl && (
+                          <button onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }} className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer">Back to edit</button>
                         )}
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)}>
-                            <option value="sans-serif">Sans Serif</option>
-                            <option value="serif">Serif</option>
-                            <option value="Georgia, serif">Georgia</option>
-                            <option value="'Courier New', monospace">Mono</option>
-                            <option value="'Comic Sans MS', cursive">Casual</option>
-                            <option value="Impact, sans-serif">Impact</option>
-                          </select>
-                          <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontSize} onChange={e => setStoryFontSize(Number(e.target.value))}>
-                            <option value={32}>Small</option>
-                            <option value={40}>Medium</option>
-                            <option value={48}>Large</option>
-                            <option value={56}>XL</option>
-                            <option value={64}>XXL</option>
-                            <option value={80}>XXXL</option>
-                          </select>
-                          <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
-                          <label className="flex items-center gap-1 text-[10px] cursor-pointer">
-                            <input type="checkbox" checked={storyFontOutline} onChange={e => setStoryFontOutline(e.target.checked)} />
-                            Outline
-                          </label>
-                        </div>
-                        {!isVideoFile && (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] text-muted">Top</span>
-                            <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
-                            <span className="text-[9px] text-muted">Bottom</span>
-                          </div>
-                        )}
+                        <button
+                          onClick={async () => {
+                            setGeneratingPreview(true)
+                            try {
+                              const { imageBase64, mediaType } = await getImageBase64('facebook_story')
+                              const api = await import('../api')
+                              const url = await api.previewStory(storyCaptionStyle === 'overlay' ? (storyText || value) : value, imageBase64, mediaType, storyCaptionStyle, overlayYPct, { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration })
+                              if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
+                              setGeneratedPreviewUrl(url)
+                            } catch (err) { console.error(err); alert('Preview failed: ' + err.message) }
+                            setGeneratingPreview(false)
+                          }}
+                          disabled={generatingPreview}
+                          className="text-[10px] py-1 px-2 border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
+                        >{generatingPreview ? 'Generating...' : generatedPreviewUrl ? 'Regenerate' : 'Generate Preview'}</button>
                       </div>
                     )}
                   </div>
                 )}
-              </>
+                {/* Note about which destinations get overlays */}
+                {storyCaptionStyle === 'overlay' && (
+                  <p className="text-[9px] text-muted mt-1">Overlays applied to: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_story && 'FB Story'].filter(Boolean).join(', ') || 'none selected'}{postDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
+                )}
+              </div>
+            )}
+
+            {/* Post Selected button */}
+            {Object.values(postDests).some(Boolean) && (
+              <button
+                onClick={async () => {
+                  setPosting(true); setPostStatus('')
+                  const results = []
+                  try {
+                    const { imageBase64, mediaType } = await getImageBase64('facebook_story')
+                    const api = await import('../api')
+                    const fontOpts = { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
+                    if (postDests.ig_post) {
+                      const igOverlay = isVideoFile && storyCaptionStyle === 'overlay' ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {}
+                      try { await api.postToInstagram(value, imageBase64, mediaType, igOverlay); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
+                    }
+                    if (postDests.ig_story) {
+                      try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
+                    }
+                    if (postDests.fb_post) {
+                      try { await api.postToFacebook(value, imageBase64, mediaType); results.push('FB') } catch (e) { results.push(`FB failed: ${e.message}`) }
+                    }
+                    if (postDests.fb_story) {
+                      try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
+                    }
+                    setPostStatus(`Posted: ${results.join(', ')}`)
+                  } catch (err) { setPostStatus(`Failed: ${err.message}`) }
+                  setPosting(false)
+                }}
+                disabled={posting}
+                className="mt-2 w-full text-[12px] py-2 border border-[#2D9A5E] rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#258a50] disabled:opacity-50"
+              >
+                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_story && 'FB Story'].filter(Boolean).join(' + ')}`}
+              </button>
             )}
           </div>
         )}
+
+        {/* Other platforms */}
+        <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
         {canPostTw && (
-          <button
-            onClick={() => handlePost('twitter')}
-            disabled={posting}
-            className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333] disabled:opacity-50"
-          >
+          <button onClick={() => handlePost('twitter')} disabled={posting} className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333] disabled:opacity-50">
             {posting ? 'Posting...' : 'Post to X'}
           </button>
         )}
         {isTiktok && (
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => { navigator.clipboard.writeText(value); setPostStatus('Copied!'); setTimeout(() => setPostStatus(''), 2000) }}
-              className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333]"
-            >
-              Copy caption
-            </button>
+            <button onClick={() => { navigator.clipboard.writeText(value); setPostStatus('Copied!'); setTimeout(() => setPostStatus(''), 2000) }} className="text-[11px] py-1 px-2.5 border border-black rounded-sm bg-black text-white cursor-pointer font-sans hover:bg-[#333]">Copy caption</button>
             {canPostTk && (
-              <button
-                onClick={() => handlePost('tiktok')}
-                disabled={posting}
-                className="text-[11px] py-1 px-2.5 border border-[#fe2c55] rounded-sm bg-[#fe2c55] text-white cursor-pointer font-sans hover:bg-[#e0264c] disabled:opacity-50"
-              >
+              <button onClick={() => handlePost('tiktok')} disabled={posting} className="text-[11px] py-1 px-2.5 border border-[#fe2c55] rounded-sm bg-[#fe2c55] text-white cursor-pointer font-sans hover:bg-[#e0264c] disabled:opacity-50">
                 {posting ? 'Posting...' : 'Post to TikTok'}
               </button>
             )}
-            {!canPostTk && !settings?.tiktok_connected && (
-              <span className="text-[10px] text-muted">Connect TikTok in settings to post directly</span>
-            )}
+            {!canPostTk && !settings?.tiktok_connected && <span className="text-[10px] text-muted">Connect TikTok in settings to post directly</span>}
           </div>
         )}
         {canPostGoogle && (
@@ -1447,6 +1347,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             </button>
           </>
         )}
+        </div>
+        <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
         <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regenerate</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
         <button onClick={() => onRefine(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Refine</button>
@@ -1464,6 +1366,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             {scoreLabel} {score.score}%
           </span>
         )}
+        </div>
       </div>
     </>
   )
