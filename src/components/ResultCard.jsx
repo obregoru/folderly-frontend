@@ -1111,7 +1111,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             {generatedPreviewUrl ? (
                               <video
                                 src={generatedPreviewUrl}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-contain"
                                 controls
                                 muted
                                 autoPlay
