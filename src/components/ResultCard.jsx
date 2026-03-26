@@ -1226,21 +1226,50 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                   setPosting(true); setPostStatus('')
                   const results = []
                   try {
-                    const { imageBase64, mediaType } = await getImageBase64('facebook_story')
+                    const { imageBase64: rawBase64, mediaType: rawType } = await getImageBase64('facebook_story')
                     const api = await import('../api')
                     const fontOpts = { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
+                    const hasOverlays = isVideoFile && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)
+
+                    // If we have a generated preview, use that processed video for overlay destinations
+                    let processedBase64 = null
+                    if (hasOverlays && generatedPreviewUrl) {
+                      try {
+                        const resp = await fetch(generatedPreviewUrl)
+                        const blob = await resp.blob()
+                        processedBase64 = await new Promise(resolve => {
+                          const r = new FileReader()
+                          r.onload = () => resolve(r.result.split(',')[1])
+                          r.readAsDataURL(blob)
+                        })
+                      } catch (e) { console.error('Failed to read generated preview:', e) }
+                    }
+
                     if (postDests.ig_post) {
-                      const igOverlay = isVideoFile && storyCaptionStyle === 'overlay' ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {}
-                      try { await api.postToInstagram(value, imageBase64, mediaType, igOverlay); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
+                      // Use processed video for reels (if available), otherwise let backend process
+                      const useProcessed = hasOverlays && processedBase64
+                      const b64 = useProcessed ? processedBase64 : rawBase64
+                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
                     }
                     if (postDests.ig_story) {
-                      try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
+                      const useProcessed = hasOverlays && processedBase64
+                      const b64 = useProcessed ? processedBase64 : rawBase64
+                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const cs = useProcessed ? 'none' : storyCaptionStyle
+                      try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOpts); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
                     }
                     if (postDests.fb_post) {
-                      try { await api.postToFacebook(value, imageBase64, mediaType); results.push('FB') } catch (e) { results.push(`FB failed: ${e.message}`) }
+                      // FB post always gets raw video, no overlays
+                      try { await api.postToFacebook(value, rawBase64, rawType); results.push('FB') } catch (e) { results.push(`FB failed: ${e.message}`) }
                     }
                     if (postDests.fb_story) {
-                      try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, imageBase64, mediaType, storyCaptionStyle, overlayYPct, fontOpts); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
+                      const useProcessed = hasOverlays && processedBase64
+                      const b64 = useProcessed ? processedBase64 : rawBase64
+                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const cs = useProcessed ? 'none' : storyCaptionStyle
+                      try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOpts); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
                     }
                     setPostStatus(`Posted: ${results.join(', ')}`)
                   } catch (err) { setPostStatus(`Failed: ${err.message}`) }
