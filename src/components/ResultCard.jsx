@@ -714,6 +714,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [closingDuration, setClosingDuration] = useState(3)
   const [generatedPreviewUrl, setGeneratedPreviewUrl] = useState(null)
   const [generatingPreview, setGeneratingPreview] = useState(false)
+  const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
@@ -1119,7 +1120,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               <>
                                 <video
                                   ref={videoPreviewRef}
-                                  src={item.url || (item.file && URL.createObjectURL(item.file))}
+                                  src={videoSrc}
                                   className="w-full h-full object-cover"
                                   muted
                                   loop
