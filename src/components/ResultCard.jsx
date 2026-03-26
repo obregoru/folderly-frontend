@@ -712,6 +712,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [closingText, setClosingText] = useState('')
   const [openingDuration, setOpeningDuration] = useState(3)
   const [closingDuration, setClosingDuration] = useState(3)
+  const [generatedPreviewUrl, setGeneratedPreviewUrl] = useState(null)
+  const [generatingPreview, setGeneratingPreview] = useState(false)
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
@@ -726,7 +728,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     }
   }, [storyCaptionStyle, value])
 
-  // Generate story preview when enabled
+  // Generate story preview when enabled (images only — videos use inline player)
+  const isVideoFile = item.file?.type?.startsWith('video/')
+  const videoPreviewRef = React.useRef(null)
+  const [videoTime, setVideoTime] = useState(0)
+  const [videoDuration, setVideoDuration] = useState(0)
+
   useEffect(() => {
     if (!storyEnabled || !item.isImg) { setStoryPreview(null); return }
     let cancelled = false
@@ -762,7 +769,6 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           const gradTop = Math.round(minTop + ((maxTop - minTop) * overlayYPct / 100))
           const gradH = blockH + 40
 
-          // Gradient bar
           const grad = ctx.createLinearGradient(0, gradTop - 20, 0, gradTop + gradH + 20)
           grad.addColorStop(0, 'rgba(0,0,0,0)')
           grad.addColorStop(0.15, 'rgba(0,0,0,0.55)')
@@ -771,22 +777,20 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           ctx.fillStyle = grad
           ctx.fillRect(0, gradTop - 20, 1080, gradH + 40)
 
-          // Text with custom font
           ctx.font = `600 ${storyFontSize}px ${storyFontFamily}`
           ctx.fillStyle = storyFontColor
           ctx.textAlign = 'center'
-          ctx.shadowColor = 'rgba(0,0,0,0.7)'
-          ctx.shadowBlur = 6
-          ctx.shadowOffsetY = 2
-          lines.forEach((l, i) => {
-            ctx.fillText(l, 540, gradTop + 20 + (i * lineH) + storyFontSize)
-          })
+          if (storyFontOutline) {
+            ctx.strokeStyle = 'black'; ctx.lineWidth = 4; ctx.lineJoin = 'round'
+            lines.forEach((l, i) => ctx.strokeText(l, 540, gradTop + 20 + (i * lineH) + storyFontSize))
+          } else {
+            ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2
+          }
+          lines.forEach((l, i) => ctx.fillText(l, 540, gradTop + 20 + (i * lineH) + storyFontSize))
 
-          // Safe zone guides
           ctx.shadowBlur = 0; ctx.shadowOffsetY = 0
           ctx.setLineDash([8, 8])
-          ctx.strokeStyle = 'rgba(255,255,255,0.2)'
-          ctx.lineWidth = 1
+          ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1
           ctx.beginPath(); ctx.moveTo(0, SAFE_TOP); ctx.lineTo(1080, SAFE_TOP); ctx.stroke()
           ctx.beginPath(); ctx.moveTo(0, SAFE_BOTTOM); ctx.lineTo(1080, SAFE_BOTTOM); ctx.stroke()
           ctx.setLineDash([])
@@ -799,7 +803,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       img.src = URL.createObjectURL(blob)
     })}).catch(() => {})
     return () => { cancelled = true }
-  }, [storyEnabled, storyCaptionStyle, storyText, item, overlayYPct, storyFontSize, storyFontFamily, storyFontColor])
+  }, [storyEnabled, storyCaptionStyle, storyText, item, overlayYPct, storyFontSize, storyFontFamily, storyFontColor, storyFontOutline])
+
+  // Helper: calculate overlay opacity based on current video time
+  const getOverlayOpacity = (currentTime, startTime, duration, fadeTime = 0.5) => {
+    const endTime = startTime + duration
+    if (currentTime < startTime || currentTime > endTime) return 0
+    if (currentTime < startTime + fadeTime) return (currentTime - startTime) / fadeTime
+    if (currentTime > endTime - fadeTime) return (endTime - currentTime) / fadeTime
+    return 1
+  }
 
   const CHAR_LIMITS = { twitter: 280, instagram: 2200, tiktok: 4000, google: 750 }
   const charLimit = CHAR_LIMITS[platform] || null
@@ -1084,29 +1097,68 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     Text overlay on image
                   </label>
                 </div>
-                {storyPreview && (
+                {(storyPreview || (storyEnabled && isVideoFile)) && (
                   <div className="ml-5 mt-1.5">
-                    <p className="text-[10px] text-muted mb-1">Story preview <span className="text-[9px]">(dashed lines = safe zone)</span></p>
-                    <img
-                      src={storyPreview}
-                      className="w-[120px] h-[213px] object-cover rounded border border-border cursor-ns-resize"
-                      alt="Story preview"
-                      draggable={false}
-                      onMouseDown={e => {
-                        if (storyCaptionStyle !== 'overlay') return
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        const startY = e.clientY
-                        const startPct = overlayYPct
-                        const onMove = (ev) => {
-                          const dy = ev.clientY - startY
-                          const pctDelta = (dy / rect.height) * 100
-                          setOverlayYPct(Math.max(0, Math.min(100, startPct + pctDelta)))
-                        }
-                        const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
-                        document.addEventListener('mousemove', onMove)
-                        document.addEventListener('mouseup', onUp)
-                      }}
-                    />
+                    <p className="text-[10px] text-muted mb-1">Story preview {!isVideoFile && <span className="text-[9px]">(dashed lines = safe zone)</span>}</p>
+                    {isVideoFile ? (
+                      <div>
+                        {generatedPreviewUrl ? (
+                          <div className="relative w-[120px] h-[213px] rounded border border-border overflow-hidden bg-black">
+                            <video
+                              src={generatedPreviewUrl}
+                              className="w-full h-full object-cover"
+                              controls
+                              muted
+                              autoPlay
+                              loop
+                              playsInline
+                            />
+                          </div>
+                        ) : null}
+                        <button
+                          onClick={async () => {
+                            setGeneratingPreview(true)
+                            try {
+                              const { imageBase64, mediaType } = await getImageBase64('facebook_story')
+                              const api = await import('../api')
+                              const url = await api.previewStory(
+                                storyCaptionStyle === 'overlay' ? (storyText || value) : value,
+                                imageBase64, mediaType, storyCaptionStyle, overlayYPct,
+                                { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
+                              )
+                              if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
+                              setGeneratedPreviewUrl(url)
+                            } catch (err) { console.error(err); alert('Preview failed: ' + err.message) }
+                            setGeneratingPreview(false)
+                          }}
+                          disabled={generatingPreview}
+                          className="mt-1.5 text-[10px] py-1 px-2 border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
+                        >
+                          {generatingPreview ? 'Generating...' : generatedPreviewUrl ? 'Regenerate Preview' : 'Generate Preview'}
+                        </button>
+                      </div>
+                    ) : (
+                      <img
+                        src={storyPreview}
+                        className="w-[120px] h-[213px] object-cover rounded border border-border cursor-ns-resize"
+                        alt="Story preview"
+                        draggable={false}
+                        onMouseDown={e => {
+                          if (storyCaptionStyle !== 'overlay') return
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          const startY = e.clientY
+                          const startPct = overlayYPct
+                          const onMove = (ev) => {
+                            const dy = ev.clientY - startY
+                            const pctDelta = (dy / rect.height) * 100
+                            setOverlayYPct(Math.max(0, Math.min(100, startPct + pctDelta)))
+                          }
+                          const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+                          document.addEventListener('mousemove', onMove)
+                          document.addEventListener('mouseup', onUp)
+                        }}
+                      />
+                    )}
                     {storyCaptionStyle === 'overlay' && (
                       <div className="mt-1.5 space-y-1.5">
                         <textarea

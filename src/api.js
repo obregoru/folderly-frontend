@@ -189,6 +189,12 @@ export const postToFacebook = (caption, imageBase64, mediaType) =>
   postWithDupCheck('/post/facebook', { caption, image_base64: imageBase64, media_type: mediaType })
 export const postToInstagram = (caption, imageBase64, mediaType) =>
   postWithDupCheck('/post/instagram', { caption, image_base64: imageBase64, media_type: mediaType })
+export const previewStory = async (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) => {
+  const resp = await fetch(api('/post/story/preview'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration }) })
+  if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || 'Preview failed')
+  const blob = await resp.blob()
+  return URL.createObjectURL(blob)
+}
 export const postToFacebookStory = (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) =>
   postWithDupCheck('/post/facebook/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, fade_time: fontOpts?.fadeTime })
 export const postToInstagramStory = (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) =>
