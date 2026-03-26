@@ -1106,7 +1106,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       <div>
                         {/* Live preview with CSS overlays OR generated preview */}
                         <div className="flex gap-1">
-                          <div className="relative w-[120px] h-[213px] rounded border border-border overflow-hidden bg-black flex-shrink-0">
+                          {/* 9:16 preview — matches 1080x1920 story output */}
+                          <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
                             {generatedPreviewUrl ? (
                               <video
                                 src={generatedPreviewUrl}
@@ -1123,6 +1124,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   ref={videoPreviewRef}
                                   src={videoSrc}
                                   className="w-full h-full object-cover"
+                                  style={{ objectPosition: 'center 33%' }}
                                   muted
                                   loop
                                   playsInline
@@ -1132,8 +1134,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 {/* Safe zone guides */}
                                 <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
                                 <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
-                                {/* Live CSS text overlay */}
+                                {/* Live CSS text overlay — scaled to match ffmpeg output */}
                                 {storyCaptionStyle === 'overlay' && (() => {
+                                  const SCALE = 120 / 1080 // preview px / output px
                                   const hasTimedOverlays = openingText || closingText
                                   const closingStart = Math.max(0, videoDuration - closingDuration)
                                   const showOpening = hasTimedOverlays && openingText && videoTime >= 0 && videoTime <= openingDuration
@@ -1142,16 +1145,19 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   const displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
                                   if (!displayText) return null
                                   const yPct = 15 + (overlayYPct / 100) * 70
-                                  const scaledFontSize = Math.round(storyFontSize / 7)
+                                  const scaledFontSize = Math.max(5, Math.round(storyFontSize * SCALE))
+                                  const scaledBorderW = Math.max(0.3, 3 * SCALE)
                                   return (
-                                    <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-1" style={{ top: `${yPct}%` }}>
-                                      {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded" style={{ margin: '-2px -4px', padding: '2px 4px' }} />}
+                                    <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-0.5" style={{ top: `${yPct}%` }}>
+                                      {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded-sm" style={{ margin: `${-2 * SCALE}px ${-4 * SCALE}px` }} />}
                                       <span className="relative text-center leading-tight" style={{
                                         fontSize: `${scaledFontSize}px`,
                                         fontFamily: storyFontFamily,
                                         color: storyFontColor,
                                         fontWeight: 600,
-                                        ...(storyFontOutline ? { WebkitTextStroke: '0.5px black', paintOrder: 'stroke fill' } : { textShadow: '0 1px 3px rgba(0,0,0,0.7)' }),
+                                        ...(storyFontOutline
+                                          ? { WebkitTextStroke: `${scaledBorderW}px black`, paintOrder: 'stroke fill' }
+                                          : { textShadow: `0 ${Math.round(2 * SCALE)}px ${Math.round(4 * SCALE)}px rgba(0,0,0,0.7)` }),
                                       }}>{displayText}</span>
                                     </div>
                                   )
@@ -1168,7 +1174,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           </div>
                           {/* Vertical slider for overlay position */}
                           {storyCaptionStyle === 'overlay' && !generatedPreviewUrl && (
-                            <div className="flex flex-col items-center" style={{ height: 213, paddingTop: `${213 * 0.15}px`, paddingBottom: `${213 * 0.15}px` }}>
+                            <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.15}px` }}>
                               <input
                                 type="range"
                                 min="0" max="100"
