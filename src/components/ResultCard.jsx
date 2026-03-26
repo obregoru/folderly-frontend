@@ -1102,8 +1102,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     <p className="text-[10px] text-muted mb-1">Story preview {!isVideoFile && <span className="text-[9px]">(dashed lines = safe zone)</span>}</p>
                     {isVideoFile ? (
                       <div>
-                        {generatedPreviewUrl ? (
-                          <div className="relative w-[120px] h-[213px] rounded border border-border overflow-hidden bg-black">
+                        <div className="relative w-[120px] h-[213px] rounded border border-border overflow-hidden bg-black">
+                          {generatedPreviewUrl ? (
                             <video
                               src={generatedPreviewUrl}
                               className="w-full h-full object-cover"
@@ -1113,8 +1113,24 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               loop
                               playsInline
                             />
-                          </div>
-                        ) : null}
+                          ) : (
+                            <video
+                              src={item.url || (item.file && URL.createObjectURL(item.file))}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                            />
+                          )}
+                          {/* Safe zone guides — 15% and 85% */}
+                          <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                          <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '85%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
+                          {/* Overlay position indicator */}
+                          {storyCaptionStyle === 'overlay' && (
+                            <div className="absolute left-0 right-0 pointer-events-none flex items-center justify-center" style={{ top: `${15 + (overlayYPct / 100) * 70}%` }}>
+                              <div className="bg-white/30 h-[1px] w-full" />
+                            </div>
+                          )}
+                        </div>
                         <button
                           onClick={async () => {
                             setGeneratingPreview(true)
