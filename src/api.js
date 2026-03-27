@@ -297,6 +297,10 @@ export const getScheduledPosts = (params = {}) => {
   const qs = new URLSearchParams(Object.entries(params).filter(([,v]) => v)).toString()
   return fetch(api('/schedule' + (qs ? '?' + qs : '')), { credentials: 'include' }).then(r => r.json())
 }
+export const getCalendar = (start, end) =>
+  fetch(api(`/schedule/calendar?start=${start}&end=${end}`), { credentials: 'include' }).then(r => r.json())
+export const backfillJobNames = () =>
+  fetch(api('/schedule/backfill-names'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const cancelScheduledPost = (uuid) =>
   fetch(api(`/schedule/${uuid}/cancel`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const retryScheduledPost = (uuid, scheduledAt) =>

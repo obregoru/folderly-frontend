@@ -10,6 +10,7 @@ import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
 import ResultCard from './components/ResultCard'
 import ScheduledPosts from './components/ScheduledPosts'
+import Calendar from './components/Calendar'
 import ScheduleModal from './components/ScheduleModal'
 import HistoryModal from './components/HistoryModal'
 import RefineModal from './components/RefineModal'
@@ -268,8 +269,10 @@ export default function App() {
     const allCaps = {}
     await api.generateStream(body, (partialCaps) => {
       Object.assign(allCaps, partialCaps)
+      // Save job_name on the item if returned
+      if (partialCaps.job_name) item.job_name = partialCaps.job_name
       // Update UI immediately as each batch arrives
-      setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'done', captions: { ...f.captions, ...partialCaps }, uploadResult: item.uploadResult, previouslyUsed: item.previouslyUsed, previousCaptions: item.previousCaptions } : f))
+      setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'done', captions: { ...f.captions, ...partialCaps }, job_name: partialCaps.job_name || f.job_name, uploadResult: item.uploadResult, previouslyUsed: item.previouslyUsed, previousCaptions: item.previousCaptions } : f))
     })
     return allCaps
   }
@@ -549,6 +552,7 @@ export default function App() {
               </div>
             </div>
           )}
+          <Calendar />
           <ScheduledPosts />
           {files.filter(f => f.status).map(item => {
             return (

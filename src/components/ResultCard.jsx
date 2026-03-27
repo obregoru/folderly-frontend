@@ -431,7 +431,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         mediaType = item.file.type
       }
 
-      const post = { platform: p.key, caption, image_base64: imageBase64, media_type: mediaType }
+      const post = { platform: p.key, caption, image_base64: imageBase64, media_type: mediaType, job_name: item.job_name || item.file?.name?.replace(/\.[^.]+$/, '') }
       if (p.key === 'blog') {
         const blogCap = item.captions[p.key]
         post.title = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
