@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, Component } from 'react'
 import * as api from './api'
+import HelpTip from './components/HelpTip'
 import { parse, allTags, TONE_DESC } from './lib/parse'
 import { loadFaceModel, captureVideoFrame, toBase64 } from './lib/crop'
 import { exportAll, exportSeoPhotos, getSeoName } from './lib/export'
@@ -412,7 +413,7 @@ export default function App() {
           {/* Mobile: content hint first (primary brief method on mobile) */}
           <div className="md:hidden">
             <div className="flex items-center justify-between">
-              <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span></label>
+              <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span> <HelpTip text="Tell the AI what's happening in the photo. The more detail you give, the better the captions. You can also paste AI-generated content and click 'Review with AI' to check it against your brand settings." /></label>
               <div className="flex gap-2">
                 {userHint.length > 20 && (
                   <button onClick={async () => {
@@ -453,7 +454,7 @@ export default function App() {
           {/* Desktop: context hint */}
           <div className="hidden md:block">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] text-muted">Context hint <span className="italic text-[10px]">(optional — tell the AI what's happening)</span></label>
+              <label className="text-[11px] text-muted">Context hint <HelpTip text="Optional description that helps AI write better captions. Describe what's in the photo, the occasion, or paste pre-written content to review against your brand settings." /> <span className="italic text-[10px]">(optional)</span></label>
               <div className="flex gap-2">
                 {userHint.length > 20 && (
                   <button onClick={async () => {

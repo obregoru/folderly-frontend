@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import * as api from '../api'
+import HelpTip from './HelpTip'
 
 const BUSINESS_TYPES = [
   'Make & Take studio', 'Escape room', 'Axe throwing venue', 'Paint & sip studio',
@@ -78,7 +79,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       </div>
       {/* Brand Profile */}
       <div>
-        <div className="s-head">Brand profile</div>
+        <div className="s-head">Brand profile <HelpTip text="Your business identity. AI uses this to write captions that sound like your brand — name, type, location, and custom rules." /></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Business name</label>
           <input className="field-input" value={s.name || ''} onChange={e => save('name', e.target.value)} onBlur={e => save('name', e.target.value)} /></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Booking / CTA URL</label>
@@ -137,7 +138,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* Connected accounts */}
       <div>
-        <div className="s-head">Connected accounts</div>
+        <div className="s-head">Connected accounts <HelpTip text="Connect your social media accounts to post directly from Posty Posty. Each platform requires its own authentication." /></div>
         <SocialConnections settings={s} apiUrl={apiUrl} onRefresh={() => api.getSettings().then(s => onSave(s))} />
       </div>
 
@@ -147,7 +148,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       {/* TikTok settings */}
       {s.platform_tiktok && (
         <div>
-          <div className="s-head">TikTok settings</div>
+          <div className="s-head">TikTok settings <HelpTip text="Custom hooks for TikTok captions (e.g. 'POV:', 'Wait for it...'). Default hashtags are added to every TikTok post." /></div>
           <label className="text-[11px] text-muted block mb-0.5">Default TikTok hashtags</label>
           <input className="field-input" placeholder="#fyp #smallbusiness" value={s.tiktok_default_hashtags || ''} onChange={e => save('tiktok_default_hashtags', e.target.value)} />
           <label className="text-[11px] text-muted block mt-2 mb-0.5">Custom hook styles (comma-separated)</label>
@@ -160,7 +161,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* This batch */}
       <div>
-        <div className="s-head">This batch</div>
+        <div className="s-head">This batch <HelpTip text="Settings that apply to the current upload batch. Occasion and availability context help AI write more relevant captions." /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Availability signal</span><Toggle on={s.availability_on !== false} onChange={v => save('availability_on', v)} /></div>
         {s.availability_on !== false && (
           <input className="field-input mt-1.5" placeholder="e.g. Sat 11am full, PM open" value={s.availability_text || ''} onChange={e => save('availability_text', e.target.value)} />
@@ -183,7 +184,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* Tone */}
       <div>
-        <div className="s-head">Tone</div>
+        <div className="s-head">Tone <HelpTip text="The mood of your captions. Select multiple to mix tones. AI adapts its writing style to match." /></div>
         <ChipGrid items={TONES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))} active={s.default_tone || 'warm'} multi onToggle={v => {
           const current = (s.default_tone || 'warm').split(', ')
           const next = current.includes(v) ? current.filter(x => x !== v) : [...current, v]
@@ -193,19 +194,19 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* POV */}
       <div>
-        <div className="s-head">Point of view</div>
+        <div className="s-head">Point of view <HelpTip text="Who is 'speaking' in the caption. 'We/Us' for the team, 'I/Me' for the owner, 'You/Your' to speak to the customer." /></div>
         <ChipGrid items={POVS.map(p => ({ value: p, label: POV_LABELS[p] }))} active={s.default_pov || 'first_plural'} onToggle={v => save('default_pov', v)} />
       </div>
 
       {/* Marketing level */}
       <div>
-        <div className="s-head">Marketing level</div>
+        <div className="s-head">Marketing level <HelpTip text="How salesy the captions sound. Subtle = casual sharing, no hard sell. Balanced = light CTA. Strong = clear calls to action and urgency." /></div>
         <ChipGrid items={MKT_LEVELS.map(m => ({ value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }))} active={s.marketing_intensity || 'balanced'} onToggle={v => save('marketing_intensity', v)} />
       </div>
 
       {/* Engagement hooks */}
       <div>
-        <div className="s-head">Engagement hooks</div>
+        <div className="s-head">Engagement hooks <HelpTip text="Techniques to get people interacting. Questions get comments, 'Caption this' gets shares, Storytelling builds connection. Select multiple." /></div>
         <ChipGrid cols={2} multi items={HOOKS.map(h => ({ value: h, label: HOOK_LABELS[h] }))} active={activeHooks} onToggle={v => {
           const next = activeHooks.includes(v) ? activeHooks.filter(x => x !== v) : [...activeHooks, v]
           save('engagement_hooks', next)
@@ -214,13 +215,13 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* Caption length */}
       <div>
-        <div className="s-head">Caption length</div>
+        <div className="s-head">Caption length <HelpTip text="Short = punchy one-liners. Medium = a few sentences. Long = detailed storytelling. Each platform gets an appropriate length." /></div>
         <ChipGrid items={LENGTHS.map(l => ({ value: l, label: LENGTH_LABELS[l] }))} active={s.caption_length || 'large'} onToggle={v => save('caption_length', v)} />
       </div>
 
       {/* Platforms */}
       <div>
-        <div className="s-head">Platforms</div>
+        <div className="s-head">Platforms <HelpTip text="Which platforms to generate captions for. Each gets a custom caption optimized for that platform's format and audience." /></div>
         {[['platform_tiktok', 'TikTok', true], ['platform_instagram', 'Instagram', true], ['platform_facebook', 'Facebook', true], ['platform_twitter', 'X / Twitter', false], ['platform_google', 'Google Business', false], ['platform_blog', 'Blog post', false], ['platform_youtube', 'YouTube', false]].map(([key, label, defaultOn]) => (
           <div key={key} className="flex items-center justify-between text-xs md:text-xs text-[13px] py-2 md:py-0.5 mt-1 md:mt-1.5 min-h-[44px] md:min-h-0">
             <span>{label}</span>
@@ -231,12 +232,12 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* Quality */}
       <div>
-        <div className="s-head">Quality</div>
+        <div className="s-head">Quality <HelpTip text="AI detection checks if captions sound human. 'Sound more human' rewrites YouTube/Blog captions to pass AI detection tools." /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>AI detection scoring</span><Toggle on={s.ai_detection_enabled === true} onChange={v => save('ai_detection_enabled', v)} /></div>
-        <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (YouTube)</span><Toggle on={s.humanize_youtube === true} onChange={v => save('humanize_youtube', v)} /></div>
-        <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (Blog)</span><Toggle on={s.humanize_blog === true} onChange={v => save('humanize_blog', v)} /></div>
-        <div className="flex items-center justify-between text-xs py-0.5"><span>Facebook Stories (default)</span><Toggle on={s.fb_stories_default === true} onChange={v => save('fb_stories_default', v)} /></div>
-        <div className="flex items-center justify-between text-xs py-0.5"><span>YouTube Shorts (default)</span><Toggle on={s.youtube_shorts_default !== false} onChange={v => save('youtube_shorts_default', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (YouTube) <HelpTip text="Rewrites YouTube descriptions through a second AI pass to sound less robotic and pass AI detection tools." /></span><Toggle on={s.humanize_youtube === true} onChange={v => save('humanize_youtube', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (Blog) <HelpTip text="Rewrites blog posts through a second AI pass to sound more natural and avoid common AI-writing tells." /></span><Toggle on={s.humanize_blog === true} onChange={v => save('humanize_blog', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Facebook Stories (default) <HelpTip text="When on, the FB Story checkbox is pre-checked when posting. Stories appear at the top of followers' feeds for 24 hours." /></span><Toggle on={s.fb_stories_default === true} onChange={v => save('fb_stories_default', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>YouTube Shorts (default) <HelpTip text="When on, videos upload as YouTube Shorts (vertical, under 60s, #Shorts tag). Turn off to upload as regular YouTube videos." /></span><Toggle on={s.youtube_shorts_default !== false} onChange={v => save('youtube_shorts_default', v)} /></div>
       </div>
     </aside>
   )
@@ -285,7 +286,7 @@ function NotificationSettings({ settings }) {
 
   return (
     <div>
-      <div className="s-head">Notifications</div>
+      <div className="s-head">Notifications <HelpTip text="Get push notifications when scheduled posts go out, fail, or need manual posting (TikTok, Google Business)." /></div>
       {s.notify_enabled ? (
         <div className="text-[11px] text-muted">
           Reminders → <strong>{s.notify_email || 'not set'}</strong>
