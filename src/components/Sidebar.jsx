@@ -618,6 +618,7 @@ const ANALYTICS_PLATFORMS = [
   { key: 'tiktok', label: 'TikTok', color: '#000', where: 'TikTok app → Profile → Creator tools → Analytics → Followers → Most Active Times' },
   { key: 'youtube', label: 'YouTube', color: '#FF0000', where: 'YouTube Studio → Analytics → Audience → When Your Viewers Are on YouTube' },
   { key: 'twitter', label: 'X / Twitter', color: '#000', where: 'X Analytics (analytics.x.com) → Tweet Activity → Engagement by time' },
+  { key: 'google', label: 'Google Business', color: '#4285F4', where: 'Google Business Profile → Performance → Calls/Directions/Website clicks by time. Also: Google Search Console → Performance → clicks by date' },
 ]
 
 function PlatformAnalytics() {
@@ -742,13 +743,24 @@ function PostingSchedule({ settings }) {
     <div className="mt-3 pt-2 border-t border-border">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[11px] font-medium text-ink">Best times to post</span>
-        <button
-          onClick={schedule ? () => setExpanded(!expanded) : generate}
-          disabled={loading}
-          className="text-[10px] py-0.5 px-2 border border-sage rounded-sm bg-sage-light text-sage cursor-pointer font-sans hover:bg-sage hover:text-white disabled:opacity-50"
-        >
-          {loading ? 'Analyzing...' : schedule ? (expanded ? 'Hide' : 'Show') : 'Suggest schedule'}
-        </button>
+        <div className="flex gap-1">
+          {schedule && (
+            <button
+              onClick={generate}
+              disabled={loading}
+              className="text-[10px] py-0.5 px-2 border border-[#6C5CE7] rounded-sm text-[#6C5CE7] cursor-pointer font-sans hover:bg-[#6C5CE7] hover:text-white disabled:opacity-50"
+            >
+              {loading ? 'Analyzing...' : 'Refresh'}
+            </button>
+          )}
+          <button
+            onClick={schedule ? () => setExpanded(!expanded) : generate}
+            disabled={loading}
+            className="text-[10px] py-0.5 px-2 border border-sage rounded-sm bg-sage-light text-sage cursor-pointer font-sans hover:bg-sage hover:text-white disabled:opacity-50"
+          >
+            {loading ? 'Analyzing...' : schedule ? (expanded ? 'Hide' : 'Show') : 'Suggest schedule'}
+          </button>
+        </div>
       </div>
       {error && <p className="text-[10px] text-[#c0392b]">{error}</p>}
       {expanded && schedule && (
