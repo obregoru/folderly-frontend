@@ -50,21 +50,12 @@ export default function Calendar() {
   const year = current.getFullYear()
   const month = current.getMonth()
 
+  // Always fetch full month — view only changes display, not data range
   useEffect(() => {
-    let start, end
-    if (view === 'month') {
-      start = new Date(year, month, 1)
-      end = new Date(year, month + 1, 1)
-    } else if (view === 'week') {
-      const day = current.getDay()
-      start = new Date(current); start.setDate(current.getDate() - day); start.setHours(0,0,0,0)
-      end = new Date(start); end.setDate(start.getDate() + 7)
-    } else {
-      start = new Date(current); start.setHours(0,0,0,0)
-      end = new Date(start); end.setDate(start.getDate() + 1)
-    }
+    const start = new Date(year, month, 1)
+    const end = new Date(year, month + 1, 1)
     api.getCalendar(start.toISOString(), end.toISOString()).then(setData).catch(() => {})
-  }, [current, view])
+  }, [year, month])
 
   const postsForDate = (dateStr) => {
     if (!data?.scheduled) return []
