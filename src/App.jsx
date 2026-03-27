@@ -487,9 +487,11 @@ export default function App() {
                 <>
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-[10px] text-muted">{reviewResult.changes}</p>
-                    <span className={`text-[9px] py-0.5 px-1.5 rounded-full font-semibold ${reviewResult.score?.score <= 30 ? 'bg-[#e8efe9] text-[#3a6b42]' : reviewResult.score?.score <= 60 ? 'bg-[#fef3cd] text-[#856404]' : 'bg-[#fdeaea] text-[#c0392b]'}`}>
-                      AI: {reviewResult.score?.score || 0}%
-                    </span>
+                    {(() => { const h = 100 - (reviewResult.score?.score || 0); return (
+                      <span className={`text-[9px] py-0.5 px-1.5 rounded-full font-semibold ${h >= 70 ? 'bg-[#e8efe9] text-[#3a6b42]' : h >= 40 ? 'bg-[#fef3cd] text-[#856404]' : 'bg-[#fdeaea] text-[#c0392b]'}`}>
+                        Human: {h}%
+                      </span>
+                    )})()}
                   </div>
                   <p className="text-[11px] text-ink whitespace-pre-wrap">{reviewResult.text}</p>
                   <div className="flex gap-2 mt-1.5">

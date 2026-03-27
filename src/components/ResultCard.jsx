@@ -1153,8 +1153,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     setPosting(false)
   }
 
-  const scoreLabel = score?.score >= 0
-    ? (score.score <= 30 ? 'Human' : score.score <= 60 ? 'Mixed' : 'AI-like')
+  const humanScore = score?.score >= 0 ? 100 - score.score : null
+  const scoreLabel = humanScore !== null
+    ? (humanScore >= 70 ? 'Human' : humanScore >= 40 ? 'Mixed' : 'AI-like')
     : null
 
   return (
@@ -1603,13 +1604,13 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         {scoreLabel && (
           <span
             className={`text-[10px] py-0.5 px-2 rounded-xl font-semibold border ${
-              score.score <= 30 ? 'bg-[#e8efe9] text-[#3a6b42] border-[#3a6b42]' :
-              score.score <= 60 ? 'bg-[#fef3cd] text-[#856404] border-[#856404]' :
+              humanScore >= 70 ? 'bg-[#e8efe9] text-[#3a6b42] border-[#3a6b42]' :
+              humanScore >= 40 ? 'bg-[#fef3cd] text-[#856404] border-[#856404]' :
               'bg-[#fdeaea] text-[#c0392b] border-[#c0392b]'
             }`}
             title={score.reason}
           >
-            {scoreLabel} {score.score}%
+            {scoreLabel} {humanScore}%
           </span>
         )}
         </div>
