@@ -89,14 +89,14 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Business type</label>
           <input className="field-input" list="biz-type-list" placeholder="Type or select (leave blank to exclude)" value={s.business_type || ''} onChange={e => save('business_type', e.target.value)} />
           <datalist id="biz-type-list">{BUSINESS_TYPES.map(t => <option key={t} value={t} />)}</datalist></div>
-        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Brand rules</label>
+        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Brand rules <HelpTip text="Custom instructions the AI must follow. E.g. 'Never mention competitors', 'Always call it a studio not a shop', 'Use emoji sparingly'. These override default behavior." /></label>
           <textarea rows={5} className="field-input resize-none" value={s.brand_rules || ''} onChange={e => save('brand_rules', e.target.value)} /></div>
-        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords</label>
+        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords <HelpTip text="Keywords to include in captions for search visibility. Used in Google Business posts and blog content. Separate with commas." /></label>
           <input className="field-input" placeholder="perfume making, candle workshop, date night Milwaukee" value={s.seo_keywords || ''} onChange={e => save('seo_keywords', e.target.value)} /></div>
 
         {/* Hashtag sets */}
         <div className="mb-2">
-          <label className="text-[11px] text-muted block mb-0.5">Hashtag sets <span className="float-right text-[10px] text-sage cursor-pointer" onClick={() => setHsFormOpen(true)}>+ add</span></label>
+          <label className="text-[11px] text-muted block mb-0.5">Hashtag sets <HelpTip text="Reusable groups of hashtags. Create sets for different themes (e.g. 'Birthday', 'Date Night'). Select one before generating captions to include those hashtags." /> <span className="float-right text-[10px] text-sage cursor-pointer" onClick={() => setHsFormOpen(true)}>+ add</span></label>
           <div className="flex flex-col gap-1.5">
             {hashtagSets.length === 0 && <span className="text-[10px] text-muted">No sets yet</span>}
             {hashtagSets.map(hs => (
@@ -128,9 +128,9 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         </div>
 
         {/* Toggles */}
-        <div className="flex items-center justify-between text-xs py-0.5"><span>Keep anonymous</span><Toggle on={s.keep_anonymous !== false} onChange={v => save('keep_anonymous', v)} /></div>
-        <div className="flex items-center justify-between text-xs py-0.5"><span>Brand name in filenames</span><Toggle on={s.seo_prepend_brand !== false} onChange={v => save('seo_prepend_brand', v)} /></div>
-        <div className="flex items-center justify-between text-xs py-0.5"><span>Watermark exports</span><Toggle on={s.watermark_enabled === true} onChange={v => save('watermark_enabled', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Keep anonymous <HelpTip text="When on, AI won't mention your business name, products, or services. Captions describe the photo only — great for personal/generic content." /></span><Toggle on={s.keep_anonymous !== false} onChange={v => save('keep_anonymous', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Brand name in filenames <HelpTip text="Prepends your business name to exported filenames for SEO. E.g. 'poppy-and-thyme-birthday-group.jpg' instead of 'birthday-group.jpg'." /></span><Toggle on={s.seo_prepend_brand !== false} onChange={v => save('seo_prepend_brand', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Watermark exports <HelpTip text="Adds your logo as a watermark to exported images. Upload your logo below. Watermark appears on platform-cropped exports." /></span><Toggle on={s.watermark_enabled === true} onChange={v => save('watermark_enabled', v)} /></div>
         {s.watermark_enabled && (
           <WatermarkUpload path={s.watermark_path} onUploaded={(path) => save('watermark_path', path)} />
         )}
