@@ -58,8 +58,13 @@ export default function Calendar() {
   }, [year, month])
 
   const postsForDate = (dateStr) => {
-    if (!data?.scheduled) return []
-    return data.scheduled.filter(p => fmt(new Date(p.scheduled_at)) === dateStr)
+    const scheduled = (data?.scheduled || [])
+      .filter(p => fmt(new Date(p.scheduled_at)) === dateStr)
+      .map(p => ({ ...p, source: 'scheduled', time: p.scheduled_at }))
+    const direct = (data?.history || [])
+      .filter(p => fmt(new Date(p.posted_at)) === dateStr)
+      .map(p => ({ ...p, source: 'direct', status: 'posted', time: p.posted_at, scheduled_at: p.posted_at }))
+    return [...scheduled, ...direct].sort((a, b) => new Date(a.time) - new Date(b.time))
   }
 
   const handleBackfill = async () => {
@@ -163,7 +168,7 @@ export default function Calendar() {
               const posts = postsForDate(dateStr)
               const isToday = dateStr === today
               return (
-                <div key={i} className={`min-h-[100px] border border-border rounded p-1 ${isToday ? 'ring-1 ring-[#6C5CE7]' : ''}`}>
+                <div key={i} onClick={() => { setCurrent(d); setView('day') }} className={`min-h-[100px] border border-border rounded p-1 cursor-pointer hover:bg-cream/50 ${isToday ? 'ring-1 ring-[#6C5CE7]' : ''}`}>
                   <div className={`text-[10px] font-medium mb-1 ${isToday ? 'text-[#6C5CE7]' : 'text-ink'}`}>
                     {DAYS[d.getDay()]} {d.getDate()}
                   </div>
@@ -191,19 +196,19 @@ export default function Calendar() {
         const posts = postsForDate(dateStr)
         return (
           <div>
-            {posts.length === 0 && <p className="text-[11px] text-muted text-center py-4">No posts scheduled for this day</p>}
+            {posts.length === 0 && <p className="text-[11px] text-muted text-center py-4">No posts for this day</p>}
             <div className="space-y-1.5">
               {posts.map((p, i) => (
                 <div key={i} className="flex items-start gap-2 p-2 border border-border rounded bg-[#fafafa]">
                   <div className="flex flex-col items-center gap-0.5 min-w-[40px]">
                     <span className="text-[10px] font-medium" style={{ color: PLAT_COLORS[p.platform] }}>{PLAT_SHORT[p.platform]}</span>
                     <span className="w-[8px] h-[8px] rounded-full" style={{ background: STATUS_COLORS[p.status] }} />
-                    <span className="text-[8px] text-muted">{p.status}</span>
+                    <span className="text-[8px] text-muted">{p.source === 'direct' ? 'direct' : p.status}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-medium text-ink">{p.job_name || 'Unnamed post'}</span>
-                      <span className="text-[10px] text-muted">{fmtTime(p.scheduled_at)}</span>
+                      <span className="text-[10px] text-muted">{fmtTime(p.time)}</span>
                     </div>
                     <p className="text-[10px] text-muted mt-0.5 line-clamp-2">{p.caption?.substring(0, 150)}</p>
                   </div>
