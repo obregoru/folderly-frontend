@@ -286,7 +286,7 @@ function NotificationSettings({ settings }) {
 
   return (
     <div>
-      <div className="s-head">Notifications <HelpTip text="Get push notifications when scheduled posts go out, fail, or need manual posting (TikTok, Google Business)." /></div>
+      <div className="s-head">Notifications <HelpTip text="Email notifications for scheduled posts. Get notified when posts go out, fail, or need manual posting. Push notifications work automatically via PWA — this is for email alerts." /></div>
       {s.notify_enabled ? (
         <div className="text-[11px] text-muted">
           Reminders → <strong>{s.notify_email || 'not set'}</strong>
