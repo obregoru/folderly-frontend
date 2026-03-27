@@ -145,13 +145,33 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       {/* Notifications */}
       <NotificationSettings settings={s} />
 
-      {/* TikTok settings */}
+      {/* Default hashtags per platform */}
+      <div>
+        <div className="s-head">Default hashtags <HelpTip text="Hashtags automatically added to every post on each platform. Set per-platform or use 'All platforms' for shared ones. Limits: TikTok 5, Instagram 30, X/Twitter 3-5. Google doesn't use hashtags." /></div>
+        <div className="space-y-1.5">
+          <div>
+            <label className="text-[10px] text-muted">All platforms <span className="text-[9px]">(added to every post)</span></label>
+            <input className="field-input text-[11px]" placeholder="#smallbusiness #handmade" value={s.default_hashtags_all || ''} onChange={e => save('default_hashtags_all', e.target.value)} />
+          </div>
+          {[
+            { key: 'tiktok', label: 'TikTok', limit: 5, placeholder: '#fyp #viral', show: s.platform_tiktok },
+            { key: 'instagram', label: 'Instagram', limit: 30, placeholder: '#instagood #explore', show: s.platform_instagram },
+            { key: 'facebook', label: 'Facebook', limit: 5, placeholder: '#supportlocal', show: s.platform_facebook },
+            { key: 'twitter', label: 'X / Twitter', limit: 3, placeholder: '#local', show: s.platform_twitter },
+            { key: 'youtube', label: 'YouTube', limit: 15, placeholder: '#shorts #diy', show: s.platform_youtube },
+          ].filter(p => p.show).map(p => (
+            <div key={p.key}>
+              <label className="text-[10px] text-muted">{p.label} <span className="text-[9px]">(max {p.limit})</span></label>
+              <input className="field-input text-[11px]" placeholder={p.placeholder} value={s[`default_hashtags_${p.key}`] || ''} onChange={e => save(`default_hashtags_${p.key}`, e.target.value)} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* TikTok hooks */}
       {s.platform_tiktok && (
         <div>
-          <div className="s-head">TikTok settings <HelpTip text="Custom hooks for TikTok captions (e.g. 'POV:', 'Wait for it...'). Default hashtags are added to every TikTok post." /></div>
-          <label className="text-[11px] text-muted block mb-0.5">Default TikTok hashtags</label>
-          <input className="field-input" placeholder="#fyp #smallbusiness" value={s.tiktok_default_hashtags || ''} onChange={e => save('tiktok_default_hashtags', e.target.value)} />
-          <label className="text-[11px] text-muted block mt-2 mb-0.5">Custom hook styles (comma-separated)</label>
+          <div className="s-head">TikTok hooks <HelpTip text="Custom opening hooks for TikTok captions. AI will use one of these styles to start the caption. E.g. 'POV:', 'Wait for it...'" /></div>
           <input className="field-input" placeholder="POV:, Wait for it..." value={(s.tiktok_hooks || []).join(', ')} onChange={e => {
             const hooks = e.target.value.split(',').map(h => h.trim()).filter(Boolean);
             save('tiktok_hooks', hooks);
