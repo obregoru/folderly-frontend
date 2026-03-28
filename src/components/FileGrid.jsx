@@ -28,32 +28,19 @@ function VideoThumb({ file, onClick, className }) {
       v.currentTime = 0.5
     }
     const onSeeked = async () => {
+      // videoWidth/videoHeight are always rotation-corrected by the browser
       const w = v.videoWidth, h = v.videoHeight
       if (!w || !h) return
-      console.log('[VideoThumb] videoWidth:', w, 'videoHeight:', h, 'rendered:', v.offsetWidth, 'x', v.offsetHeight)
+      // Always trust videoWidth/videoHeight for aspect ratio
+      setAspect(w / h)
+      // Draw from the video element directly — the browser renders it rotation-corrected
       try {
-        const bmp = await createImageBitmap(v)
-        console.log('[VideoThumb] bitmap:', bmp.width, 'x', bmp.height)
         const c = document.createElement('canvas')
-        const bw = bmp.width, bh = bmp.height
-        c.width = Math.min(bw, 300)
-        c.height = Math.round(c.width * bh / bw)
-        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height)
-        bmp.close()
-        setAspect(bw / bh)
+        c.width = Math.min(w, 300)
+        c.height = Math.round(c.width * h / w)
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
         setPoster(c.toDataURL('image/jpeg', 0.7))
-        console.log('[VideoThumb] aspect:', bw / bh, 'portrait:', bw < bh)
-      } catch (err) {
-        console.warn('[VideoThumb] bitmap failed:', err)
-        setAspect(w / h)
-        try {
-          const c = document.createElement('canvas')
-          c.width = Math.min(w, 300)
-          c.height = Math.round(c.width * h / w)
-          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
-          setPoster(c.toDataURL('image/jpeg', 0.7))
-        } catch {}
-      }
+      } catch {}
     }
     v.addEventListener('loadedmetadata', onMeta)
     v.addEventListener('seeked', onSeeked)
