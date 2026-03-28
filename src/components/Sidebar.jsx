@@ -254,6 +254,24 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       <div>
         <div className="s-head">Quality <HelpTip text="AI detection checks if content sounds human. 'Sound more human' rewrites YouTube/Blog content to pass AI detection tools." /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>AI detection scoring</span><Toggle on={s.ai_detection_enabled === true} onChange={v => save('ai_detection_enabled', v)} /></div>
+        {s.ai_detection_enabled && (
+          <div className="ml-0 mt-1 mb-2 space-y-1.5">
+            <div className="flex gap-2 items-center">
+              <label className="text-[10px] text-muted">Provider:</label>
+              <select className="field-input text-[11px] py-0.5 flex-1" value={s.ai_detection_provider || 'builtin'} onChange={e => save('ai_detection_provider', e.target.value)}>
+                <option value="builtin">Built-in (heuristic)</option>
+                <option value="zerogpt">ZeroGPT API</option>
+              </select>
+            </div>
+            {(s.ai_detection_provider === 'zerogpt') && (
+              <div>
+                <label className="text-[10px] text-muted block mb-0.5">ZeroGPT API key</label>
+                <input className="field-input text-[11px]" type="password" placeholder="Enter ZeroGPT API key" defaultValue="" onBlur={e => { if (e.target.value) save('zerogpt_api_key', e.target.value) }} />
+                {s.zerogpt_api_key && <span className="text-[9px] text-sage mt-0.5 block">Key saved ({s.zerogpt_api_key})</span>}
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (YouTube) <HelpTip text="Rewrites YouTube descriptions through a second AI pass to sound less robotic and pass AI detection tools." /></span><Toggle on={s.humanize_youtube === true} onChange={v => save('humanize_youtube', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (Blog) <HelpTip text="Rewrites blog posts through a second AI pass to sound more natural and avoid common AI-writing tells." /></span><Toggle on={s.humanize_blog === true} onChange={v => save('humanize_blog', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Facebook Stories (default) <HelpTip text="When on, the FB Story checkbox is pre-checked when posting. Stories appear at the top of followers' feeds for 24 hours." /></span><Toggle on={s.fb_stories_default === true} onChange={v => save('fb_stories_default', v)} /></div>

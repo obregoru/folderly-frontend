@@ -1667,11 +1667,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         {showAiAnalysis && score && (
           <div className="mt-2 border border-border rounded bg-[#fafafa] p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-medium text-ink">AI Detection Analysis</span>
+              <span className="text-[11px] font-medium text-ink">AI Detection Analysis {score.provider === 'zerogpt' && <span className="text-[9px] text-muted font-normal ml-1">(ZeroGPT)</span>}</span>
               <button onClick={() => setShowAiAnalysis(false)} className="text-muted text-sm bg-transparent border-none cursor-pointer">&times;</button>
             </div>
             {/* Reasons */}
-            {score.reason && score.reason !== 'Looks human' && (
+            {score.reason && score.reason !== 'Looks human' && score.reason !== 'Looks human (ZeroGPT)' && (
               <div className="mb-2">
                 <p className="text-[10px] text-muted font-medium mb-1">Flags:</p>
                 <div className="flex flex-wrap gap-1">
@@ -1681,9 +1681,44 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 </div>
               </div>
             )}
-            {/* Highlighted text */}
+            {/* Highlighted text — ZeroGPT highlights sentences, built-in highlights words */}
             <div className="text-[11px] leading-relaxed whitespace-pre-wrap text-ink bg-white border border-border rounded p-2 max-h-[200px] overflow-y-auto">
               {(() => {
+                // ZeroGPT: highlight flagged sentences
+                if (score.sentences && score.sentences.length > 0) {
+                  const flagged = new Set(score.sentences.map(s => s.trim()))
+                  // Split text into sentences, highlight matches
+                  const parts = []
+                  let remaining = value
+                  for (const sent of flagged) {
+                    const idx = remaining.indexOf(sent)
+                    if (idx >= 0) {
+                      if (idx > 0) parts.push({ text: remaining.slice(0, idx), ai: false })
+                      parts.push({ text: sent, ai: true })
+                      remaining = remaining.slice(idx + sent.length)
+                    }
+                  }
+                  if (remaining) parts.push({ text: remaining, ai: false })
+                  // If no matches found inline, just show all text with sentence list below
+                  if (parts.length === 0 || (parts.length === 1 && !parts[0].ai)) {
+                    return (
+                      <>
+                        <span>{value}</span>
+                        <div className="mt-2 border-t border-border pt-2">
+                          <p className="text-[9px] text-muted font-medium mb-1">AI-generated sentences:</p>
+                          {score.sentences.map((s, i) => (
+                            <p key={i} className="text-[10px] text-[#c0392b] bg-[#fce4ec] rounded p-1 mb-1">{s}</p>
+                          ))}
+                        </div>
+                      </>
+                    )
+                  }
+                  return parts.map((p, i) =>
+                    p.ai ? <mark key={i} className="bg-[#fce4ec] text-[#c0392b] rounded px-0.5" title="AI-generated sentence (ZeroGPT)">{p.text}</mark>
+                         : <span key={i}>{p.text}</span>
+                  )
+                }
+                // Built-in: highlight AI-typical words
                 const aiWords = new Set([
                   'delve','tapestry','vibrant','journey','landscape','elevate','foster',
                   'moreover','furthermore','utilize','harness','leverage','paramount',
@@ -1703,7 +1738,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 )
               })()}
             </div>
-            {score.reason === 'Looks human' && (
+            {(score.reason === 'Looks human' || score.reason === 'Looks human (ZeroGPT)') && (
               <p className="text-[10px] text-[#3a6b42] mt-1">No AI patterns detected — this content looks human-written.</p>
             )}
           </div>
