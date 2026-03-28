@@ -10,7 +10,8 @@ import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
 import ResultCard from './components/ResultCard'
 import ScheduledPosts from './components/ScheduledPosts'
-import Calendar from './components/Calendar'
+// Calendar removed from main form — schedule modal now has all calendar views with job names
+// import Calendar from './components/Calendar'
 import ScheduleModal from './components/ScheduleModal'
 import HistoryModal from './components/HistoryModal'
 import RefineModal from './components/RefineModal'
@@ -552,7 +553,7 @@ export default function App() {
               </div>
             </div>
           )}
-          <Calendar />
+          {/* Calendar removed — now in ScheduleModal. Component kept in components/Calendar.jsx if needed again */}
           <ScheduledPosts />
           {files.filter(f => f.status).map(item => {
             return (
