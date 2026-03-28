@@ -1035,6 +1035,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [selectedCats, setSelectedCats] = useState([])
   const [googlePostEnabled, setGooglePostEnabled] = useState(true)
   const [googleGalleryEnabled, setGoogleGalleryEnabled] = useState(true)
+  const [converting, setConverting] = useState(false)
   const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
   const [wpPublish, setWpPublish] = useState(false)
 
@@ -1216,6 +1217,39 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             }}
             className="text-[11px] py-1 px-2.5 border border-[#FF0000] rounded-sm bg-[#FF0000] text-white cursor-pointer font-sans hover:bg-[#cc0000] self-end"
           >Copy All for YouTube</button>
+        )}
+
+        {/* Convert to MP4 — for non-MP4 videos (e.g. MOV from iPhone) */}
+        {isVideoFile && item.file?.type !== 'video/mp4' && (
+          <div className="flex items-center gap-2 border-t border-border pt-2">
+            <button
+              disabled={converting}
+              onClick={async () => {
+                setConverting(true)
+                try {
+                  const b64 = await fileToBase64(item.file)
+                  const api = await import('../api')
+                  const r = await api.convertToMp4(b64, item.file.type)
+                  if (r.error) throw new Error(r.error)
+                  const byteChars = atob(r.mp4_base64)
+                  const bytes = new Uint8Array(byteChars.length)
+                  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+                  const blob = new Blob([bytes], { type: 'video/mp4' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + '.mp4'
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+                  setTimeout(() => URL.revokeObjectURL(url), 5000)
+                } catch (e) { alert('Convert failed: ' + e.message) }
+                setConverting(false)
+              }}
+              className="text-[10px] py-1 px-2.5 border border-[#4285F4] text-[#4285F4] rounded cursor-pointer hover:bg-[#4285F4]/10 disabled:opacity-50"
+            >
+              {converting ? 'Converting...' : 'Convert to MP4 & Download'}
+            </button>
+            <span className="text-[9px] text-muted">For Google Business (MOV not supported)</span>
+          </div>
         )}
 
         {/* Destination checkboxes */}

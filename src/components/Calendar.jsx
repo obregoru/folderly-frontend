@@ -41,7 +41,7 @@ function fmt(d) { return d.toISOString().slice(0, 10) }
 function fmtTime(d) { return new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) }
 
 export default function Calendar() {
-  const [view, setView] = useState('month') // month, week, day
+  const [view, setView] = useState('month') // month, plan, week, day
   const [current, setCurrent] = useState(new Date())
   const [data, setData] = useState(null)
   const [selected, setSelected] = useState(null) // selected date for detail
@@ -80,7 +80,7 @@ export default function Calendar() {
 
   const nav = (dir) => {
     const d = new Date(current)
-    if (view === 'month') d.setMonth(d.getMonth() + dir)
+    if (view === 'month' || view === 'plan') d.setMonth(d.getMonth() + dir)
     else if (view === 'week') d.setDate(d.getDate() + dir * 7)
     else d.setDate(d.getDate() + dir)
     setCurrent(d)
@@ -96,7 +96,7 @@ export default function Calendar() {
         <div className="flex items-center gap-2">
           <button onClick={() => nav(-1)} className="text-[12px] px-1.5 py-0.5 border border-border rounded cursor-pointer bg-white hover:bg-cream">&lt;</button>
           <span className="text-[13px] font-medium text-ink min-w-[140px] text-center">
-            {view === 'month' && current.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+            {(view === 'month' || view === 'plan') && current.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
             {view === 'week' && (() => {
               const start = new Date(current); start.setDate(current.getDate() - current.getDay())
               const end = new Date(start); end.setDate(start.getDate() + 6)
@@ -108,9 +108,9 @@ export default function Calendar() {
           <button onClick={() => setCurrent(new Date())} className="text-[10px] px-1.5 py-0.5 border border-border rounded cursor-pointer bg-white hover:bg-cream">Today</button>
         </div>
         <div className="flex gap-1">
-          {['day', 'week', 'month'].map(v => (
-            <button key={v} onClick={() => setView(v)} className={`text-[10px] px-2 py-0.5 rounded cursor-pointer border ${view === v ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-muted border-border hover:bg-cream'}`}>
-              {v.charAt(0).toUpperCase() + v.slice(1)}
+          {[{ k: 'day', l: 'Day' }, { k: 'week', l: 'Week' }, { k: 'month', l: 'Month' }, { k: 'plan', l: 'Plan' }].map(v => (
+            <button key={v.k} onClick={() => setView(v.k)} className={`text-[10px] px-2 py-0.5 rounded cursor-pointer border ${view === v.k ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-muted border-border hover:bg-cream'}`}>
+              {v.l}
             </button>
           ))}
         </div>
@@ -148,6 +148,43 @@ export default function Calendar() {
                         <div key={j} className="w-[6px] h-[6px] rounded-full" style={{ background: STATUS_COLORS[p.status] || PLAT_COLORS[p.platform] || '#999' }} title={`${PLAT_SHORT[p.platform] || p.platform} - ${p.job_name || 'unnamed'} (${p.status})`} />
                       ))}
                       {posts.length > 4 && <span className="text-[7px] text-muted">+{posts.length - 4}</span>}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Plan view — month grid with job names instead of dots */}
+      {view === 'plan' && (
+        <div>
+          <div className="grid grid-cols-7 gap-0">
+            {DAYS.map(d => <div key={d} className="text-[9px] text-muted text-center py-1 font-medium">{d}</div>)}
+            {monthDays.map((d, i) => {
+              const dateStr = fmt(d.date)
+              const posts = postsForDate(dateStr)
+              const isToday = dateStr === today
+              const isSelected = selected === dateStr
+              return (
+                <div
+                  key={i}
+                  onClick={() => { setSelected(dateStr); if (posts.length > 0) { setView('day'); setCurrent(d.date) } }}
+                  className={`min-h-[72px] border border-border/50 p-0.5 cursor-pointer hover:bg-cream/50 ${d.outside ? 'bg-[#fafafa]' : 'bg-white'} ${isToday ? 'ring-1 ring-[#6C5CE7]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
+                >
+                  <div className={`text-[10px] ${d.outside ? 'text-[#ccc]' : isToday ? 'text-[#6C5CE7] font-bold' : 'text-ink'}`}>
+                    {d.date.getDate()}
+                  </div>
+                  {posts.length > 0 && (
+                    <div className="mt-0.5 space-y-[1px]">
+                      {posts.map((p, j) => (
+                        <div key={j} className="flex items-center gap-[3px] leading-tight" title={p.caption?.substring(0, 200)}>
+                          <span className="w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ background: STATUS_COLORS[p.status] || '#999' }} />
+                          <span className="text-[7px] font-medium flex-shrink-0" style={{ color: PLAT_COLORS[p.platform] }}>{PLAT_SHORT[p.platform]}</span>
+                          <span className="text-[7px] text-ink truncate">{p.job_name || fmtTime(p.time)}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
