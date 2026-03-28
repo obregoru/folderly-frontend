@@ -256,14 +256,16 @@ function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete }) {
               onClick={() => handleDayClick(d, dayPosts)}
               className={`border-r border-border last:border-r-0 p-1 min-h-[100px] cursor-pointer hover:bg-[#fafafa] ${isToday(d) ? 'bg-[#faf8ff]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
             >
-              {dayPosts.map(p => (
-                <div key={p.uuid} className="flex items-center gap-0.5 md:gap-1 mb-0.5 md:mb-1">
-                  <PlatDot platform={p.platform} />
-                  <span className="text-[8px] md:text-[11px] text-muted truncate">
-                    {new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                  </span>
-                </div>
-              ))}
+              {dayPosts.map(p => {
+                const st = STATUS_STYLES[p.status] || STATUS_STYLES.pending
+                return (
+                  <div key={p.uuid} className="flex items-center gap-0.5 md:gap-1 mb-0.5 md:mb-1">
+                    <span className="w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ background: st.text }} />
+                    <span className="text-[7px] md:text-[9px] font-medium flex-shrink-0" style={{ color: PLATFORM_COLORS[p.platform?.replace('_story', '')] }}>{PLATFORM_SHORT[p.platform] || p.platform}</span>
+                    <span className="text-[8px] md:text-[11px] text-ink truncate">{p.job_name || new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+                  </div>
+                )
+              })}
               {dayPosts.length === 0 && <div className="text-[8px] md:text-xs text-border text-center mt-6 md:mt-10">—</div>}
             </div>
           )
@@ -320,9 +322,17 @@ function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
               {d && (
                 <>
                   <div className={`text-[9px] md:text-xs ${isToday(d) ? 'text-[#6C5CE7] font-medium' : 'text-muted'}`}>{d.getDate()}</div>
-                  <div className="flex flex-wrap gap-px mt-px">
-                    {dayPosts.slice(0, 5).map(p => <PlatDot key={p.uuid} platform={p.platform} />)}
-                    {dayPosts.length > 5 && <span className="text-[7px] text-muted">+{dayPosts.length - 5}</span>}
+                  <div className="mt-0.5 space-y-[1px]">
+                    {dayPosts.map(p => {
+                      const st = STATUS_STYLES[p.status] || STATUS_STYLES.pending
+                      return (
+                        <div key={p.uuid} className="flex items-center gap-[3px] leading-tight" title={p.caption?.substring(0, 200)}>
+                          <span className="w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ background: st.text }} />
+                          <span className="text-[7px] md:text-[9px] font-medium flex-shrink-0" style={{ color: PLATFORM_COLORS[p.platform?.replace('_story', '')] }}>{PLATFORM_SHORT[p.platform] || p.platform}</span>
+                          <span className="text-[7px] md:text-[9px] text-ink truncate">{p.job_name || new Date(p.scheduled_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </>
               )}
