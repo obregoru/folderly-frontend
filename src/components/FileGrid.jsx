@@ -25,20 +25,34 @@ function VideoThumb({ file, onClick, className }) {
     const v = videoRef.current
     if (!v) return
     const onMeta = () => {
-      if (v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
       v.currentTime = 0.5
     }
-    const onSeeked = () => {
+    const onSeeked = async () => {
       const w = v.videoWidth, h = v.videoHeight
       if (!w || !h) return
-      setAspect(w / h)
       try {
+        // createImageBitmap respects rotation metadata from iPhone MOV/MP4
+        const bmp = await createImageBitmap(v)
         const c = document.createElement('canvas')
-        c.width = Math.min(w, 300)
-        c.height = Math.round(c.width * h / w)
-        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
+        // Use bitmap dimensions (rotation-corrected) not video dimensions
+        const bw = bmp.width, bh = bmp.height
+        c.width = Math.min(bw, 300)
+        c.height = Math.round(c.width * bh / bw)
+        c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height)
+        bmp.close()
+        setAspect(bw / bh)
         setPoster(c.toDataURL('image/jpeg', 0.7))
-      } catch {}
+      } catch {
+        // Fallback: use video element dimensions directly
+        setAspect(w / h)
+        try {
+          const c = document.createElement('canvas')
+          c.width = Math.min(w, 300)
+          c.height = Math.round(c.width * h / w)
+          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
+          setPoster(c.toDataURL('image/jpeg', 0.7))
+        } catch {}
+      }
     }
     v.addEventListener('loadedmetadata', onMeta)
     v.addEventListener('seeked', onSeeked)
