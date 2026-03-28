@@ -885,6 +885,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [saved, setSaved] = useState(false)
   const [posting, setPosting] = useState(false)
   const [postStatus, setPostStatus] = useState('')
+  const [showAiAnalysis, setShowAiAnalysis] = useState(false)
   // storyEnabled is derived from postDests — defined after postDests below
   const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
   const [storyPreview, setStoryPreview] = useState(null)
@@ -1649,17 +1650,64 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         {postStatus && <span className={`text-[10px] ${postStatus.startsWith('Failed') ? 'text-[#c0392b]' : postStatus.startsWith('Warning') ? 'text-[#856404]' : 'text-sage'}`}>{postStatus}</span>}
         {scoreLabel && (
           <span
-            className={`text-[10px] py-0.5 px-2 rounded-xl font-semibold border ${
+            onClick={() => setShowAiAnalysis(!showAiAnalysis)}
+            className={`text-[10px] py-0.5 px-2 rounded-xl font-semibold border cursor-pointer hover:opacity-80 ${
               humanScore >= 70 ? 'bg-[#e8efe9] text-[#3a6b42] border-[#3a6b42]' :
               humanScore >= 40 ? 'bg-[#fef3cd] text-[#856404] border-[#856404]' :
               'bg-[#fdeaea] text-[#c0392b] border-[#c0392b]'
             }`}
-            title={score.reason}
+            title="Click to see AI analysis"
           >
             {scoreLabel} {humanScore}%
           </span>
         )}
         </div>
+
+        {/* AI Analysis popup */}
+        {showAiAnalysis && score && (
+          <div className="mt-2 border border-border rounded bg-[#fafafa] p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-medium text-ink">AI Detection Analysis</span>
+              <button onClick={() => setShowAiAnalysis(false)} className="text-muted text-sm bg-transparent border-none cursor-pointer">&times;</button>
+            </div>
+            {/* Reasons */}
+            {score.reason && score.reason !== 'Looks human' && (
+              <div className="mb-2">
+                <p className="text-[10px] text-muted font-medium mb-1">Flags:</p>
+                <div className="flex flex-wrap gap-1">
+                  {score.reason.split('; ').map((r, i) => (
+                    <span key={i} className="text-[9px] py-0.5 px-1.5 rounded bg-[#fdeaea] text-[#c0392b] border border-[#f5c6cb]">{r}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Highlighted text */}
+            <div className="text-[11px] leading-relaxed whitespace-pre-wrap text-ink bg-white border border-border rounded p-2 max-h-[200px] overflow-y-auto">
+              {(() => {
+                const aiWords = new Set([
+                  'delve','tapestry','vibrant','journey','landscape','elevate','foster',
+                  'moreover','furthermore','utilize','harness','leverage','paramount',
+                  'multifaceted','comprehensive','innovative','streamline','optimize',
+                  'unlock','empower','transform','enhance','curate','craft','elevating',
+                  'stunning','incredible','amazing','perfect','exclusive','ideal',
+                  'haven','nestled','bespoke','artisan','artisanal','immerse',
+                  'captivating','exquisite','unparalleled','seamless','holistic',
+                ])
+                const ctaPhrases = ['book now','don\'t miss','limited time','act now','sign up today','what are you waiting for','treat yourself','you deserve']
+                const allPatterns = [...ctaPhrases, ...Array.from(aiWords)].sort((a, b) => b.length - a.length)
+                const regex = new RegExp(`(\\b(?:${allPatterns.join('|')})\\b)`, 'gi')
+                return value.split(regex).map((part, i) =>
+                  aiWords.has(part.toLowerCase()) || ctaPhrases.some(p => part.toLowerCase() === p)
+                    ? <mark key={i} className="bg-[#fce4ec] text-[#c0392b] rounded px-0.5 font-medium" title="AI-typical">{part}</mark>
+                    : <span key={i}>{part}</span>
+                )
+              })()}
+            </div>
+            {score.reason === 'Looks human' && (
+              <p className="text-[10px] text-[#3a6b42] mt-1">No AI patterns detected — this content looks human-written.</p>
+            )}
+          </div>
+        )}
       </div>
     </>
   )
