@@ -1667,7 +1667,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         {showAiAnalysis && score && (
           <div className="mt-2 border border-border rounded bg-[#fafafa] p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-medium text-ink">AI Detection Analysis {score.provider === 'zerogpt' && <span className="text-[9px] text-muted font-normal ml-1">(ZeroGPT)</span>}</span>
+              <span className="text-[11px] font-medium text-ink">AI Detection Analysis <span className="text-[9px] text-muted font-normal ml-1">({score.provider === 'zerogpt' ? 'ZeroGPT' : 'Built-in heuristic'})</span></span>
               <button onClick={() => setShowAiAnalysis(false)} className="text-muted text-sm bg-transparent border-none cursor-pointer">&times;</button>
             </div>
             {/* Reasons */}
