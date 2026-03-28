@@ -66,19 +66,19 @@ function VideoThumb({ file, onClick, className }) {
     if (aspect) file._videoAspect = aspect
   }, [poster, aspect])
 
+  const isPortrait = aspect && aspect < 1
+  const height = isPortrait ? 140 : 78
+
   return (
-    <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 ${className || ''}`}>
+    <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 ${className || ''}`} style={{ height }}>
       {poster ? (
-        <img src={poster} className="w-full h-full object-cover" />
+        <img src={poster} className="w-full h-full object-cover rounded-sm" />
       ) : (
         <video ref={videoRef} src={src + '#t=0.5'} className="w-full h-full object-cover" muted playsInline preload="auto" />
       )}
       <div className="absolute inset-0 flex items-center justify-center">
         <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
       </div>
-      {aspect && aspect < 1 && (
-        <span className="absolute top-1 left-1 text-[7px] bg-black/50 text-white rounded px-1">Portrait</span>
-      )}
     </div>
   )
 }
@@ -103,7 +103,7 @@ export default function FileGrid({ files, onRemove }) {
                 className="w-full h-[78px] object-cover block cursor-pointer hover:opacity-80"
               />
             ) : item.file.type?.startsWith('video/') ? (
-              <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full h-[78px] bg-black" />
+              <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
             ) : (
               <div
                 onClick={() => setPreviewItem(item)}
