@@ -414,63 +414,48 @@ export default function App() {
         </div>
 
         <main className="flex-1 p-3 md:p-5 pb-24 md:pb-32 overflow-y-auto overflow-x-hidden flex flex-col gap-3 md:gap-4 max-w-full md:max-w-[640px] mx-auto w-full min-w-0">
-          {/* Mobile: content hint first (primary brief method on mobile) */}
-          <div className="md:hidden">
-            <div className="flex items-center justify-between">
-              <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span> <HelpTip text="Tell the AI what's happening in the photo. The more detail you give, the better the content. You can also paste AI-generated content and click 'Review with AI' to check it against your brand settings." /></label>
-              <div className="flex gap-2">
-                {userHint.length > 20 && (
-                  <button onClick={async () => {
-                    setReviewing(true); setReviewResult(null)
-                    try { const r = await api.reviewHint(userHint); setReviewResult(r) } catch (e) { setReviewResult({ error: e.message }) }
-                    setReviewing(false)
-                  }} disabled={reviewing} className="text-[11px] text-[#6C5CE7] hover:underline disabled:opacity-50">
-                    {reviewing ? 'Reviewing...' : 'Review with AI'}
-                  </button>
-                )}
-                {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
-                  <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[11px] text-sage hover:underline">Reuse last</button>
-                )}
-              </div>
-            </div>
-            <textarea
-              rows={3}
-              value={userHint}
-              onChange={e => { setUserHint(e.target.value); setReviewResult(null) }}
-              className="field-input resize-y mt-1.5"
-              placeholder="e.g. Girls night, wine canvas painting"
-            />
-          </div>
-
           {error && <div className="bg-[#FBF0F7] border border-[#F4C0D1] rounded-sm py-2 px-3 text-xs text-[#A32D2D]">{error}</div>}
 
           <WeekPlanner settings={settings} targetWeek={targetWeek} onWeekSelect={setTargetWeek} />
 
           <Dropzone onFiles={addFiles} />
 
-          {/* Desktop: tips and content hint below dropzone */}
-          <div className="hidden md:block text-xs text-muted leading-relaxed text-center">
-            <p className="mb-2"><strong className="text-ink">Tip:</strong> Descriptive names help the AI write better content.</p>
-            <p>Name your files with keywords like <strong className="text-ink">couple-reveal-reaction.jpg</strong> instead of IMG_4382.jpg</p>
-            <p className="mt-1">Uploading a folder? Name it too — <strong className="text-ink">birthday-group/</strong> tells the AI it's a birthday event. <em className="text-muted">(Optional)</em></p>
-          </div>
+          {folderCtx && (
+            <div className="flex items-start gap-2.5 bg-sage-light border border-[#C2D4C9] rounded-sm py-2 px-3 text-xs">
+              <span className="text-base flex-shrink-0">📁</span>
+              <div>
+                <div>Folder: <span className="font-medium text-sage">{folderCtx.name}/</span></div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {allTags(folderCtx.parsed).map(t => (
+                    <span key={t} className="inline-block bg-sage-light text-sage border border-[#C2D4C9] rounded-full px-2 py-0.5 text-[10px]">{t}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
-          {/* Desktop: context hint */}
-          <div className="hidden md:block">
+          <FileGrid files={files} onRemove={removeFile} />
+
+          {/* Content hint — between uploads and generate button */}
+          <div>
             <div className="flex items-center justify-between">
-              <label className="text-[11px] text-muted">Context hint <HelpTip text="Optional description that helps AI write better content. Describe what's in the photo, the occasion, or paste pre-written content to review against your brand settings." /> <span className="italic text-[10px]">(optional)</span></label>
+              <label className="text-[13px] md:text-[11px] text-ink md:text-muted font-medium md:font-normal">
+                <span className="md:hidden">Describe this photo <span className="text-[#c0392b]">*</span></span>
+                <span className="hidden md:inline">Context hint <span className="italic text-[10px]">(optional)</span></span>
+                <HelpTip text="Tell the AI what's happening in the photo. The more detail you give, the better the content. You can also paste AI-generated content and click 'Review with AI' to check it against your brand settings." />
+              </label>
               <div className="flex gap-2">
                 {userHint.length > 20 && (
                   <button onClick={async () => {
                     setReviewing(true); setReviewResult(null)
                     try { const r = await api.reviewHint(userHint); setReviewResult(r) } catch (e) { setReviewResult({ error: e.message }) }
                     setReviewing(false)
-                  }} disabled={reviewing} className="text-[10px] text-[#6C5CE7] hover:underline disabled:opacity-50">
+                  }} disabled={reviewing} className="text-[11px] md:text-[10px] text-[#6C5CE7] hover:underline disabled:opacity-50">
                     {reviewing ? 'Reviewing...' : 'Review with AI'}
                   </button>
                 )}
                 {!userHint && (settings.last_hint || localStorage.getItem('posty_last_hint')) && (
-                  <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[10px] text-sage hover:underline">Reuse last hint</button>
+                  <button onClick={() => setUserHint(settings.last_hint || localStorage.getItem('posty_last_hint'))} className="text-[11px] md:text-[10px] text-sage hover:underline">Reuse last</button>
                 )}
               </div>
             </div>
@@ -479,7 +464,7 @@ export default function App() {
               value={userHint}
               onChange={e => { setUserHint(e.target.value); setReviewResult(null) }}
               className="field-input resize-y mt-1"
-              placeholder="e.g. This is how many cans of beer we drank during the snow storm"
+              placeholder="e.g. Girls night, wine canvas painting"
             />
           </div>
           {/* Review result */}
@@ -508,22 +493,6 @@ export default function App() {
           )}
 
           <p className="text-[11px] text-muted text-center">Content is generated for each photo — copy, edit, and post to your platforms.</p>
-
-          {folderCtx && (
-            <div className="flex items-start gap-2.5 bg-sage-light border border-[#C2D4C9] rounded-sm py-2 px-3 text-xs">
-              <span className="text-base flex-shrink-0">📁</span>
-              <div>
-                <div>Folder: <span className="font-medium text-sage">{folderCtx.name}/</span></div>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {allTags(folderCtx.parsed).map(t => (
-                    <span key={t} className="inline-block bg-sage-light text-sage border border-[#C2D4C9] rounded-full px-2 py-0.5 text-[10px]">{t}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <FileGrid files={files} onRemove={removeFile} />
 
           {files.length > 0 && (
             <div className="flex items-center gap-2.5">
