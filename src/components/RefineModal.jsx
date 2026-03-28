@@ -56,7 +56,7 @@ export default function RefineModal({ ctx, onClose, onAccept }) {
     <div className="fixed inset-0 bg-black/45 z-[200] flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="bg-white rounded w-[560px] max-h-[80vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between py-3.5 px-4.5 border-b border-border">
-          <div className="font-serif text-[17px]">Refine caption</div>
+          <div className="font-serif text-[17px]">Refine content</div>
           <button className="text-xl bg-transparent border-none cursor-pointer text-muted" onClick={onClose}>×</button>
         </div>
         <div className="overflow-y-auto p-4">

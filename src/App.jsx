@@ -287,7 +287,7 @@ export default function App() {
     // On mobile, always require a hint
     const isMobile = window.innerWidth < 768
     if (isMobile && !userHint.trim()) {
-      showError('Please describe what\'s in the photo or video — this helps the AI write better captions.')
+      showError('Please describe what\'s in the photo or video — this helps the AI write better content.')
       return
     }
     // On desktop, require hint only if all filenames are generic
@@ -417,7 +417,7 @@ export default function App() {
           {/* Mobile: content hint first (primary brief method on mobile) */}
           <div className="md:hidden">
             <div className="flex items-center justify-between">
-              <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span> <HelpTip text="Tell the AI what's happening in the photo. The more detail you give, the better the captions. You can also paste AI-generated content and click 'Review with AI' to check it against your brand settings." /></label>
+              <label className="text-[13px] text-ink font-medium">Describe this photo <span className="text-[#c0392b]">*</span> <HelpTip text="Tell the AI what's happening in the photo. The more detail you give, the better the content. You can also paste AI-generated content and click 'Review with AI' to check it against your brand settings." /></label>
               <div className="flex gap-2">
                 {userHint.length > 20 && (
                   <button onClick={async () => {
@@ -450,7 +450,7 @@ export default function App() {
 
           {/* Desktop: tips and content hint below dropzone */}
           <div className="hidden md:block text-xs text-muted leading-relaxed text-center">
-            <p className="mb-2"><strong className="text-ink">Tip:</strong> Descriptive names help the AI write better captions.</p>
+            <p className="mb-2"><strong className="text-ink">Tip:</strong> Descriptive names help the AI write better content.</p>
             <p>Name your files with keywords like <strong className="text-ink">couple-reveal-reaction.jpg</strong> instead of IMG_4382.jpg</p>
             <p className="mt-1">Uploading a folder? Name it too — <strong className="text-ink">birthday-group/</strong> tells the AI it's a birthday event. <em className="text-muted">(Optional)</em></p>
           </div>
@@ -458,7 +458,7 @@ export default function App() {
           {/* Desktop: context hint */}
           <div className="hidden md:block">
             <div className="flex items-center justify-between">
-              <label className="text-[11px] text-muted">Context hint <HelpTip text="Optional description that helps AI write better captions. Describe what's in the photo, the occasion, or paste pre-written content to review against your brand settings." /> <span className="italic text-[10px]">(optional)</span></label>
+              <label className="text-[11px] text-muted">Context hint <HelpTip text="Optional description that helps AI write better content. Describe what's in the photo, the occasion, or paste pre-written content to review against your brand settings." /> <span className="italic text-[10px]">(optional)</span></label>
               <div className="flex gap-2">
                 {userHint.length > 20 && (
                   <button onClick={async () => {
@@ -507,7 +507,7 @@ export default function App() {
             </div>
           )}
 
-          <p className="text-[11px] text-muted text-center">Captions are generated for each photo — copy, edit, and post to your platforms.</p>
+          <p className="text-[11px] text-muted text-center">Content is generated for each photo — copy, edit, and post to your platforms.</p>
 
           {folderCtx && (
             <div className="flex items-start gap-2.5 bg-sage-light border border-[#C2D4C9] rounded-sm py-2 px-3 text-xs">
@@ -532,7 +532,7 @@ export default function App() {
                 disabled={generating}
                 className="flex-1 py-2.5 px-4 text-[13px] font-medium font-sans bg-ink text-white border-none rounded-sm cursor-pointer hover:bg-[#333] disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {generating ? 'Generating...' : 'Generate captions ↗'}
+                {generating ? 'Generating...' : 'Generate content ↗'}
               </button>
               <button onClick={clearAll} className="text-[11px] py-2 px-3 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Clear all</button>
               <span className="text-xs text-muted whitespace-nowrap">{files.length} file{files.length !== 1 ? 's' : ''}</span>
@@ -542,7 +542,7 @@ export default function App() {
           {/* Results */}
           {files.some(f => f.status) && (
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <div className="font-serif text-[17px]">Generated captions</div>
+              <div className="font-serif text-[17px]">Generated content</div>
               <div className="flex gap-1 flex-wrap">
                 <button onClick={clearAll} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Clear</button>
                 {hasCaptions && <button onClick={regenAll} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Regen all</button>}

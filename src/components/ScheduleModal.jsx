@@ -181,7 +181,7 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
             <button
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(post.caption); }}
               className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
-            >Copy caption</button>
+            >Copy content</button>
             <button
               onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
               className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"

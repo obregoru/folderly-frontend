@@ -84,7 +84,7 @@ export default function HistoryModal({ onClose }) {
     <div className="fixed inset-0 bg-black/45 z-[200] flex items-center justify-center" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="bg-white rounded w-[640px] max-h-[80vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between py-3.5 px-4.5 border-b border-border">
-          <div className="font-serif text-[17px]">Caption history</div>
+          <div className="font-serif text-[17px]">Content history</div>
           <button className="text-xl bg-transparent border-none cursor-pointer text-muted" onClick={onClose}>×</button>
         </div>
         <div className="overflow-y-auto py-3.5 px-4.5">

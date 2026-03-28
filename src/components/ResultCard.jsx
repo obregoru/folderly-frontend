@@ -166,7 +166,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
 
       {/* Error */}
       {item.status === 'error' && (
-        <div className="py-3 px-3.5 text-xs text-[#A32D2D]">{item.errMsg || 'Error generating captions.'}</div>
+        <div className="py-3 px-3.5 text-xs text-[#A32D2D]">{item.errMsg || 'Error generating content.'}</div>
       )}
 
       {/* Post All */}
@@ -313,7 +313,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
 
     for (const p of postable) {
       const caption = getText(item.captions[p.key])
-      if (!caption) { newResults[p.key] = 'Skipped: no caption'; continue }
+      if (!caption) { newResults[p.key] = 'Skipped: no content'; continue }
 
       try {
         let imageBase64 = null, mediaType = null
@@ -1107,7 +1107,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         if (result.fallback) {
           // API not enabled or not approved -- copy to clipboard as fallback
           navigator.clipboard.writeText(value)
-          setPostStatus(result.message || 'Caption copied — post manually on TikTok')
+          setPostStatus(result.message || 'Content copied — post manually on TikTok')
         } else {
           setPostStatus('Posted to TikTok!')
         }
@@ -1207,7 +1207,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         onClick={() => { navigator.clipboard.writeText(value); setPostStatus('Copied!'); setTimeout(() => setPostStatus(''), 2000) }}
         className="md:hidden w-full py-3 text-[14px] font-medium border border-sage rounded-sm bg-sage-light text-sage cursor-pointer font-sans active:bg-sage active:text-white min-h-[48px] mt-2"
       >
-        {postStatus === 'Copied!' ? 'Copied!' : 'Copy Caption'}
+        {postStatus === 'Copied!' ? 'Copied!' : 'Copy Content'}
       </button>
       <div className="flex flex-col gap-2 mt-2">
         {platform === 'youtube' && (

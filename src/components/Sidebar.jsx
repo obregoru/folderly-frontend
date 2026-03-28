@@ -79,7 +79,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       </div>
       {/* Brand Profile */}
       <div>
-        <div className="s-head">Brand profile <HelpTip text="Your business identity. AI uses this to write captions that sound like your brand — name, type, location, and custom rules." /></div>
+        <div className="s-head">Brand profile <HelpTip text="Your business identity. AI uses this to write content that sounds like your brand — name, type, location, and custom rules." /></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Business name</label>
           <input className="field-input" value={s.name || ''} onChange={e => save('name', e.target.value)} onBlur={e => save('name', e.target.value)} /></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Booking / CTA URL</label>
@@ -91,12 +91,12 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
           <datalist id="biz-type-list">{BUSINESS_TYPES.map(t => <option key={t} value={t} />)}</datalist></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Brand rules <HelpTip text="Custom instructions the AI must follow. E.g. 'Never mention competitors', 'Always call it a studio not a shop', 'Use emoji sparingly'. These override default behavior." /></label>
           <textarea rows={5} className="field-input resize-none" value={s.brand_rules || ''} onChange={e => save('brand_rules', e.target.value)} /></div>
-        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords <HelpTip text="Keywords to include in captions for search visibility. Used in Google Business posts and blog content. Separate with commas." /></label>
+        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords <HelpTip text="Keywords to include in content for search visibility. Used in Google Business posts and blog content. Separate with commas." /></label>
           <input className="field-input" placeholder="perfume making, candle workshop, date night Milwaukee" value={s.seo_keywords || ''} onChange={e => save('seo_keywords', e.target.value)} /></div>
 
         {/* Hashtag sets */}
         <div className="mb-2">
-          <label className="text-[11px] text-muted block mb-0.5">Hashtag sets <HelpTip text="Reusable groups of hashtags. Create sets for different themes (e.g. 'Birthday', 'Date Night'). Select one before generating captions to include those hashtags." /> <span className="float-right text-[10px] text-sage cursor-pointer" onClick={() => setHsFormOpen(true)}>+ add</span></label>
+          <label className="text-[11px] text-muted block mb-0.5">Hashtag sets <HelpTip text="Reusable groups of hashtags. Create sets for different themes (e.g. 'Birthday', 'Date Night'). Select one before generating content to include those hashtags." /> <span className="float-right text-[10px] text-sage cursor-pointer" onClick={() => setHsFormOpen(true)}>+ add</span></label>
           <div className="flex flex-col gap-1.5">
             {hashtagSets.length === 0 && <span className="text-[10px] text-muted">No sets yet</span>}
             {hashtagSets.map(hs => (
@@ -128,7 +128,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         </div>
 
         {/* Toggles */}
-        <div className="flex items-center justify-between text-xs py-0.5"><span>Keep anonymous <HelpTip text="When on, AI won't mention your business name, products, or services. Captions describe the photo only — great for personal/generic content." /></span><Toggle on={s.keep_anonymous !== false} onChange={v => save('keep_anonymous', v)} /></div>
+        <div className="flex items-center justify-between text-xs py-0.5"><span>Keep anonymous <HelpTip text="When on, AI won't mention your business name, products, or services. Content describes the photo only — great for personal/generic content." /></span><Toggle on={s.keep_anonymous !== false} onChange={v => save('keep_anonymous', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Brand name in filenames <HelpTip text="Prepends your business name to exported filenames for SEO. E.g. 'poppy-and-thyme-birthday-group.jpg' instead of 'birthday-group.jpg'." /></span><Toggle on={s.seo_prepend_brand !== false} onChange={v => save('seo_prepend_brand', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Watermark exports <HelpTip text="Adds your logo as a watermark to exported images. Upload your logo below. Watermark appears on platform-cropped exports." /></span><Toggle on={s.watermark_enabled === true} onChange={v => save('watermark_enabled', v)} /></div>
         {s.watermark_enabled && (
@@ -171,7 +171,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       {/* TikTok hooks */}
       {s.platform_tiktok && (
         <div>
-          <div className="s-head">TikTok hooks <HelpTip text="Custom opening hooks for TikTok captions. AI will use one of these styles to start the caption. E.g. 'POV:', 'Wait for it...'" /></div>
+          <div className="s-head">TikTok hooks <HelpTip text="Custom opening hooks for TikTok content. AI will use one of these styles to start the post. E.g. 'POV:', 'Wait for it...'" /></div>
           <input className="field-input" placeholder="POV:, Wait for it..." value={(s.tiktok_hooks || []).join(', ')} onChange={e => {
             const hooks = e.target.value.split(',').map(h => h.trim()).filter(Boolean);
             save('tiktok_hooks', hooks);
@@ -181,7 +181,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* This batch */}
       <div>
-        <div className="s-head">This batch <HelpTip text="Settings that apply to the current upload batch. Occasion and availability context help AI write more relevant captions." /></div>
+        <div className="s-head">This batch <HelpTip text="Settings that apply to the current upload batch. Occasion and availability context help AI write more relevant content." /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Availability signal</span><Toggle on={s.availability_on !== false} onChange={v => save('availability_on', v)} /></div>
         {s.availability_on !== false && (
           <input className="field-input mt-1.5" placeholder="e.g. Sat 11am full, PM open" value={s.availability_text || ''} onChange={e => save('availability_text', e.target.value)} />
@@ -192,7 +192,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
           </select>
         </div>
         <div className="mt-2.5">
-          <label className="text-[10px] text-muted uppercase tracking-wider">Caption rules</label>
+          <label className="text-[10px] text-muted uppercase tracking-wider">Content rules</label>
           {[['name', 'Mention business name'], ['cta', 'Include booking CTA'], ['brand', 'Apply brand rules'], ['seo', 'Include SEO keywords'], ['hashtags', 'Include hashtags']].map(([key, label]) => (
             <div key={key} className="flex items-center justify-between text-xs py-0.5 mt-1">
               <span>{label}</span>
@@ -204,7 +204,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* Tone */}
       <div>
-        <div className="s-head">Tone <HelpTip text="The mood of your captions. Select multiple to mix tones. AI adapts its writing style to match." /></div>
+        <div className="s-head">Tone <HelpTip text="The mood of your content. Select multiple to mix tones. AI adapts its writing style to match." /></div>
         <ChipGrid items={TONES.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))} active={s.default_tone || 'warm'} multi onToggle={v => {
           const current = (s.default_tone || 'warm').split(', ')
           const next = current.includes(v) ? current.filter(x => x !== v) : [...current, v]
@@ -214,13 +214,13 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* POV */}
       <div>
-        <div className="s-head">Point of view <HelpTip text="Who is 'speaking' in the caption. 'We/Us' for the team, 'I/Me' for the owner, 'You/Your' to speak to the customer." /></div>
+        <div className="s-head">Point of view <HelpTip text="Who is 'speaking' in the content. 'We/Us' for the team, 'I/Me' for the owner, 'You/Your' to speak to the customer." /></div>
         <ChipGrid items={POVS.map(p => ({ value: p, label: POV_LABELS[p] }))} active={s.default_pov || 'first_plural'} onToggle={v => save('default_pov', v)} />
       </div>
 
       {/* Marketing level */}
       <div>
-        <div className="s-head">Marketing level <HelpTip text="How salesy the captions sound. Subtle = casual sharing, no hard sell. Balanced = light CTA. Strong = clear calls to action and urgency." /></div>
+        <div className="s-head">Marketing level <HelpTip text="How salesy the content sounds. Subtle = casual sharing, no hard sell. Balanced = light CTA. Strong = clear calls to action and urgency." /></div>
         <ChipGrid items={MKT_LEVELS.map(m => ({ value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }))} active={s.marketing_intensity || 'balanced'} onToggle={v => save('marketing_intensity', v)} />
       </div>
 
@@ -235,13 +235,13 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* Caption length */}
       <div>
-        <div className="s-head">Caption length <HelpTip text="Short = punchy one-liners. Medium = a few sentences. Long = detailed storytelling. Each platform gets an appropriate length." /></div>
+        <div className="s-head">Content length <HelpTip text="Short = punchy one-liners. Medium = a few sentences. Long = detailed storytelling. Each platform gets an appropriate length." /></div>
         <ChipGrid items={LENGTHS.map(l => ({ value: l, label: LENGTH_LABELS[l] }))} active={s.caption_length || 'large'} onToggle={v => save('caption_length', v)} />
       </div>
 
       {/* Platforms */}
       <div>
-        <div className="s-head">Platforms <HelpTip text="Which platforms to generate captions for. Each gets a custom caption optimized for that platform's format and audience." /></div>
+        <div className="s-head">Platforms <HelpTip text="Which platforms to generate content for. Each gets custom content optimized for that platform's format and audience." /></div>
         {[['platform_tiktok', 'TikTok', true], ['platform_instagram', 'Instagram', true], ['platform_facebook', 'Facebook', true], ['platform_twitter', 'X / Twitter', false], ['platform_google', 'Google Business', false], ['platform_blog', 'Blog post', false], ['platform_youtube', 'YouTube', false]].map(([key, label, defaultOn]) => (
           <div key={key} className="flex items-center justify-between text-xs md:text-xs text-[13px] py-2 md:py-0.5 mt-1 md:mt-1.5 min-h-[44px] md:min-h-0">
             <span>{label}</span>
@@ -252,7 +252,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
 
       {/* Quality */}
       <div>
-        <div className="s-head">Quality <HelpTip text="AI detection checks if captions sound human. 'Sound more human' rewrites YouTube/Blog captions to pass AI detection tools." /></div>
+        <div className="s-head">Quality <HelpTip text="AI detection checks if content sounds human. 'Sound more human' rewrites YouTube/Blog content to pass AI detection tools." /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>AI detection scoring</span><Toggle on={s.ai_detection_enabled === true} onChange={v => save('ai_detection_enabled', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (YouTube) <HelpTip text="Rewrites YouTube descriptions through a second AI pass to sound less robotic and pass AI detection tools." /></span><Toggle on={s.humanize_youtube === true} onChange={v => save('humanize_youtube', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (Blog) <HelpTip text="Rewrites blog posts through a second AI pass to sound more natural and avoid common AI-writing tells." /></span><Toggle on={s.humanize_blog === true} onChange={v => save('humanize_blog', v)} /></div>
