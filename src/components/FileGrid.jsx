@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 function MediaLightbox({ file, isImg, onClose }) {
   return (
@@ -11,6 +11,59 @@ function MediaLightbox({ file, isImg, onClose }) {
           <video src={URL.createObjectURL(file)} controls autoPlay playsInline className="max-w-full max-h-[80vh] rounded" />
         )}
       </div>
+    </div>
+  )
+}
+
+function VideoThumb({ file, onClick, className }) {
+  const videoRef = useRef(null)
+  const [poster, setPoster] = useState(null)
+  const [aspect, setAspect] = useState(null)
+  const [src] = useState(() => URL.createObjectURL(file))
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onMeta = () => {
+      if (v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+      v.currentTime = 0.5
+    }
+    const onSeeked = () => {
+      const w = v.videoWidth, h = v.videoHeight
+      if (!w || !h) return
+      setAspect(w / h)
+      try {
+        const c = document.createElement('canvas')
+        c.width = Math.min(w, 300)
+        c.height = Math.round(c.width * h / w)
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
+        setPoster(c.toDataURL('image/jpeg', 0.7))
+      } catch {}
+    }
+    v.addEventListener('loadedmetadata', onMeta)
+    v.addEventListener('seeked', onSeeked)
+    return () => { v.removeEventListener('loadedmetadata', onMeta); v.removeEventListener('seeked', onSeeked) }
+  }, [])
+
+  // Store thumb + aspect on the file object so ResultCard can reuse it
+  useEffect(() => {
+    if (poster) file._videoThumb = poster
+    if (aspect) file._videoAspect = aspect
+  }, [poster, aspect])
+
+  return (
+    <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 ${className || ''}`}>
+      {poster ? (
+        <img src={poster} className="w-full h-full object-cover" />
+      ) : (
+        <video ref={videoRef} src={src + '#t=0.5'} className="w-full h-full object-cover" muted playsInline preload="auto" />
+      )}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
+      </div>
+      {aspect && aspect < 1 && (
+        <span className="absolute top-1 left-1 text-[7px] bg-black/50 text-white rounded px-1">Portrait</span>
+      )}
     </div>
   )
 }
@@ -34,6 +87,8 @@ export default function FileGrid({ files, onRemove }) {
                 onClick={() => setPreviewItem(item)}
                 className="w-full h-[78px] object-cover block cursor-pointer hover:opacity-80"
               />
+            ) : item.file.type?.startsWith('video/') ? (
+              <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full h-[78px] bg-black" />
             ) : (
               <div
                 onClick={() => setPreviewItem(item)}
