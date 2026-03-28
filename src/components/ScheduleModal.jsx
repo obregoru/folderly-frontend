@@ -3,6 +3,7 @@ import * as api from '../api'
 
 const PLATFORM_LABELS = { facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', blog: 'WordPress', google: 'Google', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest' }
 const PLATFORM_COLORS = { facebook: '#1877F2', instagram: '#E1306C', twitter: '#000', blog: '#21759B', google: '#4285F4', tiktok: '#2D9A5E', youtube: '#FF0000', pinterest: '#E60023' }
+const PLATFORM_SHORT = { facebook: 'FB', facebook_story: 'FBs', facebook_reel: 'FBr', instagram: 'IG', instagram_story: 'IGs', twitter: 'X', tiktok: 'TT', google: 'GBP', youtube: 'YT', pinterest: 'Pin', blog: 'Blog' }
 const STATUS_STYLES = {
   pending: { bg: '#f3f0ff', text: '#6C5CE7', label: 'Pending' },
   posted: { bg: '#e8efe9', text: '#2D9A5E', label: 'Posted' },
@@ -10,7 +11,7 @@ const STATUS_STYLES = {
   cancelled: { bg: '#f5f5f5', text: '#999', label: 'Cancelled' },
 }
 
-const VIEWS = ['day', 'week', 'month']
+const VIEWS = ['day', 'week', 'month', 'plan']
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const FILTERS = ['all', 'pending', 'posted', 'failed']
 
@@ -344,6 +345,73 @@ function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
   )
 }
 
+// ── Plan View: month grid with job names ──
+function PlanView({ posts, anchor, onCancel, onRetry, onDelete }) {
+  const [selectedDay, setSelectedDay] = useState(null)
+  const year = anchor.getFullYear(), month = anchor.getMonth()
+  const firstDay = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  const cells = []
+  for (let i = 0; i < firstDay; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d))
+
+  const getPostsForDay = (d) => d ? posts.filter(p => isSameDay(new Date(p.scheduled_at), d)).sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)) : []
+
+  const fmtTime = (d) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+
+  return (
+    <div>
+      <div className="grid grid-cols-7">
+        {DAY_NAMES.map(n => (
+          <div key={n} className="text-center text-[9px] md:text-xs text-muted py-1 md:py-1.5 border-b border-border">{n}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {cells.map((d, i) => {
+          const dayPosts = getPostsForDay(d)
+          const isSelected = d && selectedDay && isSameDay(selectedDay, d)
+          return (
+            <div
+              key={i}
+              onClick={() => d && dayPosts.length > 0 && setSelectedDay(isSelected ? null : d)}
+              className={`border-b border-r border-border min-h-[80px] md:min-h-[100px] p-0.5 md:p-1 ${d ? 'cursor-pointer hover:bg-[#fafafa]' : 'bg-[#fafafa]'} ${d && isToday(d) ? 'bg-[#faf8ff]' : ''} ${isSelected ? 'bg-[#f3f0ff]' : ''}`}
+            >
+              {d && (
+                <>
+                  <div className={`text-[9px] md:text-xs ${isToday(d) ? 'text-[#6C5CE7] font-medium' : 'text-muted'}`}>{d.getDate()}</div>
+                  <div className="mt-0.5 space-y-[1px]">
+                    {dayPosts.map(p => {
+                      const st = STATUS_STYLES[p.status] || STATUS_STYLES.pending
+                      return (
+                        <div key={p.uuid} className="flex items-center gap-[3px] leading-tight" title={p.caption?.substring(0, 200)}>
+                          <span className="w-[5px] h-[5px] rounded-full flex-shrink-0" style={{ background: st.text }} />
+                          <span className="text-[7px] md:text-[9px] font-medium flex-shrink-0" style={{ color: PLATFORM_COLORS[p.platform?.replace('_story', '')] }}>{PLATFORM_SHORT[p.platform] || p.platform}</span>
+                          <span className="text-[7px] md:text-[9px] text-ink truncate">{p.job_name || fmtTime(p.scheduled_at)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {selectedDay && (
+        <div className="border-t border-border bg-[#fafafa] px-3 py-2">
+          <div className="text-[10px] font-medium text-ink mb-1">
+            {selectedDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+          {getPostsForDay(selectedDay).map(p => (
+            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ScheduleModal({ onClose }) {
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -366,7 +434,7 @@ export default function ScheduleModal({ onClose }) {
       const r = getWeekRange(anchor)
       params.from = r.from.toISOString()
       params.to = r.to.toISOString()
-    } else {
+    } else { // month or plan
       const r = getMonthRange(anchor)
       params.from = r.from.toISOString()
       params.to = r.to.toISOString()
@@ -386,7 +454,7 @@ export default function ScheduleModal({ onClose }) {
     const d = new Date(anchor)
     if (view === 'day') d.setDate(d.getDate() + dir)
     else if (view === 'week') d.setDate(d.getDate() + dir * 7)
-    else d.setMonth(d.getMonth() + dir)
+    else d.setMonth(d.getMonth() + dir) // month or plan
     setAnchor(d)
     setPage(1)
   }
@@ -450,6 +518,7 @@ export default function ScheduleModal({ onClose }) {
           {!loading && view === 'day' && <DayView posts={posts} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
           {!loading && view === 'week' && <WeekView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
           {!loading && view === 'month' && <MonthView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
+          {!loading && view === 'plan' && <PlanView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
         </div>
 
         {/* Legend */}
