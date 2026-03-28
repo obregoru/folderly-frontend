@@ -103,7 +103,6 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   const [showPreview, setShowPreview] = useState(false)
   const [videoThumb, setVideoThumb] = useState(null)
   const [videoAspect, setVideoAspect] = useState(null)
-  const thumbVideoRef = useRef(null)
 
   return (
     <div className="bg-white border border-border rounded mb-2.5">
@@ -137,19 +136,19 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
               <img src={videoThumb} className="w-full h-full object-cover" />
             ) : (
               <video
-                ref={thumbVideoRef}
-                src={fileSrc}
+                src={fileSrc + '#t=0.5'}
                 className="w-full h-full object-cover"
                 muted
                 playsInline
-                preload="auto"
+                preload="metadata"
                 onLoadedMetadata={e => {
                   const v = e.target
+                  console.log('[thumb] loadedMetadata', v.videoWidth, v.videoHeight)
                   if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight)
-                  v.currentTime = 0.5
                 }}
-                onSeeked={e => {
+                onLoadedData={e => {
                   const v = e.target
+                  console.log('[thumb] loadedData', v.videoWidth, v.videoHeight, v.readyState)
                   const w = v.videoWidth, h = v.videoHeight
                   if (!w || !h) return
                   setVideoAspect(w / h)
@@ -159,8 +158,9 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
                     canvas.height = Math.round(canvas.width * h / w)
                     canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height)
                     const url = canvas.toDataURL('image/jpeg', 0.7)
+                    console.log('[thumb] captured, length:', url.length)
                     if (url.length > 100) setVideoThumb(url)
-                  } catch (err) { /* canvas capture not supported */ }
+                  } catch (err) { console.warn('[thumb] capture failed:', err) }
                 }}
               />
             )}
