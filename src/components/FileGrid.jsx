@@ -30,11 +30,11 @@ function VideoThumb({ file, onClick, className }) {
     const onSeeked = async () => {
       const w = v.videoWidth, h = v.videoHeight
       if (!w || !h) return
+      console.log('[VideoThumb] videoWidth:', w, 'videoHeight:', h, 'rendered:', v.offsetWidth, 'x', v.offsetHeight)
       try {
-        // createImageBitmap respects rotation metadata from iPhone MOV/MP4
         const bmp = await createImageBitmap(v)
+        console.log('[VideoThumb] bitmap:', bmp.width, 'x', bmp.height)
         const c = document.createElement('canvas')
-        // Use bitmap dimensions (rotation-corrected) not video dimensions
         const bw = bmp.width, bh = bmp.height
         c.width = Math.min(bw, 300)
         c.height = Math.round(c.width * bh / bw)
@@ -42,8 +42,9 @@ function VideoThumb({ file, onClick, className }) {
         bmp.close()
         setAspect(bw / bh)
         setPoster(c.toDataURL('image/jpeg', 0.7))
-      } catch {
-        // Fallback: use video element dimensions directly
+        console.log('[VideoThumb] aspect:', bw / bh, 'portrait:', bw < bh)
+      } catch (err) {
+        console.warn('[VideoThumb] bitmap failed:', err)
         setAspect(w / h)
         try {
           const c = document.createElement('canvas')
