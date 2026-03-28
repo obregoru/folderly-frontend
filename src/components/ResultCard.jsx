@@ -93,7 +93,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   ])]
 
   // Thumbnail src — memoized to prevent re-render blob URL churn
-  const [thumbSrc, setThumbSrc] = useState(() => item.isImg
+  const [thumbSrc] = useState(() => item.isImg
     ? URL.createObjectURL(item.file)
     : (item.uploadResult?.thumbnail_path
       ? (item.uploadResult.thumbnail_path.startsWith('http') ? item.uploadResult.thumbnail_path : `/uploads/${item.uploadResult.thumbnail_path}`)
@@ -101,47 +101,9 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   const [fileSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : null)
   const isVideo = item.file?.type?.startsWith('video/')
   const [showPreview, setShowPreview] = useState(false)
-  const [videoAspect, setVideoAspect] = useState(null) // width/height ratio
-
-  // Generate thumbnail from video first frame
-  useEffect(() => {
-    if (!isVideo || !fileSrc) return
-    const video = document.createElement('video')
-    video.crossOrigin = 'anonymous'
-    video.muted = true
-    video.playsInline = true
-    video.preload = 'auto'
-    video.src = fileSrc
-
-    const capture = () => {
-      const w = video.videoWidth, h = video.videoHeight
-      if (!w || !h) return
-      setVideoAspect(w / h)
-      try {
-        const canvas = document.createElement('canvas')
-        canvas.width = Math.min(w, 200)
-        canvas.height = Math.round(canvas.width / (w / h))
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
-        if (dataUrl && dataUrl.length > 100) setThumbSrc(dataUrl)
-      } catch (e) { console.warn('Video thumb capture failed:', e) }
-      video.pause()
-      video.removeAttribute('src')
-      video.load()
-    }
-
-    // Try play+pause approach — most reliable across browsers
-    video.onloadedmetadata = () => {
-      const w = video.videoWidth, h = video.videoHeight
-      if (w && h) setVideoAspect(w / h)
-    }
-    video.oncanplay = () => {
-      video.currentTime = 0.5
-    }
-    video.onseeked = capture
-    video.load()
-  }, [isVideo, fileSrc])
+  const [videoThumb, setVideoThumb] = useState(null)
+  const [videoAspect, setVideoAspect] = useState(null)
+  const thumbVideoRef = useRef(null)
 
   return (
     <div className="bg-white border border-border rounded mb-2.5">
@@ -171,10 +133,36 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
       <div className="flex items-center gap-2.5 py-2.5 px-3.5 border-b border-border bg-cream">
         {isVideo ? (
           <div onClick={() => setShowPreview(true)} className="rounded-sm overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-80 relative bg-black" style={{ width: videoAspect && videoAspect < 1 ? 24 : 36, height: videoAspect && videoAspect < 1 ? 36 : 24 }}>
-            {thumbSrc ? (
-              <img src={thumbSrc} className="w-full h-full object-cover" />
+            {videoThumb ? (
+              <img src={videoThumb} className="w-full h-full object-cover" />
             ) : (
-              <video src={fileSrc} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+              <video
+                ref={thumbVideoRef}
+                src={fileSrc}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                preload="auto"
+                onLoadedMetadata={e => {
+                  const v = e.target
+                  if (v.videoWidth && v.videoHeight) setVideoAspect(v.videoWidth / v.videoHeight)
+                  v.currentTime = 0.5
+                }}
+                onSeeked={e => {
+                  const v = e.target
+                  const w = v.videoWidth, h = v.videoHeight
+                  if (!w || !h) return
+                  setVideoAspect(w / h)
+                  try {
+                    const canvas = document.createElement('canvas')
+                    canvas.width = Math.min(w, 200)
+                    canvas.height = Math.round(canvas.width * h / w)
+                    canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height)
+                    const url = canvas.toDataURL('image/jpeg', 0.7)
+                    if (url.length > 100) setVideoThumb(url)
+                  } catch (err) { /* canvas capture not supported */ }
+                }}
+              />
             )}
             <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] bg-black/50 rounded-full w-5 h-5 flex items-center justify-center">▶</span></div>
           </div>
