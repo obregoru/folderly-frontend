@@ -1036,6 +1036,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [googlePostEnabled, setGooglePostEnabled] = useState(true)
   const [googleGalleryEnabled, setGoogleGalleryEnabled] = useState(true)
   const [converting, setConverting] = useState(false)
+  const [mp4Quality, setMp4Quality] = useState('medium')
   const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
   const [wpPublish, setWpPublish] = useState(false)
 
@@ -1221,7 +1222,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
 
         {/* Convert to MP4 — for non-MP4 videos (e.g. MOV from iPhone) */}
         {isVideoFile && item.file?.type !== 'video/mp4' && (
-          <div className="flex items-center gap-2 border-t border-border pt-2">
+          <div className="flex items-center gap-2 border-t border-border pt-2 flex-wrap">
+            <select value={mp4Quality} onChange={e => setMp4Quality(e.target.value)} className="text-[10px] border border-border rounded py-1 px-1.5 bg-white">
+              <option value="high">High quality</option>
+              <option value="medium">Medium</option>
+              <option value="low">Small file</option>
+            </select>
             <button
               disabled={converting}
               onClick={async () => {
@@ -1229,7 +1235,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 try {
                   const b64 = await fileToBase64(item.file)
                   const api = await import('../api')
-                  const r = await api.convertToMp4(b64, item.file.type)
+                  const r = await api.convertToMp4(b64, item.file.type, mp4Quality)
                   if (r.error) throw new Error(r.error)
                   const byteChars = atob(r.mp4_base64)
                   const bytes = new Uint8Array(byteChars.length)
@@ -1238,7 +1244,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
                   a.href = url
-                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + '.mp4'
+                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${mp4Quality}.mp4`
                   document.body.appendChild(a); a.click(); document.body.removeChild(a)
                   setTimeout(() => URL.revokeObjectURL(url), 5000)
                 } catch (e) { alert('Convert failed: ' + e.message) }
