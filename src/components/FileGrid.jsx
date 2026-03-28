@@ -54,7 +54,7 @@ function VideoThumb({ file, onClick, className }) {
   }, [poster, aspect])
 
   const isPortrait = aspect && aspect < 1
-  const height = isPortrait ? 140 : 78
+  const height = isPortrait ? 195 : 78
 
   return (
     <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 ${className || ''}`} style={{ height }}>
