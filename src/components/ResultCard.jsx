@@ -107,23 +107,40 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   useEffect(() => {
     if (!isVideo || !fileSrc) return
     const video = document.createElement('video')
-    video.preload = 'metadata'
+    video.crossOrigin = 'anonymous'
     video.muted = true
     video.playsInline = true
+    video.preload = 'auto'
     video.src = fileSrc
-    video.onloadeddata = () => {
-      video.currentTime = 0.1
+
+    const capture = () => {
+      const w = video.videoWidth, h = video.videoHeight
+      if (!w || !h) return
+      setVideoAspect(w / h)
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.min(w, 200)
+        canvas.height = Math.round(canvas.width / (w / h))
+        const ctx = canvas.getContext('2d')
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+        if (dataUrl && dataUrl.length > 100) setThumbSrc(dataUrl)
+      } catch (e) { console.warn('Video thumb capture failed:', e) }
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
     }
-    video.onseeked = () => {
+
+    // Try play+pause approach — most reliable across browsers
+    video.onloadedmetadata = () => {
       const w = video.videoWidth, h = video.videoHeight
       if (w && h) setVideoAspect(w / h)
-      const canvas = document.createElement('canvas')
-      canvas.width = Math.min(w, 200)
-      canvas.height = Math.round(canvas.width / (w / h))
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      setThumbSrc(canvas.toDataURL('image/jpeg', 0.7))
     }
+    video.oncanplay = () => {
+      video.currentTime = 0.5
+    }
+    video.onseeked = capture
+    video.load()
   }, [isVideo, fileSrc])
 
   return (
