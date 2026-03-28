@@ -104,6 +104,8 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   const [videoThumb, setVideoThumb] = useState(null)
   const [videoAspect, setVideoAspect] = useState(null)
 
+  console.log('[ResultCard]', item.file?.name, 'type:', item.file?.type, 'isVideo:', isVideo, 'fileSrc:', !!fileSrc, 'thumbSrc:', !!thumbSrc)
+
   return (
     <div className="bg-white border border-border rounded mb-2.5">
       {/* Media preview lightbox */}
