@@ -1405,8 +1405,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 </div>
                 {storyCaptionStyle === 'overlay' && (
                   <div className="mt-1.5 space-y-1.5">
-                    {/* Video preview with live overlays */}
-                    {isVideoFile && (
+                    {/* Preview with live overlay positioning — works for videos and photo-to-video */}
+                    {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1">
                         <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
                           {generatedPreviewUrl ? (
@@ -1416,17 +1416,28 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             </>
                           ) : (
                             <>
-                              <video ref={videoPreviewRef} src={videoSrc} className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} muted loop playsInline onTimeUpdate={e => setVideoTime(e.target.currentTime)} onLoadedMetadata={e => setVideoDuration(e.target.duration)} />
+                              {isVideoFile ? (
+                                <video ref={videoPreviewRef} src={videoSrc} className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} muted loop playsInline onTimeUpdate={e => setVideoTime(e.target.currentTime)} onLoadedMetadata={e => setVideoDuration(e.target.duration)} />
+                              ) : (
+                                <img src={videoSrc} alt="Photo preview" className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} />
+                              )}
                               <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
                               <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '75%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
                               {(() => {
                                 const SCALE = 120 / 1080
                                 const hasTimedOverlays = openingText || closingText
-                                const closingStart = Math.max(0, videoDuration - closingDuration)
-                                const showOpening = hasTimedOverlays && openingText && videoTime >= 0 && videoTime <= openingDuration
-                                const showClosing = hasTimedOverlays && closingText && videoDuration > 0 && videoTime >= closingStart
-                                const showFull = !hasTimedOverlays && storyText
-                                const displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
+                                // For videos: use timeline; for photos: always show opening text as primary
+                                let displayText
+                                if (isImageFile) {
+                                  // Photos: show opening text if set, else storyText, else closing
+                                  displayText = openingText || storyText || closingText || null
+                                } else {
+                                  const closingStart = Math.max(0, videoDuration - closingDuration)
+                                  const showOpening = hasTimedOverlays && openingText && videoTime >= 0 && videoTime <= openingDuration
+                                  const showClosing = hasTimedOverlays && closingText && videoDuration > 0 && videoTime >= closingStart
+                                  const showFull = !hasTimedOverlays && storyText
+                                  displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
+                                }
                                 if (!displayText) return null
                                 const previewH = Math.round(120 / 9 * 16)
                                 const scaledFontSize = Math.max(5, Math.round(storyFontSize * SCALE))
@@ -1446,12 +1457,21 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   </div>
                                 )
                               })()}
-                              <div className="absolute bottom-1 left-1 right-1 flex items-center gap-0.5">
-                                <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.max(0, v.currentTime - 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
-                                <button onClick={() => { const v = videoPreviewRef.current; if (v) v.paused ? v.play() : v.pause() }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
-                                <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.min(v.duration || 0, v.currentTime + 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
-                                <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
-                              </div>
+                              {/* Timeline controls — only for videos */}
+                              {isVideoFile && (
+                                <div className="absolute bottom-1 left-1 right-1 flex items-center gap-0.5">
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.max(0, v.currentTime - 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.paused ? v.play() : v.pause() }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.min(v.duration || 0, v.currentTime + 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
+                                  <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
+                                </div>
+                              )}
+                              {/* Photo hint — show photoToVideoDuration badge */}
+                              {isImageFile && (
+                                <div className="absolute bottom-1 left-1 right-1 flex items-center justify-center">
+                                  <span className="text-white text-[7px] bg-black/60 rounded px-1.5 py-0.5">Ken Burns · {photoToVideoDuration}s</span>
+                                </div>
+                              )}
                             </>
                           )}
                         </div>
@@ -1462,8 +1482,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         )}
                       </div>
                     )}
-                    {/* Opening/closing text */}
-                    {isVideoFile && (
+                    {/* Opening/closing text — for videos and photo-to-video */}
+                    {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1.5">
                         <div className="flex-1">
                           <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for new line)"} />
@@ -1520,8 +1540,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         <span className="text-[9px] text-muted">Bottom</span>
                       </div>
                     )}
-                    {/* Generate preview / back to edit */}
-                    {isVideoFile && (
+                    {/* Generate preview / back to edit — for videos and photo-to-video */}
+                    {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1">
                         {generatedPreviewUrl && (
                           <>
@@ -1533,9 +1553,22 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           onClick={async () => {
                             setGeneratingPreview(true)
                             try {
-                              const { imageBase64, mediaType } = await getImageBase64('facebook_story')
+                              // For photos, send the raw photo file with photoToVideo flag
+                              // For videos, send the raw video file
+                              const rawBase64 = await fileToBase64(item.file)
+                              const rawType = item.file.type
                               const api = await import('../api')
-                              const url = await api.previewStory(storyCaptionStyle === 'overlay' ? (storyText || value) : value, imageBase64, mediaType, storyCaptionStyle, overlayYPct, { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration })
+                              const url = await api.previewStory(
+                                storyCaptionStyle === 'overlay' ? (storyText || value) : value,
+                                rawBase64, rawType,
+                                storyCaptionStyle, overlayYPct,
+                                {
+                                  fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline,
+                                  openingText, closingText, openingDuration, closingDuration,
+                                  photoToVideo: isImageFile && photoToVideoEnabled,
+                                  photoToVideoDuration,
+                                }
+                              )
                               if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
                               setGeneratedPreviewUrl(url)
                               item._overlayPreviewUrl = url // share with PostAllBar
