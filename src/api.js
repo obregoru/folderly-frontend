@@ -160,6 +160,15 @@ export const updateHashtag = (id, hashtags) =>
 export const deleteHashtag = (id) =>
   fetch(api(`/hashtags/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
+// SEO keyword sets
+export const getSeoKeywordSets = () => fetch(api('/seo-keywords'), { credentials: 'include' }).then(r => r.json())
+export const createSeoKeywordSet = (name, keywords) =>
+  fetch(api('/seo-keywords'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ name, keywords }) }).then(r => r.json())
+export const updateSeoKeywordSet = (id, keywords) =>
+  fetch(api(`/seo-keywords/${id}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify({ keywords }) })
+export const deleteSeoKeywordSet = (id) =>
+  fetch(api(`/seo-keywords/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
+
 // Admin
 const adm = (path) => `${BASE}/api/admin${path}`
 export const getTenants = () => fetch(adm('/tenants'), { credentials: 'include' }).then(r => r.json())

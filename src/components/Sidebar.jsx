@@ -50,10 +50,13 @@ function ChipGrid({ items, active, onToggle, cols = 3, multi = false }) {
   )
 }
 
-export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtagSetId, onSelectHashtag, onHashtagsChange, rules, onRulesChange, apiUrl }) {
+export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtagSetId, onSelectHashtag, onHashtagsChange, seoKeywordSets = [], selectedSeoKeywordSetId, onSelectSeoKeywordSet, onSeoKeywordSetsChange, rules, onRulesChange, apiUrl }) {
   const [hsFormOpen, setHsFormOpen] = useState(false)
   const [hsName, setHsName] = useState('')
   const [hsTags, setHsTags] = useState('')
+  const [skFormOpen, setSkFormOpen] = useState(false)
+  const [skName, setSkName] = useState('')
+  const [skKeywords, setSkKeywords] = useState('')
 
   const s = settings
   const save = (key, val) => onSave({ [key]: val })
@@ -65,6 +68,14 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
     api.createHashtag(hsName, hsTags).then(() => {
       setHsFormOpen(false); setHsName(''); setHsTags('')
       onHashtagsChange()
+    })
+  }
+
+  const handleAddSeoKeywordSet = () => {
+    if (!skName.trim() || !skKeywords.trim()) return
+    api.createSeoKeywordSet(skName, skKeywords).then(() => {
+      setSkFormOpen(false); setSkName(''); setSkKeywords('')
+      if (onSeoKeywordSetsChange) onSeoKeywordSetsChange()
     })
   }
 
@@ -91,8 +102,41 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
           <datalist id="biz-type-list">{BUSINESS_TYPES.map(t => <option key={t} value={t} />)}</datalist></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Brand rules <HelpTip text="Custom instructions the AI must follow. E.g. 'Never mention competitors', 'Always call it a studio not a shop', 'Use emoji sparingly'. These override default behavior." /></label>
           <textarea rows={5} className="field-input resize-none" value={s.brand_rules || ''} onChange={e => save('brand_rules', e.target.value)} /></div>
-        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords <HelpTip text="Keywords to include in content for search visibility. Used in Google Business posts and blog content. Separate with commas." /></label>
+        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords <HelpTip text="Global brand-level keywords that always apply. Keyword sets below add activity-specific keywords on top of these." /></label>
           <input className="field-input" placeholder="perfume making, candle workshop, date night Milwaukee" value={s.seo_keywords || ''} onChange={e => save('seo_keywords', e.target.value)} /></div>
+
+        {/* SEO keyword sets */}
+        <div className="mb-2">
+          <label className="text-[11px] text-muted block mb-0.5">SEO keyword sets <HelpTip text="Activity-specific SEO keyword groups (e.g. 'Perfume Bar', 'Candle Making'). Select one before generating content to add those keywords to the prompt. Stacks with the global SEO keywords above." /> <span className="float-right text-[10px] text-sage cursor-pointer" onClick={() => setSkFormOpen(true)}>+ add</span></label>
+          <div className="flex flex-col gap-1.5">
+            {seoKeywordSets.length === 0 && <span className="text-[10px] text-muted">No sets yet</span>}
+            {seoKeywordSets.map(sk => (
+              <div key={sk.id} className={`border rounded-sm overflow-hidden ${selectedSeoKeywordSetId === sk.id ? 'border-terra' : 'border-border'}`}>
+                <div className={`flex items-center justify-between px-2 py-1 cursor-pointer ${selectedSeoKeywordSetId === sk.id ? 'bg-terra-light' : 'bg-cream'}`}>
+                  <span className={`text-[11px] font-medium ${selectedSeoKeywordSetId === sk.id ? 'text-terra' : 'text-ink'}`}>{sk.name}</span>
+                  <span className="flex gap-1.5 items-center">
+                    <span className="text-[9px] text-sage cursor-pointer" onClick={() => onSelectSeoKeywordSet(selectedSeoKeywordSetId === sk.id ? null : sk.id)}>
+                      {selectedSeoKeywordSetId === sk.id ? 'selected' : 'select'}
+                    </span>
+                    <span className="text-[9px] text-muted cursor-pointer" onClick={() => { if (confirm(`Delete "${sk.name}"?`)) api.deleteSeoKeywordSet(sk.id).then(onSeoKeywordSetsChange) }}>delete</span>
+                  </span>
+                </div>
+                <textarea className="w-full text-[10px] font-sans p-1.5 border-none border-t border-border resize-y min-h-[32px] leading-relaxed text-ink bg-white"
+                  defaultValue={sk.keywords} onBlur={e => { if (e.target.value !== sk.keywords) api.updateSeoKeywordSet(sk.id, e.target.value).then(onSeoKeywordSetsChange) }} />
+              </div>
+            ))}
+          </div>
+          {skFormOpen && (
+            <div className="mt-1.5">
+              <input className="field-input mb-1 text-[11px]" placeholder="Set name (e.g. Perfume Bar)" value={skName} onChange={e => setSkName(e.target.value)} />
+              <textarea className="field-input mb-1 text-[11px] resize-y min-h-[48px]" placeholder="keyword 1, keyword 2, keyword 3" value={skKeywords} onChange={e => setSkKeywords(e.target.value)} />
+              <div className="flex gap-1">
+                <button className="text-[10px] py-0.5 px-2.5 bg-sage text-white border-none rounded-sm cursor-pointer font-sans" onClick={handleAddSeoKeywordSet}>Save</button>
+                <button className="text-[10px] py-0.5 px-2.5 bg-cream border border-border rounded-sm cursor-pointer font-sans" onClick={() => setSkFormOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Hashtag sets */}
         <div className="mb-2">

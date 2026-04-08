@@ -36,6 +36,8 @@ export default function App() {
   const [folderCtx, setFolderCtx] = useState(null)
   const [hashtagSets, setHashtagSets] = useState([])
   const [selectedHashtagSetId, setSelectedHashtagSetId] = useState(null)
+  const [seoKeywordSets, setSeoKeywordSets] = useState([])
+  const [selectedSeoKeywordSetId, setSelectedSeoKeywordSetId] = useState(null)
   const [error, setError] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -92,6 +94,7 @@ export default function App() {
             setSettings(s || {})
           }).catch(() => {})
           api.getHashtags().then(h => setHashtagSets(Array.isArray(h) ? h : [])).catch(() => {})
+          api.getSeoKeywordSets().then(k => setSeoKeywordSets(Array.isArray(k) ? k : [])).catch(() => {})
         }
       }
     }).catch(() => setConnected(false))
@@ -252,6 +255,7 @@ export default function App() {
       upload_id: uploadResult.id,
       batch_id: batchId || undefined,
       hashtag_set_id: selectedHashtagSetId || undefined,
+      seo_keyword_set_id: selectedSeoKeywordSetId || undefined,
       rule_name: rules.name,
       rule_cta: rules.cta,
       rule_brand: rules.brand,
@@ -407,6 +411,10 @@ export default function App() {
           selectedHashtagSetId={selectedHashtagSetId}
           onSelectHashtag={setSelectedHashtagSetId}
           onHashtagsChange={() => api.getHashtags().then(setHashtagSets)}
+          seoKeywordSets={seoKeywordSets}
+          selectedSeoKeywordSetId={selectedSeoKeywordSetId}
+          onSelectSeoKeywordSet={setSelectedSeoKeywordSetId}
+          onSeoKeywordSetsChange={() => api.getSeoKeywordSets().then(setSeoKeywordSets)}
           rules={rules}
           onRulesChange={setRules}
           apiUrl={apiUrl}
