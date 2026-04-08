@@ -1570,15 +1570,43 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <option value="Bangers" style={{ fontFamily: '"Bangers", cursive' }}>Bangers</option>
                           </optgroup>
                         </select>
-                        <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontSize} onChange={e => setStoryFontSize(Number(e.target.value))}>
-                          <option value={32}>Small</option>
-                          <option value={40}>Medium</option>
-                          <option value={48}>Large</option>
-                          <option value={56}>XL</option>
-                          <option value={64}>XXL</option>
-                          <option value={80}>XXXL</option>
-                        </select>
-                        <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
+                        {/* Font size — number input in points */}
+                        <label className="flex items-center gap-1 text-[10px] text-muted">
+                          <span>Size:</span>
+                          <input
+                            type="number"
+                            min={12}
+                            max={200}
+                            step={1}
+                            value={storyFontSize}
+                            onChange={e => setStoryFontSize(Math.max(12, Math.min(200, Number(e.target.value) || 48)))}
+                            className="w-12 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                            title="Font size in points (12–200)"
+                          />
+                          <span className="text-[9px] text-muted">pt</span>
+                        </label>
+                        {/* Font color — visible swatch + hex input */}
+                        <label className="flex items-center gap-1 text-[10px] text-muted">
+                          <span>Color:</span>
+                          <input
+                            type="color"
+                            value={storyFontColor}
+                            onChange={e => setStoryFontColor(e.target.value)}
+                            className="w-6 h-6 border border-border rounded cursor-pointer p-0"
+                            title="Pick font color"
+                          />
+                          <input
+                            type="text"
+                            value={storyFontColor}
+                            onChange={e => {
+                              const v = e.target.value.trim()
+                              if (/^#[0-9a-fA-F]{6}$/.test(v) || /^#[0-9a-fA-F]{3}$/.test(v)) setStoryFontColor(v)
+                              else if (v.startsWith('#')) setStoryFontColor(v) // allow typing partial
+                            }}
+                            className="w-16 text-[10px] border border-border rounded py-0.5 px-1 bg-white font-mono"
+                            placeholder="#ffffff"
+                          />
+                        </label>
                         <label className="flex items-center gap-1 text-[10px] cursor-pointer">
                           <input type="checkbox" checked={storyFontOutline} onChange={e => setStoryFontOutline(e.target.checked)} />
                           Outline
