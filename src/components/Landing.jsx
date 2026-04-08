@@ -1,6 +1,50 @@
+import { useState, useRef } from 'react'
 import { Helmet } from 'react-helmet-async'
+import * as api from '../api'
 
 export default function Landing({ onSignIn }) {
+  const [email, setEmail] = useState('')
+  const [plan, setPlan] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState(null)
+  const signupRef = useRef(null)
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError(null)
+    const trimmed = email.trim()
+    if (!trimmed) { setError('Please enter your email.'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setError('Please enter a valid email address.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const r = await api.publicSignup(trimmed, plan || undefined)
+      if (r.error) {
+        setError(r.error)
+      } else {
+        setSubmitted(true)
+      }
+    } catch (err) {
+      setError('Something went wrong. Please try again.')
+    }
+    setSubmitting(false)
+  }
+
+  const scrollToSignup = (selectedPlan) => {
+    if (selectedPlan) setPlan(selectedPlan)
+    if (signupRef.current) {
+      signupRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // Focus the email input after the scroll
+      setTimeout(() => {
+        const input = signupRef.current?.querySelector('input[type="email"]')
+        if (input) input.focus()
+      }, 500)
+    }
+  }
+
   return (
     <>
       <Helmet>
@@ -48,19 +92,39 @@ export default function Landing({ onSignIn }) {
             <p className="text-base md:text-lg text-muted max-w-2xl mx-auto mb-8 leading-relaxed">
               Postyposty helps local businesses stay consistent across every major social platform. One tool. Every account. Less time.
             </p>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
-              <button
-                onClick={onSignIn}
-                className="text-sm py-3 px-6 bg-sage text-white border-none rounded-sm cursor-pointer font-sans font-medium hover:bg-[#4a6450] min-w-[160px]"
-              >
-                Get Started
-              </button>
-              <a
-                href="#how-it-works"
-                className="text-sm py-3 px-6 border border-border bg-white text-ink rounded-sm cursor-pointer font-sans font-medium hover:bg-cream no-underline min-w-[160px] text-center"
-              >
-                How It Works
-              </a>
+
+            {/* Signup form — inline in hero */}
+            <div ref={signupRef} className="max-w-md mx-auto" id="signup">
+              {submitted ? (
+                <div className="bg-white border border-sage rounded-sm p-5 text-center" role="status" aria-live="polite">
+                  <div className="w-10 h-10 rounded-full bg-sage-light text-sage flex items-center justify-center mx-auto mb-2 text-xl">✓</div>
+                  <p className="font-serif text-xl text-ink mb-1">You're on the list!</p>
+                  <p className="text-sm text-muted">We'll email you shortly at <strong>{email}</strong>.</p>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2" aria-labelledby="signup-label">
+                  <label htmlFor="signup-email" id="signup-label" className="sr-only">Email address</label>
+                  <input
+                    id="signup-email"
+                    type="email"
+                    required
+                    value={email}
+                    onChange={e => { setEmail(e.target.value); setError(null) }}
+                    placeholder="Your email address"
+                    className="flex-1 py-3 px-4 border border-border rounded-sm bg-white text-sm focus:outline-none focus:border-sage"
+                    autoComplete="email"
+                  />
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="py-3 px-6 bg-sage text-white border-none rounded-sm cursor-pointer font-sans font-medium hover:bg-[#4a6450] disabled:opacity-50 text-sm whitespace-nowrap"
+                  >
+                    {submitting ? 'Submitting...' : 'Get Started'}
+                  </button>
+                </form>
+              )}
+              {error && <p className="text-[#c0392b] text-xs mt-2">{error}</p>}
+              {!submitted && plan && <p className="text-xs text-sage mt-2">Selected plan: <strong>{plan}</strong></p>}
             </div>
           </section>
 
@@ -112,7 +176,7 @@ export default function Landing({ onSignIn }) {
                     <span className="text-muted text-sm">/mo</span>
                   </div>
                   <button
-                    onClick={onSignIn}
+                    onClick={() => scrollToSignup('Starter')}
                     className="mt-auto py-2.5 px-4 border border-border bg-white text-ink rounded-sm cursor-pointer font-sans font-medium hover:bg-cream text-sm"
                   >
                     Get Started
@@ -128,7 +192,7 @@ export default function Landing({ onSignIn }) {
                     <span className="text-muted text-sm">/mo</span>
                   </div>
                   <button
-                    onClick={onSignIn}
+                    onClick={() => scrollToSignup('Growth')}
                     className="mt-auto py-2.5 px-4 bg-sage text-white border-none rounded-sm cursor-pointer font-sans font-medium hover:bg-[#4a6450] text-sm"
                   >
                     Get Started
@@ -143,7 +207,7 @@ export default function Landing({ onSignIn }) {
                     <span className="text-muted text-sm">/mo</span>
                   </div>
                   <button
-                    onClick={onSignIn}
+                    onClick={() => scrollToSignup('Agency')}
                     className="mt-auto py-2.5 px-4 border border-border bg-white text-ink rounded-sm cursor-pointer font-sans font-medium hover:bg-cream text-sm"
                   >
                     Get Started
@@ -159,10 +223,10 @@ export default function Landing({ onSignIn }) {
               <h2 id="cta-heading" className="font-serif text-3xl md:text-4xl text-ink mb-4">Ready to get started?</h2>
               <p className="text-muted mb-8">Join local businesses already saving hours every week.</p>
               <button
-                onClick={onSignIn}
+                onClick={() => scrollToSignup('')}
                 className="text-sm py-3 px-8 bg-sage text-white border-none rounded-sm cursor-pointer font-sans font-medium hover:bg-[#4a6450]"
               >
-                Sign in to your account
+                Get Started
               </button>
             </div>
           </section>

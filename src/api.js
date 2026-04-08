@@ -169,6 +169,14 @@ export const updateSeoKeywordSet = (id, keywords) =>
 export const deleteSeoKeywordSet = (id) =>
   fetch(api(`/seo-keywords/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
+// Public signup (no auth)
+export const publicSignup = (email, plan) =>
+  fetch(`${BASE}/api/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, plan }),
+  }).then(r => r.json())
+
 // Admin
 const adm = (path) => `${BASE}/api/admin${path}`
 export const getTenants = () => fetch(adm('/tenants'), { credentials: 'include' }).then(r => r.json())
