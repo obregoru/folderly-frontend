@@ -1543,13 +1543,32 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     {/* Font controls — only when overlay mode is selected */}
                     {storyCaptionStyle === 'overlay' && (
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)}>
-                          <option value="sans-serif">Sans Serif</option>
-                          <option value="serif">Serif</option>
-                          <option value="Georgia, serif">Georgia</option>
-                          <option value="'Courier New', monospace">Mono</option>
-                          <option value="'Comic Sans MS', cursive">Casual</option>
-                          <option value="Impact, sans-serif">Impact</option>
+                        <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)} style={{ fontFamily: storyFontFamily }}>
+                          <optgroup label="Basic">
+                            <option value="sans-serif" style={{ fontFamily: 'sans-serif' }}>Sans Serif</option>
+                            <option value="serif" style={{ fontFamily: 'serif' }}>Serif</option>
+                            <option value="Georgia, serif" style={{ fontFamily: 'Georgia, serif' }}>Georgia</option>
+                            <option value="'Courier New', monospace" style={{ fontFamily: "'Courier New', monospace" }}>Mono</option>
+                            <option value="Impact, sans-serif" style={{ fontFamily: 'Impact, sans-serif' }}>Impact</option>
+                          </optgroup>
+                          <optgroup label="Bubbly / Bold">
+                            <option value="Fredoka One" style={{ fontFamily: '"Fredoka One", cursive' }}>Fredoka One</option>
+                            <option value="Lilita One" style={{ fontFamily: '"Lilita One", cursive' }}>Lilita One</option>
+                            <option value="Paytone One" style={{ fontFamily: '"Paytone One", sans-serif' }}>Paytone One</option>
+                            <option value="Shrikhand" style={{ fontFamily: '"Shrikhand", cursive' }}>Shrikhand</option>
+                            <option value="Bungee" style={{ fontFamily: '"Bungee", cursive' }}>Bungee</option>
+                            <option value="Righteous" style={{ fontFamily: '"Righteous", sans-serif' }}>Righteous</option>
+                          </optgroup>
+                          <optgroup label="Script / Handwriting">
+                            <option value="Lobster" style={{ fontFamily: '"Lobster", cursive' }}>Lobster</option>
+                            <option value="Pacifico" style={{ fontFamily: '"Pacifico", cursive' }}>Pacifico</option>
+                            <option value="Dancing Script" style={{ fontFamily: '"Dancing Script", cursive' }}>Dancing Script</option>
+                            <option value="Caveat" style={{ fontFamily: '"Caveat", cursive' }}>Caveat</option>
+                            <option value="Permanent Marker" style={{ fontFamily: '"Permanent Marker", cursive' }}>Permanent Marker</option>
+                          </optgroup>
+                          <optgroup label="Fun">
+                            <option value="Bangers" style={{ fontFamily: '"Bangers", cursive' }}>Bangers</option>
+                          </optgroup>
                         </select>
                         <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontSize} onChange={e => setStoryFontSize(Number(e.target.value))}>
                           <option value={32}>Small</option>
