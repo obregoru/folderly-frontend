@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Postyposty – Social Media Automation for Local Businesses</title>
-  <meta name="description" content="Postyposty helps local businesses streamline their social media presence across every major platform. Save time, stay consistent, and grow your reach." />
-  <meta name="keywords" content="social media automation, local business marketing, small business social media, content scheduling, multi-platform posting" />
+  <meta name="description" content="Postyposty helps local businesses streamline their social media presence across every major platform. Save time, stay consistent, and grow your reach. Based in Menomonee Falls, Wisconsin." />
+  <meta name="keywords" content="social media automation, local business marketing, small business social media, content scheduling, multi-platform posting, Menomonee Falls" />
   <meta name="author" content="Postyposty" />
   <link rel="canonical" href="https://postyposty.com" />
 
@@ -31,6 +31,8 @@
     "name": "Postyposty",
     "url": "https://postyposty.com",
     "email": "hello@postyposty.com",
+    "logo": "https://postyposty.com/icons/icon-192.svg",
+    "description": "Social media automation for local businesses.",
     "address": {
       "@type": "PostalAddress",
       "streetAddress": "16687 Church Street",
@@ -38,6 +40,11 @@
       "addressRegion": "WI",
       "postalCode": "53051",
       "addressCountry": "US"
+    },
+    "contactPoint": {
+      "@type": "ContactPoint",
+      "email": "hello@postyposty.com",
+      "contactType": "Customer Support"
     }
   }
   </script>
@@ -50,9 +57,185 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
   <link rel="manifest" href="/manifest.json" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500&display=swap" rel="stylesheet" />
+
+  <!-- Critical inline CSS for the static fallback (visible until React mounts; also used by crawlers/non-JS visitors) -->
+  <style>
+    .ssr-fallback { font-family: 'DM Sans', system-ui, -apple-system, sans-serif; color: #2C2C2C; background: #FAF7F2; min-height: 100vh; line-height: 1.5; }
+    .ssr-fallback * { box-sizing: border-box; }
+    .ssr-fallback a { color: #5C7A62; text-decoration: none; }
+    .ssr-fallback a:hover { text-decoration: underline; }
+    .ssr-fallback header { border-bottom: 1px solid #E5E0D8; background: #ffffff; padding: 16px 0; }
+    .ssr-fallback header .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .ssr-fallback .brand { display: flex; align-items: center; gap: 8px; font-family: 'DM Serif Display', Georgia, serif; font-size: 22px; color: #2C2C2C; }
+    .ssr-fallback .brand img { width: 32px; height: 32px; }
+    .ssr-fallback nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 24px; font-size: 14px; }
+    .ssr-fallback nav a { color: #6F6A60; }
+    .ssr-fallback .signin { background: #2C2C2C; color: #ffffff; padding: 8px 16px; border-radius: 2px; font-size: 13px; font-weight: 500; }
+    .ssr-fallback main { padding: 0; }
+    .ssr-fallback section { padding: 64px 24px; }
+    .ssr-fallback .container-narrow { max-width: 900px; margin: 0 auto; text-align: center; }
+    .ssr-fallback h1 { font-family: 'DM Serif Display', Georgia, serif; font-size: 48px; line-height: 1.1; margin: 0 0 16px; color: #2C2C2C; }
+    .ssr-fallback h2 { font-family: 'DM Serif Display', Georgia, serif; font-size: 34px; line-height: 1.2; margin: 0 0 32px; color: #2C2C2C; text-align: center; }
+    .ssr-fallback h3 { font-family: 'DM Serif Display', Georgia, serif; font-size: 22px; margin: 0 0 8px; color: #2C2C2C; }
+    .ssr-fallback p { color: #6F6A60; max-width: 640px; margin: 0 auto 16px; font-size: 16px; }
+    .ssr-fallback .cta-row { display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 24px; flex-wrap: wrap; }
+    .ssr-fallback .btn-primary { display: inline-block; background: #5C7A62; color: #ffffff; padding: 12px 24px; border-radius: 2px; font-weight: 500; }
+    .ssr-fallback .btn-secondary { display: inline-block; background: #ffffff; color: #2C2C2C; padding: 12px 24px; border: 1px solid #E5E0D8; border-radius: 2px; font-weight: 500; }
+    .ssr-fallback .how-it-works { background: #ffffff; border-top: 1px solid #E5E0D8; border-bottom: 1px solid #E5E0D8; }
+    .ssr-fallback .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; max-width: 900px; margin: 0 auto; }
+    .ssr-fallback .step { text-align: center; }
+    .ssr-fallback .step .num { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 50%; background: #EAF1EC; color: #5C7A62; font-family: 'DM Serif Display', serif; font-size: 22px; margin-bottom: 12px; }
+    .ssr-fallback .pricing { padding-top: 64px; padding-bottom: 64px; }
+    .ssr-fallback .pricing-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 900px; margin: 0 auto; }
+    .ssr-fallback .tier { background: #ffffff; border: 1px solid #E5E0D8; border-radius: 2px; padding: 32px; text-align: center; }
+    .ssr-fallback .tier.popular { border: 2px solid #5C7A62; position: relative; }
+    .ssr-fallback .tier.popular::before { content: 'POPULAR'; position: absolute; top: 0; right: 0; background: #5C7A62; color: #ffffff; font-size: 10px; font-weight: 500; padding: 4px 8px; }
+    .ssr-fallback .price { font-family: 'DM Serif Display', serif; font-size: 48px; color: #2C2C2C; margin: 16px 0 24px; }
+    .ssr-fallback .price small { font-size: 14px; color: #6F6A60; }
+    .ssr-fallback footer { background: #FAF7F2; border-top: 1px solid #E5E0D8; padding: 40px 24px; }
+    .ssr-fallback footer .container { max-width: 1100px; margin: 0 auto; }
+    .ssr-fallback footer .grid { display: flex; justify-content: space-between; gap: 32px; flex-wrap: wrap; }
+    .ssr-fallback address { font-style: normal; font-size: 12px; color: #6F6A60; line-height: 1.6; }
+    .ssr-fallback footer ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 24px; font-size: 12px; }
+    .ssr-fallback footer .legal-line { margin-top: 24px; padding-top: 24px; border-top: 1px solid #E5E0D8; text-align: center; font-size: 12px; color: #6F6A60; }
+    @media (max-width: 768px) {
+      .ssr-fallback h1 { font-size: 32px; }
+      .ssr-fallback h2 { font-size: 26px; }
+      .ssr-fallback section { padding: 40px 20px; }
+      .ssr-fallback .steps, .ssr-fallback .pricing-grid { grid-template-columns: 1fr; gap: 16px; }
+      .ssr-fallback header .container { flex-direction: column; gap: 12px; }
+      .ssr-fallback nav ul { gap: 16px; }
+      .ssr-fallback footer .grid { flex-direction: column; }
+      .ssr-fallback footer ul { flex-wrap: wrap; }
+    }
+  </style>
 </head>
 <body class="bg-cream text-ink font-sans text-sm min-h-screen overflow-x-hidden">
-  <div id="root"></div>
+  <div id="root"><!-- Static SEO fallback — visible to crawlers, replaced by React when JS loads -->
+<div class="ssr-fallback">
+  <header>
+    <div class="container">
+      <a href="/" class="brand">
+        <img src="/icons/icon-192.svg" alt="Postyposty logo" />
+        <span>Postyposty</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <ul>
+          <li><a href="#how-it-works">How It Works</a></li>
+          <li><a href="#pricing">Pricing</a></li>
+          <li><a href="mailto:hello@postyposty.com">Contact</a></li>
+        </ul>
+      </nav>
+      <a href="/login" class="signin">Sign in</a>
+    </div>
+  </header>
+
+  <main>
+    <section aria-labelledby="hero-heading">
+      <div class="container-narrow">
+        <h1 id="hero-heading">Social media automation for local businesses</h1>
+        <p>Postyposty helps local businesses stay consistent across every major social platform. One tool. Every account. Less time.</p>
+        <p>Built for small businesses that need to show up online without spending hours on posts each week.</p>
+        <div class="cta-row">
+          <a href="#pricing" class="btn-primary">Get Started</a>
+          <a href="#how-it-works" class="btn-secondary">How It Works</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="how-it-works" aria-labelledby="how-heading">
+      <div class="container-narrow">
+        <h2 id="how-heading">How It Works</h2>
+        <div class="steps">
+          <article class="step">
+            <div class="num">1</div>
+            <h3>Connect your accounts</h3>
+            <p>Link your social media profiles in a few clicks. We support the platforms local businesses rely on most.</p>
+          </article>
+          <article class="step">
+            <div class="num">2</div>
+            <h3>Upload your content</h3>
+            <p>Add your photos and videos. Postyposty helps you prepare everything for sharing.</p>
+          </article>
+          <article class="step">
+            <div class="num">3</div>
+            <h3>Publish everywhere</h3>
+            <p>Post to all your platforms at once, or schedule for later. Stay consistent without the manual work.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="pricing" class="pricing" aria-labelledby="pricing-heading">
+      <div class="container-narrow">
+        <h2 id="pricing-heading">Simple Pricing</h2>
+        <p>Choose the plan that fits your business.</p>
+        <div class="pricing-grid">
+          <article class="tier">
+            <h3>Starter</h3>
+            <div class="price">$19<small>/mo</small></div>
+            <a href="mailto:hello@postyposty.com?subject=Starter%20Plan" class="btn-secondary">Get Started</a>
+          </article>
+          <article class="tier popular">
+            <h3>Growth</h3>
+            <div class="price">$49<small>/mo</small></div>
+            <a href="mailto:hello@postyposty.com?subject=Growth%20Plan" class="btn-primary">Get Started</a>
+          </article>
+          <article class="tier">
+            <h3>Agency</h3>
+            <div class="price">$99<small>/mo</small></div>
+            <a href="mailto:hello@postyposty.com?subject=Agency%20Plan" class="btn-secondary">Get Started</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="contact-heading">
+      <div class="container-narrow">
+        <h2 id="contact-heading">Get in touch</h2>
+        <p>Questions about Postyposty or our plans? We're happy to help.</p>
+        <p><strong>Email:</strong> <a href="mailto:hello@postyposty.com">hello@postyposty.com</a></p>
+        <address>
+          Postyposty<br />
+          16687 Church Street<br />
+          Menomonee Falls, WI 53051<br />
+          United States
+        </address>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <div class="grid">
+        <div>
+          <div class="brand">
+            <img src="/icons/icon-192.svg" alt="Postyposty logo" />
+            <span>Postyposty</span>
+          </div>
+          <address>
+            16687 Church Street<br />
+            Menomonee Falls, WI 53051<br />
+            <a href="mailto:hello@postyposty.com">hello@postyposty.com</a>
+          </address>
+        </div>
+        <nav aria-label="Footer navigation">
+          <ul>
+            <li><a href="#how-it-works">How It Works</a></li>
+            <li><a href="#pricing">Pricing</a></li>
+            <li><a href="mailto:hello@postyposty.com">Contact</a></li>
+            <li><a href="/privacy.html">Privacy</a></li>
+            <li><a href="/terms.html">Terms</a></li>
+          </ul>
+        </nav>
+      </div>
+      <div class="legal-line">
+        Postyposty | 16687 Church Street, Menomonee Falls, WI 53051 | <a href="mailto:hello@postyposty.com">hello@postyposty.com</a>
+      </div>
+    </div>
+  </footer>
+</div>
+</div>
   <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
