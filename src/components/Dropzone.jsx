@@ -1,14 +1,33 @@
 import { useState, useRef } from 'react'
 
+const MAX_FILE_MB = 250
+
 export default function Dropzone({ onFiles }) {
   const [over, setOver] = useState(false)
+  const [sizeError, setSizeError] = useState(null)
   const fileRef = useRef()
   const folderRef = useRef()
+
+  // Filter out files exceeding the size limit and show error
+  const filterOversized = (fl) => {
+    const oversized = []
+    const ok = []
+    for (const f of fl) {
+      if (f.size > MAX_FILE_MB * 1024 * 1024) oversized.push(f)
+      else ok.push(f)
+    }
+    if (oversized.length > 0) {
+      const names = oversized.map(f => `${f.name} (${(f.size / 1024 / 1024).toFixed(0)}MB)`).join(', ')
+      setSizeError(`Skipped — over ${MAX_FILE_MB}MB limit: ${names}`)
+      setTimeout(() => setSizeError(null), 8000)
+    }
+    return ok
+  }
 
   const handleDrop = e => {
     e.preventDefault()
     setOver(false)
-    const fl = e.dataTransfer.files
+    const fl = filterOversized(e.dataTransfer.files)
     if (!fl.length) return
     const fp = fl[0].webkitRelativePath || ''
     const folder = fp.includes('/') ? fp.split('/')[0] : null
@@ -16,8 +35,8 @@ export default function Dropzone({ onFiles }) {
   }
 
   const handleFileChange = (e, isFolder) => {
-    const fl = e.target.files
-    if (!fl.length) return
+    const fl = filterOversized(e.target.files)
+    if (!fl.length) { e.target.value = ''; return }
     let folder = null
     if (isFolder) {
       const fp = fl[0].webkitRelativePath || ''
@@ -29,6 +48,11 @@ export default function Dropzone({ onFiles }) {
 
   return (
     <>
+      {sizeError && (
+        <div className="bg-[#FBF0F7] border border-[#F4C0D1] rounded-sm py-2 px-3 text-xs text-[#A32D2D] mb-2">
+          {sizeError}
+        </div>
+      )}
       {/* Mobile: prominent upload button */}
       <div className="md:hidden">
         <label className="flex items-center justify-center gap-2 w-full py-4 bg-ink text-white rounded-sm cursor-pointer font-sans text-[15px] font-medium min-h-[56px] active:bg-[#333]">
