@@ -5,6 +5,7 @@ import { parse, allTags, TONE_DESC } from './lib/parse'
 import { loadFaceModel, captureVideoFrame, toBase64 } from './lib/crop'
 import { exportAll, exportSeoPhotos, getSeoName } from './lib/export'
 import Login from './components/Login'
+import Landing from './components/Landing'
 import Sidebar from './components/Sidebar'
 import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
@@ -51,6 +52,7 @@ export default function App() {
   const [reviewResult, setReviewResult] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [targetWeek, setTargetWeek] = useState(null)
+  const [showLogin, setShowLogin] = useState(false)
 
   const tenantSlug = api.tenantSlug()
   const apiUrl = `${import.meta.env.VITE_API_URL || ''}/api/t/${tenantSlug}`
@@ -366,7 +368,15 @@ export default function App() {
 
   // Auth gates — must be after all hooks
   if (!authChecked) return null
-  if (!user) return <Login onLogin={handleLogin} />
+  if (!user) {
+    // Show marketing landing page when there's no tenant in URL and user hasn't clicked Sign in
+    const path = window.location.pathname
+    const onRootPath = path === '/' || path === ''
+    if (onRootPath && !showLogin) {
+      return <Landing onSignIn={() => setShowLogin(true)} />
+    }
+    return <Login onLogin={handleLogin} />
+  }
 
   const isAdmin = user.role === 'super_admin' || user.role === 'tenant_admin'
 

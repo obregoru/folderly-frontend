@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /t/
+
+Sitemap: https://postyposty.com/sitemap.xml
