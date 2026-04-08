@@ -250,6 +250,33 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         ))}
       </div>
 
+      {/* Audience targeting (per platform) */}
+      <div>
+        <div className="s-head">Audience targeting <HelpTip text="Optional: describe who you're talking to on each platform (e.g. 'younger crowd, date nights' for TikTok). AI will adapt framing and references to resonate, while keeping your brand voice. Leave blank to skip." /></div>
+        {[
+          { key: 'tiktok', label: 'TikTok', enabled: s.platform_tiktok !== false, placeholder: 'e.g. younger crowd, date nights, friends' },
+          { key: 'instagram', label: 'Instagram', enabled: s.platform_instagram !== false, placeholder: 'e.g. aesthetic lifestyle, aspirational' },
+          { key: 'facebook', label: 'Facebook', enabled: s.platform_facebook !== false, placeholder: 'e.g. family, birthdays, local community' },
+          { key: 'twitter', label: 'X / Twitter', enabled: s.platform_twitter === true, placeholder: 'e.g. industry peers, quick takes' },
+          { key: 'google', label: 'Google Business', enabled: s.platform_google === true, placeholder: 'e.g. local customers searching for services' },
+          { key: 'blog', label: 'Blog', enabled: s.platform_blog === true, placeholder: 'e.g. SEO readers, informational searchers' },
+          { key: 'youtube', label: 'YouTube', enabled: s.platform_youtube === true, placeholder: 'e.g. younger viewers, trend-aware' },
+        ].filter(p => p.enabled).map(p => (
+          <div key={p.key} className="mt-1.5">
+            <label className="text-[10px] text-muted block mb-0.5">{p.label}</label>
+            <input
+              className="field-input text-[11px]"
+              placeholder={p.placeholder}
+              value={(s.platform_audiences && s.platform_audiences[p.key]) || ''}
+              onChange={e => {
+                const next = { ...(s.platform_audiences || {}), [p.key]: e.target.value }
+                save('platform_audiences', next)
+              }}
+            />
+          </div>
+        ))}
+      </div>
+
       {/* Quality */}
       <div>
         <div className="s-head">Quality <HelpTip text="AI detection checks if content sounds human. 'Sound more human' rewrites YouTube/Blog content to pass AI detection tools." /></div>
