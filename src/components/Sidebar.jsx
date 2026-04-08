@@ -582,6 +582,13 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
               : null
           }
         </div>
+        <a
+          href="https://business.google.com/posts"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block text-[10px] text-[#4285F4] hover:underline mt-0.5 ml-3.5"
+          title="Open Google Business Profile post page in a new tab"
+        >Open GBP post page →</a>
       </div>
 
       {/* TikTok */}
@@ -640,6 +647,13 @@ function SocialConnections({ settings, apiUrl, onRefresh }) {
             </div>
           </div>
         )}
+        <a
+          href="https://www.tiktok.com/upload"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block text-[10px] text-[#fe2c55] hover:underline mt-0.5 ml-3.5"
+          title="Open TikTok upload page in a new tab"
+        >Open TikTok upload page →</a>
       </div>
 
       {/* YouTube */}
