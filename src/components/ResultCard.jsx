@@ -1708,6 +1708,62 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         )}
         <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regenerate</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
+        {/* Download video button — on Google/TikTok tabs, when a video source is available */}
+        {(platform === 'google' || platform === 'tiktok') && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
+          <button
+            disabled={converting}
+            onClick={async () => {
+              try {
+                // If there's already a generated preview (overlay-processed), use that
+                if (generatedPreviewUrl) {
+                  const a = document.createElement('a')
+                  a.href = generatedPreviewUrl
+                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+                  return
+                }
+                setConverting(true)
+                const apiMod = await import('../api')
+                const b64 = await fileToBase64(item.file)
+                let result
+                if (isImageFile && photoToVideoEnabled) {
+                  // Photo → Ken Burns video
+                  result = await apiMod.photoToVideo(b64, item.file.type, photoToVideoDuration)
+                  if (result.error) throw new Error(result.error)
+                  const byteChars = atob(result.video_base64)
+                  const bytes = new Uint8Array(byteChars.length)
+                  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+                  const blob = new Blob([bytes], { type: 'video/mp4' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+                  setTimeout(() => URL.revokeObjectURL(url), 5000)
+                } else {
+                  // Video → convert to MP4 (medium quality)
+                  result = await apiMod.convertToMp4(b64, item.file.type, mp4Quality)
+                  if (result.error) throw new Error(result.error)
+                  const byteChars = atob(result.mp4_base64)
+                  const bytes = new Uint8Array(byteChars.length)
+                  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+                  const blob = new Blob([bytes], { type: 'video/mp4' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+                  setTimeout(() => URL.revokeObjectURL(url), 5000)
+                }
+              } catch (e) { alert('Download failed: ' + e.message) }
+              setConverting(false)
+            }}
+            className="text-[11px] py-1 px-2.5 border border-[#6C5CE7] text-[#6C5CE7] rounded-sm bg-white cursor-pointer font-sans hover:bg-[#f3f0ff] disabled:opacity-50"
+            title={generatedPreviewUrl ? 'Download the generated overlay video' : 'Download the video as MP4'}
+          >
+            {converting ? 'Preparing...' : (generatedPreviewUrl ? 'Download video' : 'Download as MP4')}
+          </button>
+        )}
         {platform === 'google' && (
           <a
             href="https://business.google.com/posts"
