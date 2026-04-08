@@ -895,6 +895,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [storyFontFamily, setStoryFontFamily] = useState('sans-serif')
   const [storyFontColor, setStoryFontColor] = useState('#ffffff')
   const [storyFontOutline, setStoryFontOutline] = useState(false)
+  // Photo-to-video (Ken Burns) state — only relevant for image uploads
+  const [photoToVideoEnabled, setPhotoToVideoEnabled] = useState(false)
+  const [photoToVideoDuration, setPhotoToVideoDuration] = useState(7)
+  const [convertingPhoto, setConvertingPhoto] = useState(false)
   const [openingText, setOpeningText] = useState('')
   const [closingText, setClosingText] = useState('')
   const [openingDuration, setOpeningDuration] = useState(3)
@@ -933,6 +937,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
 
   // Generate story preview when enabled (images only — videos use inline player)
   const isVideoFile = item.file?.type?.startsWith('video/')
+  const isImageFile = item.file?.type?.startsWith('image/')
+  // Photo-to-video: when an image has video destinations checked and the user enables conversion
+  const hasVideoDest = postDests.ig_post || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.tiktok
+  const canPhotoToVideo = isImageFile && hasVideoDest
+  // Auto-disable if no video destinations
+  useEffect(() => { if (!hasVideoDest && photoToVideoEnabled) setPhotoToVideoEnabled(false) }, [hasVideoDest])
   const videoPreviewRef = useRef(null)
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
@@ -1344,8 +1354,29 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
               )}
             </div>
 
-            {/* Video overlay controls — shown when any overlay-supporting destination is checked */}
-            {isVideoFile && (postDests.ig_post || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts) && (
+            {/* Photo-to-video (Ken Burns) — shown when the upload is an image and video destinations are checked */}
+            {canPhotoToVideo && (
+              <div className="mt-2 border-t border-border pt-2">
+                <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                  <input type="checkbox" checked={photoToVideoEnabled} onChange={e => setPhotoToVideoEnabled(e.target.checked)} className="accent-[#6C5CE7]" />
+                  <span>Create video from photo <span className="text-muted text-[9px]">(Ken Burns zoom — for reels/stories)</span></span>
+                </label>
+                {photoToVideoEnabled && (
+                  <div className="ml-5 mt-1 flex items-center gap-2">
+                    <label className="text-[10px] text-muted">Duration:</label>
+                    <select value={photoToVideoDuration} onChange={e => setPhotoToVideoDuration(Number(e.target.value))} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
+                      <option value={5}>5s</option>
+                      <option value={7}>7s</option>
+                      <option value={10}>10s</option>
+                      <option value={15}>15s</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Video overlay controls — shown when any overlay-supporting destination is checked (or photo-to-video enabled) */}
+            {((isVideoFile || (isImageFile && photoToVideoEnabled)) && (postDests.ig_post || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts || postDests.tiktok)) && (
               <div className="mt-2 border-t border-border pt-2">
                 <div className="flex gap-3 text-[10px] mb-1 items-center">
                   <label className="flex items-center gap-1 cursor-pointer">
@@ -1547,7 +1578,31 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     const { imageBase64: rawBase64, mediaType: rawType } = await getImageBase64('facebook_story')
                     const api = await import('../api')
                     const fontOpts = { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
-                    const hasOverlays = isVideoFile && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)
+
+                    // If photo-to-video is enabled, convert the photo to a Ken Burns video
+                    // This becomes the "video source" for video destinations; photo dests still use rawBase64
+                    let videoBase64 = null, videoType = null
+                    if (photoToVideoEnabled && isImageFile) {
+                      setPostStatus('Converting photo to video...')
+                      try {
+                        const r = await api.photoToVideo(rawBase64, rawType, photoToVideoDuration)
+                        if (r.error) throw new Error(r.error)
+                        videoBase64 = r.video_base64
+                        videoType = 'video/mp4'
+                      } catch (e) {
+                        setPostStatus('Photo-to-video failed: ' + e.message)
+                        setPosting(false)
+                        return
+                      }
+                      setPostStatus('')
+                    } else if (isVideoFile) {
+                      videoBase64 = rawBase64
+                      videoType = rawType
+                    }
+
+                    // Use video source (either original video or photo-converted video) for video destinations
+                    const effectiveIsVideo = !!videoBase64
+                    const hasOverlays = effectiveIsVideo && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)
 
                     // If we have a generated preview, use that processed video for overlay destinations
                     let processedBase64 = null
@@ -1563,43 +1618,47 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       } catch (e) { console.error('Failed to read generated preview:', e) }
                     }
 
+                    // For video destinations, prefer the video source (converted photo or original video)
+                    const videoSrcB64 = videoBase64 || rawBase64
+                    const videoSrcType = videoType || rawType
+
                     if (postDests.ig_post) {
-                      // Use processed video for reels (if available), otherwise let backend process
+                      // If it's an image-only post (no video dest conversion), post as a photo
                       const useProcessed = hasOverlays && processedBase64
-                      const b64 = useProcessed ? processedBase64 : rawBase64
-                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const b64 = useProcessed ? processedBase64 : videoSrcB64
+                      const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
                     }
                     if (postDests.ig_story) {
                       const useProcessed = hasOverlays && processedBase64
-                      const b64 = useProcessed ? processedBase64 : rawBase64
-                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const b64 = useProcessed ? processedBase64 : videoSrcB64
+                      const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const cs = useProcessed ? 'none' : storyCaptionStyle
                       try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOpts); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
                     }
                     if (postDests.fb_post) {
-                      // FB post always gets raw video, no overlays
+                      // FB post always uses the raw file (photo or video), no overlays
                       try { await api.postToFacebook(value, rawBase64, rawType); results.push('FB') } catch (e) { results.push(`FB failed: ${e.message}`) }
                     }
                     if (postDests.fb_reel) {
                       const useProcessed = hasOverlays && processedBase64
-                      const b64 = useProcessed ? processedBase64 : rawBase64
-                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const b64 = useProcessed ? processedBase64 : videoSrcB64
+                      const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToFacebookReel(value, b64, mt, overlayOpts); results.push('FB Reel') } catch (e) { results.push(`FB Reel failed: ${e.message}`) }
                     }
                     if (postDests.fb_story) {
                       const useProcessed = hasOverlays && processedBase64
-                      const b64 = useProcessed ? processedBase64 : rawBase64
-                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const b64 = useProcessed ? processedBase64 : videoSrcB64
+                      const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const cs = useProcessed ? 'none' : storyCaptionStyle
                       try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOpts); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
                     }
                     if (postDests.yt_shorts) {
                       const useProcessed = hasOverlays && processedBase64
-                      const b64 = useProcessed ? processedBase64 : rawBase64
-                      const mt = useProcessed ? 'video/mp4' : rawType
+                      const b64 = useProcessed ? processedBase64 : videoSrcB64
+                      const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Short', description: value, tags })
                       const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT Shorts failed: ${e.message}`) }
@@ -1612,7 +1671,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       try { await api.postToTwitter(value, rawBase64, rawType); results.push('X') } catch (e) { results.push(`X failed: ${e.message}`) }
                     }
                     if (postDests.tiktok) {
-                      const r = await api.postToTiktok(value, rawBase64, rawType)
+                      // For TikTok: prefer the converted Ken Burns video (or overlay-processed video) if available
+                      const useProcessed = hasOverlays && processedBase64
+                      const b64 = useProcessed ? processedBase64 : videoSrcB64
+                      const mt = useProcessed ? 'video/mp4' : videoSrcType
+                      const r = await api.postToTiktok(value, b64, mt)
                       if (r.fallback) { navigator.clipboard.writeText(value); results.push('TikTok (caption copied)') }
                       else results.push('TikTok')
                     }

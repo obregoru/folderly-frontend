@@ -250,6 +250,8 @@ export const postToGoogle = (caption, imageBase64, mediaType, opts = {}) =>
   postWithDupCheck(`/post/google${opts.type === 'gallery' ? '/gallery' : ''}`, { caption, image_base64: imageBase64, media_type: mediaType })
 export const convertToMp4 = (imageBase64, mediaType, quality = 'medium') =>
   fetch(api('/post/convert-to-mp4'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType, quality }) }).then(r => r.json())
+export const photoToVideo = (imageBase64, mediaType, duration = 7) =>
+  fetch(api('/post/photo-to-video'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType, duration }) }).then(r => r.json())
 
 // YouTube
 export const startYoutubeConnect = () =>
