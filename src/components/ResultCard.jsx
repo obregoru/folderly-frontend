@@ -898,7 +898,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   // Photo-to-video (Ken Burns) state — only relevant for image uploads
   const [photoToVideoEnabled, setPhotoToVideoEnabled] = useState(false)
   const [photoToVideoDuration, setPhotoToVideoDuration] = useState(7)
-  const [photoToVideoMotion, setPhotoToVideoMotion] = useState('zoom') // 'zoom' | 'pan-lr' | 'pan-rl'
+  const [photoZoom, setPhotoZoom] = useState('in')   // 'none' | 'in' | 'out'
+  const [photoPan, setPhotoPan] = useState('none')   // 'none' | 'lr' | 'rl'
+  // Combine zoom and pan into the backend motion string
+  const photoToVideoMotion = (() => {
+    if (photoPan === 'none' && photoZoom === 'none') return 'static'
+    if (photoPan === 'none') return `zoom-${photoZoom}`
+    if (photoZoom === 'none') return `pan-${photoPan}`
+    return `pan-${photoPan}-zoom-${photoZoom}`
+  })()
   const [convertingPhoto, setConvertingPhoto] = useState(false)
   const [openingText, setOpeningText] = useState('')
   const [closingText, setClosingText] = useState('')
@@ -1364,11 +1372,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 </label>
                 {photoToVideoEnabled && (
                   <div className="ml-5 mt-1 flex items-center gap-2 flex-wrap">
-                    <label className="text-[10px] text-muted">Motion:</label>
-                    <select value={photoToVideoMotion} onChange={e => setPhotoToVideoMotion(e.target.value)} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
-                      <option value="zoom">Ken Burns zoom</option>
-                      <option value="pan-lr">Pan left → right</option>
-                      <option value="pan-rl">Pan right → left</option>
+                    <label className="text-[10px] text-muted">Zoom:</label>
+                    <select value={photoZoom} onChange={e => setPhotoZoom(e.target.value)} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
+                      <option value="none">None</option>
+                      <option value="in">In (Ken Burns)</option>
+                      <option value="out">Out</option>
+                    </select>
+                    <label className="text-[10px] text-muted">Pan:</label>
+                    <select value={photoPan} onChange={e => setPhotoPan(e.target.value)} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
+                      <option value="none">None</option>
+                      <option value="lr">Left → right</option>
+                      <option value="rl">Right → left</option>
                     </select>
                     <label className="text-[10px] text-muted">Duration:</label>
                     <select value={photoToVideoDuration} onChange={e => setPhotoToVideoDuration(Number(e.target.value))} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
@@ -1473,11 +1487,19 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
                                 </div>
                               )}
-                              {/* Photo hint — show motion + duration badge */}
+                              {/* Photo hint — show zoom + pan + duration badge */}
                               {isImageFile && (
                                 <div className="absolute bottom-1 left-1 right-1 flex items-center justify-center">
                                   <span className="text-white text-[7px] bg-black/60 rounded px-1.5 py-0.5">
-                                    {photoToVideoMotion === 'zoom' ? 'Ken Burns' : photoToVideoMotion === 'pan-lr' ? 'Pan L→R' : 'Pan R→L'} · {photoToVideoDuration}s
+                                    {(() => {
+                                      const parts = []
+                                      if (photoZoom === 'in') parts.push('Zoom in')
+                                      else if (photoZoom === 'out') parts.push('Zoom out')
+                                      if (photoPan === 'lr') parts.push('Pan L→R')
+                                      else if (photoPan === 'rl') parts.push('Pan R→L')
+                                      if (parts.length === 0) parts.push('Static')
+                                      return parts.join(' + ') + ' · ' + photoToVideoDuration + 's'
+                                    })()}
                                   </span>
                                 </div>
                               )}
