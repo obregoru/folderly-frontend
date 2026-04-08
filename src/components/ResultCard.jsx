@@ -898,6 +898,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   // Photo-to-video (Ken Burns) state — only relevant for image uploads
   const [photoToVideoEnabled, setPhotoToVideoEnabled] = useState(false)
   const [photoToVideoDuration, setPhotoToVideoDuration] = useState(7)
+  const [photoToVideoMotion, setPhotoToVideoMotion] = useState('zoom') // 'zoom' | 'pan-lr' | 'pan-rl'
   const [convertingPhoto, setConvertingPhoto] = useState(false)
   const [openingText, setOpeningText] = useState('')
   const [closingText, setClosingText] = useState('')
@@ -1359,10 +1360,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
               <div className="mt-2 border-t border-border pt-2">
                 <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
                   <input type="checkbox" checked={photoToVideoEnabled} onChange={e => setPhotoToVideoEnabled(e.target.checked)} className="accent-[#6C5CE7]" />
-                  <span>Create video from photo <span className="text-muted text-[9px]">(Ken Burns zoom — for reels/stories)</span></span>
+                  <span>Create video from photo <span className="text-muted text-[9px]">(motion video — for reels/stories)</span></span>
                 </label>
                 {photoToVideoEnabled && (
-                  <div className="ml-5 mt-1 flex items-center gap-2">
+                  <div className="ml-5 mt-1 flex items-center gap-2 flex-wrap">
+                    <label className="text-[10px] text-muted">Motion:</label>
+                    <select value={photoToVideoMotion} onChange={e => setPhotoToVideoMotion(e.target.value)} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
+                      <option value="zoom">Ken Burns zoom</option>
+                      <option value="pan-lr">Pan left → right</option>
+                      <option value="pan-rl">Pan right → left</option>
+                    </select>
                     <label className="text-[10px] text-muted">Duration:</label>
                     <select value={photoToVideoDuration} onChange={e => setPhotoToVideoDuration(Number(e.target.value))} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
                       <option value={5}>5s</option>
@@ -1466,10 +1473,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
                                 </div>
                               )}
-                              {/* Photo hint — show photoToVideoDuration badge */}
+                              {/* Photo hint — show motion + duration badge */}
                               {isImageFile && (
                                 <div className="absolute bottom-1 left-1 right-1 flex items-center justify-center">
-                                  <span className="text-white text-[7px] bg-black/60 rounded px-1.5 py-0.5">Ken Burns · {photoToVideoDuration}s</span>
+                                  <span className="text-white text-[7px] bg-black/60 rounded px-1.5 py-0.5">
+                                    {photoToVideoMotion === 'zoom' ? 'Ken Burns' : photoToVideoMotion === 'pan-lr' ? 'Pan L→R' : 'Pan R→L'} · {photoToVideoDuration}s
+                                  </span>
                                 </div>
                               )}
                             </>
@@ -1567,6 +1576,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   openingText, closingText, openingDuration, closingDuration,
                                   photoToVideo: isImageFile && photoToVideoEnabled,
                                   photoToVideoDuration,
+                                  photoToVideoMotion,
                                 }
                               )
                               if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
@@ -1618,7 +1628,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     if (photoToVideoEnabled && isImageFile) {
                       setPostStatus('Converting photo to video...')
                       try {
-                        const r = await api.photoToVideo(rawBase64, rawType, photoToVideoDuration)
+                        const r = await api.photoToVideo(rawBase64, rawType, photoToVideoDuration, photoToVideoMotion)
                         if (r.error) throw new Error(r.error)
                         videoBase64 = r.video_base64
                         videoType = 'video/mp4'
@@ -1760,8 +1770,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 const b64 = await fileToBase64(item.file)
                 let result
                 if (isImageFile && photoToVideoEnabled) {
-                  // Photo → Ken Burns video
-                  result = await apiMod.photoToVideo(b64, item.file.type, photoToVideoDuration)
+                  // Photo → motion video (zoom or pan)
+                  result = await apiMod.photoToVideo(b64, item.file.type, photoToVideoDuration, photoToVideoMotion)
                   if (result.error) throw new Error(result.error)
                   const byteChars = atob(result.video_base64)
                   const bytes = new Uint8Array(byteChars.length)

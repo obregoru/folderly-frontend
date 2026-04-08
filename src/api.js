@@ -225,7 +225,7 @@ export const previewStory = async (caption, imageBase64, mediaType, captionStyle
     caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct,
     font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline,
     opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration,
-    photo_to_video: fontOpts?.photoToVideo, photo_to_video_duration: fontOpts?.photoToVideoDuration,
+    photo_to_video: fontOpts?.photoToVideo, photo_to_video_duration: fontOpts?.photoToVideoDuration, photo_to_video_motion: fontOpts?.photoToVideoMotion,
   }) })
   if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || 'Preview failed')
   const blob = await resp.blob()
@@ -272,8 +272,8 @@ export const postToGoogle = (caption, imageBase64, mediaType, opts = {}) =>
   postWithDupCheck(`/post/google${opts.type === 'gallery' ? '/gallery' : ''}`, { caption, image_base64: imageBase64, media_type: mediaType })
 export const convertToMp4 = (imageBase64, mediaType, quality = 'medium') =>
   fetch(api('/post/convert-to-mp4'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType, quality }) }).then(r => r.json())
-export const photoToVideo = (imageBase64, mediaType, duration = 7) =>
-  fetch(api('/post/photo-to-video'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType, duration }) }).then(r => r.json())
+export const photoToVideo = (imageBase64, mediaType, duration = 7, motion = 'zoom') =>
+  fetch(api('/post/photo-to-video'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType, duration, motion }) }).then(r => r.json())
 
 // YouTube
 export const startYoutubeConnect = () =>
