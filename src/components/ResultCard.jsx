@@ -1410,7 +1410,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     </select>
                   )}
                 </div>
-                {storyCaptionStyle === 'overlay' && (
+                {(storyCaptionStyle === 'overlay' || (isImageFile && photoToVideoEnabled)) && (
                   <div className="mt-1.5 space-y-1.5">
                     {/* Preview with live overlay positioning — works for videos and photo-to-video */}
                     {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
@@ -1484,15 +1484,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             </>
                           )}
                         </div>
-                        {!generatedPreviewUrl && (
+                        {!generatedPreviewUrl && storyCaptionStyle === 'overlay' && (
                           <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.25}px` }}>
                             <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
                           </div>
                         )}
                       </div>
                     )}
-                    {/* Opening/closing text — for videos and photo-to-video */}
-                    {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
+                    {/* Opening/closing text — only when overlay mode is selected */}
+                    {storyCaptionStyle === 'overlay' && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1.5">
                         <div className="flex-1">
                           <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for new line)"} />
@@ -1514,35 +1514,37 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         </div>
                       </div>
                     )}
-                    {/* Image overlay text */}
-                    {!isVideoFile && (
+                    {/* Image overlay text — only when overlay mode is selected */}
+                    {storyCaptionStyle === 'overlay' && !isVideoFile && !photoToVideoEnabled && (
                       <textarea className="w-full text-[11px] border border-border rounded p-1.5 font-sans resize-none bg-white" rows={2} value={storyText} onChange={e => setStoryText(e.target.value)} placeholder="Overlay text..." />
                     )}
-                    {/* Font controls */}
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)}>
-                        <option value="sans-serif">Sans Serif</option>
-                        <option value="serif">Serif</option>
-                        <option value="Georgia, serif">Georgia</option>
-                        <option value="'Courier New', monospace">Mono</option>
-                        <option value="'Comic Sans MS', cursive">Casual</option>
-                        <option value="Impact, sans-serif">Impact</option>
-                      </select>
-                      <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontSize} onChange={e => setStoryFontSize(Number(e.target.value))}>
-                        <option value={32}>Small</option>
-                        <option value={40}>Medium</option>
-                        <option value={48}>Large</option>
-                        <option value={56}>XL</option>
-                        <option value={64}>XXL</option>
-                        <option value={80}>XXXL</option>
-                      </select>
-                      <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
-                      <label className="flex items-center gap-1 text-[10px] cursor-pointer">
-                        <input type="checkbox" checked={storyFontOutline} onChange={e => setStoryFontOutline(e.target.checked)} />
-                        Outline
-                      </label>
-                    </div>
-                    {!isVideoFile && (
+                    {/* Font controls — only when overlay mode is selected */}
+                    {storyCaptionStyle === 'overlay' && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontFamily} onChange={e => setStoryFontFamily(e.target.value)}>
+                          <option value="sans-serif">Sans Serif</option>
+                          <option value="serif">Serif</option>
+                          <option value="Georgia, serif">Georgia</option>
+                          <option value="'Courier New', monospace">Mono</option>
+                          <option value="'Comic Sans MS', cursive">Casual</option>
+                          <option value="Impact, sans-serif">Impact</option>
+                        </select>
+                        <select className="text-[10px] border border-border rounded py-0.5 px-1 bg-white" value={storyFontSize} onChange={e => setStoryFontSize(Number(e.target.value))}>
+                          <option value={32}>Small</option>
+                          <option value={40}>Medium</option>
+                          <option value={48}>Large</option>
+                          <option value={56}>XL</option>
+                          <option value={64}>XXL</option>
+                          <option value={80}>XXXL</option>
+                        </select>
+                        <input type="color" value={storyFontColor} onChange={e => setStoryFontColor(e.target.value)} className="w-5 h-5 border border-border rounded cursor-pointer p-0" title="Text color" />
+                        <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                          <input type="checkbox" checked={storyFontOutline} onChange={e => setStoryFontOutline(e.target.checked)} />
+                          Outline
+                        </label>
+                      </div>
+                    )}
+                    {storyCaptionStyle === 'overlay' && !isVideoFile && !photoToVideoEnabled && (
                       <div className="flex items-center gap-1.5">
                         <span className="text-[9px] text-muted">Top</span>
                         <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="flex-1 h-1" />
