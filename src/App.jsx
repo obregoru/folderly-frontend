@@ -37,8 +37,10 @@ export default function App() {
   const [folderCtx, setFolderCtx] = useState(null)
   const [hashtagSets, setHashtagSets] = useState([])
   const [selectedHashtagSetId, setSelectedHashtagSetId] = useState(null)
+  const [autoHashtagSetId, setAutoHashtagSetId] = useState(null) // tracks auto-selection
   const [seoKeywordSets, setSeoKeywordSets] = useState([])
   const [selectedSeoKeywordSetId, setSelectedSeoKeywordSetId] = useState(null)
+  const [autoSeoKeywordSetId, setAutoSeoKeywordSetId] = useState(null)
   const [error, setError] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -101,6 +103,107 @@ export default function App() {
       }
     }).catch(() => setConnected(false))
   }, [user, tenantSlug])
+
+  // Auto-detect relevant hashtag and SEO keyword sets from hint + filenames
+  // Only auto-selects when user hasn't made a manual selection
+  useEffect(() => {
+    // Build the search text from hint + all uploaded filenames + folder names
+    const textParts = []
+    if (userHint && userHint.trim()) textParts.push(userHint.toLowerCase())
+    for (const f of files) {
+      if (f.file?.name) {
+        const stem = f.file.name.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ')
+        textParts.push(stem.toLowerCase())
+      }
+    }
+    if (folderCtx?.name) textParts.push(folderCtx.name.toLowerCase().replace(/[_\-\.]/g, ' '))
+    const searchText = textParts.join(' ')
+
+    if (!searchText.trim()) {
+      // No text to match against — clear any auto-selections (but preserve manual)
+      if (autoHashtagSetId && selectedHashtagSetId === autoHashtagSetId) {
+        setSelectedHashtagSetId(null)
+        setAutoHashtagSetId(null)
+      }
+      if (autoSeoKeywordSetId && selectedSeoKeywordSetId === autoSeoKeywordSetId) {
+        setSelectedSeoKeywordSetId(null)
+        setAutoSeoKeywordSetId(null)
+      }
+      return
+    }
+
+    // Match a set by scoring overlap between set name/content and search text
+    const findBestMatch = (sets, contentKey) => {
+      if (!sets || !sets.length) return null
+      let best = null
+      let bestScore = 0
+      for (const set of sets) {
+        const name = (set.name || '').toLowerCase()
+        const content = (set[contentKey] || '').toLowerCase()
+        // Extract distinct words (3+ chars) from the set's name and content
+        const setWords = new Set(
+          (name + ' ' + content)
+            .split(/[\s,#]+/)
+            .map(w => w.replace(/[^a-z0-9]/g, ''))
+            .filter(w => w.length >= 3)
+        )
+        let score = 0
+        // Name words weighted heavier
+        const nameWords = name.split(/\s+/).filter(w => w.length >= 3)
+        for (const w of nameWords) {
+          if (searchText.includes(w)) score += 5
+        }
+        // Content words weighted lighter
+        for (const w of setWords) {
+          if (searchText.includes(w)) score += 1
+        }
+        if (score > bestScore) {
+          bestScore = score
+          best = set
+        }
+      }
+      // Only auto-select if there's a decent match (name hit, or multiple content hits)
+      return bestScore >= 3 ? best : null
+    }
+
+    // Hashtag sets — only auto-select if not manually chosen
+    if (!selectedHashtagSetId || selectedHashtagSetId === autoHashtagSetId) {
+      const match = findBestMatch(hashtagSets, 'hashtags')
+      if (match) {
+        if (match.id !== autoHashtagSetId) {
+          setSelectedHashtagSetId(match.id)
+          setAutoHashtagSetId(match.id)
+        }
+      } else if (autoHashtagSetId && selectedHashtagSetId === autoHashtagSetId) {
+        setSelectedHashtagSetId(null)
+        setAutoHashtagSetId(null)
+      }
+    }
+
+    // SEO keyword sets — same logic
+    if (!selectedSeoKeywordSetId || selectedSeoKeywordSetId === autoSeoKeywordSetId) {
+      const match = findBestMatch(seoKeywordSets, 'keywords')
+      if (match) {
+        if (match.id !== autoSeoKeywordSetId) {
+          setSelectedSeoKeywordSetId(match.id)
+          setAutoSeoKeywordSetId(match.id)
+        }
+      } else if (autoSeoKeywordSetId && selectedSeoKeywordSetId === autoSeoKeywordSetId) {
+        setSelectedSeoKeywordSetId(null)
+        setAutoSeoKeywordSetId(null)
+      }
+    }
+  }, [userHint, files, folderCtx, hashtagSets, seoKeywordSets])
+
+  // When user manually selects a set, clear the "auto" flag
+  const handleSelectHashtag = (id) => {
+    setSelectedHashtagSetId(id)
+    if (id !== autoHashtagSetId) setAutoHashtagSetId(null)
+  }
+  const handleSelectSeoKeywordSet = (id) => {
+    setSelectedSeoKeywordSetId(id)
+    if (id !== autoSeoKeywordSetId) setAutoSeoKeywordSetId(null)
+  }
 
   const handleLogin = (data) => {
     setUser({ id: data.id, email: data.email, role: data.role, tenant_id: data.tenant_id })
@@ -419,11 +522,13 @@ export default function App() {
           onSave={saveSettingsToServer}
           hashtagSets={hashtagSets}
           selectedHashtagSetId={selectedHashtagSetId}
-          onSelectHashtag={setSelectedHashtagSetId}
+          autoHashtagSetId={autoHashtagSetId}
+          onSelectHashtag={handleSelectHashtag}
           onHashtagsChange={() => api.getHashtags().then(setHashtagSets)}
           seoKeywordSets={seoKeywordSets}
           selectedSeoKeywordSetId={selectedSeoKeywordSetId}
-          onSelectSeoKeywordSet={setSelectedSeoKeywordSetId}
+          autoSeoKeywordSetId={autoSeoKeywordSetId}
+          onSelectSeoKeywordSet={handleSelectSeoKeywordSet}
           onSeoKeywordSetsChange={() => api.getSeoKeywordSets().then(setSeoKeywordSets)}
           rules={rules}
           onRulesChange={setRules}

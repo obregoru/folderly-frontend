@@ -50,7 +50,7 @@ function ChipGrid({ items, active, onToggle, cols = 3, multi = false }) {
   )
 }
 
-export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtagSetId, onSelectHashtag, onHashtagsChange, seoKeywordSets = [], selectedSeoKeywordSetId, onSelectSeoKeywordSet, onSeoKeywordSetsChange, rules, onRulesChange, apiUrl }) {
+export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtagSetId, autoHashtagSetId, onSelectHashtag, onHashtagsChange, seoKeywordSets = [], selectedSeoKeywordSetId, autoSeoKeywordSetId, onSelectSeoKeywordSet, onSeoKeywordSetsChange, rules, onRulesChange, apiUrl }) {
   const [hsFormOpen, setHsFormOpen] = useState(false)
   const [hsName, setHsName] = useState('')
   const [hsTags, setHsTags] = useState('')
@@ -113,7 +113,10 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
             {seoKeywordSets.map(sk => (
               <div key={sk.id} className={`border rounded-sm overflow-hidden ${selectedSeoKeywordSetId === sk.id ? 'border-terra' : 'border-border'}`}>
                 <div className={`flex items-center justify-between px-2 py-1 cursor-pointer ${selectedSeoKeywordSetId === sk.id ? 'bg-terra-light' : 'bg-cream'}`}>
-                  <span className={`text-[11px] font-medium ${selectedSeoKeywordSetId === sk.id ? 'text-terra' : 'text-ink'}`}>{sk.name}</span>
+                  <span className={`text-[11px] font-medium ${selectedSeoKeywordSetId === sk.id ? 'text-terra' : 'text-ink'} flex items-center gap-1`}>
+                    {sk.name}
+                    {autoSeoKeywordSetId === sk.id && <span className="text-[8px] text-[#6C5CE7] bg-[#f3f0ff] border border-[#6C5CE7] rounded-full px-1 py-0 font-normal" title="Auto-selected from your description">auto</span>}
+                  </span>
                   <span className="flex gap-1.5 items-center">
                     <span className="text-[9px] text-sage cursor-pointer" onClick={() => onSelectSeoKeywordSet(selectedSeoKeywordSetId === sk.id ? null : sk.id)}>
                       {selectedSeoKeywordSetId === sk.id ? 'selected' : 'select'}
@@ -146,7 +149,10 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
             {hashtagSets.map(hs => (
               <div key={hs.id} className={`border rounded-sm overflow-hidden ${selectedHashtagSetId === hs.id ? 'border-terra' : 'border-border'}`}>
                 <div className={`flex items-center justify-between px-2 py-1 cursor-pointer ${selectedHashtagSetId === hs.id ? 'bg-terra-light' : 'bg-cream'}`}>
-                  <span className={`text-[11px] font-medium ${selectedHashtagSetId === hs.id ? 'text-terra' : 'text-ink'}`}>{hs.name}</span>
+                  <span className={`text-[11px] font-medium ${selectedHashtagSetId === hs.id ? 'text-terra' : 'text-ink'} flex items-center gap-1`}>
+                    {hs.name}
+                    {autoHashtagSetId === hs.id && <span className="text-[8px] text-[#6C5CE7] bg-[#f3f0ff] border border-[#6C5CE7] rounded-full px-1 py-0 font-normal" title="Auto-selected from your description">auto</span>}
+                  </span>
                   <span className="flex gap-1.5 items-center">
                     <span className="text-[9px] text-sage cursor-pointer" onClick={() => onSelectHashtag(selectedHashtagSetId === hs.id ? null : hs.id)}>
                       {selectedHashtagSetId === hs.id ? 'selected' : 'select'}
