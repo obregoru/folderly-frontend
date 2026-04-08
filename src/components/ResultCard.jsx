@@ -1708,6 +1708,24 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         )}
         <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regenerate</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
+        {platform === 'google' && (
+          <a
+            href="https://business.google.com/posts"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] py-1 px-2.5 border border-[#4285F4] rounded-sm bg-white text-[#4285F4] cursor-pointer font-sans hover:bg-[#e8f0fe] no-underline"
+            title="Open Google Business Profile post page in a new tab"
+          >Open GBP post page →</a>
+        )}
+        {platform === 'tiktok' && (
+          <a
+            href="https://www.tiktok.com/upload"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] py-1 px-2.5 border border-[#fe2c55] rounded-sm bg-white text-[#fe2c55] cursor-pointer font-sans hover:bg-[#fff0f4] no-underline"
+            title="Open TikTok upload page in a new tab"
+          >Open TikTok upload →</a>
+        )}
         <button onClick={() => onRefine(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Refine</button>
         {saved && <span className="text-[10px] text-sage">Saved</span>}
         {postStatus && <span className={`text-[10px] ${postStatus.startsWith('Failed') ? 'text-[#c0392b]' : postStatus.startsWith('Warning') ? 'text-[#856404]' : 'text-sage'}`}>{postStatus}</span>}

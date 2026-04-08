@@ -204,15 +204,16 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
             <input className="field-input text-[11px]" placeholder="#smallbusiness #handmade" value={s.default_hashtags_all || ''} onChange={e => save('default_hashtags_all', e.target.value)} />
           </div>
           {[
-            { key: 'tiktok', label: 'TikTok', limit: 5, placeholder: '#fyp #viral', show: s.platform_tiktok },
-            { key: 'instagram', label: 'Instagram', limit: 30, placeholder: '#instagood #explore', show: s.platform_instagram },
-            { key: 'facebook', label: 'Facebook', limit: 5, placeholder: '#supportlocal', show: s.platform_facebook },
-            { key: 'twitter', label: 'X / Twitter', limit: 3, placeholder: '#local', show: s.platform_twitter },
-            { key: 'youtube', label: 'YouTube', limit: 15, placeholder: '#shorts #diy', show: s.platform_youtube },
+            // Note: TikTok uses legacy column name `tiktok_default_hashtags` — others use `default_hashtags_<platform>`
+            { key: 'tiktok', label: 'TikTok', limit: 5, placeholder: '#fyp #viral', show: s.platform_tiktok, fieldKey: 'tiktok_default_hashtags' },
+            { key: 'instagram', label: 'Instagram', limit: 30, placeholder: '#instagood #explore', show: s.platform_instagram, fieldKey: 'default_hashtags_instagram' },
+            { key: 'facebook', label: 'Facebook', limit: 5, placeholder: '#supportlocal', show: s.platform_facebook, fieldKey: 'default_hashtags_facebook' },
+            { key: 'twitter', label: 'X / Twitter', limit: 3, placeholder: '#local', show: s.platform_twitter, fieldKey: 'default_hashtags_twitter' },
+            { key: 'youtube', label: 'YouTube', limit: 15, placeholder: '#shorts #diy', show: s.platform_youtube, fieldKey: 'default_hashtags_youtube' },
           ].filter(p => p.show).map(p => (
             <div key={p.key}>
               <label className="text-[10px] text-muted">{p.label} <span className="text-[9px]">(max {p.limit})</span></label>
-              <input className="field-input text-[11px]" placeholder={p.placeholder} value={s[`default_hashtags_${p.key}`] || ''} onChange={e => save(`default_hashtags_${p.key}`, e.target.value)} />
+              <input className="field-input text-[11px]" placeholder={p.placeholder} value={s[p.fieldKey] || ''} onChange={e => save(p.fieldKey, e.target.value)} />
             </div>
           ))}
         </div>
