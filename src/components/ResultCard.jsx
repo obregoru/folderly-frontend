@@ -1932,7 +1932,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
 
                     // Use video source (either original video or photo-converted video) for video destinations
                     const effectiveIsVideo = !!videoBase64
-                    const hasOverlays = effectiveIsVideo && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText)
+                    // AI per-platform mode counts as "has overlays" if any destination has generated text
+                    const hasAiOverlays = aiOverlaysEnabled && Object.values(perPlatformOverlays).some(v => v && (v.opening || v.closing))
+                    const hasOverlays = effectiveIsVideo && storyCaptionStyle === 'overlay' && (openingText || closingText || storyText || hasAiOverlays)
 
                     // If we have a generated preview, use that processed video for overlay destinations
                     let processedBase64 = null
