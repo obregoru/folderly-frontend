@@ -919,28 +919,34 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [postStatus, setPostStatus] = useState('')
   const [showAiAnalysis, setShowAiAnalysis] = useState(false)
   // storyEnabled is derived from postDests — defined after postDests below
-  const [storyCaptionStyle, setStoryCaptionStyle] = useState('none')
+  // Overlay settings are stored on the item object so they persist across platform tab
+  // switches. Each useState initializer reads from item._overlaySettings, and a useEffect
+  // below writes state back to item on every change. This means if the user configures
+  // overlay text + fonts on the Instagram tab and switches to Facebook, the settings
+  // carry over instead of resetting to defaults.
+  const _os = item._overlaySettings || {}
+  const [storyCaptionStyle, setStoryCaptionStyle] = useState(_os.storyCaptionStyle || 'none')
   const [storyPreview, setStoryPreview] = useState(null)
-  const [overlayYPct, setOverlayYPct] = useState(70)
-  const [storyText, setStoryText] = useState('')
-  const [storyFontSize, setStoryFontSize] = useState(48)
-  const [storyFontFamily, setStoryFontFamily] = useState('sans-serif')
-  const [storyFontColor, setStoryFontColor] = useState('#ffffff')
-  const [storyFontOutline, setStoryFontOutline] = useState(false)
-  const [storyFontOutlineWidth, setStoryFontOutlineWidth] = useState(3) // px
-  const [storyLineHeight, setStoryLineHeight] = useState(1.3) // multiplier on font size (0.8–2.5)
-  const [storyLetterSpacing, setStoryLetterSpacing] = useState(0) // 0=normal, 1..5=progressively wider
+  const [overlayYPct, setOverlayYPct] = useState(_os.overlayYPct ?? 70)
+  const [storyText, setStoryText] = useState(_os.storyText || '')
+  const [storyFontSize, setStoryFontSize] = useState(_os.storyFontSize ?? 48)
+  const [storyFontFamily, setStoryFontFamily] = useState(_os.storyFontFamily || 'sans-serif')
+  const [storyFontColor, setStoryFontColor] = useState(_os.storyFontColor || '#ffffff')
+  const [storyFontOutline, setStoryFontOutline] = useState(_os.storyFontOutline ?? false)
+  const [storyFontOutlineWidth, setStoryFontOutlineWidth] = useState(_os.storyFontOutlineWidth ?? 3)
+  const [storyLineHeight, setStoryLineHeight] = useState(_os.storyLineHeight ?? 1.3)
+  const [storyLetterSpacing, setStoryLetterSpacing] = useState(_os.storyLetterSpacing ?? 0)
   // AI per-platform overlay texts — when enabled, each destination gets its own opening/closing text
-  const [aiOverlaysEnabled, setAiOverlaysEnabled] = useState(false)
-  const [perPlatformOverlays, setPerPlatformOverlays] = useState({}) // { [destKey]: { opening, closing } }
+  const [aiOverlaysEnabled, setAiOverlaysEnabled] = useState(_os.aiOverlaysEnabled ?? false)
+  const [perPlatformOverlays, setPerPlatformOverlays] = useState(_os.perPlatformOverlays || {})
   const [generatingOverlays, setGeneratingOverlays] = useState(false)
-  const [overlayHint, setOverlayHint] = useState('') // source hint for AI overlay generation
-  const [previewDestKey, setPreviewDestKey] = useState(null) // which destination to show in preview
+  const [overlayHint, setOverlayHint] = useState(_os.overlayHint || '')
+  const [previewDestKey, setPreviewDestKey] = useState(_os.previewDestKey || null)
   // Photo-to-video (Ken Burns) state — only relevant for image uploads
-  const [photoToVideoEnabled, setPhotoToVideoEnabled] = useState(false)
-  const [photoToVideoDuration, setPhotoToVideoDuration] = useState(7)
-  const [photoZoom, setPhotoZoom] = useState('in')   // 'none' | 'in' | 'out'
-  const [photoPan, setPhotoPan] = useState('none')   // 'none' | 'lr' | 'rl'
+  const [photoToVideoEnabled, setPhotoToVideoEnabled] = useState(_os.photoToVideoEnabled ?? false)
+  const [photoToVideoDuration, setPhotoToVideoDuration] = useState(_os.photoToVideoDuration ?? 7)
+  const [photoZoom, setPhotoZoom] = useState(_os.photoZoom || 'in')
+  const [photoPan, setPhotoPan] = useState(_os.photoPan || 'none')
   // Combine zoom and pan into the backend motion string
   const photoToVideoMotion = (() => {
     if (photoPan === 'none' && photoZoom === 'none') return 'static'
@@ -949,10 +955,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     return `pan-${photoPan}-zoom-${photoZoom}`
   })()
   const [convertingPhoto, setConvertingPhoto] = useState(false)
-  const [openingText, setOpeningText] = useState('')
-  const [closingText, setClosingText] = useState('')
-  const [openingDuration, setOpeningDuration] = useState(3)
-  const [closingDuration, setClosingDuration] = useState(3)
+  const [openingText, setOpeningText] = useState(_os.openingText || '')
+  const [closingText, setClosingText] = useState(_os.closingText || '')
+  const [openingDuration, setOpeningDuration] = useState(_os.openingDuration ?? 3)
+  const [closingDuration, setClosingDuration] = useState(_os.closingDuration ?? 3)
   // Share generated preview across platform tabs via the item object. Tabs unmount on switch
   // so local state is lost — storing on item._sharedPreviewUrl lets new tab mounts pick it up.
   const [generatedPreviewUrl, setGeneratedPreviewUrlInternal] = useState(() => item._sharedPreviewUrl || null)
@@ -981,6 +987,27 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   })
   const storyEnabled = postDests.ig_story || postDests.fb_story
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
+
+  // Persist overlay settings to the item object so they survive tab switches
+  // (tabs unmount on switch — if we didn't persist, switching to another platform
+  // and enabling Text overlay would reset everything to defaults)
+  useEffect(() => {
+    item._overlaySettings = {
+      storyCaptionStyle, overlayYPct, storyText,
+      storyFontSize, storyFontFamily, storyFontColor,
+      storyFontOutline, storyFontOutlineWidth, storyLineHeight, storyLetterSpacing,
+      aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
+      photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
+      openingText, closingText, openingDuration, closingDuration,
+    }
+  }, [
+    storyCaptionStyle, overlayYPct, storyText,
+    storyFontSize, storyFontFamily, storyFontColor,
+    storyFontOutline, storyFontOutlineWidth, storyLineHeight, storyLetterSpacing,
+    aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
+    photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
+    openingText, closingText, openingDuration, closingDuration,
+  ])
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
