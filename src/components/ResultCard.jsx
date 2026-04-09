@@ -248,6 +248,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [schedOverlay, setSchedOverlay] = useState('none')
   const [schedOverlayYPct, setSchedOverlayYPct] = useState(70)
   const [schedFontSize, setSchedFontSize] = useState(48)
+  const [schedFontFamily, setSchedFontFamily] = useState('sans-serif')
   const [schedFontColor, setSchedFontColor] = useState('#ffffff')
   const [schedFontOutline, setSchedFontOutline] = useState(false)
   const [schedOpeningText, setSchedOpeningText] = useState('')
@@ -312,7 +313,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
 
     const overlayOpts = hasOverlay && !overlayBase64 ? {
       caption_style: 'overlay', overlay_y_pct: schedOverlayYPct,
-      font_size: schedFontSize, font_color: schedFontColor, font_outline: schedFontOutline,
+      font_size: schedFontSize, font_family: schedFontFamily, font_color: schedFontColor, font_outline: schedFontOutline,
       opening_text: schedOpeningText, closing_text: schedClosingText,
       opening_duration: schedOpeningDuration, closing_duration: schedClosingDuration,
     } : {}
@@ -354,13 +355,13 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
           try { await api.postToFacebookReel(caption, oB64, oMt, useOverlay ? {} : overlayOpts); newResults.fb_reel = 'success' } catch (e) { newResults.fb_reel = 'Failed: ' + e.message }
         }
         if (p.key === 'facebook' && schedDests.fb_story) {
-          try { await api.postToFacebookStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.fb_story = 'success' } catch (e) { newResults.fb_story = 'Failed: ' + e.message }
+          try { await api.postToFacebookStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontFamily: schedFontFamily, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.fb_story = 'success' } catch (e) { newResults.fb_story = 'Failed: ' + e.message }
         }
         if (p.key === 'instagram' && schedDests.ig_post) {
           try { await api.postToInstagram(caption, useOverlay ? oB64 : imageBase64, useOverlay ? oMt : mediaType, useOverlay ? {} : overlayOpts); newResults.ig_post = 'success' } catch (e) { newResults.ig_post = 'Failed: ' + e.message }
         }
         if (p.key === 'instagram' && schedDests.ig_story) {
-          try { await api.postToInstagramStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.ig_story = 'success' } catch (e) { newResults.ig_story = 'Failed: ' + e.message }
+          try { await api.postToInstagramStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontFamily: schedFontFamily, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.ig_story = 'success' } catch (e) { newResults.ig_story = 'Failed: ' + e.message }
         }
         if (p.key === 'twitter') {
           try { await api.postToTwitter(caption, imageBase64, mediaType); newResults.twitter = 'success' } catch (e) { newResults.twitter = 'Failed: ' + e.message }
@@ -454,7 +455,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
       // Only include feed post if the destination is checked
       const overlayOpts = schedOverlay === 'overlay' ? {
         caption_style: 'overlay', overlay_y_pct: schedOverlayYPct,
-        font_size: schedFontSize, font_color: schedFontColor, font_outline: schedFontOutline,
+        font_size: schedFontSize, font_family: schedFontFamily, font_color: schedFontColor, font_outline: schedFontOutline,
         opening_text: schedOpeningText, closing_text: schedClosingText,
         opening_duration: schedOpeningDuration, closing_duration: schedClosingDuration,
       } : {}
@@ -799,10 +800,41 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                         <label className="text-[9px] text-muted">Position:
                           <input type="range" min={0} max={100} value={schedOverlayYPct} onChange={e => setSchedOverlayYPct(Number(e.target.value))} className="w-16 ml-1 align-middle" />
                         </label>
-                        <select value={schedFontSize} onChange={e => setSchedFontSize(Number(e.target.value))} className="text-[9px] border border-border rounded px-1 bg-white">
-                          <option value={32}>Small</option><option value={48}>Medium</option><option value={64}>Large</option><option value={80}>XXXL</option>
+                        <select value={schedFontFamily} onChange={e => setSchedFontFamily(e.target.value)} className="text-[9px] border border-border rounded px-1 bg-white" style={{ fontFamily: schedFontFamily }}>
+                          <optgroup label="Basic">
+                            <option value="sans-serif">Sans Serif</option>
+                            <option value="serif">Serif</option>
+                            <option value="Impact, sans-serif">Impact</option>
+                          </optgroup>
+                          <optgroup label="Bubbly">
+                            <option value="Fredoka One">Fredoka One</option>
+                            <option value="Lilita One">Lilita One</option>
+                            <option value="Paytone One">Paytone One</option>
+                            <option value="Shrikhand">Shrikhand</option>
+                            <option value="Bungee">Bungee</option>
+                            <option value="Righteous">Righteous</option>
+                          </optgroup>
+                          <optgroup label="Script">
+                            <option value="Lobster">Lobster</option>
+                            <option value="Pacifico">Pacifico</option>
+                            <option value="Dancing Script">Dancing Script</option>
+                            <option value="Caveat">Caveat</option>
+                            <option value="Permanent Marker">Permanent Marker</option>
+                          </optgroup>
+                          <optgroup label="Fun">
+                            <option value="Bangers">Bangers</option>
+                          </optgroup>
                         </select>
-                        <input type="color" value={schedFontColor} onChange={e => setSchedFontColor(e.target.value)} className="w-5 h-4 border-none" />
+                        <input
+                          type="number"
+                          min={12}
+                          max={200}
+                          value={schedFontSize}
+                          onChange={e => setSchedFontSize(Math.max(12, Math.min(200, Number(e.target.value) || 48)))}
+                          className="w-12 text-[9px] border border-border rounded px-1 bg-white"
+                          title="Font size (pt)"
+                        />
+                        <input type="color" value={schedFontColor} onChange={e => setSchedFontColor(e.target.value)} className="w-5 h-4 border-none" title="Font color" />
                         <label className="flex items-center gap-1 text-[9px] cursor-pointer">
                           <input type="checkbox" checked={schedFontOutline} onChange={e => setSchedFontOutline(e.target.checked)} /> Outline
                         </label>
@@ -1741,7 +1773,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const useProcessed = hasOverlays && processedBase64
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
                     }
                     if (postDests.ig_story) {
@@ -1759,7 +1791,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const useProcessed = hasOverlays && processedBase64
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToFacebookReel(value, b64, mt, overlayOpts); results.push('FB Reel') } catch (e) { results.push(`FB Reel failed: ${e.message}`) }
                     }
                     if (postDests.fb_story) {
@@ -1774,7 +1806,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Short', description: value, tags })
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT Shorts failed: ${e.message}`) }
                     }
                     if (postDests.yt_video) {
