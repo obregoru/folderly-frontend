@@ -953,7 +953,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [closingText, setClosingText] = useState('')
   const [openingDuration, setOpeningDuration] = useState(3)
   const [closingDuration, setClosingDuration] = useState(3)
-  const [generatedPreviewUrl, setGeneratedPreviewUrl] = useState(null)
+  // Share generated preview across platform tabs via the item object. Tabs unmount on switch
+  // so local state is lost — storing on item._sharedPreviewUrl lets new tab mounts pick it up.
+  const [generatedPreviewUrl, setGeneratedPreviewUrlInternal] = useState(() => item._sharedPreviewUrl || null)
+  const setGeneratedPreviewUrl = (url) => {
+    setGeneratedPreviewUrlInternal(url)
+    if (url) {
+      item._sharedPreviewUrl = url
+    } else if (item._sharedPreviewUrl) {
+      delete item._sharedPreviewUrl
+    }
+  }
   const [generatingPreview, setGeneratingPreview] = useState(false)
   const [postDests, setPostDests] = useState({
     ig_post: platform === 'instagram',
