@@ -1099,6 +1099,22 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
 
+  // Probe the source video duration as soon as we have the file, independent
+  // of whether the overlay/trim preview panel is open. Without this, the trim
+  // UI (which gates on videoDuration > 0) can never appear because the preview
+  // video that sets videoDuration only renders once trim or overlays are on.
+  useEffect(() => {
+    if (!isVideoFile || !videoSrc) return
+    if (videoDuration > 0) return
+    const v = document.createElement('video')
+    v.preload = 'metadata'
+    v.muted = true
+    v.src = videoSrc
+    const onMeta = () => { if (v.duration && isFinite(v.duration)) setVideoDuration(v.duration) }
+    v.addEventListener('loadedmetadata', onMeta)
+    return () => { v.removeEventListener('loadedmetadata', onMeta); v.src = '' }
+  }, [isVideoFile, videoSrc])
+
   useEffect(() => {
     if (!storyEnabled || !item.isImg) { setStoryPreview(null); return }
     let cancelled = false
