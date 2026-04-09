@@ -972,6 +972,25 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const storyEnabled = postDests.ig_story || postDests.fb_story
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
 
+  // Auto-check video destinations when a video exists (either uploaded or created from photo).
+  // The intent: if you have a video + this tab's platform supports reels/stories, they should
+  // be selected by default. The user can still uncheck manually.
+  const hasVideoNow = isVideoFile || (isImageFile && photoToVideoEnabled)
+  useEffect(() => {
+    if (!hasVideoNow) return
+    setPostDests(d => ({
+      ...d,
+      // Instagram — Reel + Story
+      ...(platform === 'instagram' ? { ig_post: true, ig_story: true } : {}),
+      // Facebook — Reel + Story (feed post stays as user set it)
+      ...(platform === 'facebook' ? { fb_reel: true, fb_story: true } : {}),
+      // YouTube — Shorts (not full video)
+      ...(platform === 'youtube' ? { yt_shorts: true } : {}),
+      // TikTok — always
+      ...(platform === 'tiktok' ? { tiktok: true } : {}),
+    }))
+  }, [hasVideoNow])
+
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
   useEffect(() => { setTitle(blogTitle || '') }, [blogTitle])
