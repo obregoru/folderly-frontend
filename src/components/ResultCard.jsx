@@ -259,7 +259,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const isVideoFile = item.file?.type?.startsWith('video/')
   const [schedDests, setSchedDests] = useState(() => {
     const d = {}
-    if (available.some(p => p.key === 'instagram') && settings?.ig_connected) { d.ig_post = true; d.ig_story = settings?.fb_stories_default === true }
+    if (available.some(p => p.key === 'instagram') && settings?.ig_connected) { d.ig_post = !isVideoFile; d.ig_reel = isVideoFile; d.ig_story = settings?.fb_stories_default === true }
     if (available.some(p => p.key === 'facebook') && settings?.fb_connected) { d.fb_post = true; d.fb_reel = false; d.fb_story = settings?.fb_stories_default === true }
     if (available.some(p => p.key === 'youtube') && settings?.youtube_connected) d.yt_shorts = true
     return d
@@ -358,7 +358,12 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
           try { await api.postToFacebookStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontFamily: schedFontFamily, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.fb_story = 'success' } catch (e) { newResults.fb_story = 'Failed: ' + e.message }
         }
         if (p.key === 'instagram' && schedDests.ig_post) {
-          try { await api.postToInstagram(caption, useOverlay ? oB64 : imageBase64, useOverlay ? oMt : mediaType, useOverlay ? {} : overlayOpts); newResults.ig_post = 'success' } catch (e) { newResults.ig_post = 'Failed: ' + e.message }
+          // IG Post = still image to feed (no overlays)
+          try { await api.postToInstagram(caption, imageBase64, mediaType, {}); newResults.ig_post = 'success' } catch (e) { newResults.ig_post = 'Failed: ' + e.message }
+        }
+        if (p.key === 'instagram' && isVideoFile && schedDests.ig_reel) {
+          // IG Reel = video to reels (may have overlays)
+          try { await api.postToInstagram(caption, useOverlay ? oB64 : imageBase64, useOverlay ? oMt : mediaType, useOverlay ? {} : overlayOpts); newResults.ig_reel = 'success' } catch (e) { newResults.ig_reel = 'Failed: ' + e.message }
         }
         if (p.key === 'instagram' && schedDests.ig_story) {
           try { await api.postToInstagramStory(caption, oB64, oMt, useOverlay ? 'none' : schedOverlay, schedOverlayYPct, useOverlay ? {} : { fontSize: schedFontSize, fontFamily: schedFontFamily, fontColor: schedFontColor, fontOutline: schedFontOutline, openingText: schedOpeningText, closingText: schedClosingText, openingDuration: schedOpeningDuration, closingDuration: schedClosingDuration }); newResults.ig_story = 'success' } catch (e) { newResults.ig_story = 'Failed: ' + e.message }
@@ -460,11 +465,16 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         opening_duration: schedOpeningDuration, closing_duration: schedClosingDuration,
       } : {}
 
-      if (p.key === 'instagram' && schedDests.ig_post) {
-        // For IG reel (video), use pre-rendered overlay if available
-        if (isVideo && usePreRendered) { post.image_base64 = overlayBase64; post.media_type = 'video/mp4' }
-        else if (isVideo && schedOverlay === 'overlay') Object.assign(post, overlayOpts)
+      if (p.key === 'instagram' && schedDests.ig_post && !isVideo) {
+        // IG Post = still image feed post (no overlays)
         posts.push(post)
+      }
+      if (p.key === 'instagram' && schedDests.ig_reel && isVideo) {
+        // IG Reel = video to reels, may carry overlays
+        const reelPost = { ...post, platform: 'instagram' }
+        if (usePreRendered) { reelPost.image_base64 = overlayBase64; reelPost.media_type = 'video/mp4' }
+        else if (schedOverlay === 'overlay') Object.assign(reelPost, overlayOpts)
+        posts.push(reelPost)
       }
       else if (p.key === 'facebook' && schedDests.fb_post) posts.push(post) // FB post = no overlays
       else if (p.key === 'youtube' && schedDests.yt_shorts) {
@@ -592,12 +602,12 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         let totalScheduled = 0
         // Map post platforms to their schedTimes key
         const PLAT_TO_DEST = {
-          'instagram': 'ig_post', 'instagram_story': 'ig_story',
+          'instagram': isVideoFile ? 'ig_reel' : 'ig_post', 'instagram_story': 'ig_story',
           'facebook': 'fb_post', 'facebook_story': 'fb_story', 'facebook_reel': 'fb_reel',
           'youtube': schedDests.yt_shorts ? 'yt_shorts' : 'yt_video',
           'twitter': 'twitter', 'tiktok': 'tiktok', 'google': 'google', 'blog': 'blog', 'pinterest': 'pinterest',
         }
-        const STORY_PARENTS = { 'ig_story': 'ig_post', 'fb_story': 'fb_post' }
+        const STORY_PARENTS = { 'ig_story': isVideoFile ? 'ig_reel' : 'ig_post', 'fb_story': 'fb_post' }
 
         for (const post of posts) {
           const destKey = PLAT_TO_DEST[post.platform] || post.platform
@@ -673,7 +683,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         )}
         {hasResults && Object.entries(results).map(([key, r]) => {
           const isOk = r === 'success' || r === 'draft'
-          const DEST_LABELS = { fb_post: 'FB Post', fb_reel: 'FB Reel', fb_story: 'FB Story', ig_post: 'IG', ig_story: 'IG Story', yt_shorts: 'YT Shorts', yt_video: 'YT Video', twitter: 'X', google: 'Google', pinterest: 'Pinterest', blog: 'Blog', tiktok: 'TikTok' }
+          const DEST_LABELS = { fb_post: 'FB Post', fb_reel: 'FB Reel', fb_story: 'FB Story', ig_post: 'IG Post', ig_reel: 'IG Reel', ig_story: 'IG Story', yt_shorts: 'YT Shorts', yt_video: 'YT Video', twitter: 'X', google: 'Google', pinterest: 'Pinterest', blog: 'Blog', tiktok: 'TikTok' }
           return (
             <span key={key} className={`text-[10px] ${isOk ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}`}>
               {DEST_LABELS[key] || key}: {r === 'success' ? 'Posted' : r === 'draft' ? 'Draft' : r}
@@ -738,10 +748,18 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
               <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {settings?.ig_connected && available.some(p => p.key === 'instagram') && (
                   <>
-                    <label className="flex items-center gap-1 text-[10px] cursor-pointer">
-                      <input type="checkbox" checked={schedDests.ig_post || false} onChange={e => setSchedDests(d => ({...d, ig_post: e.target.checked}))} className="accent-[#E1306C]" />
-                      {isVideoFile ? 'IG Reel' : 'IG Post'}
-                    </label>
+                    {!isVideoFile && (
+                      <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                        <input type="checkbox" checked={schedDests.ig_post || false} onChange={e => setSchedDests(d => ({...d, ig_post: e.target.checked}))} className="accent-[#E1306C]" />
+                        IG Post
+                      </label>
+                    )}
+                    {isVideoFile && (
+                      <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                        <input type="checkbox" checked={schedDests.ig_reel || false} onChange={e => setSchedDests(d => ({...d, ig_reel: e.target.checked}))} className="accent-[#E1306C]" />
+                        IG Reel
+                      </label>
+                    )}
                     <label className="flex items-center gap-1 text-[10px] cursor-pointer">
                       <input type="checkbox" checked={schedDests.ig_story || false} onChange={e => setSchedDests(d => ({...d, ig_story: e.target.checked}))} className="accent-[#833AB4]" />
                       IG Story
@@ -780,7 +798,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                 )}
               </div>
               {/* Overlay controls for video */}
-              {isVideoFile && (schedDests.ig_post || schedDests.ig_story || schedDests.fb_reel || schedDests.fb_story || schedDests.yt_shorts) && (
+              {isVideoFile && (schedDests.ig_reel || schedDests.ig_story || schedDests.fb_reel || schedDests.fb_story || schedDests.yt_shorts) && (
                 <div className="bg-[#f8f9fa] rounded px-2.5 py-1.5 space-y-1.5">
                   <div className="flex gap-3 text-[10px]">
                     <label className="flex items-center gap-1 cursor-pointer">
@@ -843,7 +861,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                         <label className="text-[9px] text-muted">Opening: <select value={schedOpeningDuration} onChange={e => setSchedOpeningDuration(Number(e.target.value))} className="text-[9px] border border-border rounded px-0.5 bg-white">{[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}</select></label>
                         <label className="text-[9px] text-muted">Closing: <select value={schedClosingDuration} onChange={e => setSchedClosingDuration(Number(e.target.value))} className="text-[9px] border border-border rounded px-0.5 bg-white">{[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}</select></label>
                       </div>
-                      <p className="text-[8px] text-muted">Overlays: {[schedDests.ig_post && 'IG Reel', schedDests.ig_story && 'IG Story', schedDests.fb_reel && 'FB Reel', schedDests.fb_story && 'FB Story', schedDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none'}{schedDests.fb_post ? '. FB Post = no overlay.' : ''}</p>
+                      <p className="text-[8px] text-muted">Overlays: {[schedDests.ig_reel && 'IG Reel', schedDests.ig_story && 'IG Story', schedDests.fb_reel && 'FB Reel', schedDests.fb_story && 'FB Story', schedDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none'}{schedDests.fb_post || schedDests.ig_post ? `. No overlay: ${[schedDests.ig_post && 'IG Post', schedDests.fb_post && 'FB Post'].filter(Boolean).join(', ')}.` : ''}</p>
                     </>
                   )}
                 </div>
@@ -856,8 +874,9 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
               <p className="text-[9px] text-muted">Set time per destination (stories auto-offset +45min from feed):</p>
               {(() => {
                 const DEST_CONFIG = [
-                  { key: 'ig_post', label: isVideoFile ? 'IG Reel' : 'IG Post', color: '#E1306C', parent: null, show: schedDests.ig_post },
-                  { key: 'ig_story', label: 'IG Story', color: '#833AB4', parent: 'ig_post', show: schedDests.ig_story },
+                  { key: 'ig_post', label: 'IG Post', color: '#E1306C', parent: null, show: schedDests.ig_post },
+                  { key: 'ig_reel', label: 'IG Reel', color: '#E1306C', parent: null, show: schedDests.ig_reel },
+                  { key: 'ig_story', label: 'IG Story', color: '#833AB4', parent: schedDests.ig_reel ? 'ig_reel' : 'ig_post', show: schedDests.ig_story },
                   { key: 'fb_post', label: 'FB Post', color: '#1877F2', parent: null, show: schedDests.fb_post },
                   { key: 'fb_reel', label: 'FB Reel', color: '#1877F2', parent: null, show: schedDests.fb_reel },
                   { key: 'fb_story', label: 'FB Story', color: '#4267B2', parent: 'fb_post', show: schedDests.fb_story },
@@ -985,7 +1004,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   }
   const [generatingPreview, setGeneratingPreview] = useState(false)
   const [postDests, setPostDests] = useState({
-    ig_post: platform === 'instagram',
+    ig_post: platform === 'instagram' && !item.file?.type?.startsWith('video/'),
+    ig_reel: platform === 'instagram' && item.file?.type?.startsWith('video/'),
     ig_story: platform === 'instagram' && settings?.fb_stories_default === true,
     fb_post: platform === 'facebook',
     fb_reel: false,
@@ -1046,7 +1066,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const isVideoFile = item.file?.type?.startsWith('video/')
   const isImageFile = item.file?.type?.startsWith('image/')
   // Photo-to-video: when an image has video destinations checked and the user enables conversion
-  const hasVideoDest = postDests.ig_post || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.tiktok
+  const hasVideoDest = postDests.ig_reel || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.tiktok
   const canPhotoToVideo = isImageFile && hasVideoDest
   // Auto-disable if no video destinations
   useEffect(() => { if (!hasVideoDest && photoToVideoEnabled) setPhotoToVideoEnabled(false) }, [hasVideoDest])
@@ -1059,8 +1079,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     if (!hasVideoNow) return
     setPostDests(d => ({
       ...d,
-      // Instagram — Reel + Story
-      ...(platform === 'instagram' ? { ig_post: true, ig_story: true } : {}),
+      // Instagram — Reel + Story (leave ig_post as user set it, since a photo can still go to feed)
+      ...(platform === 'instagram' ? { ig_reel: true, ig_story: true } : {}),
       // Facebook — Reel + Story (feed post stays as user set it)
       ...(platform === 'facebook' ? { fb_reel: true, fb_story: true } : {}),
       // YouTube — Shorts (not full video)
@@ -1408,10 +1428,18 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             <div className="flex flex-wrap gap-x-4 gap-y-1">
               {canPostIg && (
                 <>
-                  <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
-                    <input type="checkbox" checked={postDests.ig_post} onChange={e => setPostDests(d => ({...d, ig_post: e.target.checked}))} className="accent-[#E1306C]" />
-                    <span>{isVideoFile ? 'IG Reel' : 'IG Post'}</span>
-                  </label>
+                  {isImageFile && (
+                    <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                      <input type="checkbox" checked={postDests.ig_post} onChange={e => setPostDests(d => ({...d, ig_post: e.target.checked}))} className="accent-[#E1306C]" />
+                      <span>IG Post</span>
+                    </label>
+                  )}
+                  {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
+                    <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+                      <input type="checkbox" checked={postDests.ig_reel} onChange={e => setPostDests(d => ({...d, ig_reel: e.target.checked}))} className="accent-[#E1306C]" />
+                      <span>IG Reel</span>
+                    </label>
+                  )}
                   <label className="flex items-center gap-1.5 text-[11px] cursor-pointer">
                     <input type="checkbox" checked={postDests.ig_story} onChange={e => setPostDests(d => ({...d, ig_story: e.target.checked}))} className="accent-[#833AB4]" />
                     <span>IG Story</span>
@@ -1576,7 +1604,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             )}
 
             {/* Video overlay controls — shown when any overlay-supporting destination is checked (or photo-to-video enabled) */}
-            {((isVideoFile || (isImageFile && photoToVideoEnabled)) && (postDests.ig_post || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts || postDests.tiktok)) && (
+            {((isVideoFile || (isImageFile && photoToVideoEnabled)) && (postDests.ig_reel || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts || postDests.tiktok)) && (
               <div className="mt-2 border-t border-border pt-2">
                 <div className="flex gap-3 text-[10px] mb-1 items-center">
                   <label className="flex items-center gap-1 cursor-pointer">
@@ -1725,8 +1753,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               if (!overlayHint.trim()) return
                               // Collect checked overlay-supporting destinations
                               const dests = []
-                              if (postDests.ig_post && isVideoFile) dests.push('ig_post')
-                              if (postDests.ig_post && isImageFile && photoToVideoEnabled) dests.push('ig_post')
+                              if (postDests.ig_reel) dests.push('ig_reel')
                               if (postDests.ig_story) dests.push('ig_story')
                               if (postDests.fb_reel) dests.push('fb_reel')
                               if (postDests.fb_story) dests.push('fb_story')
@@ -1760,7 +1787,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               title="Which platform to preview"
                             >
                               {Object.keys(perPlatformOverlays).map(d => {
-                                const labels = { ig_post: 'IG Reel', ig_story: 'IG Story', fb_reel: 'FB Reel', fb_story: 'FB Story', yt_shorts: 'YT Shorts', tiktok: 'TikTok' }
+                                const labels = { ig_reel: 'IG Reel', ig_story: 'IG Story', fb_reel: 'FB Reel', fb_story: 'FB Story', yt_shorts: 'YT Shorts', tiktok: 'TikTok' }
                                 return <option key={d} value={d}>Preview: {labels[d] || d}</option>
                               })}
                             </select>
@@ -1769,7 +1796,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         {Object.keys(perPlatformOverlays).length > 0 && (
                           <div className="space-y-1 pt-1 border-t border-[#6C5CE7]/20">
                             {Object.entries(perPlatformOverlays).map(([destKey, val]) => {
-                              const labels = { ig_post: 'IG Reel', ig_story: 'IG Story', fb_reel: 'FB Reel', fb_story: 'FB Story', yt_shorts: 'YT Shorts', tiktok: 'TikTok' }
+                              const labels = { ig_reel: 'IG Reel', ig_story: 'IG Story', fb_reel: 'FB Reel', fb_story: 'FB Story', yt_shorts: 'YT Shorts', tiktok: 'TikTok' }
                               return (
                                 <div key={destKey} className="bg-white border border-border rounded p-1.5">
                                   <div className="text-[9px] font-medium text-[#6C5CE7] mb-0.5">{labels[destKey] || destKey}</div>
@@ -2001,7 +2028,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 {/* Save template + overlay info */}
                 {storyCaptionStyle === 'overlay' && (
                   <div className="flex items-center gap-2 mt-1">
-                    <p className="text-[9px] text-muted flex-1">Overlays: {[postDests.ig_post && (isVideoFile ? 'IG Reel' : null), postDests.ig_story && 'IG Story', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none'}{postDests.fb_post || postDests.yt_video ? `. No overlay: ${[postDests.fb_post && 'FB Post', postDests.yt_video && 'YT Video'].filter(Boolean).join(', ')}.` : ''}</p>
+                    <p className="text-[9px] text-muted flex-1">Overlays: {[postDests.ig_reel && 'IG Reel', postDests.ig_story && 'IG Story', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts'].filter(Boolean).join(', ') || 'none'}{postDests.ig_post || postDests.fb_post || postDests.yt_video ? `. No overlay: ${[postDests.ig_post && 'IG Post', postDests.fb_post && 'FB Post', postDests.yt_video && 'YT Video'].filter(Boolean).join(', ')}.` : ''}</p>
                     <button
                       onClick={async () => {
                         const name = prompt('Template name:')
@@ -2108,12 +2135,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     const canReuseProcessed = hasOverlays && processedBase64 && !aiOverlaysEnabled
 
                     if (postDests.ig_post) {
-                      // If it's an image-only post (no video dest conversion), post as a photo
+                      // IG Post = still image to feed. Always uses the raw image, no overlays.
+                      try { await api.postToInstagram(value, rawBase64, rawType, {}); results.push('IG Post') } catch (e) { results.push(`IG Post failed: ${e.message}`) }
+                    }
+                    if (postDests.ig_reel) {
+                      // IG Reel = video to reels. Uses video source + overlays.
                       const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('ig_post') : {})
-                      try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('ig_reel') : {})
+                      try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG Reel') } catch (e) { results.push(`IG Reel failed: ${e.message}`) }
                     }
                     if (postDests.ig_story) {
                       const useProcessed = canReuseProcessed
@@ -2181,7 +2212,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 disabled={posting}
                 className="mt-2 w-full text-[12px] py-2 border border-[#2D9A5E] rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#258a50] disabled:opacity-50"
               >
-                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && (isVideoFile ? 'IG Reel' : 'IG'), postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts', postDests.yt_video && 'YT Video', postDests.twitter && 'X', postDests.tiktok && 'TikTok', postDests.google && 'Google', postDests.pinterest && 'Pinterest', postDests.blog && 'Blog'].filter(Boolean).join(' + ') || 'none'}`}
+                {posting ? 'Posting...' : `Post to ${[postDests.ig_post && 'IG Post', postDests.ig_reel && 'IG Reel', postDests.ig_story && 'IG Story', postDests.fb_post && 'FB', postDests.fb_reel && 'FB Reel', postDests.fb_story && 'FB Story', postDests.yt_shorts && 'YT Shorts', postDests.yt_video && 'YT Video', postDests.twitter && 'X', postDests.tiktok && 'TikTok', postDests.google && 'Google', postDests.pinterest && 'Pinterest', postDests.blog && 'Blog'].filter(Boolean).join(' + ') || 'none'}`}
               </button>
             )}
           </div>
