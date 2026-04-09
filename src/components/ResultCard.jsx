@@ -930,6 +930,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [storyFontOutlineWidth, setStoryFontOutlineWidth] = useState(3) // px
   const [storyLineHeight, setStoryLineHeight] = useState(1.3) // multiplier on font size (0.8–2.5)
   const [storyLetterSpacing, setStoryLetterSpacing] = useState(0) // 0=normal, 1..5=progressively wider
+  // AI per-platform overlay texts — when enabled, each destination gets its own opening/closing text
+  const [aiOverlaysEnabled, setAiOverlaysEnabled] = useState(false)
+  const [perPlatformOverlays, setPerPlatformOverlays] = useState({}) // { [destKey]: { opening, closing } }
+  const [generatingOverlays, setGeneratingOverlays] = useState(false)
+  const [overlayHint, setOverlayHint] = useState('') // source hint for AI overlay generation
+  const [previewDestKey, setPreviewDestKey] = useState(null) // which destination to show in preview
   // Photo-to-video (Ken Burns) state — only relevant for image uploads
   const [photoToVideoEnabled, setPhotoToVideoEnabled] = useState(false)
   const [photoToVideoDuration, setPhotoToVideoDuration] = useState(7)
@@ -1481,18 +1487,23 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '75%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
                               {(() => {
                                 const SCALE = 120 / 1080
-                                const hasTimedOverlays = openingText || closingText
+                                // If AI per-platform overlays are active, preview the selected destination's text
+                                // Otherwise fall back to shared openingText/closingText
+                                const activeOverlay = (aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]) || null
+                                const effOpening = activeOverlay ? (activeOverlay.opening || '') : openingText
+                                const effClosing = activeOverlay ? (activeOverlay.closing || '') : closingText
+                                const hasTimedOverlays = effOpening || effClosing
                                 // For videos: use timeline; for photos: always show opening text as primary
                                 let displayText
                                 if (isImageFile) {
                                   // Photos: show opening text if set, else storyText, else closing
-                                  displayText = openingText || storyText || closingText || null
+                                  displayText = effOpening || storyText || effClosing || null
                                 } else {
                                   const closingStart = Math.max(0, videoDuration - closingDuration)
-                                  const showOpening = hasTimedOverlays && openingText && videoTime >= 0 && videoTime <= openingDuration
-                                  const showClosing = hasTimedOverlays && closingText && videoDuration > 0 && videoTime >= closingStart
+                                  const showOpening = hasTimedOverlays && effOpening && videoTime >= 0 && videoTime <= openingDuration
+                                  const showClosing = hasTimedOverlays && effClosing && videoDuration > 0 && videoTime >= closingStart
                                   const showFull = !hasTimedOverlays && storyText
-                                  displayText = showOpening ? openingText : showClosing ? closingText : showFull ? storyText : null
+                                  displayText = showOpening ? effOpening : showClosing ? effClosing : showFull ? storyText : null
                                 }
                                 if (!displayText) return null
                                 const previewH = Math.round(120 / 9 * 16)
@@ -1550,8 +1561,106 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         )}
                       </div>
                     )}
-                    {/* Opening/closing text — only when overlay mode is selected */}
+                    {/* AI per-platform overlay toggle — only when overlay mode + a video is involved */}
                     {storyCaptionStyle === 'overlay' && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
+                      <label className="flex items-center gap-1.5 text-[10px] cursor-pointer text-muted">
+                        <input type="checkbox" checked={aiOverlaysEnabled} onChange={e => { setAiOverlaysEnabled(e.target.checked); if (!e.target.checked) { setPerPlatformOverlays({}); setPreviewDestKey(null); } }} className="accent-[#6C5CE7]" />
+                        <span className="text-ink">AI per-platform overlay text</span>
+                        <span className="text-[9px]">(each destination gets its own hook)</span>
+                      </label>
+                    )}
+
+                    {/* AI overlay source hint + generate */}
+                    {storyCaptionStyle === 'overlay' && aiOverlaysEnabled && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
+                      <div className="border border-[#6C5CE7]/30 rounded p-2 bg-[#f3f0ff]/50 space-y-1.5">
+                        <label className="text-[9px] text-muted">Describe what this video is about (one sentence)</label>
+                        <textarea
+                          rows={2}
+                          value={overlayHint}
+                          onChange={e => setOverlayHint(e.target.value)}
+                          placeholder="e.g. Girls night candle pour at the studio"
+                          className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none"
+                        />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={async () => {
+                              if (!overlayHint.trim()) return
+                              // Collect checked overlay-supporting destinations
+                              const dests = []
+                              if (postDests.ig_post && isVideoFile) dests.push('ig_post')
+                              if (postDests.ig_post && isImageFile && photoToVideoEnabled) dests.push('ig_post')
+                              if (postDests.ig_story) dests.push('ig_story')
+                              if (postDests.fb_reel) dests.push('fb_reel')
+                              if (postDests.fb_story) dests.push('fb_story')
+                              if (postDests.yt_shorts) dests.push('yt_shorts')
+                              if (postDests.tiktok) dests.push('tiktok')
+                              if (dests.length === 0) { alert('Check at least one overlay-supporting destination first'); return }
+                              setGeneratingOverlays(true)
+                              try {
+                                const api = await import('../api')
+                                const r = await api.generateOverlayTexts(overlayHint.trim(), dests)
+                                if (r.error) throw new Error(r.error)
+                                setPerPlatformOverlays(r.destinations || {})
+                                // Set preview to first available destination
+                                const firstDest = dests.find(d => r.destinations?.[d])
+                                if (firstDest) setPreviewDestKey(firstDest)
+                              } catch (err) {
+                                alert('Generate failed: ' + err.message)
+                              }
+                              setGeneratingOverlays(false)
+                            }}
+                            disabled={generatingOverlays || !overlayHint.trim()}
+                            className="text-[10px] py-1 px-2.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                          >
+                            {generatingOverlays ? 'Generating...' : Object.keys(perPlatformOverlays).length > 0 ? 'Regenerate' : 'Generate overlays with AI'}
+                          </button>
+                          {Object.keys(perPlatformOverlays).length > 0 && (
+                            <select
+                              value={previewDestKey || ''}
+                              onChange={e => setPreviewDestKey(e.target.value)}
+                              className="text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                              title="Which platform to preview"
+                            >
+                              {Object.keys(perPlatformOverlays).map(d => {
+                                const labels = { ig_post: 'IG Reel', ig_story: 'IG Story', fb_reel: 'FB Reel', fb_story: 'FB Story', yt_shorts: 'YT Shorts', tiktok: 'TikTok' }
+                                return <option key={d} value={d}>Preview: {labels[d] || d}</option>
+                              })}
+                            </select>
+                          )}
+                        </div>
+                        {Object.keys(perPlatformOverlays).length > 0 && (
+                          <div className="space-y-1 pt-1 border-t border-[#6C5CE7]/20">
+                            {Object.entries(perPlatformOverlays).map(([destKey, val]) => {
+                              const labels = { ig_post: 'IG Reel', ig_story: 'IG Story', fb_reel: 'FB Reel', fb_story: 'FB Story', yt_shorts: 'YT Shorts', tiktok: 'TikTok' }
+                              return (
+                                <div key={destKey} className="bg-white border border-border rounded p-1.5">
+                                  <div className="text-[9px] font-medium text-[#6C5CE7] mb-0.5">{labels[destKey] || destKey}</div>
+                                  <div className="flex gap-1">
+                                    <input
+                                      type="text"
+                                      value={val.opening || ''}
+                                      onChange={e => setPerPlatformOverlays(prev => ({ ...prev, [destKey]: { ...prev[destKey], opening: e.target.value } }))}
+                                      placeholder="Opening"
+                                      className="flex-1 text-[10px] border border-border rounded py-0.5 px-1"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={val.closing || ''}
+                                      onChange={e => setPerPlatformOverlays(prev => ({ ...prev, [destKey]: { ...prev[destKey], closing: e.target.value } }))}
+                                      placeholder="Closing"
+                                      className="flex-1 text-[10px] border border-border rounded py-0.5 px-1"
+                                    />
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Opening/closing text — shared (shown only when AI per-platform is OFF) */}
+                    {storyCaptionStyle === 'overlay' && !aiOverlaysEnabled && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1.5">
                         <div className="flex-1">
                           <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for new line)"} />
@@ -1722,13 +1831,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               const rawBase64 = await fileToBase64(item.file)
                               const rawType = item.file.type
                               const api = await import('../api')
+                              // If AI per-platform overlays are active, preview the selected destination's text
+                              const aiActive = aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]
+                              const pOpening = aiActive ? (perPlatformOverlays[previewDestKey].opening || '') : openingText
+                              const pClosing = aiActive ? (perPlatformOverlays[previewDestKey].closing || '') : closingText
                               const url = await api.previewStory(
                                 storyCaptionStyle === 'overlay' ? (storyText || value) : value,
                                 rawBase64, rawType,
                                 storyCaptionStyle, overlayYPct,
                                 {
                                   fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
-                                  openingText, closingText, openingDuration, closingDuration,
+                                  openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
                                   photoToVideo: isImageFile && photoToVideoEnabled,
                                   photoToVideoDuration,
                                   photoToVideoMotion,
@@ -1820,45 +1933,68 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     const videoSrcB64 = videoBase64 || rawBase64
                     const videoSrcType = videoType || rawType
 
+                    // Helper: return { opening, closing } for a destination.
+                    // If AI per-platform overlays are active and we have text for this dest, use it.
+                    // Otherwise fall back to the shared openingText/closingText.
+                    const textFor = (destKey) => {
+                      if (aiOverlaysEnabled && perPlatformOverlays[destKey]) {
+                        return { opening: perPlatformOverlays[destKey].opening || '', closing: perPlatformOverlays[destKey].closing || '' }
+                      }
+                      return { opening: openingText, closing: closingText }
+                    }
+                    // Helper: build the overlayOpts object for a destination with its specific text
+                    const overlayOptsFor = (destKey) => {
+                      const { opening, closing } = textFor(destKey)
+                      return { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: opening, closing_text: closing, opening_duration: openingDuration, closing_duration: closingDuration }
+                    }
+                    const fontOptsFor = (destKey) => {
+                      const { opening, closing } = textFor(destKey)
+                      return { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, openingText: opening, closingText: closing, openingDuration, closingDuration }
+                    }
+                    // When AI per-platform overlays are active, we can't reuse a single processedBase64
+                    // across destinations — each needs its own text burned in. So the backend does the
+                    // processing per-destination (processedBase64 only applies to shared-overlay mode).
+                    const canReuseProcessed = hasOverlays && processedBase64 && !aiOverlaysEnabled
+
                     if (postDests.ig_post) {
                       // If it's an image-only post (no video dest conversion), post as a photo
-                      const useProcessed = hasOverlays && processedBase64
+                      const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('ig_post') : {})
                       try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
                     }
                     if (postDests.ig_story) {
-                      const useProcessed = hasOverlays && processedBase64
+                      const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const cs = useProcessed ? 'none' : storyCaptionStyle
-                      try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOpts); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
+                      try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOptsFor('ig_story')); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
                     }
                     if (postDests.fb_post) {
                       // FB post always uses the raw file (photo or video), no overlays
                       try { await api.postToFacebook(value, rawBase64, rawType); results.push('FB') } catch (e) { results.push(`FB failed: ${e.message}`) }
                     }
                     if (postDests.fb_reel) {
-                      const useProcessed = hasOverlays && processedBase64
+                      const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('fb_reel') : {})
                       try { await api.postToFacebookReel(value, b64, mt, overlayOpts); results.push('FB Reel') } catch (e) { results.push(`FB Reel failed: ${e.message}`) }
                     }
                     if (postDests.fb_story) {
-                      const useProcessed = hasOverlays && processedBase64
+                      const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const cs = useProcessed ? 'none' : storyCaptionStyle
-                      try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOpts); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
+                      try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOptsFor('fb_story')); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
                     }
                     if (postDests.yt_shorts) {
-                      const useProcessed = hasOverlays && processedBase64
+                      const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Short', description: value, tags })
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('yt_shorts') : {})
                       try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT Shorts failed: ${e.message}`) }
                     }
                     if (postDests.yt_video) {

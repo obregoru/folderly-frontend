@@ -169,6 +169,15 @@ export const updateSeoKeywordSet = (id, keywords) =>
 export const deleteSeoKeywordSet = (id) =>
   fetch(api(`/seo-keywords/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
+// Generate per-platform video overlay texts (opening + closing) from a single hint
+export const generateOverlayTexts = (hint, destinations) =>
+  fetch(api('/generate/overlay-texts'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ hint, destinations }),
+  }).then(r => r.json())
+
 // Public signup (no auth)
 export const publicSignup = (email, plan) =>
   fetch(`${BASE}/api/signup`, {
