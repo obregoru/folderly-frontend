@@ -927,6 +927,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [storyFontFamily, setStoryFontFamily] = useState('sans-serif')
   const [storyFontColor, setStoryFontColor] = useState('#ffffff')
   const [storyFontOutline, setStoryFontOutline] = useState(false)
+  const [storyFontOutlineWidth, setStoryFontOutlineWidth] = useState(3) // px
+  const [storyLineHeight, setStoryLineHeight] = useState(1.3) // multiplier on font size (0.8–2.5)
+  const [storyLetterSpacing, setStoryLetterSpacing] = useState(0) // 0=normal, 1..5=progressively wider
   // Photo-to-video (Ken Burns) state — only relevant for image uploads
   const [photoToVideoEnabled, setPhotoToVideoEnabled] = useState(false)
   const [photoToVideoDuration, setPhotoToVideoDuration] = useState(7)
@@ -1498,14 +1501,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 const safeBottomPx = Math.round(previewH * 0.75)
                                 const textBlockPx = scaledFontSize * 2.5
                                 const yPosPx = Math.round(safeTopPx + ((safeBottomPx - textBlockPx - safeTopPx) * overlayYPct / 100)) + Math.round(10 * SCALE)
-                                const scaledBorderW = Math.max(0.3, 3 * SCALE)
-                                const lineH = Math.round(scaledFontSize * 1.3)
+                                const scaledBorderW = Math.max(0.3, storyFontOutlineWidth * SCALE)
+                                const lineH = Math.round(scaledFontSize * storyLineHeight)
+                                // Letter spacing in em — 0=normal, 1=0.05em, 2=0.1em, 3=0.15em, 4=0.2em, 5=0.25em
+                                const letterSpacingEm = storyLetterSpacing * 0.05
                                 const textLines = displayText.split(/\n/).filter(Boolean)
                                 return (
                                   <div className="absolute left-0 right-0 pointer-events-none flex flex-col items-center px-0.5" style={{ top: `${yPosPx}px` }}>
                                     {!storyFontOutline && <div className="absolute inset-0 bg-black/50 rounded-sm" />}
                                     {textLines.map((line, i) => (
-                                      <span key={i} className="relative text-center block" style={{ fontSize: `${scaledFontSize}px`, lineHeight: `${lineH}px`, fontFamily: storyFontFamily, color: storyFontColor, fontWeight: 600, ...(storyFontOutline ? { WebkitTextStroke: `${scaledBorderW}px black`, paintOrder: 'stroke fill' } : { textShadow: `0 ${Math.round(2 * SCALE)}px ${Math.round(4 * SCALE)}px rgba(0,0,0,0.7)` }) }}>{line}</span>
+                                      <span key={i} className="relative text-center block" style={{ fontSize: `${scaledFontSize}px`, lineHeight: `${lineH}px`, letterSpacing: `${letterSpacingEm}em`, fontFamily: storyFontFamily, color: storyFontColor, fontWeight: 600, ...(storyFontOutline ? { WebkitTextStroke: `${scaledBorderW}px black`, paintOrder: 'stroke fill' } : { textShadow: `0 ${Math.round(2 * SCALE)}px ${Math.round(4 * SCALE)}px rgba(0,0,0,0.7)` }) }}>{line}</span>
                                     ))}
                                   </div>
                                 )
@@ -1645,6 +1650,53 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         </label>
                       </div>
                     )}
+                    {/* Second row: outline width (when outline on), line height, letter spacing */}
+                    {storyCaptionStyle === 'overlay' && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {storyFontOutline && (
+                          <label className="flex items-center gap-1 text-[10px] text-muted">
+                            <span>Outline width:</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={20}
+                              step={1}
+                              value={storyFontOutlineWidth}
+                              onChange={e => setStoryFontOutlineWidth(Math.max(1, Math.min(20, Number(e.target.value) || 3)))}
+                              className="w-10 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                              title="Outline thickness in pixels (1–20)"
+                            />
+                            <span className="text-[9px] text-muted">px</span>
+                          </label>
+                        )}
+                        <label className="flex items-center gap-1 text-[10px] text-muted">
+                          <span>Line height:</span>
+                          <input
+                            type="number"
+                            min={0.8}
+                            max={2.5}
+                            step={0.1}
+                            value={storyLineHeight}
+                            onChange={e => setStoryLineHeight(Math.max(0.8, Math.min(2.5, Number(e.target.value) || 1.3)))}
+                            className="w-12 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                            title="Space between lines as a multiplier of font size (0.8–2.5)"
+                          />
+                        </label>
+                        <label className="flex items-center gap-1 text-[10px] text-muted">
+                          <span>Letter spacing:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={5}
+                            step={1}
+                            value={storyLetterSpacing}
+                            onChange={e => setStoryLetterSpacing(Math.max(0, Math.min(5, Number(e.target.value) || 0)))}
+                            className="w-10 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                            title="Character spacing (0=normal, 5=widest)"
+                          />
+                        </label>
+                      </div>
+                    )}
                     {storyCaptionStyle === 'overlay' && !isVideoFile && !photoToVideoEnabled && (
                       <div className="flex items-center gap-1.5">
                         <span className="text-[9px] text-muted">Top</span>
@@ -1675,7 +1727,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 rawBase64, rawType,
                                 storyCaptionStyle, overlayYPct,
                                 {
-                                  fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline,
+                                  fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
                                   openingText, closingText, openingDuration, closingDuration,
                                   photoToVideo: isImageFile && photoToVideoEnabled,
                                   photoToVideoDuration,
@@ -1723,7 +1775,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                   try {
                     const { imageBase64: rawBase64, mediaType: rawType } = await getImageBase64('facebook_story')
                     const api = await import('../api')
-                    const fontOpts = { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, openingText, closingText, openingDuration, closingDuration }
+                    const fontOpts = { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, openingText, closingText, openingDuration, closingDuration }
 
                     // If photo-to-video is enabled, convert the photo to a Ken Burns video
                     // This becomes the "video source" for video destinations; photo dests still use rawBase64
@@ -1773,7 +1825,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const useProcessed = hasOverlays && processedBase64
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG') } catch (e) { results.push(`IG failed: ${e.message}`) }
                     }
                     if (postDests.ig_story) {
@@ -1791,7 +1843,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const useProcessed = hasOverlays && processedBase64
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToFacebookReel(value, b64, mt, overlayOpts); results.push('FB Reel') } catch (e) { results.push(`FB Reel failed: ${e.message}`) }
                     }
                     if (postDests.fb_story) {
@@ -1806,7 +1858,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Short', description: value, tags })
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: openingText, closing_text: closingText, opening_duration: openingDuration, closing_duration: closingDuration } : {})
                       try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT Shorts failed: ${e.message}`) }
                     }
                     if (postDests.yt_video) {
