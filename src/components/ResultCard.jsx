@@ -985,6 +985,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [closingText, setClosingText] = useState(_os.closingText || '')
   const [openingDuration, setOpeningDuration] = useState(_os.openingDuration ?? 3)
   const [closingDuration, setClosingDuration] = useState(_os.closingDuration ?? 3)
+  // Video trim (in seconds). trimEnd=null means "to end of clip".
+  // Source duration is discovered via the existing videoDuration state (set on <video> loadedmetadata).
+  const [trimStart, setTrimStart] = useState(_os.trimStart ?? 0)
+  const [trimEnd, setTrimEnd] = useState(_os.trimEnd ?? null)
   // Preview URL scoping: customized tabs get their own preview URL at
   // item._tabPreviewUrls[platform]. Non-customized tabs share item._sharedPreviewUrl.
   item._tabPreviewUrls = item._tabPreviewUrls || {}
@@ -1033,6 +1037,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
       photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
       openingText, closingText, openingDuration, closingDuration,
+      trimStart, trimEnd,
     }
     if (customizedForTab) {
       item._tabOverrides[platform] = settings
@@ -1047,6 +1052,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
     photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
     openingText, closingText, openingDuration, closingDuration,
+    trimStart, trimEnd,
   ])
 
   // Sync when text prop changes (e.g. after refine/regen)
@@ -1558,6 +1564,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         setClosingText(baseline.closingText || '')
                         setOpeningDuration(baseline.openingDuration ?? 3)
                         setClosingDuration(baseline.closingDuration ?? 3)
+                        setTrimStart(baseline.trimStart ?? 0)
+                        setTrimEnd(baseline.trimEnd ?? null)
                         // Revert to shared preview URL (if any)
                         setGeneratedPreviewUrlInternal(item._sharedPreviewUrl || null)
                       }
@@ -1603,6 +1611,59 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
               </div>
             )}
 
+            {/* Video trim controls — only for uploaded videos (not photo-to-video) when any video dest is checked */}
+            {(isVideoFile && (postDests.ig_reel || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts || postDests.tiktok || postDests.fb_post || postDests.yt_video) && videoDuration > 0) && (
+              <div className="mt-2 border-t border-border pt-2">
+                <div className="flex items-center gap-2 text-[10px] mb-1">
+                  <span className="font-medium text-ink">Trim video</span>
+                  <span className="text-muted text-[9px]">{(trimEnd ?? videoDuration).toFixed(1)}s - {trimStart.toFixed(1)}s = {((trimEnd ?? videoDuration) - trimStart).toFixed(1)}s kept</span>
+                  {(trimStart > 0 || trimEnd != null) && (
+                    <button
+                      onClick={() => { setTrimStart(0); setTrimEnd(null); if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) } }}
+                      className="text-[9px] text-[#6C5CE7] hover:underline ml-auto"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[9px] text-muted w-10">Start</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={videoDuration}
+                    step={0.1}
+                    value={trimStart}
+                    onChange={e => {
+                      const v = Number(e.target.value)
+                      const end = trimEnd ?? videoDuration
+                      setTrimStart(Math.min(v, end - 0.5))
+                      if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }
+                    }}
+                    className="flex-1 accent-[#6C5CE7]"
+                  />
+                  <span className="text-[9px] text-muted w-10 text-right">{trimStart.toFixed(1)}s</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[9px] text-muted w-10">End</label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={videoDuration}
+                    step={0.1}
+                    value={trimEnd ?? videoDuration}
+                    onChange={e => {
+                      const v = Number(e.target.value)
+                      setTrimEnd(v >= videoDuration - 0.05 ? null : Math.max(v, trimStart + 0.5))
+                      if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }
+                    }}
+                    className="flex-1 accent-[#6C5CE7]"
+                  />
+                  <span className="text-[9px] text-muted w-10 text-right">{(trimEnd ?? videoDuration).toFixed(1)}s</span>
+                </div>
+              </div>
+            )}
+
             {/* Video overlay controls — shown when any overlay-supporting destination is checked (or photo-to-video enabled) */}
             {((isVideoFile || (isImageFile && photoToVideoEnabled)) && (postDests.ig_reel || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts || postDests.tiktok)) && (
               <div className="mt-2 border-t border-border pt-2">
@@ -1631,7 +1692,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     </select>
                   )}
                 </div>
-                {(storyCaptionStyle === 'overlay' || (isImageFile && photoToVideoEnabled)) && (
+                {(storyCaptionStyle === 'overlay' || (isImageFile && photoToVideoEnabled) || (isVideoFile && (trimStart > 0 || trimEnd != null))) && (
                   <div className="mt-1.5 space-y-1.5">
                     {/* Preview with live overlay positioning — works for videos and photo-to-video */}
                     {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
@@ -2006,6 +2067,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 storyCaptionStyle, overlayYPct,
                                 {
                                   fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
+                                  trimStart, trimEnd,
                                   openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
                                   photoToVideo: isImageFile && photoToVideoEnabled,
                                   photoToVideoDuration,
@@ -2123,16 +2185,20 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     // Helper: build the overlayOpts object for a destination with its specific text
                     const overlayOptsFor = (destKey) => {
                       const { opening, closing } = textFor(destKey)
-                      return { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, opening_text: opening, closing_text: closing, opening_duration: openingDuration, closing_duration: closingDuration }
+                      return { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, trim_start: trimStart, trim_end: trimEnd, opening_text: opening, closing_text: closing, opening_duration: openingDuration, closing_duration: closingDuration }
                     }
                     const fontOptsFor = (destKey) => {
                       const { opening, closing } = textFor(destKey)
-                      return { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, openingText: opening, closingText: closing, openingDuration, closingDuration }
+                      return { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, trimStart, trimEnd, openingText: opening, closingText: closing, openingDuration, closingDuration }
                     }
                     // When AI per-platform overlays are active, we can't reuse a single processedBase64
                     // across destinations — each needs its own text burned in. So the backend does the
                     // processing per-destination (processedBase64 only applies to shared-overlay mode).
                     const canReuseProcessed = hasOverlays && processedBase64 && !aiOverlaysEnabled
+                    // Trim-only opts — used when overlays aren't set but the user has trimmed.
+                    const hasTrim = (trimStart > 0) || (trimEnd != null)
+                    const trimOnlyOpts = hasTrim ? { trim_start: trimStart, trim_end: trimEnd } : {}
+                    const trimOnlyFontOpts = hasTrim ? { trimStart, trimEnd } : {}
 
                     if (postDests.ig_post) {
                       // IG Post = still image to feed. Always uses the raw image, no overlays.
@@ -2143,7 +2209,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('ig_reel') : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('ig_reel') : trimOnlyOpts)
                       try { await api.postToInstagram(value, b64, mt, overlayOpts); results.push('IG Reel') } catch (e) { results.push(`IG Reel failed: ${e.message}`) }
                     }
                     if (postDests.ig_story) {
@@ -2151,7 +2217,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const cs = useProcessed ? 'none' : storyCaptionStyle
-                      try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOptsFor('ig_story')); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
+                      try { await api.postToInstagramStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : (storyCaptionStyle === 'overlay' ? fontOptsFor('ig_story') : trimOnlyFontOpts)); results.push('IG Story') } catch (e) { results.push(`IG Story failed: ${e.message}`) }
                     }
                     if (postDests.fb_post) {
                       // FB post always uses the raw file (photo or video), no overlays
@@ -2161,7 +2227,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('fb_reel') : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('fb_reel') : trimOnlyOpts)
                       try { await api.postToFacebookReel(value, b64, mt, overlayOpts); results.push('FB Reel') } catch (e) { results.push(`FB Reel failed: ${e.message}`) }
                     }
                     if (postDests.fb_story) {
@@ -2169,14 +2235,14 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const cs = useProcessed ? 'none' : storyCaptionStyle
-                      try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : fontOptsFor('fb_story')); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
+                      try { await api.postToFacebookStory(storyCaptionStyle === 'overlay' ? storyText : value, b64, mt, cs, overlayYPct, useProcessed ? {} : (storyCaptionStyle === 'overlay' ? fontOptsFor('fb_story') : trimOnlyFontOpts)); results.push('FB Story') } catch (e) { results.push(`FB Story failed: ${e.message}`) }
                     }
                     if (postDests.yt_shorts) {
                       const useProcessed = canReuseProcessed
                       const b64 = useProcessed ? processedBase64 : videoSrcB64
                       const mt = useProcessed ? 'video/mp4' : videoSrcType
                       const ytCaption = JSON.stringify({ title: title || item.file?.name || 'Short', description: value, tags })
-                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('yt_shorts') : {})
+                      const overlayOpts = useProcessed ? {} : (hasOverlays ? overlayOptsFor('yt_shorts') : trimOnlyOpts)
                       try { await api.postToYoutubeShorts(ytCaption, b64, mt, overlayOpts); results.push('YT Shorts') } catch (e) { results.push(`YT Shorts failed: ${e.message}`) }
                     }
                     if (postDests.yt_video) {
