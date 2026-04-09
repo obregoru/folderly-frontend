@@ -919,12 +919,19 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [postStatus, setPostStatus] = useState('')
   const [showAiAnalysis, setShowAiAnalysis] = useState(false)
   // storyEnabled is derived from postDests — defined after postDests below
-  // Overlay settings are stored on the item object so they persist across platform tab
-  // switches. Each useState initializer reads from item._overlaySettings, and a useEffect
-  // below writes state back to item on every change. This means if the user configures
-  // overlay text + fonts on the Instagram tab and switches to Facebook, the settings
-  // carry over instead of resetting to defaults.
-  const _os = item._overlaySettings || {}
+  // Overlay settings: two levels of scope.
+  //  1) item._overlaySettings — shared baseline used by every tab by default
+  //  2) item._tabOverrides[platform] — per-tab override, only used if this tab
+  //     is "customized". Editing a customized tab writes to its override and
+  //     doesn't affect other tabs. Editing a non-customized tab writes to the
+  //     shared baseline, updating every non-customized tab.
+  item._tabOverrides = item._tabOverrides || {}
+  item._customizedTabs = item._customizedTabs || {}
+  const [customizedForTab, setCustomizedForTab] = useState(!!item._customizedTabs[platform])
+  // Effective settings for THIS tab: override if customized, else baseline
+  const _os = customizedForTab
+    ? { ...(item._overlaySettings || {}), ...(item._tabOverrides[platform] || {}) }
+    : (item._overlaySettings || {})
   const [storyCaptionStyle, setStoryCaptionStyle] = useState(_os.storyCaptionStyle || 'none')
   const [storyPreview, setStoryPreview] = useState(null)
   const [overlayYPct, setOverlayYPct] = useState(_os.overlayYPct ?? 70)
@@ -959,15 +966,21 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [closingText, setClosingText] = useState(_os.closingText || '')
   const [openingDuration, setOpeningDuration] = useState(_os.openingDuration ?? 3)
   const [closingDuration, setClosingDuration] = useState(_os.closingDuration ?? 3)
-  // Share generated preview across platform tabs via the item object. Tabs unmount on switch
-  // so local state is lost — storing on item._sharedPreviewUrl lets new tab mounts pick it up.
-  const [generatedPreviewUrl, setGeneratedPreviewUrlInternal] = useState(() => item._sharedPreviewUrl || null)
+  // Preview URL scoping: customized tabs get their own preview URL at
+  // item._tabPreviewUrls[platform]. Non-customized tabs share item._sharedPreviewUrl.
+  item._tabPreviewUrls = item._tabPreviewUrls || {}
+  const initialPreviewUrl = customizedForTab
+    ? (item._tabPreviewUrls[platform] || null)
+    : (item._sharedPreviewUrl || null)
+  const [generatedPreviewUrl, setGeneratedPreviewUrlInternal] = useState(initialPreviewUrl)
   const setGeneratedPreviewUrl = (url) => {
     setGeneratedPreviewUrlInternal(url)
-    if (url) {
-      item._sharedPreviewUrl = url
-    } else if (item._sharedPreviewUrl) {
-      delete item._sharedPreviewUrl
+    if (customizedForTab) {
+      if (url) item._tabPreviewUrls[platform] = url
+      else delete item._tabPreviewUrls[platform]
+    } else {
+      if (url) item._sharedPreviewUrl = url
+      else if (item._sharedPreviewUrl) delete item._sharedPreviewUrl
     }
   }
   const [generatingPreview, setGeneratingPreview] = useState(false)
@@ -988,11 +1001,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const storyEnabled = postDests.ig_story || postDests.fb_story
   const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
 
-  // Persist overlay settings to the item object so they survive tab switches
-  // (tabs unmount on switch — if we didn't persist, switching to another platform
-  // and enabling Text overlay would reset everything to defaults)
+  // Persist overlay settings. Two scopes:
+  //  - Customized tab: write to item._tabOverrides[platform] (only this tab)
+  //  - Not customized: write to item._overlaySettings (shared baseline, affects every
+  //    non-customized tab the user switches to)
   useEffect(() => {
-    item._overlaySettings = {
+    const settings = {
       storyCaptionStyle, overlayYPct, storyText,
       storyFontSize, storyFontFamily, storyFontColor,
       storyFontOutline, storyFontOutlineWidth, storyLineHeight, storyLetterSpacing,
@@ -1000,7 +1014,13 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
       openingText, closingText, openingDuration, closingDuration,
     }
+    if (customizedForTab) {
+      item._tabOverrides[platform] = settings
+    } else {
+      item._overlaySettings = settings
+    }
   }, [
+    customizedForTab,
     storyCaptionStyle, overlayYPct, storyText,
     storyFontSize, storyFontFamily, storyFontColor,
     storyFontOutline, storyFontOutlineWidth, storyLineHeight, storyLetterSpacing,
@@ -1459,6 +1479,68 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 </label>
               )}
             </div>
+
+            {/* Per-tab customization toggle — lets this tab diverge from the shared video */}
+            {(isVideoFile || canPhotoToVideo) && (
+              <div className="mt-2 flex items-center gap-1.5 text-[10px]">
+                <label className="flex items-center gap-1 cursor-pointer text-muted">
+                  <input
+                    type="checkbox"
+                    checked={customizedForTab}
+                    onChange={e => {
+                      const checked = e.target.checked
+                      if (checked) {
+                        // Copy baseline into the override so current settings carry over,
+                        // then mark this tab as customized. Any future changes only affect
+                        // this tab's override, not the shared baseline.
+                        item._tabOverrides[platform] = { ...(item._overlaySettings || {}) }
+                        item._customizedTabs[platform] = true
+                        setCustomizedForTab(true)
+                      } else {
+                        // Drop the override and the per-tab preview/cache. Next read returns
+                        // to the shared baseline.
+                        delete item._tabOverrides[platform]
+                        delete item._customizedTabs[platform]
+                        if (item._tabPreviewUrls?.[platform]) {
+                          try { URL.revokeObjectURL(item._tabPreviewUrls[platform]) } catch {}
+                          delete item._tabPreviewUrls[platform]
+                        }
+                        setCustomizedForTab(false)
+                        // Sync UI state from the baseline
+                        const baseline = item._overlaySettings || {}
+                        setStoryCaptionStyle(baseline.storyCaptionStyle || 'none')
+                        setOverlayYPct(baseline.overlayYPct ?? 70)
+                        setStoryText(baseline.storyText || '')
+                        setStoryFontSize(baseline.storyFontSize ?? 48)
+                        setStoryFontFamily(baseline.storyFontFamily || 'sans-serif')
+                        setStoryFontColor(baseline.storyFontColor || '#ffffff')
+                        setStoryFontOutline(baseline.storyFontOutline ?? false)
+                        setStoryFontOutlineWidth(baseline.storyFontOutlineWidth ?? 3)
+                        setStoryLineHeight(baseline.storyLineHeight ?? 1.3)
+                        setStoryLetterSpacing(baseline.storyLetterSpacing ?? 0)
+                        setAiOverlaysEnabled(baseline.aiOverlaysEnabled ?? false)
+                        setPerPlatformOverlays(baseline.perPlatformOverlays || {})
+                        setOverlayHint(baseline.overlayHint || '')
+                        setPreviewDestKey(baseline.previewDestKey || null)
+                        setPhotoToVideoEnabled(baseline.photoToVideoEnabled ?? false)
+                        setPhotoToVideoDuration(baseline.photoToVideoDuration ?? 7)
+                        setPhotoZoom(baseline.photoZoom || 'in')
+                        setPhotoPan(baseline.photoPan || 'none')
+                        setOpeningText(baseline.openingText || '')
+                        setClosingText(baseline.closingText || '')
+                        setOpeningDuration(baseline.openingDuration ?? 3)
+                        setClosingDuration(baseline.closingDuration ?? 3)
+                        // Revert to shared preview URL (if any)
+                        setGeneratedPreviewUrlInternal(item._sharedPreviewUrl || null)
+                      }
+                    }}
+                    className="accent-[#6C5CE7]"
+                  />
+                  <span>Customize for this platform only</span>
+                  {customizedForTab && <span className="text-[9px] text-[#6C5CE7] bg-[#f3f0ff] border border-[#6C5CE7] rounded-full px-1.5 ml-1">custom</span>}
+                </label>
+              </div>
+            )}
 
             {/* Photo-to-video (Ken Burns) — shown when the upload is an image and video destinations are checked */}
             {canPhotoToVideo && (
@@ -1954,8 +2036,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       // Reuse across destinations so we only call photoToVideo once per (motion, duration)
                       // combination, instead of regenerating for each post or each switch between preview/post.
                       const cacheKey = `${photoToVideoMotion}::${photoToVideoDuration}`
-                      if (item._kenBurnsCache && item._kenBurnsCache.key === cacheKey) {
-                        videoBase64 = item._kenBurnsCache.base64
+                      item._kenBurnsCaches = item._kenBurnsCaches || {}
+                      if (item._kenBurnsCaches[cacheKey]) {
+                        videoBase64 = item._kenBurnsCaches[cacheKey]
                         videoType = 'video/mp4'
                       } else {
                         setPostStatus('Converting photo to video...')
@@ -1964,8 +2047,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           if (r.error) throw new Error(r.error)
                           videoBase64 = r.video_base64
                           videoType = 'video/mp4'
-                          // Cache for reuse
-                          item._kenBurnsCache = { key: cacheKey, base64: videoBase64 }
+                          item._kenBurnsCaches[cacheKey] = videoBase64
                         } catch (e) {
                           setPostStatus('Photo-to-video failed: ' + e.message)
                           setPosting(false)
@@ -2132,14 +2214,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 if (isImageFile && photoToVideoEnabled) {
                   // Photo → motion video (zoom or pan) — reuse cached Ken Burns video if available
                   const cacheKey = `${photoToVideoMotion}::${photoToVideoDuration}`
+                  item._kenBurnsCaches = item._kenBurnsCaches || {}
                   let videoB64
-                  if (item._kenBurnsCache && item._kenBurnsCache.key === cacheKey) {
-                    videoB64 = item._kenBurnsCache.base64
+                  if (item._kenBurnsCaches[cacheKey]) {
+                    videoB64 = item._kenBurnsCaches[cacheKey]
                   } else {
                     result = await apiMod.photoToVideo(b64, item.file.type, photoToVideoDuration, photoToVideoMotion)
                     if (result.error) throw new Error(result.error)
                     videoB64 = result.video_base64
-                    item._kenBurnsCache = { key: cacheKey, base64: videoB64 }
+                    item._kenBurnsCaches[cacheKey] = videoB64
                   }
                   const byteChars = atob(videoB64)
                   const bytes = new Uint8Array(byteChars.length)
