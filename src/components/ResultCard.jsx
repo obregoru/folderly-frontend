@@ -1433,19 +1433,19 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 {photoToVideoEnabled && (
                   <div className="ml-5 mt-1 flex items-center gap-2 flex-wrap">
                     <label className="text-[10px] text-muted">Zoom:</label>
-                    <select value={photoZoom} onChange={e => setPhotoZoom(e.target.value)} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
+                    <select value={photoZoom} onChange={e => { setPhotoZoom(e.target.value); if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) } }} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
                       <option value="none">None</option>
                       <option value="in">In (Ken Burns)</option>
                       <option value="out">Out</option>
                     </select>
                     <label className="text-[10px] text-muted">Pan:</label>
-                    <select value={photoPan} onChange={e => setPhotoPan(e.target.value)} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
+                    <select value={photoPan} onChange={e => { setPhotoPan(e.target.value); if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) } }} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
                       <option value="none">None</option>
                       <option value="lr">Left → right</option>
                       <option value="rl">Right → left</option>
                     </select>
                     <label className="text-[10px] text-muted">Duration:</label>
-                    <select value={photoToVideoDuration} onChange={e => setPhotoToVideoDuration(Number(e.target.value))} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
+                    <select value={photoToVideoDuration} onChange={e => { setPhotoToVideoDuration(Number(e.target.value)); if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) } }} className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white">
                       <option value={5}>5s</option>
                       <option value={7}>7s</option>
                       <option value={10}>10s</option>
@@ -1913,18 +1913,29 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     // This becomes the "video source" for video destinations; photo dests still use rawBase64
                     let videoBase64 = null, videoType = null
                     if (photoToVideoEnabled && isImageFile) {
-                      setPostStatus('Converting photo to video...')
-                      try {
-                        const r = await api.photoToVideo(rawBase64, rawType, photoToVideoDuration, photoToVideoMotion)
-                        if (r.error) throw new Error(r.error)
-                        videoBase64 = r.video_base64
+                      // Cache the base Ken Burns video on the item object, keyed by motion+duration.
+                      // Reuse across destinations so we only call photoToVideo once per (motion, duration)
+                      // combination, instead of regenerating for each post or each switch between preview/post.
+                      const cacheKey = `${photoToVideoMotion}::${photoToVideoDuration}`
+                      if (item._kenBurnsCache && item._kenBurnsCache.key === cacheKey) {
+                        videoBase64 = item._kenBurnsCache.base64
                         videoType = 'video/mp4'
-                      } catch (e) {
-                        setPostStatus('Photo-to-video failed: ' + e.message)
-                        setPosting(false)
-                        return
+                      } else {
+                        setPostStatus('Converting photo to video...')
+                        try {
+                          const r = await api.photoToVideo(rawBase64, rawType, photoToVideoDuration, photoToVideoMotion)
+                          if (r.error) throw new Error(r.error)
+                          videoBase64 = r.video_base64
+                          videoType = 'video/mp4'
+                          // Cache for reuse
+                          item._kenBurnsCache = { key: cacheKey, base64: videoBase64 }
+                        } catch (e) {
+                          setPostStatus('Photo-to-video failed: ' + e.message)
+                          setPosting(false)
+                          return
+                        }
+                        setPostStatus('')
                       }
-                      setPostStatus('')
                     } else if (isVideoFile) {
                       videoBase64 = rawBase64
                       videoType = rawType
@@ -2082,10 +2093,18 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 const b64 = await fileToBase64(item.file)
                 let result
                 if (isImageFile && photoToVideoEnabled) {
-                  // Photo → motion video (zoom or pan)
-                  result = await apiMod.photoToVideo(b64, item.file.type, photoToVideoDuration, photoToVideoMotion)
-                  if (result.error) throw new Error(result.error)
-                  const byteChars = atob(result.video_base64)
+                  // Photo → motion video (zoom or pan) — reuse cached Ken Burns video if available
+                  const cacheKey = `${photoToVideoMotion}::${photoToVideoDuration}`
+                  let videoB64
+                  if (item._kenBurnsCache && item._kenBurnsCache.key === cacheKey) {
+                    videoB64 = item._kenBurnsCache.base64
+                  } else {
+                    result = await apiMod.photoToVideo(b64, item.file.type, photoToVideoDuration, photoToVideoMotion)
+                    if (result.error) throw new Error(result.error)
+                    videoB64 = result.video_base64
+                    item._kenBurnsCache = { key: cacheKey, base64: videoB64 }
+                  }
+                  const byteChars = atob(videoB64)
                   const bytes = new Uint8Array(byteChars.length)
                   for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
                   const blob = new Blob([bytes], { type: 'video/mp4' })
