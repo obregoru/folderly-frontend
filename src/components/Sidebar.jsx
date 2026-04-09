@@ -102,6 +102,55 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
           <datalist id="biz-type-list">{BUSINESS_TYPES.map(t => <option key={t} value={t} />)}</datalist></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Brand rules <HelpTip text="Custom instructions the AI must follow. E.g. 'Never mention competitors', 'Always call it a studio not a shop', 'Use emoji sparingly'. These override default behavior." /></label>
           <textarea rows={5} className="field-input resize-none" value={s.brand_rules || ''} onChange={e => save('brand_rules', e.target.value)} /></div>
+
+        {/* Vocabulary — per-tenant word/phrase substitutions */}
+        <div className="mb-2">
+          <label className="text-[11px] text-muted block mb-0.5">
+            Vocabulary <HelpTip text="Words and phrases the AI should never use, with preferred alternatives. Applies to every generated caption, overlay, title, and refine. Example: avoid 'moist' → use 'wet'. Works for single words or whole phrases." />
+            <span className="float-right text-[10px] text-sage cursor-pointer" onClick={() => {
+              const list = Array.isArray(s.vocabulary) ? s.vocabulary : []
+              save('vocabulary', [...list, { avoid: '', use: '' }])
+            }}>+ add</span>
+          </label>
+          <div className="flex flex-col gap-1">
+            {(!Array.isArray(s.vocabulary) || s.vocabulary.length === 0) && (
+              <span className="text-[10px] text-muted italic">No vocabulary rules yet — add one to guide AI word choice.</span>
+            )}
+            {Array.isArray(s.vocabulary) && s.vocabulary.map((v, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <input
+                  className="field-input flex-1 text-[11px]"
+                  placeholder="Avoid (word or phrase)"
+                  value={v?.avoid || ''}
+                  onChange={e => {
+                    const next = [...s.vocabulary]
+                    next[i] = { ...next[i], avoid: e.target.value }
+                    save('vocabulary', next)
+                  }}
+                />
+                <span className="text-[10px] text-muted">→</span>
+                <input
+                  className="field-input flex-1 text-[11px]"
+                  placeholder="Use instead"
+                  value={v?.use || ''}
+                  onChange={e => {
+                    const next = [...s.vocabulary]
+                    next[i] = { ...next[i], use: e.target.value }
+                    save('vocabulary', next)
+                  }}
+                />
+                <button
+                  className="text-[14px] text-muted hover:text-[#c0392b] px-1 cursor-pointer bg-transparent border-none leading-none"
+                  title="Remove"
+                  onClick={() => {
+                    const next = s.vocabulary.filter((_, j) => j !== i)
+                    save('vocabulary', next)
+                  }}
+                >×</button>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords <HelpTip text="Global brand-level keywords that always apply. Keyword sets below add activity-specific keywords on top of these." /></label>
           <input className="field-input" placeholder="perfume making, candle workshop, date night Milwaukee" value={s.seo_keywords || ''} onChange={e => save('seo_keywords', e.target.value)} /></div>
 
