@@ -286,6 +286,11 @@ export const convertToMp4 = (imageBase64, mediaType, quality = 'medium') =>
 export const photoToVideo = (imageBase64, mediaType, duration = 7, motion = 'zoom') =>
   fetch(api('/post/photo-to-video'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType, duration, motion }) }).then(r => r.json())
 
+// Merge 2+ trimmed video clips into a single MP4 with optional transitions
+// clips: [{ video_base64, trim_start, trim_end }], transition: string, transition_duration: number
+export const mergeVideos = (clips, transition = 'none', transitionDuration = 1) =>
+  fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration }) }).then(r => r.json())
+
 // YouTube
 export const startYoutubeConnect = () =>
   fetch(api('/connect/youtube'), { credentials: 'include' }).then(r => r.json())

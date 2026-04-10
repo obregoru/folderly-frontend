@@ -10,6 +10,7 @@ import Sidebar from './components/Sidebar'
 import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
 import VideoTrimmer from './components/VideoTrimmer'
+import VideoMerge from './components/VideoMerge'
 import ResultCard from './components/ResultCard'
 import ScheduledPosts from './components/ScheduledPosts'
 // Calendar removed from main form — schedule modal now has all calendar views with job names
@@ -567,6 +568,19 @@ export default function App() {
                 <VideoTrimmer key={f.id} item={f} />
               ))}
             </div>
+          )}
+
+          {/* Merge videos — shown below trimmers when 2+ videos are uploaded */}
+          {files.filter(f => f.file?.type?.startsWith('video/')).length >= 2 && (
+            <VideoMerge
+              videoFiles={files.filter(f => f.file?.type?.startsWith('video/'))}
+              onMerged={({ blob, url, base64 }) => {
+                // Store the merged video so the post flow can use it.
+                // We stash it on window for now — a proper state solution
+                // would be a context, but this keeps it simple.
+                window._postyMergedVideo = { blob, url, base64 }
+              }}
+            />
           )}
 
           {/* Content hint — between uploads and generate button */}
