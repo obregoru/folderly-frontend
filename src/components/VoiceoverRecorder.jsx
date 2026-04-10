@@ -19,6 +19,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const chunksRef = useRef([])
   // Video monitor — plays muted during recording so you can narrate to picture
   const monitorRef = useRef(null)
+  const audioPreviewRef = useRef(null)
   const [recordTime, setRecordTime] = useState(0)
   const recordTimerRef = useRef(null)
   const [monitorDuration, setMonitorDuration] = useState(0)
@@ -362,11 +363,55 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         </div>
       )}
 
-      {/* Audio preview */}
+      {/* Audio preview — plays synced with the muted video monitor so you
+          can see how the voiceover lines up with the visuals. */}
       {audioUrl && (
         <div className="space-y-1.5">
-          <div className="text-[10px] text-muted font-medium">Audio preview:</div>
-          <audio src={audioUrl} controls className="w-full h-8" />
+          <div className="text-[10px] text-muted font-medium">Audio preview (plays with video):</div>
+          {/* Synced video + audio preview. The video plays muted alongside the
+              audio so you can see how they line up before committing. */}
+          {monitorSrc && (
+            <div className="relative rounded border border-border overflow-hidden bg-black" style={{ maxHeight: 180 }}>
+              <video
+                ref={monitorRef}
+                src={monitorSrc}
+                muted
+                playsInline
+                preload="auto"
+                className="w-full max-h-[180px] object-contain"
+                onLoadedMetadata={e => setMonitorDuration(e.target.duration)}
+              />
+            </div>
+          )}
+          <audio
+            ref={audioPreviewRef}
+            src={audioUrl}
+            controls
+            className="w-full h-8"
+            onPlay={() => {
+              // Sync: when audio starts playing, play the muted video from trimStart
+              const v = monitorRef.current
+              if (v) {
+                try { v.currentTime = monitorTrimStart } catch {}
+                v.muted = true
+                v.play().catch(() => {})
+              }
+            }}
+            onPause={() => {
+              // Pause the video when audio is paused
+              try { monitorRef.current?.pause() } catch {}
+            }}
+            onSeeked={(e) => {
+              // Sync video position when user scrubs the audio
+              const v = monitorRef.current
+              if (v) {
+                try { v.currentTime = monitorTrimStart + (e.target.currentTime || 0) } catch {}
+              }
+            }}
+            onEnded={() => {
+              try { monitorRef.current?.pause() } catch {}
+            }}
+          />
           <button
             onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null) }}
             className="text-[9px] text-muted hover:underline bg-transparent border-none cursor-pointer"
