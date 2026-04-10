@@ -97,9 +97,16 @@ export default function VideoTrimmer({ item }) {
       canvas.height = Math.max(1, Math.round(96 / aspect))
       const ctx = canvas.getContext('2d')
       const thumbs = []
+      // iOS returns a black canvas when seeking to exactly 0 — the decoder
+      // isn't primed yet. Start a little past 0 and end a little before the
+      // duration so both edges are decodable.
+      const edgePad = isMobile ? 0.15 : 0.02
+      const rangeStart = Math.min(edgePad, videoDuration * 0.02)
+      const rangeEnd = Math.max(rangeStart, videoDuration - edgePad)
       for (let i = 0; i < FRAME_COUNT; i++) {
         if (cancelled) return
-        const t = Math.min(videoDuration * (i / (FRAME_COUNT - 1)), Math.max(0, videoDuration - 0.05))
+        const frac = FRAME_COUNT === 1 ? 0 : i / (FRAME_COUNT - 1)
+        const t = rangeStart + (rangeEnd - rangeStart) * frac
         await seekTo(t)
         if (cancelled) return
         // Two rAFs so iOS has a full compositor cycle to paint the new frame
@@ -113,12 +120,22 @@ export default function VideoTrimmer({ item }) {
           const px = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height)).data
           let sum = 0
           for (let p = 0; p < px.length; p += 4) sum += px[p] + px[p + 1] + px[p + 2]
-          if (sum < 50 && thumbs.length > 0) {
-            thumbs.push(thumbs[thumbs.length - 1])
+          if (sum < 50) {
+            // Black frame — placeholder for now, we'll backfill after the
+            // loop once iOS has warmed up. Store null so we can detect it.
+            thumbs.push(null)
           } else {
             thumbs.push(canvas.toDataURL('image/jpeg', 0.55))
           }
-          setTrimThumbs([...thumbs])
+          // For display, substitute a neighbor for any null slots so the
+          // strip never shows a hole mid-render.
+          const displayThumbs = thumbs.map((t, idx) => {
+            if (t) return t
+            for (let j = idx + 1; j < thumbs.length; j++) if (thumbs[j]) return thumbs[j]
+            for (let j = idx - 1; j >= 0; j--) if (thumbs[j]) return thumbs[j]
+            return null
+          })
+          setTrimThumbs(displayThumbs)
           setThumbProgress({ done: thumbs.length, total: FRAME_COUNT })
         } catch (err) {
           console.warn('[trim] thumbnail capture failed:', err.message)
@@ -126,6 +143,37 @@ export default function VideoTrimmer({ item }) {
         }
         // Let iOS breathe between seeks — without this the decoder can
         // back up and later seeks take longer and longer.
+        if (isMobile) await new Promise(r => setTimeout(r, 40))
+      }
+      // Second pass: retry any slots that came back black. By this point
+      // iOS's decoder is fully warmed up, so the retry usually works.
+      for (let i = 0; i < FRAME_COUNT; i++) {
+        if (cancelled) return
+        if (thumbs[i] != null) continue
+        const frac = FRAME_COUNT === 1 ? 0 : i / (FRAME_COUNT - 1)
+        // Nudge the seek target forward by 0.25s to land on a keyframe
+        // neighborhood that's more likely to have a decodable frame.
+        const t = Math.min(rangeEnd, rangeStart + (rangeEnd - rangeStart) * frac + 0.25)
+        await seekTo(t)
+        if (cancelled) return
+        await new Promise(r => requestAnimationFrame(r))
+        await new Promise(r => requestAnimationFrame(r))
+        try {
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+          const px2 = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height)).data
+          let sum2 = 0
+          for (let p = 0; p < px2.length; p += 4) sum2 += px2[p] + px2[p + 1] + px2[p + 2]
+          if (sum2 >= 50) {
+            thumbs[i] = canvas.toDataURL('image/jpeg', 0.55)
+            const displayThumbs = thumbs.map((tt, idx) => {
+              if (tt) return tt
+              for (let j = idx + 1; j < thumbs.length; j++) if (thumbs[j]) return thumbs[j]
+              for (let j = idx - 1; j >= 0; j--) if (thumbs[j]) return thumbs[j]
+              return null
+            })
+            setTrimThumbs(displayThumbs)
+          }
+        } catch {}
         if (isMobile) await new Promise(r => setTimeout(r, 40))
       }
     }
