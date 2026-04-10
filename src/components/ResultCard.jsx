@@ -1019,7 +1019,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     blog: platform === 'blog',
   })
   const storyEnabled = postDests.ig_story || postDests.fb_story
-  const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
+  const [videoSrcBase] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
+  // Append a Media Fragments URI (#t=start,end) so the browser plays only
+  // the trimmed range natively. Recomputed on every render so trim changes
+  // (which bump _trimVersion via forceRerender below) take effect.
+  const _ts = item._trimStart || 0
+  const _te = item._trimEnd
+  const videoSrc = (_ts > 0 || _te != null)
+    ? `${videoSrcBase}#t=${_ts.toFixed(2)}${_te != null ? `,${_te.toFixed(2)}` : ''}`
+    : videoSrcBase
 
   // Persist overlay settings. Two scopes:
   //  - Customized tab: write to item._tabOverrides[platform] (only this tab)
@@ -1668,6 +1676,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <>
                               {isVideoFile ? (
                                 <video
+                                  // Remount on trim change so the browser re-parses
+                                  // the Media Fragments URI (#t=start,end) in src.
+                                  key={`${_ts}-${_te ?? 'end'}`}
                                   ref={videoPreviewRef}
                                   src={videoSrc}
                                   className="w-full h-full object-cover"
@@ -1675,24 +1686,32 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   muted
                                   loop
                                   playsInline
+                                  preload="auto"
                                   onTimeUpdate={e => {
                                     const v = e.target
                                     setVideoTime(v.currentTime)
-                                    // Enforce trim bounds on the scrub player — loop back
-                                    // to trimStart when we hit trimEnd so the preview
-                                    // actually reflects what the posted/generated video
-                                    // will look like.
+                                    // Belt-and-suspenders: even though the fragment URL
+                                    // tells the browser to stop at trimEnd, the loop
+                                    // attribute can sometimes wrap past it on Safari —
+                                    // clamp to be safe.
                                     const start = item._trimStart || 0
                                     const end = item._trimEnd ?? (v.duration || Infinity)
                                     if (v.currentTime >= end - 0.03) {
-                                      try { v.currentTime = start } catch {}
-                                    } else if (v.currentTime < start - 0.03) {
                                       try { v.currentTime = start } catch {}
                                     }
                                   }}
                                   onLoadedMetadata={e => {
                                     setVideoDuration(e.target.duration)
-                                    try { e.target.currentTime = item._trimStart || 0 } catch {}
+                                    // Force iOS to actually paint the first frame
+                                    // (otherwise the scrub player is just black until
+                                    // the user hits play). Briefly play and pause.
+                                    try {
+                                      e.target.muted = true
+                                      const p = e.target.play()
+                                      if (p && typeof p.then === 'function') {
+                                        p.then(() => setTimeout(() => { try { e.target.pause() } catch {} }, 150)).catch(() => {})
+                                      }
+                                    } catch {}
                                   }}
                                 />
                               ) : (
