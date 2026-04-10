@@ -100,6 +100,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         setAudioUrl(URL.createObjectURL(blob))
         // Stash on video items so CaptionEditor can include it in previews
         for (const vf of videoFiles) vf._voiceoverBlob = blob
+        try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
         // Pause the monitor
         try { monitorRef.current?.pause() } catch {}
         clearInterval(recordTimerRef.current)
@@ -338,7 +339,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           )}
           {audioUrl && !recording && (
             <button
-              onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob }}
+              onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob; try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {} }}
               className="text-[9px] text-muted hover:underline bg-transparent border-none cursor-pointer"
             >Discard</button>
           )}
@@ -422,7 +423,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             )}
             {audioUrl && !recording && (
               <button
-                onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob }}
+                onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob; try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {} }}
                 className="text-[9px] text-muted hover:underline bg-transparent border-none cursor-pointer"
               >Discard</button>
             )}

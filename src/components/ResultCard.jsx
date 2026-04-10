@@ -1173,6 +1173,26 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     }))
   }, [hasVideoNow])
   const videoPreviewRef = useRef(null)
+  const voiceoverAudioRef = useRef(null)
+  // Track voiceover blob — it's set by VoiceoverRecorder on item._voiceoverBlob.
+  // We poll for it since it's a plain mutation, not React state.
+  const [voiceoverUrl, setVoiceoverUrl] = useState(null)
+  useEffect(() => {
+    const check = () => {
+      const blob = item._voiceoverBlob
+      if (blob && !voiceoverUrl) {
+        setVoiceoverUrl(URL.createObjectURL(blob))
+      } else if (!blob && voiceoverUrl) {
+        URL.revokeObjectURL(voiceoverUrl)
+        setVoiceoverUrl(null)
+      }
+    }
+    check()
+    // Also listen for the voiceover-change event from VoiceoverRecorder
+    const onVoChange = () => check()
+    window.addEventListener('posty-voiceover-change', onVoChange)
+    return () => window.removeEventListener('posty-voiceover-change', onVoChange)
+  }, [item._voiceoverBlob])
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
 
@@ -1714,7 +1734,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     {/* Preview with live overlay positioning — works for videos and photo-to-video */}
                     {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1">
-                        <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
+                        <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 180, height: Math.round(180 / 9 * 16) }}>
                           {generatedPreviewUrl ? (
                             <>
                               <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls playsInline loop />
@@ -1788,7 +1808,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '15%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
                               <div className="absolute left-0 right-0 pointer-events-none" style={{ top: '75%', borderTop: '1px dashed rgba(255,255,255,0.4)' }} />
                               {(() => {
-                                const SCALE = 120 / 1080
+                                const SCALE = 180 / 1080
                                 // If AI per-platform overlays are active, preview the selected destination's text
                                 // Otherwise fall back to shared openingText/closingText
                                 const activeOverlay = (aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]) || null
@@ -1832,7 +1852,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   displayText = showOpening ? effOpening : showClosing ? effClosing : showFull ? storyText : null
                                 }
                                 if (!displayText) return null
-                                const previewH = Math.round(120 / 9 * 16)
+                                const previewH = Math.round(180 / 9 * 16)
                                 const scaledFontSize = Math.max(5, Math.round(storyFontSize * SCALE))
                                 const safeTopPx = Math.round(previewH * 0.15)
                                 const safeBottomPx = Math.round(previewH * 0.75)
@@ -1895,11 +1915,44 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           )}
                         </div>
                         {storyCaptionStyle === 'overlay' && (
-                          <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.25}px` }}>
+                          <div className="flex flex-col items-center" style={{ height: Math.round(180 / 9 * 16), paddingTop: `${Math.round(180 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(180 / 9 * 16) * 0.25}px` }}>
                             <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
                           </div>
                         )}
                       </div>
+                    )}
+                    {/* Voiceover audio bar — syncs with the scrub video above so you
+                        can hear the voiceover while previewing overlay positioning,
+                        without needing to click Generate Preview first. */}
+                    {voiceoverUrl && !generatedPreviewUrl && isVideoFile && (
+                      <audio
+                        ref={voiceoverAudioRef}
+                        src={voiceoverUrl}
+                        controls
+                        playsInline
+                        className="w-full h-8"
+                        onPlay={() => {
+                          const v = videoPreviewRef.current
+                          if (v) {
+                            const start = item._trimStart || 0
+                            try { v.currentTime = start + (voiceoverAudioRef.current?.currentTime || 0) } catch {}
+                            v.muted = true
+                            v.play().catch(() => {})
+                          }
+                        }}
+                        onPause={() => { try { videoPreviewRef.current?.pause() } catch {} }}
+                        onEnded={() => { try { videoPreviewRef.current?.pause() } catch {} }}
+                        onSeeked={(e) => {
+                          const v = videoPreviewRef.current
+                          if (v) {
+                            const start = item._trimStart || 0
+                            try { v.currentTime = start + (e.target.currentTime || 0) } catch {}
+                          }
+                        }}
+                      />
+                    )}
+                    {voiceoverUrl && !generatedPreviewUrl && isVideoFile && (
+                      <p className="text-[9px] text-muted -mt-1">Play the audio bar to hear voiceover synced with the video above.</p>
                     )}
                     {/* AI per-platform overlay toggle — only when overlay mode + a video is involved */}
                     {storyCaptionStyle === 'overlay' && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
