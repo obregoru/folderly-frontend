@@ -1742,10 +1742,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     {/* Preview with live overlay positioning — works for videos and photo-to-video */}
                     {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1">
-                        <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 180, height: Math.round(180 / 9 * 16) }}>
+                        <div className="relative rounded border border-border overflow-hidden bg-black" style={{ maxHeight: 320 }}>
                           {generatedPreviewUrl ? (
                             <>
-                              <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls playsInline loop />
+                              <video src={generatedPreviewUrl} className="w-full max-h-[320px] object-contain" controls playsInline />
                               <button
                                 type="button"
                                 onClick={() => saveVideo(generatedPreviewUrl, `${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`)}
@@ -1758,7 +1758,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 <video
                                   ref={videoPreviewRef}
                                   src={videoSrc}
-                                  className="w-full h-full object-contain"
+                                  className="w-full max-h-[320px] object-contain"
                                   muted={!voiceoverUrl}
                                   controls
                                   playsInline
@@ -1932,7 +1932,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           )}
                         </div>
                         {storyCaptionStyle === 'overlay' && (
-                          <div className="flex flex-col items-center" style={{ height: Math.round(180 / 9 * 16), paddingTop: `${Math.round(180 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(180 / 9 * 16) * 0.25}px` }}>
+                          <div className="flex flex-col items-center self-stretch py-4">
                             <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
                           </div>
                         )}
@@ -2559,53 +2559,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                   await saveVideo(generatedPreviewUrl, filename)
                   return
                 }
-                // No preview exists — generate one now with the full pipeline
-                // (trim + overlays + voiceover) so the download has everything.
-                setConverting(true)
-                const api = await import('../api')
-                const rawBase64 = await fileToBase64(item.file)
-                const rawType = item.file.type
-                const aiActive = aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]
-                const pOpening = aiActive ? (perPlatformOverlays[previewDestKey].opening || '') : openingText
-                const pClosing = aiActive ? (perPlatformOverlays[previewDestKey].closing || '') : closingText
-                let url = await api.previewStory(
-                  storyCaptionStyle === 'overlay' ? (storyText || value) : value,
-                  rawBase64, rawType,
-                  storyCaptionStyle, overlayYPct,
-                  {
-                    fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
-                    trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
-                    openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
-                    photoToVideo: isImageFile && photoToVideoEnabled,
-                    photoToVideoDuration,
-                    photoToVideoMotion,
-                  }
-                )
-                // Mix voiceover if available
-                if (item._voiceoverBlob) {
-                  try {
-                    const previewResp = await fetch(url)
-                    const previewBlob = await previewResp.blob()
-                    const vB64 = await new Promise((resolve) => {
-                      const r = new FileReader(); r.onload = () => { const b = new Uint8Array(r.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); resolve(btoa(s)) }; r.readAsArrayBuffer(previewBlob)
-                    })
-                    const aB64 = await new Promise((resolve) => {
-                      const r = new FileReader(); r.onload = () => { const b = new Uint8Array(r.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); resolve(btoa(s)) }; r.readAsArrayBuffer(item._voiceoverBlob)
-                    })
-                    const mixResult = await api.addVoiceover(vB64, aB64, 'mix', 0.3, 1.0)
-                    if (!mixResult.error) {
-                      URL.revokeObjectURL(url)
-                      const bc = atob(mixResult.video_base64); const by = new Uint8Array(bc.length); for (let i = 0; i < bc.length; i++) by[i] = bc.charCodeAt(i)
-                      url = URL.createObjectURL(new Blob([by], { type: 'video/mp4' }))
-                    }
-                  } catch (voErr) { console.warn('[download] voiceover mix failed:', voErr.message) }
-                }
-                // Cache as the generated preview so subsequent saves are instant
-                if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
-                setGeneratedPreviewUrl(url)
-                item._overlayPreviewUrl = url
-                // Now save
-                await saveVideo(url, filename)
+                // No preview — prompt the user to Generate Preview first.
+                // Auto-generating on-the-fly crashes iOS for large files because
+                // it requires reading the entire raw file into a base64 string.
+                alert('Please click "Generate Preview" first, then download. This ensures your trim, overlays, and voiceover are all applied.')
               } catch (e) { alert('Download failed: ' + e.message) }
               setConverting(false)
             }}
