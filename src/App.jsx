@@ -400,11 +400,16 @@ export default function App() {
     const isMobile = window.innerWidth < 768
     if (isMobile && !userHint.trim()) {
       showError('Please describe what\'s in the photo or video — this helps the AI write better content.')
+      // Scroll to the hint field so the user sees what needs filling in
+      document.getElementById('posty-hint')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      document.getElementById('posty-hint')?.focus()
       return
     }
     // On desktop, require hint only if all filenames are generic
     if (!isMobile && !userHint.trim() && files.every(f => isGenericFilename(f.file?.name || ''))) {
       showError('Your files have generic names (like IMG_1234). Add a context hint so the AI knows what\'s happening.')
+      document.getElementById('posty-hint')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      document.getElementById('posty-hint')?.focus()
       return
     }
 
@@ -620,6 +625,7 @@ export default function App() {
               </div>
             </div>
             <textarea
+              id="posty-hint"
               rows={2}
               value={userHint}
               onChange={e => { setUserHint(e.target.value); setReviewResult(null) }}
