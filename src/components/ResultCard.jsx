@@ -1049,12 +1049,27 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     openingText, closingText, openingDuration, closingDuration,
   ])
 
-  // Invalidate any locally-held preview when the file-level trim version
-  // changes — the parent ResultCard already cleared item._sharedPreviewUrl
-  // and item._tabPreviewUrls, so this just needs to drop our local state.
+  // Listen for trim changes on the parent file. item._trim* are plain
+  // object mutations so React won't re-render us when they change —
+  // VideoTrimmer fires a custom event and we react here. Drops any stale
+  // preview URL and seeks the scrub video to the new trimStart so the
+  // "below the tabs" player reflects the trim immediately.
+  const [, forceRerender] = useState(0)
   useEffect(() => {
-    setGeneratedPreviewUrlInternal(null)
-  }, [item._trimVersion])
+    const onTrimChange = (ev) => {
+      if (ev.detail?.itemId !== item.id) return
+      setGeneratedPreviewUrlInternal(null)
+      // Seek the scrub video to the new trim start so it visually snaps
+      // even if it's paused or hasn't started playing yet.
+      const vp = videoPreviewRef?.current
+      if (vp) {
+        try { vp.currentTime = ev.detail.trimStart || 0 } catch {}
+      }
+      forceRerender(t => t + 1)
+    }
+    window.addEventListener('posty-trim-change', onTrimChange)
+    return () => window.removeEventListener('posty-trim-change', onTrimChange)
+  }, [item.id])
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])

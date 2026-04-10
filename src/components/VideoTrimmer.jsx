@@ -182,7 +182,9 @@ export default function VideoTrimmer({ item }) {
   }, [src, videoDuration])
 
   // Write-through to item + invalidate cached previews so any later post
-  // or preview rebuild uses the new trim bounds.
+  // or preview rebuild uses the new trim bounds. Also broadcasts a custom
+  // event so CaptionEditor (which lives in a separate component tree and
+  // won't re-render from our mutation) can update its scrub player.
   const commitTrim = (nextStart, nextEnd) => {
     item._trimStart = nextStart
     item._trimEnd = nextEnd
@@ -201,6 +203,14 @@ export default function VideoTrimmer({ item }) {
       try { URL.revokeObjectURL(item._overlayPreviewUrl) } catch {}
       delete item._overlayPreviewUrl
     }
+    // Notify any consumer (like CaptionEditor) that our trim changed so
+    // it can re-sync its own video elements. We identify the file by
+    // item.id since consumers receive the same `item` reference.
+    try {
+      window.dispatchEvent(new CustomEvent('posty-trim-change', {
+        detail: { itemId: item.id, trimStart: nextStart, trimEnd: nextEnd },
+      }))
+    } catch {}
   }
 
   // Hidden video element — MUST be in the DOM for iOS Safari to decode
