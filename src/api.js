@@ -291,8 +291,8 @@ export const addVoiceover = (videoBase64, audioBase64, mode = 'mix', originalVol
   fetch(api('/post/add-voiceover'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ video_base64: videoBase64, audio_base64: audioBase64, mode, original_volume: originalVolume, voiceover_volume: voiceoverVolume }) }).then(r => r.json())
 
 // ElevenLabs TTS
-export const textToSpeech = (text, voiceId) =>
-  fetch(api('/generate/text-to-speech'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, voice_id: voiceId }) }).then(r => r.json())
+export const textToSpeech = (text, voiceId, voiceSettings = {}) =>
+  fetch(api('/generate/text-to-speech'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, voice_id: voiceId, ...voiceSettings }) }).then(r => r.json())
 export const getVoices = () =>
   fetch(api('/generate/voices'), { credentials: 'include' }).then(r => r.json())
 

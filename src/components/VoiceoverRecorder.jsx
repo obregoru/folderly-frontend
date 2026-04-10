@@ -30,6 +30,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [voices, setVoices] = useState([])
   const [selectedVoice, setSelectedVoice] = useState(settings?.elevenlabs_voice_id || '')
   const [voicesLoaded, setVoicesLoaded] = useState(false)
+  // ElevenLabs voice settings
+  const [ttsStability, setTtsStability] = useState(0.5)
+  const [ttsSimilarity, setTtsSimilarity] = useState(0.75)
+  const [ttsStyle, setTtsStyle] = useState(0)
+  const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(true)
 
   // --- Mix state ---
   const [mixMode, setMixMode] = useState('mix') // mix | replace
@@ -150,7 +155,12 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     setTtsLoading(true)
     try {
       const api = await import('../api')
-      const r = await api.textToSpeech(ttsText.trim(), selectedVoice || undefined)
+      const r = await api.textToSpeech(ttsText.trim(), selectedVoice || undefined, {
+        stability: ttsStability,
+        similarity_boost: ttsSimilarity,
+        style: ttsStyle,
+        use_speaker_boost: ttsSpeakerBoost,
+      })
       if (r.error) throw new Error(r.error)
       const byteChars = atob(r.audio_base64)
       const bytes = new Uint8Array(byteChars.length)
@@ -436,6 +446,29 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 >Preview</button>
               )
             })()}
+          </div>
+          {/* Voice settings — matches ElevenLabs GUI sliders */}
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+            <div className="flex items-center gap-1">
+              <label className="text-muted w-14">Stability</label>
+              <input type="range" min={0} max={1} step={0.01} value={ttsStability} onChange={e => setTtsStability(Number(e.target.value))} className="flex-1 accent-[#6C5CE7]" />
+              <span className="text-muted w-8 text-right">{Math.round(ttsStability * 100)}%</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <label className="text-muted w-14">Clarity</label>
+              <input type="range" min={0} max={1} step={0.01} value={ttsSimilarity} onChange={e => setTtsSimilarity(Number(e.target.value))} className="flex-1 accent-[#6C5CE7]" />
+              <span className="text-muted w-8 text-right">{Math.round(ttsSimilarity * 100)}%</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <label className="text-muted w-14">Style</label>
+              <input type="range" min={0} max={1} step={0.01} value={ttsStyle} onChange={e => setTtsStyle(Number(e.target.value))} className="flex-1 accent-[#6C5CE7]" />
+              <span className="text-muted w-8 text-right">{Math.round(ttsStyle * 100)}%</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <label className="text-muted w-14">Boost</label>
+              <input type="checkbox" checked={ttsSpeakerBoost} onChange={e => setTtsSpeakerBoost(e.target.checked)} className="accent-[#6C5CE7]" />
+              <span className="text-muted">Speaker boost</span>
+            </div>
           </div>
           <textarea
             rows={2}
