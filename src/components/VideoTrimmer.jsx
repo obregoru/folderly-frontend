@@ -97,16 +97,13 @@ export default function VideoTrimmer({ item }) {
       canvas.height = Math.max(1, Math.round(96 / aspect))
       const ctx = canvas.getContext('2d')
       const thumbs = []
-      // iOS returns a black canvas when seeking to exactly 0 — the decoder
-      // isn't primed yet. Start a little past 0 and end a little before the
-      // duration so both edges are decodable.
-      const edgePad = isMobile ? 0.15 : 0.02
-      const rangeStart = Math.min(edgePad, videoDuration * 0.02)
-      const rangeEnd = Math.max(rangeStart, videoDuration - edgePad)
+      // Sample at the exact proportional times so thumbnails visually align
+      // with the trim handles (which map 0–100% to 0–duration linearly).
+      // Black frames at t=0 are handled by the two-pass retry below.
       for (let i = 0; i < FRAME_COUNT; i++) {
         if (cancelled) return
         const frac = FRAME_COUNT === 1 ? 0 : i / (FRAME_COUNT - 1)
-        const t = rangeStart + (rangeEnd - rangeStart) * frac
+        const t = Math.min(frac * videoDuration, Math.max(0, videoDuration - 0.02))
         await seekTo(t)
         if (cancelled) return
         // Two rAFs so iOS has a full compositor cycle to paint the new frame
@@ -153,7 +150,7 @@ export default function VideoTrimmer({ item }) {
         const frac = FRAME_COUNT === 1 ? 0 : i / (FRAME_COUNT - 1)
         // Nudge the seek target forward by 0.25s to land on a keyframe
         // neighborhood that's more likely to have a decodable frame.
-        const t = Math.min(rangeEnd, rangeStart + (rangeEnd - rangeStart) * frac + 0.25)
+        const t = Math.min(videoDuration - 0.02, frac * videoDuration + 0.25)
         await seekTo(t)
         if (cancelled) return
         await new Promise(r => requestAnimationFrame(r))
