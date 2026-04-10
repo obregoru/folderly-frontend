@@ -1717,7 +1717,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
                           {generatedPreviewUrl ? (
                             <>
-                              <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls autoPlay loop playsInline />
+                              <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls playsInline loop />
                               <button
                                 type="button"
                                 onClick={() => saveVideo(generatedPreviewUrl, `${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`)}
