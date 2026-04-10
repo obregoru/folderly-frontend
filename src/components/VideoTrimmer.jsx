@@ -22,30 +22,48 @@ export default function VideoTrimmer({ item }) {
   useEffect(() => { trimStartRef.current = trimStart }, [trimStart])
   useEffect(() => { trimEndRef.current = trimEnd }, [trimEnd])
 
-  // Probe source video duration.
+  // Probe source video duration + capture filmstrip thumbnails. iOS Safari
+  // will NOT decode frames from a detached <video>, so we attach an invisible
+  // video element to the DOM, play() it briefly to force a decode, then seek
+  // through 10 points and draw each frame to canvas.
+  const hiddenVideoRef = useRef(null)
   useEffect(() => {
-    if (videoDuration > 0) return
-    const v = document.createElement('video')
-    v.preload = 'metadata'
-    v.muted = true
-    v.src = src
-    const onMeta = () => { if (v.duration && isFinite(v.duration)) setVideoDuration(v.duration) }
+    const v = hiddenVideoRef.current
+    if (!v) return
+    let cancelled = false
+
+    const onMeta = async () => {
+      if (cancelled) return
+      if (v.duration && isFinite(v.duration)) setVideoDuration(v.duration)
+      // Force iOS to actually decode a frame — muted + playsInline (set on
+      // the element) satisfy the autoplay policy. We play for one tick then
+      // immediately pause; subsequent seeks will paint real frames.
+      try {
+        v.muted = true
+        const p = v.play()
+        if (p && typeof p.then === 'function') await p
+        try { v.pause() } catch {}
+      } catch {
+        // Autoplay may be blocked on some browsers — still try to capture,
+        // desktop Chrome/Firefox will paint without it.
+      }
+    }
     v.addEventListener('loadedmetadata', onMeta)
-    return () => { v.removeEventListener('loadedmetadata', onMeta); v.src = '' }
+    return () => {
+      cancelled = true
+      v.removeEventListener('loadedmetadata', onMeta)
+    }
   }, [src])
 
-  // Capture 10 filmstrip thumbnails via canvas seek-and-draw.
   useEffect(() => {
     if (videoDuration <= 0) return
+    const v = hiddenVideoRef.current
+    if (!v) return
     let cancelled = false
     setTrimThumbs([])
     const N = 10
-    const v = document.createElement('video')
-    v.preload = 'auto'
-    v.muted = true
-    v.playsInline = true
-    v.src = src
     const canvas = document.createElement('canvas')
+
     const capture = async () => {
       const aspect = (v.videoWidth && v.videoHeight) ? v.videoWidth / v.videoHeight : 9 / 16
       canvas.width = 96
@@ -61,6 +79,8 @@ export default function VideoTrimmer({ item }) {
           try { v.currentTime = t } catch { resolve() }
         })
         if (cancelled) return
+        // Give iOS one repaint tick before drawing
+        await new Promise(r => requestAnimationFrame(r))
         try {
           ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
           thumbs.push(canvas.toDataURL('image/jpeg', 0.55))
@@ -71,8 +91,8 @@ export default function VideoTrimmer({ item }) {
         }
       }
     }
-    v.addEventListener('loadeddata', capture, { once: true })
-    return () => { cancelled = true; v.src = '' }
+    capture()
+    return () => { cancelled = true }
   }, [src, videoDuration])
 
   // Write-through to item + invalidate cached previews so any later post
@@ -97,10 +117,32 @@ export default function VideoTrimmer({ item }) {
     }
   }
 
-  if (videoDuration <= 0) return null
+  // Hidden video element — MUST be in the DOM for iOS Safari to decode
+  // frames into canvas. It's 1×1, offscreen, and muted so it's invisible
+  // and won't trip autoplay restrictions.
+  const hiddenVideoEl = (
+    <video
+      ref={hiddenVideoRef}
+      src={src}
+      muted
+      playsInline
+      preload="auto"
+      style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -9999 }}
+    />
+  )
+
+  if (videoDuration <= 0) {
+    return (
+      <div className="bg-white border border-border rounded-sm p-2 text-[10px] text-muted">
+        {hiddenVideoEl}
+        Loading video…
+      </div>
+    )
+  }
 
   return (
     <div className="bg-white border border-border rounded-sm p-2">
+      {hiddenVideoEl}
       <div className="flex items-center gap-2 text-[10px] mb-1">
         <span className="font-medium text-ink truncate max-w-[40%]" title={file.name}>Trim: {file.name}</span>
         <span className="text-muted text-[9px] whitespace-nowrap">

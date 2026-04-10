@@ -24,27 +24,69 @@ function VideoThumb({ file, onClick, className }) {
   useEffect(() => {
     const v = videoRef.current
     if (!v) return
-    const onMeta = () => {
-      v.currentTime = 0.5
+    let cancelled = false
+    let captured = false
+
+    // Read rotation-corrected dimensions so the container sizes correctly
+    // even if we never manage to paint a poster frame (iOS can be stubborn).
+    const readAspect = () => {
+      const w = v.videoWidth, h = v.videoHeight
+      if (w && h && !aspect) setAspect(w / h)
     }
-    const onSeeked = async () => {
-      // videoWidth/videoHeight are always rotation-corrected by the browser
+
+    // Attempt to draw the current video frame to canvas. iOS Safari silently
+    // returns all-black frames until the video has started decoding (play()
+    // triggers that), so we sample a 10×10 region and retry on black.
+    const tryCapture = () => {
+      if (cancelled || captured) return
       const w = v.videoWidth, h = v.videoHeight
       if (!w || !h) return
-      // Always trust videoWidth/videoHeight for aspect ratio
-      setAspect(w / h)
-      // Draw from the video element directly — the browser renders it rotation-corrected
       try {
         const c = document.createElement('canvas')
         c.width = Math.min(w, 300)
         c.height = Math.round(c.width * h / w)
-        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
+        const ctx = c.getContext('2d')
+        ctx.drawImage(v, 0, 0, c.width, c.height)
+        const sw = Math.min(c.width, 10), sh = Math.min(c.height, 10)
+        const pixels = ctx.getImageData(0, 0, sw, sh).data
+        let sum = 0
+        for (let i = 0; i < pixels.length; i += 4) sum += pixels[i] + pixels[i + 1] + pixels[i + 2]
+        if (sum < 50) return // black frame — wait for the next event
+        captured = true
         setPoster(c.toDataURL('image/jpeg', 0.7))
       } catch {}
     }
+
+    // On metadata load, kick the video briefly so iOS decodes a real frame.
+    // muted + playsInline (already set below) satisfy autoplay policy.
+    const onMeta = async () => {
+      readAspect()
+      try {
+        v.muted = true
+        const p = v.play()
+        if (p && typeof p.then === 'function') await p
+        setTimeout(() => { try { v.pause() } catch {} }, 80)
+      } catch {
+        // Autoplay blocked — desktop browsers typically still paint anyway,
+        // so we fall through and rely on the seeked/canplay listeners.
+      }
+      try { v.currentTime = Math.min(0.5, (v.duration || 1) / 2) } catch {}
+    }
+
     v.addEventListener('loadedmetadata', onMeta)
-    v.addEventListener('seeked', onSeeked)
-    return () => { v.removeEventListener('loadedmetadata', onMeta); v.removeEventListener('seeked', onSeeked) }
+    v.addEventListener('loadeddata', tryCapture)
+    v.addEventListener('seeked', tryCapture)
+    v.addEventListener('canplay', tryCapture)
+    v.addEventListener('playing', tryCapture)
+
+    return () => {
+      cancelled = true
+      v.removeEventListener('loadedmetadata', onMeta)
+      v.removeEventListener('loadeddata', tryCapture)
+      v.removeEventListener('seeked', tryCapture)
+      v.removeEventListener('canplay', tryCapture)
+      v.removeEventListener('playing', tryCapture)
+    }
   }, [])
 
   // Store thumb + aspect on the file object so ResultCard can reuse it
@@ -61,7 +103,7 @@ function VideoThumb({ file, onClick, className }) {
       {poster ? (
         <img src={poster} className="w-full h-full object-cover rounded-sm" />
       ) : (
-        <video ref={videoRef} src={src + '#t=0.5'} className="w-full h-full object-cover" muted playsInline preload="auto" />
+        <video ref={videoRef} src={src} className="w-full h-full object-cover" muted playsInline preload="auto" />
       )}
       <div className="absolute inset-0 flex items-center justify-center">
         <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
