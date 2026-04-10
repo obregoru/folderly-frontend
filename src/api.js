@@ -286,6 +286,16 @@ export const convertToMp4 = (imageBase64, mediaType, quality = 'medium') =>
 export const photoToVideo = (imageBase64, mediaType, duration = 7, motion = 'zoom') =>
   fetch(api('/post/photo-to-video'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType, duration, motion }) }).then(r => r.json())
 
+// Voiceover — mix audio onto video
+export const addVoiceover = (videoBase64, audioBase64, mode = 'mix', originalVolume = 0.3, voiceoverVolume = 1.0) =>
+  fetch(api('/post/add-voiceover'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ video_base64: videoBase64, audio_base64: audioBase64, mode, original_volume: originalVolume, voiceover_volume: voiceoverVolume }) }).then(r => r.json())
+
+// ElevenLabs TTS
+export const textToSpeech = (text, voiceId) =>
+  fetch(api('/generate/text-to-speech'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, voice_id: voiceId }) }).then(r => r.json())
+export const getVoices = () =>
+  fetch(api('/generate/voices'), { credentials: 'include' }).then(r => r.json())
+
 // Merge 2+ trimmed video clips into a single MP4 with optional transitions
 // clips: [{ video_base64, trim_start, trim_end }], transition: string, transition_duration: number
 export const mergeVideos = (clips, transition = 'none', transitionDuration = 1) =>

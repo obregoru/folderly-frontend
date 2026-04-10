@@ -399,6 +399,19 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
             )}
           </div>
         )}
+        {/* ElevenLabs TTS */}
+        <div className="mb-2 mt-2 border-t border-border pt-2">
+          <label className="text-[11px] text-muted block mb-0.5">ElevenLabs API key <HelpTip text="Enables AI voiceover generation on videos. Get a free key at elevenlabs.io. Leave blank to use mic recording only." /></label>
+          <input className="field-input text-[11px]" type="password" placeholder="Enter ElevenLabs API key" defaultValue="" onBlur={e => { if (e.target.value) save('elevenlabs_api_key', e.target.value) }} />
+          {s.elevenlabs_api_key && <span className="text-[9px] text-sage mt-0.5 block">Key saved ({s.elevenlabs_api_key})</span>}
+          {s.elevenlabs_configured && (
+            <div className="mt-1">
+              <label className="text-[10px] text-muted block mb-0.5">Default voice ID</label>
+              <input className="field-input text-[11px]" placeholder="Voice ID (leave blank for default)" value={s.elevenlabs_voice_id || ''} onChange={e => save('elevenlabs_voice_id', e.target.value)} />
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (YouTube) <HelpTip text="Rewrites YouTube descriptions through a second AI pass to sound less robotic and pass AI detection tools." /></span><Toggle on={s.humanize_youtube === true} onChange={v => save('humanize_youtube', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Sound more human (Blog) <HelpTip text="Rewrites blog posts through a second AI pass to sound more natural and avoid common AI-writing tells." /></span><Toggle on={s.humanize_blog === true} onChange={v => save('humanize_blog', v)} /></div>
         <div className="flex items-center justify-between text-xs py-0.5"><span>Facebook Stories (default) <HelpTip text="When on, the FB Story checkbox is pre-checked when posting. Stories appear at the top of followers' feeds for 24 hours." /></span><Toggle on={s.fb_stories_default === true} onChange={v => save('fb_stories_default', v)} /></div>

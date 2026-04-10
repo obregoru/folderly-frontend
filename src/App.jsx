@@ -11,6 +11,7 @@ import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
 import VideoTrimmer from './components/VideoTrimmer'
 import VideoMerge from './components/VideoMerge'
+import VoiceoverRecorder from './components/VoiceoverRecorder'
 import ResultCard from './components/ResultCard'
 import ScheduledPosts from './components/ScheduledPosts'
 // Calendar removed from main form — schedule modal now has all calendar views with job names
@@ -579,6 +580,18 @@ export default function App() {
                 // We stash it on window for now — a proper state solution
                 // would be a context, but this keeps it simple.
                 window._postyMergedVideo = { blob, url, base64 }
+              }}
+            />
+          )}
+
+          {/* Voiceover — shown when 1+ video is uploaded (or merged result exists) */}
+          {files.filter(f => f.file?.type?.startsWith('video/')).length > 0 && (
+            <VoiceoverRecorder
+              videoFiles={files.filter(f => f.file?.type?.startsWith('video/'))}
+              mergedVideoBase64={window._postyMergedVideo?.base64 || null}
+              settings={settings}
+              onResult={({ blob, url, base64 }) => {
+                window._postyVoiceoverVideo = { blob, url, base64 }
               }}
             />
           )}
