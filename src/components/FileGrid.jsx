@@ -1,14 +1,79 @@
 import { useState, useEffect, useRef } from 'react'
 
-function MediaLightbox({ file, isImg, onClose }) {
+function MediaLightbox({ item, onClose }) {
+  const file = item.file
+  const isImg = item.isImg
+  const videoRef = useRef(null)
+  const [src] = useState(() => URL.createObjectURL(file))
+
+  // Read the current trim bounds from the item. We read at mount AND on
+  // every render so the user can re-trim while the lightbox is open and
+  // the next play cycle picks up the new bounds.
+  const trimStart = item._trimStart || 0
+  const trimEnd = item._trimEnd ?? null
+
+  // Enforce trim on the lightbox video: seek to trimStart on play, pause
+  // (and reset) when currentTime reaches trimEnd. Uses refs via closure
+  // so the latest trim values apply on every tick.
+  useEffect(() => {
+    if (isImg) return
+    const v = videoRef.current
+    if (!v) return
+    // Clamp initial play position to the trim start.
+    const onLoaded = () => {
+      try { v.currentTime = trimStart } catch {}
+    }
+    const onTimeUpdate = () => {
+      const end = item._trimEnd ?? (v.duration || Infinity)
+      const start = item._trimStart || 0
+      if (v.currentTime >= end - 0.03) {
+        // Loop back to trim start — feels more like a preview than a hard stop.
+        try { v.currentTime = start } catch {}
+        if (!v.paused) v.play().catch(() => {})
+      } else if (v.currentTime < start - 0.03) {
+        try { v.currentTime = start } catch {}
+      }
+    }
+    const onPlay = () => {
+      const start = item._trimStart || 0
+      if (v.currentTime < start || v.currentTime >= (item._trimEnd ?? Infinity) - 0.03) {
+        try { v.currentTime = start } catch {}
+      }
+    }
+    v.addEventListener('loadedmetadata', onLoaded)
+    v.addEventListener('timeupdate', onTimeUpdate)
+    v.addEventListener('play', onPlay)
+    return () => {
+      v.removeEventListener('loadedmetadata', onLoaded)
+      v.removeEventListener('timeupdate', onTimeUpdate)
+      v.removeEventListener('play', onPlay)
+    }
+  }, [isImg])
+
+  const hasTrim = trimStart > 0 || trimEnd != null
+
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
       <div className="relative max-w-[90vw] max-h-[85vh]" onClick={e => e.stopPropagation()}>
         <button onClick={onClose} className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10">&times;</button>
         {isImg ? (
-          <img src={URL.createObjectURL(file)} className="max-w-full max-h-[80vh] rounded object-contain" />
+          <img src={src} className="max-w-full max-h-[80vh] rounded object-contain" />
         ) : (
-          <video src={URL.createObjectURL(file)} controls autoPlay playsInline className="max-w-full max-h-[80vh] rounded" />
+          <>
+            <video
+              ref={videoRef}
+              src={src}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-full max-h-[80vh] rounded"
+            />
+            {hasTrim && (
+              <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
+                Trimmed preview: {trimStart.toFixed(1)}s → {trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -120,7 +185,7 @@ export default function FileGrid({ files, onRemove }) {
   return (
     <>
       {previewItem && (
-        <MediaLightbox file={previewItem.file} isImg={previewItem.isImg} onClose={() => setPreviewItem(null)} />
+        <MediaLightbox item={previewItem} onClose={() => setPreviewItem(null)} />
       )}
       <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
         {files.map(item => (
