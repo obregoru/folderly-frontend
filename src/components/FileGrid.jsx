@@ -161,7 +161,7 @@ function VideoThumb({ file, onClick, className }) {
   }, [poster, aspect])
 
   const isPortrait = aspect && aspect < 1
-  const height = isPortrait ? 195 : 78
+  const height = isPortrait ? 260 : 120
 
   return (
     <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 ${className || ''}`} style={{ height }}>
@@ -184,7 +184,7 @@ function ImageThumb({ file, onClick }) {
   // (and re-renders) can reuse it without re-decoding the image.
   useEffect(() => { if (aspect != null) file._imgAspect = aspect }, [aspect])
   const isPortrait = aspect != null && aspect < 1
-  const height = isPortrait ? 195 : 78
+  const height = isPortrait ? 260 : 120
   return (
     <img
       src={src}
@@ -206,7 +206,7 @@ export default function FileGrid({ files, onRemove }) {
       {previewItem && (
         <MediaLightbox item={previewItem} onClose={() => setPreviewItem(null)} />
       )}
-      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
+      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
         {files.map(item => (
           <div key={item.id} className="border border-border rounded-sm overflow-hidden bg-white relative">
             {item.isImg ? (
@@ -216,7 +216,7 @@ export default function FileGrid({ files, onRemove }) {
             ) : (
               <div
                 onClick={() => setPreviewItem(item)}
-                className="w-full h-[78px] bg-ink flex items-center justify-center text-white text-[22px] cursor-pointer hover:bg-[#333]"
+                className="w-full h-[120px] bg-ink flex items-center justify-center text-white text-[22px] cursor-pointer hover:bg-[#333]"
               >▶</div>
             )}
             <div className="text-[9px] text-muted py-1 px-1.5 whitespace-nowrap overflow-hidden text-ellipsis">{item.file.name}</div>
