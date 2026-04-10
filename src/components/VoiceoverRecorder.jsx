@@ -260,34 +260,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 <span className="text-white text-[11px] bg-black/60 rounded-full px-3 py-1">Press record — video will play muted while you narrate</span>
               </div>
             )}
-            {/* Play/pause button overlay when audio is recorded (preview mode) */}
-            {!recording && audioUrl && (
-              <button
-                type="button"
-                onClick={() => {
-                  const a = audioPreviewRef.current
-                  if (!a) return
-                  if (a.paused) {
-                    const v = monitorRef.current
-                    if (v) {
-                      try { v.currentTime = monitorTrimStart + (a.currentTime || 0) } catch {}
-                      v.muted = true
-                      v.play().catch(() => {})
-                    }
-                    a.play().catch(() => {})
-                    setPreviewing(true)
-                  } else {
-                    a.pause()
-                    try { monitorRef.current?.pause() } catch {}
-                    setPreviewing(false)
-                  }
-                }}
-                className="absolute inset-0 flex items-center justify-center bg-transparent border-none cursor-pointer"
-              >
-                <span className="text-white text-[24px] bg-black/50 rounded-full w-10 h-10 flex items-center justify-center">
-                  {audioPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}
-                </span>
-              </button>
+            {/* "Playing" indicator when audio is playing synced with video */}
+            {!recording && audioUrl && previewing && (
+              <div className="absolute top-2 right-2 text-[9px] text-white bg-[#2D9A5E]/80 rounded-full px-2 py-0.5 pointer-events-none">
+                Playing with voiceover
+              </div>
             )}
           </div>
           {/* Playhead bar */}
@@ -306,18 +283,31 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               />
             </div>
           )}
-          {/* Hidden audio element for synced preview playback */}
+          {/* Audio element for synced preview playback. NOT display:none because
+              iOS Safari won't allow play() on hidden media elements even from a
+              user gesture. Instead we make it tiny and transparent. */}
           {audioUrl && (
             <audio
               ref={audioPreviewRef}
               src={audioUrl}
-              onPause={() => { try { monitorRef.current?.pause() } catch {} }}
-              onEnded={() => { try { monitorRef.current?.pause() } catch {} }}
+              controls
+              playsInline
+              onPause={() => { try { monitorRef.current?.pause() } catch {}; setPreviewing(false) }}
+              onEnded={() => { try { monitorRef.current?.pause() } catch {}; setPreviewing(false) }}
+              onPlay={() => {
+                const v = monitorRef.current
+                if (v) {
+                  try { v.currentTime = monitorTrimStart + (audioPreviewRef.current?.currentTime || 0) } catch {}
+                  v.muted = true
+                  v.play().catch(() => {})
+                }
+                setPreviewing(true)
+              }}
               onSeeked={(e) => {
                 const v = monitorRef.current
                 if (v) try { v.currentTime = monitorTrimStart + (e.target.currentTime || 0) } catch {}
               }}
-              style={{ display: 'none' }}
+              className="w-full h-8 mt-1"
             />
           )}
         </div>
