@@ -1717,7 +1717,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         <div className="relative rounded border border-border overflow-hidden bg-black flex-shrink-0" style={{ width: 120, height: Math.round(120 / 9 * 16) }}>
                           {generatedPreviewUrl ? (
                             <>
-                              <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls muted autoPlay loop playsInline />
+                              <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls autoPlay loop playsInline />
                               <button
                                 type="button"
                                 onClick={() => saveVideo(generatedPreviewUrl, `${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`)}
@@ -2178,7 +2178,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               const aiActive = aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]
                               const pOpening = aiActive ? (perPlatformOverlays[previewDestKey].opening || '') : openingText
                               const pClosing = aiActive ? (perPlatformOverlays[previewDestKey].closing || '') : closingText
-                              const url = await api.previewStory(
+                              let url = await api.previewStory(
                                 storyCaptionStyle === 'overlay' ? (storyText || value) : value,
                                 rawBase64, rawType,
                                 storyCaptionStyle, overlayYPct,
@@ -2191,6 +2191,48 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   photoToVideoMotion,
                                 }
                               )
+                              // If a voiceover has been recorded/generated, mix it onto the
+                              // preview video so the user hears the full result.
+                              if (item._voiceoverBlob) {
+                                try {
+                                  // Read the preview video as base64
+                                  const previewResp = await fetch(url)
+                                  const previewBlob = await previewResp.blob()
+                                  const videoB64 = await new Promise((resolve) => {
+                                    const r = new FileReader()
+                                    r.onload = () => {
+                                      const bytes = new Uint8Array(r.result)
+                                      let binary = ''
+                                      const chunk = 8192
+                                      for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+                                      resolve(btoa(binary))
+                                    }
+                                    r.readAsArrayBuffer(previewBlob)
+                                  })
+                                  // Read the voiceover audio as base64
+                                  const audioB64 = await new Promise((resolve) => {
+                                    const r = new FileReader()
+                                    r.onload = () => {
+                                      const bytes = new Uint8Array(r.result)
+                                      let binary = ''
+                                      const chunk = 8192
+                                      for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+                                      resolve(btoa(binary))
+                                    }
+                                    r.readAsArrayBuffer(item._voiceoverBlob)
+                                  })
+                                  const mixResult = await api.addVoiceover(videoB64, audioB64, 'mix', 0.3, 1.0)
+                                  if (!mixResult.error) {
+                                    URL.revokeObjectURL(url)
+                                    const byteChars = atob(mixResult.video_base64)
+                                    const bytes = new Uint8Array(byteChars.length)
+                                    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+                                    url = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }))
+                                  }
+                                } catch (voErr) {
+                                  console.warn('[preview] voiceover mix failed, using video-only preview:', voErr.message)
+                                }
+                              }
                               if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
                               setGeneratedPreviewUrl(url)
                               item._overlayPreviewUrl = url // share with PostAllBar

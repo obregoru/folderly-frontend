@@ -81,6 +81,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         setAudioBlob(blob)
         if (audioUrl) URL.revokeObjectURL(audioUrl)
         setAudioUrl(URL.createObjectURL(blob))
+        // Stash on video items so CaptionEditor can include it in previews
+        for (const vf of videoFiles) vf._voiceoverBlob = blob
         // Pause the monitor
         try { monitorRef.current?.pause() } catch {}
         clearInterval(recordTimerRef.current)
@@ -169,6 +171,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       setAudioBlob(blob)
       if (audioUrl) URL.revokeObjectURL(audioUrl)
       setAudioUrl(URL.createObjectURL(blob))
+      // Stash on video items so CaptionEditor can include it in previews
+      for (const vf of videoFiles) vf._voiceoverBlob = blob
     } catch (err) {
       alert('TTS failed: ' + err.message)
     }
@@ -404,7 +408,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           )}
           {audioUrl && !recording && (
             <button
-              onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null) }}
+              onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob }}
               className="text-[9px] text-muted hover:underline bg-transparent border-none cursor-pointer"
             >Discard</button>
           )}
@@ -488,7 +492,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             )}
             {audioUrl && !recording && (
               <button
-                onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null) }}
+                onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob }}
                 className="text-[9px] text-muted hover:underline bg-transparent border-none cursor-pointer"
               >Discard</button>
             )}
