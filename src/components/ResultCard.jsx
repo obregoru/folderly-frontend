@@ -67,6 +67,61 @@ function getScore(cap) {
   return cap.ai_score || null
 }
 
+// Save a video Blob or blob: URL. On iOS/Android we use the native share
+// sheet (navigator.share with files) which includes a "Save Video" option
+// that saves into Photos. On desktop (or when share isn't available) we
+// fall back to the classic <a download> behavior which saves to the user's
+// Downloads folder. Returns a promise that resolves when the save has been
+// initiated (the share sheet appearing counts as success — the user may
+// still cancel).
+async function saveVideo(sourceBlobOrUrl, filename, onAfter) {
+  try {
+    // Normalize to a Blob
+    let blob
+    if (sourceBlobOrUrl instanceof Blob) {
+      blob = sourceBlobOrUrl
+    } else if (typeof sourceBlobOrUrl === 'string') {
+      const resp = await fetch(sourceBlobOrUrl)
+      blob = await resp.blob()
+    } else {
+      throw new Error('Unsupported video source')
+    }
+    // Try native share sheet first — iOS/Android give users "Save Video" /
+    // "Save to Photos" from here.
+    try {
+      const file = new File([blob], filename, { type: blob.type || 'video/mp4' })
+      if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename })
+        if (onAfter) onAfter()
+        return
+      }
+    } catch (shareErr) {
+      // User cancelled or share wasn't supported — fall through to classic
+      // download. navigator.share throws AbortError on cancel; anything
+      // else we silently fall back.
+      if (shareErr && shareErr.name !== 'AbortError') {
+        console.warn('[saveVideo] share failed, falling back:', shareErr.message)
+      } else if (shareErr && shareErr.name === 'AbortError') {
+        // User explicitly cancelled — don't also trigger a download.
+        return
+      }
+    }
+    // Desktop fallback: classic <a download>
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+    if (onAfter) onAfter()
+  } catch (err) {
+    console.error('[saveVideo] failed:', err)
+    alert('Save failed: ' + err.message)
+  }
+}
+
 export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings, targetWeek }) {
   // Find which platforms have captions
   const available = item.captions
@@ -1432,12 +1487,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                   const bytes = new Uint8Array(byteChars.length)
                   for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
                   const blob = new Blob([bytes], { type: 'video/mp4' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${mp4Quality}.mp4`
-                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-                  setTimeout(() => URL.revokeObjectURL(url), 5000)
+                  await saveVideo(blob, (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${mp4Quality}.mp4`)
                 } catch (e) { alert('Convert failed: ' + e.message) }
                 setConverting(false)
               }}
@@ -1668,7 +1718,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           {generatedPreviewUrl ? (
                             <>
                               <video src={generatedPreviewUrl} className="w-full h-full object-contain" controls muted autoPlay loop playsInline />
-                              <a href={generatedPreviewUrl} download={`${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`} className="absolute top-1 right-1 text-[7px] bg-black/60 text-white rounded px-1.5 py-0.5 no-underline hover:bg-black/80 z-10">Save</a>
+                              <button
+                                type="button"
+                                onClick={() => saveVideo(generatedPreviewUrl, `${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`)}
+                                className="absolute top-1 right-1 text-[7px] bg-black/60 text-white rounded px-1.5 py-0.5 hover:bg-black/80 z-10 cursor-pointer border-none"
+                              >Save</button>
                             </>
                           ) : (
                             <>
@@ -2104,7 +2158,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         {generatedPreviewUrl && (
                           <>
                             <button onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }} className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer">Back to edit</button>
-                            <a href={generatedPreviewUrl} download={`${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`} className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer no-underline text-center">Download</a>
+                            <button
+                              type="button"
+                              onClick={() => saveVideo(generatedPreviewUrl, `${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`)}
+                              className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer bg-white"
+                            >Save</button>
                           </>
                         )}
                         <button
@@ -2357,23 +2415,21 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             disabled={converting}
             onClick={async () => {
               try {
+                const filename = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
                 // If there's already a generated preview (overlay-processed), use that
                 if (generatedPreviewUrl) {
-                  const a = document.createElement('a')
-                  a.href = generatedPreviewUrl
-                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
-                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+                  await saveVideo(generatedPreviewUrl, filename)
                   return
                 }
                 setConverting(true)
                 const apiMod = await import('../api')
                 const b64 = await fileToBase64(item.file)
                 let result
+                let videoB64
                 if (isImageFile && photoToVideoEnabled) {
                   // Photo → motion video (zoom or pan) — reuse cached Ken Burns video if available
                   const cacheKey = `${photoToVideoMotion}::${photoToVideoDuration}`
                   item._kenBurnsCaches = item._kenBurnsCaches || {}
-                  let videoB64
                   if (item._kenBurnsCaches[cacheKey]) {
                     videoB64 = item._kenBurnsCaches[cacheKey]
                   } else {
@@ -2382,31 +2438,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     videoB64 = result.video_base64
                     item._kenBurnsCaches[cacheKey] = videoB64
                   }
-                  const byteChars = atob(videoB64)
-                  const bytes = new Uint8Array(byteChars.length)
-                  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
-                  const blob = new Blob([bytes], { type: 'video/mp4' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
-                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-                  setTimeout(() => URL.revokeObjectURL(url), 5000)
                 } else {
                   // Video → convert to MP4 (medium quality)
                   result = await apiMod.convertToMp4(b64, item.file.type, mp4Quality)
                   if (result.error) throw new Error(result.error)
-                  const byteChars = atob(result.mp4_base64)
-                  const bytes = new Uint8Array(byteChars.length)
-                  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
-                  const blob = new Blob([bytes], { type: 'video/mp4' })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
-                  document.body.appendChild(a); a.click(); document.body.removeChild(a)
-                  setTimeout(() => URL.revokeObjectURL(url), 5000)
+                  videoB64 = result.mp4_base64
                 }
+                const byteChars = atob(videoB64)
+                const bytes = new Uint8Array(byteChars.length)
+                for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+                const blob = new Blob([bytes], { type: 'video/mp4' })
+                await saveVideo(blob, filename)
               } catch (e) { alert('Download failed: ' + e.message) }
               setConverting(false)
             }}
