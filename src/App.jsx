@@ -9,6 +9,7 @@ import Landing from './components/Landing'
 import Sidebar from './components/Sidebar'
 import Dropzone from './components/Dropzone'
 import FileGrid from './components/FileGrid'
+import VideoTrimmer from './components/VideoTrimmer'
 import ResultCard from './components/ResultCard'
 import ScheduledPosts from './components/ScheduledPosts'
 // Calendar removed from main form — schedule modal now has all calendar views with job names
@@ -559,11 +560,20 @@ export default function App() {
 
           <FileGrid files={files} onRemove={removeFile} />
 
+          {/* Per-video trim strips — one iOS-style filmstrip trimmer per uploaded video */}
+          {files.filter(f => f.file?.type?.startsWith('video/')).length > 0 && (
+            <div className="flex flex-col gap-2">
+              {files.filter(f => f.file?.type?.startsWith('video/')).map(f => (
+                <VideoTrimmer key={f.id} item={f} />
+              ))}
+            </div>
+          )}
+
           {/* Content hint — between uploads and generate button */}
           <div>
             <div className="flex items-center justify-between">
               <label className="text-[13px] md:text-[11px] text-ink md:text-muted font-medium md:font-normal">
-                <span className="md:hidden">Describe this photo <span className="text-[#c0392b]">*</span></span>
+                <span className="md:hidden">Describe this photo / video <span className="text-[#c0392b]">*</span></span>
                 <span className="hidden md:inline">Context hint <span className="italic text-[10px]">(optional)</span></span>
                 <HelpTip text="Tell the AI what's happening in the photo. The more detail you give, the better the content. You can also paste AI-generated content and click 'Review with AI' to check it against your brand settings." />
               </label>
