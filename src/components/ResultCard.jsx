@@ -1652,7 +1652,34 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           ) : (
                             <>
                               {isVideoFile ? (
-                                <video ref={videoPreviewRef} src={videoSrc} className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} muted loop playsInline onTimeUpdate={e => setVideoTime(e.target.currentTime)} onLoadedMetadata={e => setVideoDuration(e.target.duration)} />
+                                <video
+                                  ref={videoPreviewRef}
+                                  src={videoSrc}
+                                  className="w-full h-full object-cover"
+                                  style={{ objectPosition: 'center 33%' }}
+                                  muted
+                                  loop
+                                  playsInline
+                                  onTimeUpdate={e => {
+                                    const v = e.target
+                                    setVideoTime(v.currentTime)
+                                    // Enforce trim bounds on the scrub player — loop back
+                                    // to trimStart when we hit trimEnd so the preview
+                                    // actually reflects what the posted/generated video
+                                    // will look like.
+                                    const start = item._trimStart || 0
+                                    const end = item._trimEnd ?? (v.duration || Infinity)
+                                    if (v.currentTime >= end - 0.03) {
+                                      try { v.currentTime = start } catch {}
+                                    } else if (v.currentTime < start - 0.03) {
+                                      try { v.currentTime = start } catch {}
+                                    }
+                                  }}
+                                  onLoadedMetadata={e => {
+                                    setVideoDuration(e.target.duration)
+                                    try { e.target.currentTime = item._trimStart || 0 } catch {}
+                                  }}
+                                />
                               ) : (
                                 <img src={videoSrc} alt="Photo preview" className="w-full h-full object-cover" style={{ objectPosition: 'center 33%' }} />
                               )}
@@ -1702,9 +1729,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               {/* Timeline controls — only for videos */}
                               {isVideoFile && (
                                 <div className="absolute bottom-1 left-1 right-1 flex items-center gap-0.5">
-                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.max(0, v.currentTime - 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) { const s = item._trimStart || 0; v.currentTime = Math.max(s, v.currentTime - 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
                                   <button onClick={() => { const v = videoPreviewRef.current; if (v) v.paused ? v.play() : v.pause() }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
-                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.currentTime = Math.min(v.duration || 0, v.currentTime + 2) }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
+                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) { const e = item._trimEnd ?? (v.duration || 0); v.currentTime = Math.min(e - 0.05, v.currentTime + 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
                                   <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
                                 </div>
                               )}
