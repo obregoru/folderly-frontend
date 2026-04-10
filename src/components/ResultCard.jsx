@@ -104,6 +104,98 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   const [videoThumb, setVideoThumb] = useState(() => item.file?._videoThumb || null)
   const [videoAspect, setVideoAspect] = useState(() => item.file?._videoAspect || null)
 
+  // File-level trim state. Persisted on item._trimStart / item._trimEnd so
+  // every platform tab reads the same values. trimEnd === null means "to end".
+  const [videoDuration, setVideoDuration] = useState(0)
+  const [trimStart, setTrimStart] = useState(() => item._trimStart ?? 0)
+  const [trimEnd, setTrimEnd] = useState(() => item._trimEnd ?? null)
+  const [trimThumbs, setTrimThumbs] = useState([])
+  const stripRef = useRef(null)
+  // Refs mirror trim state so pointerup closures see the freshest value
+  // regardless of when the listener was registered.
+  const trimStartRef = useRef(trimStart)
+  const trimEndRef = useRef(trimEnd)
+  useEffect(() => { trimStartRef.current = trimStart }, [trimStart])
+  useEffect(() => { trimEndRef.current = trimEnd }, [trimEnd])
+
+  // Probe source video duration as soon as we have the file.
+  useEffect(() => {
+    if (!isVideo || !fileSrc || videoDuration > 0) return
+    const v = document.createElement('video')
+    v.preload = 'metadata'
+    v.muted = true
+    v.src = fileSrc
+    const onMeta = () => { if (v.duration && isFinite(v.duration)) setVideoDuration(v.duration) }
+    v.addEventListener('loadedmetadata', onMeta)
+    return () => { v.removeEventListener('loadedmetadata', onMeta); v.src = '' }
+  }, [isVideo, fileSrc])
+
+  // Capture 10 filmstrip thumbnails via canvas seek-and-draw.
+  useEffect(() => {
+    if (!isVideo || !fileSrc || videoDuration <= 0) return
+    let cancelled = false
+    setTrimThumbs([])
+    const N = 10
+    const v = document.createElement('video')
+    v.preload = 'auto'
+    v.muted = true
+    v.playsInline = true
+    v.src = fileSrc
+    const canvas = document.createElement('canvas')
+    const capture = async () => {
+      const aspect = (v.videoWidth && v.videoHeight) ? v.videoWidth / v.videoHeight : 9 / 16
+      canvas.width = 96
+      canvas.height = Math.max(1, Math.round(96 / aspect))
+      const ctx = canvas.getContext('2d')
+      const thumbs = []
+      for (let i = 0; i < N; i++) {
+        if (cancelled) return
+        const t = Math.min(videoDuration * (i / (N - 1)), Math.max(0, videoDuration - 0.05))
+        await new Promise((resolve) => {
+          const onSeeked = () => { v.removeEventListener('seeked', onSeeked); resolve() }
+          v.addEventListener('seeked', onSeeked)
+          try { v.currentTime = t } catch { resolve() }
+        })
+        if (cancelled) return
+        try {
+          ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+          thumbs.push(canvas.toDataURL('image/jpeg', 0.55))
+          setTrimThumbs([...thumbs])
+        } catch (err) {
+          console.warn('[trim] thumbnail capture failed:', err.message)
+          return
+        }
+      }
+    }
+    v.addEventListener('loadeddata', capture, { once: true })
+    return () => { cancelled = true; v.src = '' }
+  }, [isVideo, fileSrc, videoDuration])
+
+  // Write-through to item + bump version so CaptionEditor children can
+  // invalidate any stale preview they rendered against the old trim.
+  const commitTrim = (nextStart, nextEnd) => {
+    item._trimStart = nextStart
+    item._trimEnd = nextEnd
+    item._trimVersion = (item._trimVersion || 0) + 1
+    // Stale shared preview is no longer valid — drop it.
+    if (item._sharedPreviewUrl) {
+      try { URL.revokeObjectURL(item._sharedPreviewUrl) } catch {}
+      delete item._sharedPreviewUrl
+    }
+    if (item._tabPreviewUrls) {
+      for (const k of Object.keys(item._tabPreviewUrls)) {
+        try { URL.revokeObjectURL(item._tabPreviewUrls[k]) } catch {}
+      }
+      item._tabPreviewUrls = {}
+    }
+    if (item._overlayPreviewUrl) {
+      try { URL.revokeObjectURL(item._overlayPreviewUrl) } catch {}
+      delete item._overlayPreviewUrl
+    }
+    setTrimVersionTick(t => t + 1)
+  }
+  const [, setTrimVersionTick] = useState(0)
+
   return (
     <div className="bg-white border border-border rounded mb-2.5">
       {/* Media preview lightbox */}
@@ -153,6 +245,118 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
           )}
         </div>
       </div>
+
+      {/* File-level video trim — iOS-style filmstrip. One trim applies to every
+          platform. Platform max-duration caps are still enforced server-side,
+          so trimming longer than a platform allows just truncates for that one. */}
+      {isVideo && videoDuration > 0 && (
+        <div className="px-3.5 pt-2 pb-2 border-b border-border bg-white">
+          <div className="flex items-center gap-2 text-[10px] mb-1">
+            <span className="font-medium text-ink">Trim video</span>
+            <span className="text-muted text-[9px]">
+              {trimStart.toFixed(1)}s → {(trimEnd ?? videoDuration).toFixed(1)}s
+              <span className="text-[#d97706] font-medium ml-1">· {((trimEnd ?? videoDuration) - trimStart).toFixed(1)}s kept</span>
+            </span>
+            {(trimStart > 0 || trimEnd != null) && (
+              <button
+                onClick={() => { setTrimStart(0); setTrimEnd(null); commitTrim(0, null) }}
+                className="text-[9px] text-[#6C5CE7] hover:underline ml-auto bg-transparent border-none cursor-pointer"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+          <div
+            ref={stripRef}
+            className="relative h-[52px] rounded overflow-hidden bg-black select-none"
+            style={{ touchAction: 'none' }}
+          >
+            <div className="absolute inset-0 flex">
+              {trimThumbs.length > 0 ? (
+                trimThumbs.map((src, i) => (
+                  <img key={i} src={src} alt="" className="flex-1 h-full object-cover min-w-0" draggable={false} />
+                ))
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-[9px] text-white/40">
+                  Loading frames…
+                </div>
+              )}
+            </div>
+            <div
+              className="absolute top-0 bottom-0 left-0 bg-black/65 pointer-events-none"
+              style={{ width: `${(trimStart / videoDuration) * 100}%` }}
+            />
+            <div
+              className="absolute top-0 bottom-0 right-0 bg-black/65 pointer-events-none"
+              style={{ width: `${(1 - (trimEnd ?? videoDuration) / videoDuration) * 100}%` }}
+            />
+            <div
+              className="absolute top-0 bottom-0 border-y-[3px] border-[#f7c948] pointer-events-none"
+              style={{
+                left: `${(trimStart / videoDuration) * 100}%`,
+                width: `${(((trimEnd ?? videoDuration) - trimStart) / videoDuration) * 100}%`,
+              }}
+            />
+            {/* Left handle */}
+            <div
+              className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-l flex items-center justify-center shadow-md"
+              style={{ left: `${(trimStart / videoDuration) * 100}%`, cursor: 'ew-resize' }}
+              onPointerDown={e => {
+                e.preventDefault()
+                e.currentTarget.setPointerCapture?.(e.pointerId)
+                const rect = stripRef.current?.getBoundingClientRect()
+                if (!rect) return
+                const maxT = Math.max(0, ((trimEnd ?? videoDuration) - 0.5))
+                const onMove = (ev) => {
+                  const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+                  const t = Math.max(0, Math.min(maxT, pct * videoDuration))
+                  setTrimStart(t)
+                }
+                const onUp = () => {
+                  window.removeEventListener('pointermove', onMove)
+                  window.removeEventListener('pointerup', onUp)
+                  commitTrim(trimStartRef.current, trimEndRef.current)
+                }
+                window.addEventListener('pointermove', onMove)
+                window.addEventListener('pointerup', onUp)
+              }}
+            >
+              <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
+            </div>
+            {/* Right handle */}
+            <div
+              className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-r flex items-center justify-center shadow-md"
+              style={{
+                left: `${((trimEnd ?? videoDuration) / videoDuration) * 100}%`,
+                transform: 'translateX(-100%)',
+                cursor: 'ew-resize',
+              }}
+              onPointerDown={e => {
+                e.preventDefault()
+                e.currentTarget.setPointerCapture?.(e.pointerId)
+                const rect = stripRef.current?.getBoundingClientRect()
+                if (!rect) return
+                const minT = Math.min(videoDuration, trimStart + 0.5)
+                const onMove = (ev) => {
+                  const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+                  const t = Math.max(minT, Math.min(videoDuration, pct * videoDuration))
+                  setTrimEnd(t >= videoDuration - 0.05 ? null : t)
+                }
+                const onUp = () => {
+                  window.removeEventListener('pointermove', onMove)
+                  window.removeEventListener('pointerup', onUp)
+                  commitTrim(trimStartRef.current, trimEndRef.current)
+                }
+                window.addEventListener('pointermove', onMove)
+                window.addEventListener('pointerup', onUp)
+              }}
+            >
+              <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
+            </div>
+          </div>
+          <p className="text-[9px] text-muted mt-1">Drag the yellow handles to trim. Applies to all networks — platforms with shorter max-duration will auto-cap.</p>
+        </div>
+      )}
 
       {/* Dedup warning */}
       {item.previouslyUsed && (
@@ -985,10 +1189,6 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [closingText, setClosingText] = useState(_os.closingText || '')
   const [openingDuration, setOpeningDuration] = useState(_os.openingDuration ?? 3)
   const [closingDuration, setClosingDuration] = useState(_os.closingDuration ?? 3)
-  // Video trim (in seconds). trimEnd=null means "to end of clip".
-  // Source duration is discovered via the existing videoDuration state (set on <video> loadedmetadata).
-  const [trimStart, setTrimStart] = useState(_os.trimStart ?? 0)
-  const [trimEnd, setTrimEnd] = useState(_os.trimEnd ?? null)
   // Preview URL scoping: customized tabs get their own preview URL at
   // item._tabPreviewUrls[platform]. Non-customized tabs share item._sharedPreviewUrl.
   item._tabPreviewUrls = item._tabPreviewUrls || {}
@@ -1037,7 +1237,6 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
       photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
       openingText, closingText, openingDuration, closingDuration,
-      trimStart, trimEnd,
     }
     if (customizedForTab) {
       item._tabOverrides[platform] = settings
@@ -1052,8 +1251,14 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
     photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
     openingText, closingText, openingDuration, closingDuration,
-    trimStart, trimEnd,
   ])
+
+  // Invalidate any locally-held preview when the file-level trim version
+  // changes — the parent ResultCard already cleared item._sharedPreviewUrl
+  // and item._tabPreviewUrls, so this just needs to drop our local state.
+  useEffect(() => {
+    setGeneratedPreviewUrlInternal(null)
+  }, [item._trimVersion])
 
   // Sync when text prop changes (e.g. after refine/regen)
   useEffect(() => { setValue(text) }, [text])
@@ -1098,69 +1303,6 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const videoPreviewRef = useRef(null)
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
-
-  // Probe the source video duration as soon as we have the file, independent
-  // of whether the overlay/trim preview panel is open. Without this, the trim
-  // UI (which gates on videoDuration > 0) can never appear because the preview
-  // video that sets videoDuration only renders once trim or overlays are on.
-  useEffect(() => {
-    if (!isVideoFile || !videoSrc) return
-    if (videoDuration > 0) return
-    const v = document.createElement('video')
-    v.preload = 'metadata'
-    v.muted = true
-    v.src = videoSrc
-    const onMeta = () => { if (v.duration && isFinite(v.duration)) setVideoDuration(v.duration) }
-    v.addEventListener('loadedmetadata', onMeta)
-    return () => { v.removeEventListener('loadedmetadata', onMeta); v.src = '' }
-  }, [isVideoFile, videoSrc])
-
-  // iOS-style filmstrip: generate thumbnail frames from the video for the trim UI.
-  const [trimThumbs, setTrimThumbs] = useState([])
-  const stripRef = useRef(null)
-  useEffect(() => {
-    if (!isVideoFile || !videoSrc || videoDuration <= 0) return
-    let cancelled = false
-    setTrimThumbs([])
-    const N = 10
-    const v = document.createElement('video')
-    v.preload = 'auto'
-    v.muted = true
-    v.playsInline = true
-    v.src = videoSrc
-    const canvas = document.createElement('canvas')
-    const capture = async () => {
-      // Wait until a frame is actually decodable (some browsers don't paint
-      // on loadedmetadata alone — needs canplay or a seek).
-      const aspect = (v.videoWidth && v.videoHeight) ? v.videoWidth / v.videoHeight : 9 / 16
-      canvas.width = 96
-      canvas.height = Math.max(1, Math.round(96 / aspect))
-      const ctx = canvas.getContext('2d')
-      const thumbs = []
-      for (let i = 0; i < N; i++) {
-        if (cancelled) return
-        const t = Math.min(videoDuration * (i / (N - 1)), Math.max(0, videoDuration - 0.05))
-        await new Promise((resolve) => {
-          const onSeeked = () => { v.removeEventListener('seeked', onSeeked); resolve() }
-          v.addEventListener('seeked', onSeeked)
-          try { v.currentTime = t } catch { resolve() }
-        })
-        if (cancelled) return
-        try {
-          ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
-          thumbs.push(canvas.toDataURL('image/jpeg', 0.55))
-          setTrimThumbs([...thumbs])
-        } catch (err) {
-          // Cross-origin or decode issue — bail silently, the UI falls back
-          // to a solid strip without preview frames.
-          console.warn('[trim] thumbnail capture failed:', err.message)
-          return
-        }
-      }
-    }
-    v.addEventListener('loadeddata', capture, { once: true })
-    return () => { cancelled = true; v.src = '' }
-  }, [isVideoFile, videoSrc, videoDuration])
 
   useEffect(() => {
     if (!storyEnabled || !item.isImg) { setStoryPreview(null); return }
@@ -1627,8 +1769,6 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         setClosingText(baseline.closingText || '')
                         setOpeningDuration(baseline.openingDuration ?? 3)
                         setClosingDuration(baseline.closingDuration ?? 3)
-                        setTrimStart(baseline.trimStart ?? 0)
-                        setTrimEnd(baseline.trimEnd ?? null)
                         // Revert to shared preview URL (if any)
                         setGeneratedPreviewUrlInternal(item._sharedPreviewUrl || null)
                       }
@@ -1674,121 +1814,6 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
               </div>
             )}
 
-            {/* Video trim — iOS-style filmstrip with yellow draggable handles.
-                Only for uploaded videos (not photo-to-video) when any video dest is checked. */}
-            {(isVideoFile && (postDests.ig_reel || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts || postDests.tiktok || postDests.fb_post || postDests.yt_video) && videoDuration > 0) && (
-              <div className="mt-2 border-t border-border pt-2">
-                <div className="flex items-center gap-2 text-[10px] mb-1">
-                  <span className="font-medium text-ink">Trim video</span>
-                  <span className="text-muted text-[9px]">
-                    {trimStart.toFixed(1)}s → {(trimEnd ?? videoDuration).toFixed(1)}s
-                    <span className="text-[#d97706] font-medium ml-1">· {((trimEnd ?? videoDuration) - trimStart).toFixed(1)}s kept</span>
-                  </span>
-                  {(trimStart > 0 || trimEnd != null) && (
-                    <button
-                      onClick={() => { setTrimStart(0); setTrimEnd(null); if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) } }}
-                      className="text-[9px] text-[#6C5CE7] hover:underline ml-auto bg-transparent border-none cursor-pointer"
-                    >
-                      Reset
-                    </button>
-                  )}
-                </div>
-                <div
-                  ref={stripRef}
-                  className="relative h-[52px] rounded overflow-hidden bg-black select-none"
-                  style={{ touchAction: 'none' }}
-                >
-                  {/* Filmstrip */}
-                  <div className="absolute inset-0 flex">
-                    {trimThumbs.length > 0 ? (
-                      trimThumbs.map((src, i) => (
-                        <img key={i} src={src} alt="" className="flex-1 h-full object-cover min-w-0" draggable={false} />
-                      ))
-                    ) : (
-                      <div className="flex-1 flex items-center justify-center text-[9px] text-white/40">
-                        Loading frames…
-                      </div>
-                    )}
-                  </div>
-                  {/* Dimmed "trimmed away" regions */}
-                  <div
-                    className="absolute top-0 bottom-0 left-0 bg-black/65 pointer-events-none"
-                    style={{ width: `${(trimStart / videoDuration) * 100}%` }}
-                  />
-                  <div
-                    className="absolute top-0 bottom-0 right-0 bg-black/65 pointer-events-none"
-                    style={{ width: `${(1 - (trimEnd ?? videoDuration) / videoDuration) * 100}%` }}
-                  />
-                  {/* Yellow top+bottom selection frame */}
-                  <div
-                    className="absolute top-0 bottom-0 border-y-[3px] border-[#f7c948] pointer-events-none"
-                    style={{
-                      left: `${(trimStart / videoDuration) * 100}%`,
-                      width: `${(((trimEnd ?? videoDuration) - trimStart) / videoDuration) * 100}%`,
-                    }}
-                  />
-                  {/* Left handle */}
-                  <div
-                    className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-l flex items-center justify-center shadow-md"
-                    style={{ left: `${(trimStart / videoDuration) * 100}%`, cursor: 'ew-resize' }}
-                    onPointerDown={e => {
-                      e.preventDefault()
-                      e.currentTarget.setPointerCapture?.(e.pointerId)
-                      const rect = stripRef.current?.getBoundingClientRect()
-                      if (!rect) return
-                      const maxT = Math.max(0, ((trimEnd ?? videoDuration) - 0.5))
-                      const onMove = (ev) => {
-                        const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-                        const t = Math.max(0, Math.min(maxT, pct * videoDuration))
-                        setTrimStart(t)
-                      }
-                      const onUp = () => {
-                        window.removeEventListener('pointermove', onMove)
-                        window.removeEventListener('pointerup', onUp)
-                        if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }
-                      }
-                      window.addEventListener('pointermove', onMove)
-                      window.addEventListener('pointerup', onUp)
-                    }}
-                  >
-                    <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
-                  </div>
-                  {/* Right handle (its right edge sits at trimEnd) */}
-                  <div
-                    className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-r flex items-center justify-center shadow-md"
-                    style={{
-                      left: `${((trimEnd ?? videoDuration) / videoDuration) * 100}%`,
-                      transform: 'translateX(-100%)',
-                      cursor: 'ew-resize',
-                    }}
-                    onPointerDown={e => {
-                      e.preventDefault()
-                      e.currentTarget.setPointerCapture?.(e.pointerId)
-                      const rect = stripRef.current?.getBoundingClientRect()
-                      if (!rect) return
-                      const minT = Math.min(videoDuration, trimStart + 0.5)
-                      const onMove = (ev) => {
-                        const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-                        const t = Math.max(minT, Math.min(videoDuration, pct * videoDuration))
-                        // Snap "fully extended" back to null so backend treats it as "to end"
-                        setTrimEnd(t >= videoDuration - 0.05 ? null : t)
-                      }
-                      const onUp = () => {
-                        window.removeEventListener('pointermove', onMove)
-                        window.removeEventListener('pointerup', onUp)
-                        if (generatedPreviewUrl) { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }
-                      }
-                      window.addEventListener('pointermove', onMove)
-                      window.addEventListener('pointerup', onUp)
-                    }}
-                  >
-                    <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
-                  </div>
-                </div>
-                <p className="text-[9px] text-muted mt-1">Drag the yellow handles to trim. The dimmed edges will be cut.</p>
-              </div>
-            )}
-
             {/* Video overlay controls — shown when any overlay-supporting destination is checked (or photo-to-video enabled) */}
             {((isVideoFile || (isImageFile && photoToVideoEnabled)) && (postDests.ig_reel || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.yt_shorts || postDests.tiktok)) && (
               <div className="mt-2 border-t border-border pt-2">
@@ -1817,7 +1842,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     </select>
                   )}
                 </div>
-                {(storyCaptionStyle === 'overlay' || (isImageFile && photoToVideoEnabled) || (isVideoFile && (trimStart > 0 || trimEnd != null))) && (
+                {(storyCaptionStyle === 'overlay' || (isImageFile && photoToVideoEnabled) || (isVideoFile && ((item._trimStart || 0) > 0 || item._trimEnd != null))) && (
                   <div className="mt-1.5 space-y-1.5">
                     {/* Preview with live overlay positioning — works for videos and photo-to-video */}
                     {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
@@ -2192,7 +2217,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 storyCaptionStyle, overlayYPct,
                                 {
                                   fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
-                                  trimStart, trimEnd,
+                                  trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
                                   openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
                                   photoToVideo: isImageFile && photoToVideoEnabled,
                                   photoToVideoDuration,
@@ -2310,20 +2335,22 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     // Helper: build the overlayOpts object for a destination with its specific text
                     const overlayOptsFor = (destKey) => {
                       const { opening, closing } = textFor(destKey)
-                      return { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, trim_start: trimStart, trim_end: trimEnd, opening_text: opening, closing_text: closing, opening_duration: openingDuration, closing_duration: closingDuration }
+                      return { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, trim_start: item._trimStart || 0, trim_end: item._trimEnd ?? null, opening_text: opening, closing_text: closing, opening_duration: openingDuration, closing_duration: closingDuration }
                     }
                     const fontOptsFor = (destKey) => {
                       const { opening, closing } = textFor(destKey)
-                      return { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, trimStart, trimEnd, openingText: opening, closingText: closing, openingDuration, closingDuration }
+                      return { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null, openingText: opening, closingText: closing, openingDuration, closingDuration }
                     }
                     // When AI per-platform overlays are active, we can't reuse a single processedBase64
                     // across destinations — each needs its own text burned in. So the backend does the
                     // processing per-destination (processedBase64 only applies to shared-overlay mode).
                     const canReuseProcessed = hasOverlays && processedBase64 && !aiOverlaysEnabled
                     // Trim-only opts — used when overlays aren't set but the user has trimmed.
-                    const hasTrim = (trimStart > 0) || (trimEnd != null)
-                    const trimOnlyOpts = hasTrim ? { trim_start: trimStart, trim_end: trimEnd } : {}
-                    const trimOnlyFontOpts = hasTrim ? { trimStart, trimEnd } : {}
+                    const _ts = item._trimStart || 0
+                    const _te = item._trimEnd ?? null
+                    const hasTrim = (_ts > 0) || (_te != null)
+                    const trimOnlyOpts = hasTrim ? { trim_start: _ts, trim_end: _te } : {}
+                    const trimOnlyFontOpts = hasTrim ? { trimStart: _ts, trimEnd: _te } : {}
 
                     if (postDests.ig_post) {
                       // IG Post = still image to feed. Always uses the raw image, no overlays.
