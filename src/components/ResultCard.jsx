@@ -1758,9 +1758,9 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 <video
                                   ref={videoPreviewRef}
                                   src={videoSrc}
-                                  className="w-full h-full object-cover"
-                                  style={{ objectPosition: 'center 33%' }}
-                                  muted
+                                  className="w-full h-full object-contain"
+                                  muted={!voiceoverUrl}
+                                  controls
                                   playsInline
                                   preload="auto"
                                   onTimeUpdate={e => {
@@ -1769,44 +1769,49 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                     const start = item._trimStart || 0
                                     const end = item._trimEnd ?? (v.duration || Infinity)
                                     if (v.currentTime >= end - 0.03) {
-                                      try {
-                                        v.currentTime = start
-                                        // Manual loop since we can't use the loop
-                                        // attribute (it ignores trim bounds)
-                                        if (!v.paused) v.play().catch(() => {})
-                                      } catch {}
+                                      try { v.currentTime = start; v.pause() } catch {}
+                                      if (voiceoverAudioRef.current) try { voiceoverAudioRef.current.pause(); voiceoverAudioRef.current.currentTime = 0 } catch {}
+                                    } else if (v.currentTime < start - 0.05) {
+                                      try { v.currentTime = start } catch {}
                                     }
                                   }}
                                   onLoadedData={e => {
-                                    // loadeddata fires when the first frame is
-                                    // actually decoded (loadedmetadata only fires
-                                    // when dimensions are known). This is the
-                                    // earliest point where seeking + drawing
-                                    // actually produces a visible frame.
                                     const v = e.target
                                     setVideoDuration(v.duration)
                                     try {
                                       v.currentTime = item._trimStart || 0
-                                      // Kick the decoder to force a first-frame
-                                      // paint on iOS. muted + playsInline satisfy
-                                      // autoplay policy.
                                       v.muted = true
                                       const p = v.play()
                                       if (p && typeof p.then === 'function') {
                                         p.then(() => {
-                                          setTimeout(() => { try { v.pause() } catch {} }, 200)
+                                          setTimeout(() => { try { v.pause(); v.muted = !voiceoverUrl } catch {} }, 200)
                                         }).catch(() => {})
                                       }
                                     } catch {}
                                   }}
                                   onPlay={e => {
-                                    // If the user clicks play, make sure we're
-                                    // inside the trim range before playback continues.
                                     const v = e.target
                                     const start = item._trimStart || 0
                                     const end = item._trimEnd ?? (v.duration || Infinity)
                                     if (v.currentTime < start || v.currentTime >= end - 0.05) {
                                       try { v.currentTime = start } catch {}
+                                    }
+                                    // Sync voiceover audio
+                                    if (voiceoverUrl && voiceoverAudioRef.current) {
+                                      const outputTime = Math.max(0, v.currentTime - start)
+                                      try { voiceoverAudioRef.current.currentTime = outputTime } catch {}
+                                      voiceoverAudioRef.current.play().catch(() => {})
+                                    }
+                                  }}
+                                  onPause={() => {
+                                    if (voiceoverAudioRef.current) try { voiceoverAudioRef.current.pause() } catch {}
+                                  }}
+                                  onSeeked={e => {
+                                    const v = e.target
+                                    const start = item._trimStart || 0
+                                    if (voiceoverUrl && voiceoverAudioRef.current) {
+                                      const outputTime = Math.max(0, v.currentTime - start)
+                                      try { voiceoverAudioRef.current.currentTime = Math.min(outputTime, voiceoverAudioRef.current.duration || 999) } catch {}
                                     }
                                   }}
                                 />
@@ -1933,38 +1938,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         )}
                       </div>
                     )}
-                    {/* Voiceover audio bar — syncs with the scrub video above so you
-                        can hear the voiceover while previewing overlay positioning,
-                        without needing to click Generate Preview first. */}
+                    {/* Hidden voiceover audio companion — video is the primary player,
+                        audio follows via onPlay/onPause/onSeeked on the video element.
+                        iOS requires the element to be in the DOM (not display:none). */}
                     {voiceoverUrl && !generatedPreviewUrl && isVideoFile && (
                       <audio
                         ref={voiceoverAudioRef}
                         src={voiceoverUrl}
-                        controls
                         playsInline
-                        className="w-full h-8"
-                        onPlay={() => {
-                          const v = videoPreviewRef.current
-                          if (v) {
-                            const start = item._trimStart || 0
-                            try { v.currentTime = start + (voiceoverAudioRef.current?.currentTime || 0) } catch {}
-                            v.muted = true
-                            v.play().catch(() => {})
-                          }
-                        }}
-                        onPause={() => { try { videoPreviewRef.current?.pause() } catch {} }}
-                        onEnded={() => { try { videoPreviewRef.current?.pause() } catch {} }}
-                        onSeeked={(e) => {
-                          const v = videoPreviewRef.current
-                          if (v) {
-                            const start = item._trimStart || 0
-                            try { v.currentTime = start + (e.target.currentTime || 0) } catch {}
-                          }
-                        }}
+                        preload="auto"
+                        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
                       />
-                    )}
-                    {voiceoverUrl && !generatedPreviewUrl && isVideoFile && (
-                      <p className="text-[9px] text-muted -mt-1">Play the audio bar to hear voiceover synced with the video above.</p>
                     )}
                     {/* AI per-platform overlay toggle — only when overlay mode + a video is involved */}
                     {storyCaptionStyle === 'overlay' && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
