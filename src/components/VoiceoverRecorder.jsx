@@ -234,9 +234,20 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     setTimeout(() => URL.revokeObjectURL(url), 5000)
   }
 
+  const [expanded, setExpanded] = useState(false)
+
   return (
-    <div className="bg-white border border-[#2D9A5E]/30 rounded-sm p-3 space-y-2">
-      <div className="text-[11px] font-medium text-ink">Voiceover</div>
+    <div className="bg-white border border-[#2D9A5E]/30 rounded-sm p-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between text-[11px] font-medium text-ink bg-transparent border-none cursor-pointer p-0"
+      >
+        <span>Voiceover {audioUrl ? '(recorded)' : ''}</span>
+        <span className="text-muted text-[10px]">{expanded ? '▲ collapse' : '▼ expand'}</span>
+      </button>
+
+      {!expanded ? null : <div className="mt-2 space-y-2">
 
       {/* Tab switcher */}
       <div className="flex gap-2 text-[10px]">
@@ -410,6 +421,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           >Save video with voiceover</button>
         </div>
       )}
+      </div>}
     </div>
   )
 }
