@@ -1894,7 +1894,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             </>
                           )}
                         </div>
-                        {!generatedPreviewUrl && storyCaptionStyle === 'overlay' && (
+                        {storyCaptionStyle === 'overlay' && (
                           <div className="flex flex-col items-center" style={{ height: Math.round(120 / 9 * 16), paddingTop: `${Math.round(120 / 9 * 16) * 0.15}px`, paddingBottom: `${Math.round(120 / 9 * 16) * 0.25}px` }}>
                             <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
                           </div>
