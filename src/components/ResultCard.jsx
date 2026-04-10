@@ -1724,8 +1724,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       if (t) {
                         setOpeningText(t.openingText || ''); setClosingText(t.closingText || '')
                         setOpeningDuration(t.openingDuration || 3); setClosingDuration(t.closingDuration || 3)
-                        setStoryFontSize(t.fontSize || 48); setStoryFontColor(t.fontColor || '#ffffff')
-                        setStoryFontOutline(t.fontOutline || false); setOverlayYPct(t.overlayYPct || 50)
+                        setStoryFontSize(t.fontSize || 48); setStoryFontFamily(t.fontFamily || 'sans-serif')
+                        setStoryFontColor(t.fontColor || '#ffffff')
+                        setStoryFontOutline(t.fontOutline || false); setStoryFontOutlineWidth(t.fontOutlineWidth || 3)
+                        setStoryLineHeight(t.lineHeight || 1.3); setStoryLetterSpacing(t.letterSpacing || 0)
+                        setOverlayYPct(t.overlayYPct || 50)
                       }
                       e.target.value = ''
                     }}>
@@ -2317,7 +2320,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         const name = prompt('Template name:')
                         if (!name) return
                         const api = await import('../api')
-                        await api.saveOverlayTemplate({ name, openingText, closingText, openingDuration, closingDuration, fontSize: storyFontSize, fontColor: storyFontColor, fontOutline: storyFontOutline, overlayYPct })
+                        await api.saveOverlayTemplate({ name, openingText, closingText, openingDuration, closingDuration, fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, overlayYPct })
                         alert('Template saved! Reload to see it in the dropdown.')
                       }}
                       className="text-[9px] text-[#6C5CE7] hover:underline whitespace-nowrap"
