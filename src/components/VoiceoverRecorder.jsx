@@ -50,14 +50,18 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const monitorTrimStart = monitorItem?._trimStart || 0
   const monitorTrimEnd = monitorItem?._trimEnd ?? null
 
-  // Load voices when TTS tab is selected
+  // Load voices as soon as ElevenLabs is configured (don't wait for tab switch)
   useEffect(() => {
-    if (tab !== 'tts' || !hasElevenLabs || voicesLoaded) return
+    if (!hasElevenLabs || voicesLoaded) return
     import('../api').then(api => api.getVoices()).then(r => {
-      if (r.voices) setVoices(r.voices)
+      if (r.voices && r.voices.length > 0) {
+        setVoices(r.voices)
+        // Auto-select the first voice if none is set
+        if (!selectedVoice) setSelectedVoice(r.voices[0].voice_id)
+      }
       setVoicesLoaded(true)
     }).catch(() => setVoicesLoaded(true))
-  }, [tab, hasElevenLabs, voicesLoaded])
+  }, [hasElevenLabs, voicesLoaded])
 
   // --- Mic recording (synced with muted video monitor) ---
   const startRecording = async () => {
@@ -400,6 +404,39 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       {/* TTS tab controls */}
       {tab === 'tts' && hasElevenLabs && (
         <div className="space-y-2">
+          {/* Voice picker */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-[10px] text-muted">Voice:</label>
+            {voices.length > 0 ? (
+              <select
+                value={selectedVoice}
+                onChange={e => setSelectedVoice(e.target.value)}
+                className="text-[10px] border border-border rounded py-1 px-1.5 bg-white flex-1 min-w-[120px]"
+              >
+                {voices.map(v => (
+                  <option key={v.voice_id} value={v.voice_id}>{v.name}{v.category ? ` (${v.category})` : ''}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-[10px] text-muted">{voicesLoaded ? 'No voices found' : 'Loading voices...'}</span>
+            )}
+            {/* Preview voice button */}
+            {selectedVoice && voices.length > 0 && (() => {
+              const v = voices.find(v => v.voice_id === selectedVoice)
+              if (!v?.preview_url) return null
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const a = new Audio(v.preview_url)
+                    a.play().catch(() => {})
+                  }}
+                  className="text-[9px] text-[#6C5CE7] hover:underline bg-transparent border-none cursor-pointer"
+                  title="Listen to a sample of this voice"
+                >Preview</button>
+              )
+            })()}
+          </div>
           <textarea
             rows={2}
             value={ttsText}
@@ -408,22 +445,14 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             className="w-full text-[11px] border border-border rounded py-1 px-2 bg-white resize-none"
           />
           <div className="flex items-center gap-2 flex-wrap">
-            {voices.length > 0 && (
-              <select
-                value={selectedVoice}
-                onChange={e => setSelectedVoice(e.target.value)}
-                className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white"
-              >
-                {voices.map(v => (
-                  <option key={v.voice_id} value={v.voice_id}>{v.name}</option>
-                ))}
-              </select>
-            )}
             <button
               onClick={generateTTS}
               disabled={ttsLoading || !ttsText.trim()}
               className="text-[10px] py-1 px-2.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
             >{ttsLoading ? 'Generating...' : 'Generate voice'}</button>
+            {ttsText.trim() && (
+              <span className="text-[9px] text-muted">~{ttsText.trim().length} characters</span>
+            )}
             {audioUrl && !recording && (
               <button
                 onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null) }}
