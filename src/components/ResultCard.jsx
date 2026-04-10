@@ -1747,9 +1747,33 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   // Photos: show opening text if set, else storyText, else closing
                                   displayText = effOpening || storyText || effClosing || null
                                 } else {
-                                  const closingStart = Math.max(0, videoDuration - closingDuration)
-                                  const showOpening = hasTimedOverlays && effOpening && videoTime >= 0 && videoTime <= openingDuration
-                                  const showClosing = hasTimedOverlays && effClosing && videoDuration > 0 && videoTime >= closingStart
+                                  // Overlay times are relative to the trimmed output clip,
+                                  // not the full source. The posted video starts at trimStart
+                                  // so t=0 in the output = trimStart in the source.
+                                  const trimStartSec = item._trimStart || 0
+                                  const trimEndSec = item._trimEnd ?? videoDuration
+                                  const trimmedLen = Math.max(0.1, trimEndSec - trimStartSec)
+                                  // Current playhead mapped into output-clip time (0 = trimStart)
+                                  const outputTime = Math.max(0, videoTime - trimStartSec)
+                                  const closingStart = Math.max(0, trimmedLen - closingDuration)
+                                  const isPaused = videoPreviewRef.current?.paused !== false
+                                  // When paused and the user has both opening and closing, bias
+                                  // toward whichever the playhead is closer to so there's always
+                                  // something visible (users typing into the opening field
+                                  // otherwise see nothing because the paused playhead sits in
+                                  // the middle of the clip).
+                                  let showOpening, showClosing
+                                  if (isPaused && hasTimedOverlays) {
+                                    const nearEnd = outputTime >= closingStart
+                                    showOpening = effOpening && !nearEnd
+                                    showClosing = effClosing && nearEnd
+                                    // If only one is set, always show it while paused
+                                    if (!effOpening) { showOpening = false; showClosing = !!effClosing }
+                                    if (!effClosing) { showClosing = false; showOpening = !!effOpening }
+                                  } else {
+                                    showOpening = hasTimedOverlays && effOpening && outputTime <= openingDuration
+                                    showClosing = hasTimedOverlays && effClosing && outputTime >= closingStart
+                                  }
                                   const showFull = !hasTimedOverlays && storyText
                                   displayText = showOpening ? effOpening : showClosing ? effClosing : showFull ? storyText : null
                                 }
