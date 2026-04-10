@@ -39,9 +39,16 @@ export default function VideoMerge({ videoFiles, onMerged }) {
   const [error, setError] = useState(null)
   const mergedBlobRef = useRef(null)
 
-  // Keep order in sync if files change
-  if (order.length !== videoFiles.length) {
+  // Keep order in sync if files change — also clear stale merge result
+  const fileIds = videoFiles.map(f => f.id).join(',')
+  const prevFileIdsRef = useRef(fileIds)
+  if (fileIds !== prevFileIdsRef.current) {
+    prevFileIdsRef.current = fileIds
     setOrder(videoFiles.map((_, i) => i))
+    if (mergedUrl) { URL.revokeObjectURL(mergedUrl); setMergedUrl(null) }
+    mergedBlobRef.current = null
+    window._postyMergedVideo = null
+    setError(null)
   }
 
   const moveUp = (idx) => {

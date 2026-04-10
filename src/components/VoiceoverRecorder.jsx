@@ -63,12 +63,26 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const hasElevenLabs = !!settings?.elevenlabs_configured
   const [tab, setTab] = useState('record') // record | tts
 
-  // Video source for the recording monitor. Prefer merged video URL, else first video file.
+  // Video source for the recording monitor. Recompute when videoFiles changes.
   const monitorItem = videoFiles[0] || null
-  const [monitorSrc] = useState(() => {
-    if (monitorItem?.file) return URL.createObjectURL(monitorItem.file)
-    return null
-  })
+  const [monitorSrc, setMonitorSrc] = useState(null)
+  const monitorFileRef = useRef(null)
+  useEffect(() => {
+    const file = monitorItem?.file
+    if (file === monitorFileRef.current) return
+    monitorFileRef.current = file
+    if (monitorSrc) URL.revokeObjectURL(monitorSrc)
+    setMonitorSrc(file ? URL.createObjectURL(file) : null)
+    setMonitorDuration(0)
+    // Clear stale voiceover when the source video changes
+    if (audioUrl) {
+      setAudioBlob(null)
+      URL.revokeObjectURL(audioUrl)
+      setAudioUrl(null)
+      for (const vf of videoFiles) delete vf._voiceoverBlob
+      try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    }
+  }, [monitorItem?.id])
   const monitorTrimStart = monitorItem?._trimStart || 0
   const monitorTrimEnd = monitorItem?._trimEnd ?? null
 
