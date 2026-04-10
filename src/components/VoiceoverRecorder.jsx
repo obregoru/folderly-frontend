@@ -260,13 +260,23 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               preload="auto"
               controls={!!audioUrl && !recording}
               className="w-full max-h-[220px] object-contain"
-              onLoadedMetadata={e => setMonitorDuration(e.target.duration)}
+              onLoadedMetadata={e => {
+                setMonitorDuration(e.target.duration)
+                // Seek to trim start so the video shows the trimmed portion
+                try { e.target.currentTime = monitorTrimStart } catch {}
+              }}
               onPlay={() => {
-                // Sync: when video plays, start the voiceover audio
+                const v = monitorRef.current
+                if (!v) return
+                const start = monitorTrimStart
+                const end = monitorTrimEnd ?? (v.duration || Infinity)
+                // Clamp to trim range on play
+                if (v.currentTime < start || v.currentTime >= end - 0.05) {
+                  try { v.currentTime = start } catch {}
+                }
+                // Sync voiceover audio
                 if (audioUrl && audioPreviewRef.current) {
-                  const v = monitorRef.current
-                  const start = monitorTrimStart
-                  const outputTime = Math.max(0, (v?.currentTime || 0) - start)
+                  const outputTime = Math.max(0, (v.currentTime || 0) - start)
                   try { audioPreviewRef.current.currentTime = outputTime } catch {}
                   audioPreviewRef.current.play().catch(() => {})
                   setPreviewing(true)
@@ -277,22 +287,30 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 setPreviewing(false)
               }}
               onSeeked={() => {
+                const v = monitorRef.current
+                if (!v) return
+                const start = monitorTrimStart
+                const end = monitorTrimEnd ?? (v.duration || Infinity)
+                // Clamp seek to trim range
+                if (v.currentTime < start) try { v.currentTime = start } catch {}
+                else if (v.currentTime >= end) try { v.currentTime = Math.max(start, end - 0.1) } catch {}
+                // Sync voiceover audio
                 if (audioUrl && audioPreviewRef.current) {
-                  const v = monitorRef.current
-                  const start = monitorTrimStart
-                  const outputTime = Math.max(0, (v?.currentTime || 0) - start)
+                  const outputTime = Math.max(0, (v.currentTime || 0) - start)
                   try { audioPreviewRef.current.currentTime = Math.min(outputTime, audioPreviewRef.current.duration || 999) } catch {}
                 }
               }}
               onTimeUpdate={e => {
                 const v = e.target
-                // Enforce trim bounds
+                // Enforce trim bounds — clamp to [trimStart, trimEnd]
                 const start = monitorTrimStart
                 const end = monitorTrimEnd ?? (v.duration || Infinity)
                 if (v.currentTime >= end - 0.03) {
                   try { v.currentTime = start; v.pause() } catch {}
                   if (audioPreviewRef.current) try { audioPreviewRef.current.pause(); audioPreviewRef.current.currentTime = 0 } catch {}
                   setPreviewing(false)
+                } else if (v.currentTime < start - 0.05) {
+                  try { v.currentTime = start } catch {}
                 }
               }}
             />
