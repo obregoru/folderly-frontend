@@ -251,58 +251,108 @@ export default function VideoTrimmer({ item }) {
           </button>
         )}
       </div>
+      {/* Outer container: handles sit at the edges, filmstrip fills the middle.
+          Layout: [left-handle 12px] [filmstrip flex-1] [right-handle 12px]
+          This way the handle edges align exactly with the filmstrip edges,
+          and pointer math maps cleanly into the filmstrip's coordinate space. */}
       <div
         ref={stripRef}
-        className="relative h-[52px] rounded overflow-hidden bg-black select-none"
+        className="relative h-[52px] rounded overflow-hidden bg-black select-none flex"
         style={{ touchAction: 'none' }}
       >
-        <div className="absolute inset-0 flex">
-          {trimThumbs.length > 0 ? (
-            trimThumbs.map((s, i) => (
-              <img key={i} src={s} alt="" className="flex-1 h-full object-cover min-w-0" draggable={false} />
-            ))
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-[9px] text-white/60">
-              Loading frames {thumbProgress.total > 0 ? `${thumbProgress.done}/${thumbProgress.total}` : '…'}
+        {/* Left handle — right edge aligns with trimStart in the filmstrip.
+            The filmstrip starts at 12px from the container left, so the handle's
+            left = 12px * (1 - pct) + filmstripWidth * pct - 0  →  simplified:
+            we use calc(12px + (100% - 24px) * pct - 12px) = calc((100% - 24px) * pct)
+            which puts the handle's LEFT edge at the right place, then the 12px
+            handle body extends to the right of the cut point. To make the handle's
+            RIGHT edge mark the cut: left = calc(12px + (100% - 24px) * pct - 12px). */}
+        <div
+          className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-l flex items-center justify-center shadow-md z-10"
+          style={{ left: `calc((100% - 24px) * ${trimStart / videoDuration})`, cursor: 'ew-resize' }}
+        >
+          <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
+        </div>
+        {/* Right handle — left edge aligns with trimEnd in the filmstrip.
+            right = calc((100% - 24px) * (1 - pct)) */}
+        <div
+          className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-r flex items-center justify-center shadow-md z-10"
+          style={{ right: `calc((100% - 24px) * ${1 - (trimEnd ?? videoDuration) / videoDuration})`, cursor: 'ew-resize' }}
+        >
+          <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
+        </div>
+        {/* Filmstrip area between the handles. The thumbnails occupy the full
+            width of this element so each thumbnail's visual position maps
+            linearly to its sample time. */}
+        <div className="absolute top-0 bottom-0 left-3 right-3">
+          <div className="absolute inset-0 flex">
+            {trimThumbs.length > 0 ? (
+              trimThumbs.map((s, i) => (
+                <img key={i} src={s} alt="" className="flex-1 h-full object-cover min-w-0" draggable={false} />
+              ))
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-[9px] text-white/60">
+                Loading frames {thumbProgress.total > 0 ? `${thumbProgress.done}/${thumbProgress.total}` : '…'}
+              </div>
+            )}
+          </div>
+          {/* Progress indicator */}
+          {trimThumbs.length > 0 && trimThumbs.length < thumbProgress.total && (
+            <div className="absolute top-1 right-1 text-[8px] text-white/80 bg-black/50 rounded px-1 py-0.5 pointer-events-none">
+              {thumbProgress.done}/{thumbProgress.total}
             </div>
           )}
+          {/* Dimmed "trimmed away" regions — positioned within filmstrip */}
+          <div
+            className="absolute top-0 bottom-0 left-0 bg-black/65 pointer-events-none"
+            style={{ width: `${(trimStart / videoDuration) * 100}%` }}
+          />
+          <div
+            className="absolute top-0 bottom-0 right-0 bg-black/65 pointer-events-none"
+            style={{ width: `${(1 - (trimEnd ?? videoDuration) / videoDuration) * 100}%` }}
+          />
+          {/* Yellow top+bottom selection frame */}
+          <div
+            className="absolute top-0 bottom-0 border-y-[3px] border-[#f7c948] pointer-events-none"
+            style={{
+              left: `${(trimStart / videoDuration) * 100}%`,
+              width: `${(((trimEnd ?? videoDuration) - trimStart) / videoDuration) * 100}%`,
+            }}
+          />
         </div>
-        {/* Progress indicator over partial filmstrip */}
-        {trimThumbs.length > 0 && trimThumbs.length < thumbProgress.total && (
-          <div className="absolute top-1 right-1 text-[8px] text-white/80 bg-black/50 rounded px-1 py-0.5 pointer-events-none">
-            {thumbProgress.done}/{thumbProgress.total}
-          </div>
-        )}
+        {/* Invisible drag surface covering the entire strip — maps pointer
+            position into the filmstrip's inner coordinate space (excluding
+            the 12px handles on each side) so the trim time aligns with
+            what the user visually sees in the thumbnails. */}
         <div
-          className="absolute top-0 bottom-0 left-0 bg-black/65 pointer-events-none"
-          style={{ width: `${(trimStart / videoDuration) * 100}%` }}
-        />
-        <div
-          className="absolute top-0 bottom-0 right-0 bg-black/65 pointer-events-none"
-          style={{ width: `${(1 - (trimEnd ?? videoDuration) / videoDuration) * 100}%` }}
-        />
-        <div
-          className="absolute top-0 bottom-0 border-y-[3px] border-[#f7c948] pointer-events-none"
-          style={{
-            left: `${(trimStart / videoDuration) * 100}%`,
-            width: `${(((trimEnd ?? videoDuration) - trimStart) / videoDuration) * 100}%`,
-          }}
-        />
-        {/* Left handle */}
-        <div
-          className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-l flex items-center justify-center shadow-md"
-          style={{ left: `${(trimStart / videoDuration) * 100}%`, cursor: 'ew-resize' }}
+          className="absolute inset-0 z-20"
           onPointerDown={e => {
             e.preventDefault()
-            e.currentTarget.setPointerCapture?.(e.pointerId)
             const rect = stripRef.current?.getBoundingClientRect()
             if (!rect) return
-            const maxT = Math.max(0, ((trimEnd ?? videoDuration) - 0.5))
-            const onMove = (ev) => {
-              const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-              const t = Math.max(0, Math.min(maxT, pct * videoDuration))
-              setTrimStart(t)
+            const HANDLE_W = 12
+            const inner = rect.width - HANDLE_W * 2
+            if (inner <= 0) return
+            const toTime = (clientX) => {
+              const x = clientX - rect.left - HANDLE_W
+              return Math.max(0, Math.min(videoDuration, (x / inner) * videoDuration))
             }
+            const clickTime = toTime(e.clientX)
+            // Decide which handle the user is grabbing: whichever is closer
+            const distToStart = Math.abs(clickTime - trimStart)
+            const distToEnd = Math.abs(clickTime - (trimEnd ?? videoDuration))
+            const dragging = distToStart <= distToEnd ? 'start' : 'end'
+            const onMove = (ev) => {
+              const t = toTime(ev.clientX)
+              if (dragging === 'start') {
+                setTrimStart(Math.min(t, (trimEndRef.current ?? videoDuration) - 0.5))
+              } else {
+                const v = Math.max(t, trimStartRef.current + 0.5)
+                setTrimEnd(v >= videoDuration - 0.05 ? null : v)
+              }
+            }
+            // Apply initial move so the handle snaps to the tap position
+            onMove(e)
             const onUp = () => {
               window.removeEventListener('pointermove', onMove)
               window.removeEventListener('pointerup', onUp)
@@ -311,39 +361,7 @@ export default function VideoTrimmer({ item }) {
             window.addEventListener('pointermove', onMove)
             window.addEventListener('pointerup', onUp)
           }}
-        >
-          <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
-        </div>
-        {/* Right handle */}
-        <div
-          className="absolute top-0 bottom-0 w-3 bg-[#f7c948] rounded-r flex items-center justify-center shadow-md"
-          style={{
-            left: `${((trimEnd ?? videoDuration) / videoDuration) * 100}%`,
-            transform: 'translateX(-100%)',
-            cursor: 'ew-resize',
-          }}
-          onPointerDown={e => {
-            e.preventDefault()
-            e.currentTarget.setPointerCapture?.(e.pointerId)
-            const rect = stripRef.current?.getBoundingClientRect()
-            if (!rect) return
-            const minT = Math.min(videoDuration, trimStart + 0.5)
-            const onMove = (ev) => {
-              const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-              const t = Math.max(minT, Math.min(videoDuration, pct * videoDuration))
-              setTrimEnd(t >= videoDuration - 0.05 ? null : t)
-            }
-            const onUp = () => {
-              window.removeEventListener('pointermove', onMove)
-              window.removeEventListener('pointerup', onUp)
-              commitTrim(trimStartRef.current, trimEndRef.current)
-            }
-            window.addEventListener('pointermove', onMove)
-            window.addEventListener('pointerup', onUp)
-          }}
-        >
-          <div className="w-[2px] h-4 bg-white/90 rounded pointer-events-none" />
-        </div>
+        />
       </div>
     </div>
   )
