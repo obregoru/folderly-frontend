@@ -22,10 +22,21 @@ export default function VideoTrimmer({ item }) {
   useEffect(() => { trimStartRef.current = trimStart }, [trimStart])
   useEffect(() => { trimEndRef.current = trimEnd }, [trimEnd])
 
+  // Detect mobile — iOS/Android video seek-and-decode is much slower than
+  // desktop, so we capture fewer frames and give the decoder more time.
+  const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '')
+  const FRAME_COUNT = isMobile ? 5 : 10
+  // iOS in particular: seeks can silently hang, so we time them out rather
+  // than wait forever.
+  const SEEK_TIMEOUT_MS = isMobile ? 2500 : 1500
+
   // Probe source video duration + capture filmstrip thumbnails. iOS Safari
-  // will NOT decode frames from a detached <video>, so we attach an invisible
-  // video element to the DOM, play() it briefly to force a decode, then seek
-  // through 10 points and draw each frame to canvas.
+  // has two hard requirements for this to work:
+  //   1. The <video> must be attached to the DOM (detached elements never
+  //      paint to canvas), and
+  //   2. The element must have non-trivial pixel dimensions (1×1 sometimes
+  //      returns garbage), so the hidden video is 80×80 offscreen.
+  // We also nudge decoding by calling play() briefly on metadata load.
   const hiddenVideoRef = useRef(null)
   useEffect(() => {
     const v = hiddenVideoRef.current
@@ -35,17 +46,16 @@ export default function VideoTrimmer({ item }) {
     const onMeta = async () => {
       if (cancelled) return
       if (v.duration && isFinite(v.duration)) setVideoDuration(v.duration)
-      // Force iOS to actually decode a frame — muted + playsInline (set on
-      // the element) satisfy the autoplay policy. We play for one tick then
-      // immediately pause; subsequent seeks will paint real frames.
       try {
         v.muted = true
         const p = v.play()
         if (p && typeof p.then === 'function') await p
+        // Let iOS actually render a couple of frames before we pause.
+        await new Promise(r => setTimeout(r, 120))
         try { v.pause() } catch {}
       } catch {
-        // Autoplay may be blocked on some browsers — still try to capture,
-        // desktop Chrome/Firefox will paint without it.
+        // Autoplay may be blocked — desktop Chrome/Firefox still paint
+        // without it, so we fall through and try to capture regardless.
       }
     }
     v.addEventListener('loadedmetadata', onMeta)
@@ -55,14 +65,31 @@ export default function VideoTrimmer({ item }) {
     }
   }, [src])
 
+  const [thumbProgress, setThumbProgress] = useState({ done: 0, total: 0 })
+
   useEffect(() => {
     if (videoDuration <= 0) return
     const v = hiddenVideoRef.current
     if (!v) return
     let cancelled = false
     setTrimThumbs([])
-    const N = 10
+    setThumbProgress({ done: 0, total: FRAME_COUNT })
     const canvas = document.createElement('canvas')
+
+    const seekTo = (t) => new Promise((resolve) => {
+      let settled = false
+      const done = () => {
+        if (settled) return
+        settled = true
+        v.removeEventListener('seeked', done)
+        clearTimeout(timer)
+        resolve()
+      }
+      // Hard timeout — if iOS hangs on the seek, skip it and move on.
+      const timer = setTimeout(done, SEEK_TIMEOUT_MS)
+      v.addEventListener('seeked', done)
+      try { v.currentTime = t } catch { done() }
+    })
 
     const capture = async () => {
       const aspect = (v.videoWidth && v.videoHeight) ? v.videoWidth / v.videoHeight : 9 / 16
@@ -70,25 +97,36 @@ export default function VideoTrimmer({ item }) {
       canvas.height = Math.max(1, Math.round(96 / aspect))
       const ctx = canvas.getContext('2d')
       const thumbs = []
-      for (let i = 0; i < N; i++) {
+      for (let i = 0; i < FRAME_COUNT; i++) {
         if (cancelled) return
-        const t = Math.min(videoDuration * (i / (N - 1)), Math.max(0, videoDuration - 0.05))
-        await new Promise((resolve) => {
-          const onSeeked = () => { v.removeEventListener('seeked', onSeeked); resolve() }
-          v.addEventListener('seeked', onSeeked)
-          try { v.currentTime = t } catch { resolve() }
-        })
+        const t = Math.min(videoDuration * (i / (FRAME_COUNT - 1)), Math.max(0, videoDuration - 0.05))
+        await seekTo(t)
         if (cancelled) return
-        // Give iOS one repaint tick before drawing
+        // Two rAFs so iOS has a full compositor cycle to paint the new frame
+        await new Promise(r => requestAnimationFrame(r))
         await new Promise(r => requestAnimationFrame(r))
         try {
           ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
-          thumbs.push(canvas.toDataURL('image/jpeg', 0.55))
+          // Sanity-check: if the canvas came back mostly black, the seek
+          // didn't actually paint — reuse the previous thumb (or a
+          // placeholder) so the strip doesn't go blank.
+          const px = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height)).data
+          let sum = 0
+          for (let p = 0; p < px.length; p += 4) sum += px[p] + px[p + 1] + px[p + 2]
+          if (sum < 50 && thumbs.length > 0) {
+            thumbs.push(thumbs[thumbs.length - 1])
+          } else {
+            thumbs.push(canvas.toDataURL('image/jpeg', 0.55))
+          }
           setTrimThumbs([...thumbs])
+          setThumbProgress({ done: thumbs.length, total: FRAME_COUNT })
         } catch (err) {
           console.warn('[trim] thumbnail capture failed:', err.message)
           return
         }
+        // Let iOS breathe between seeks — without this the decoder can
+        // back up and later seeks take longer and longer.
+        if (isMobile) await new Promise(r => setTimeout(r, 40))
       }
     }
     capture()
@@ -118,8 +156,8 @@ export default function VideoTrimmer({ item }) {
   }
 
   // Hidden video element — MUST be in the DOM for iOS Safari to decode
-  // frames into canvas. It's 1×1, offscreen, and muted so it's invisible
-  // and won't trip autoplay restrictions.
+  // frames into canvas. It's 80×80 offscreen (1×1 is too small on iOS,
+  // the decoder sometimes returns garbage) and invisible.
   const hiddenVideoEl = (
     <video
       ref={hiddenVideoRef}
@@ -127,7 +165,7 @@ export default function VideoTrimmer({ item }) {
       muted
       playsInline
       preload="auto"
-      style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none', left: -9999 }}
+      style={{ position: 'absolute', width: 80, height: 80, opacity: 0, pointerEvents: 'none', left: -9999, top: -9999 }}
     />
   )
 
@@ -169,11 +207,17 @@ export default function VideoTrimmer({ item }) {
               <img key={i} src={s} alt="" className="flex-1 h-full object-cover min-w-0" draggable={false} />
             ))
           ) : (
-            <div className="flex-1 flex items-center justify-center text-[9px] text-white/40">
-              Loading frames…
+            <div className="flex-1 flex items-center justify-center text-[9px] text-white/60">
+              Loading frames {thumbProgress.total > 0 ? `${thumbProgress.done}/${thumbProgress.total}` : '…'}
             </div>
           )}
         </div>
+        {/* Progress indicator over partial filmstrip */}
+        {trimThumbs.length > 0 && trimThumbs.length < thumbProgress.total && (
+          <div className="absolute top-1 right-1 text-[8px] text-white/80 bg-black/50 rounded px-1 py-0.5 pointer-events-none">
+            {thumbProgress.done}/{thumbProgress.total}
+          </div>
+        )}
         <div
           className="absolute top-0 bottom-0 left-0 bg-black/65 pointer-events-none"
           style={{ width: `${(trimStart / videoDuration) * 100}%` }}
