@@ -53,12 +53,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [ttsStyle, setTtsStyle] = useState(0)
   const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(true)
 
-  // --- Mix state ---
-  const [mixMode, setMixMode] = useState('mix') // mix | replace
-  const [originalVolume, setOriginalVolume] = useState(0.3)
-  const [applying, setApplying] = useState(false)
-  const [resultUrl, setResultUrl] = useState(null)
-  const resultBlobRef = useRef(null)
+  // Mix settings are used by CaptionEditor's Generate Preview, not here.
+  // Keeping state minimal — voiceover audio is stashed on item._voiceoverBlob.
 
   const hasElevenLabs = !!settings?.elevenlabs_configured
   const [tab, setTab] = useState('record') // record | tts
@@ -196,93 +192,10 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     setTtsLoading(false)
   }
 
-  // --- Apply voiceover to video ---
-  const applyVoiceover = async () => {
-    if (!audioBlob) return
-    setApplying(true)
-    try {
-      const api = await import('../api')
-      // Read audio as base64
-      const audioB64 = await new Promise((resolve, reject) => {
-        const r = new FileReader()
-        r.onload = () => {
-          const bytes = new Uint8Array(r.result)
-          let binary = ''
-          const chunk = 8192
-          for (let i = 0; i < bytes.length; i += chunk) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
-          }
-          resolve(btoa(binary))
-        }
-        r.onerror = reject
-        r.readAsArrayBuffer(audioBlob)
-      })
-
-      // Pick video source — prefer smaller, already-processed sources to
-      // avoid sending the raw 30-100MB file (which crashes iOS Safari).
-      // Priority: merged result > existing overlay preview > trimmed preview > raw file
-      let videoB64
-      const item = videoFiles[0]
-      if (mergedVideoBase64) {
-        videoB64 = mergedVideoBase64
-      } else if (item?._overlayPreviewUrl || item?._sharedPreviewUrl) {
-        // Use the already-generated preview (trimmed + overlaid, small MP4)
-        const previewUrl = item._overlayPreviewUrl || item._sharedPreviewUrl
-        const resp = await fetch(previewUrl)
-        const blob = await resp.blob()
-        videoB64 = await blobToBase64(blob)
-      } else if (item) {
-        // No preview exists — ask the server to trim + normalize first
-        // instead of sending the raw file. This is much smaller.
-        const rawB64 = await fileToBase64(item.file)
-        const trimResult = await api.previewStory(
-          '', rawB64, item.file.type, 'none', 70,
-          { trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null }
-        )
-        // previewStory returns a blob URL — read it
-        const resp = await fetch(trimResult)
-        const blob = await resp.blob()
-        videoB64 = await blobToBase64(blob)
-        URL.revokeObjectURL(trimResult)
-      } else {
-        throw new Error('No video to apply voiceover to')
-      }
-
-      const result = await api.addVoiceover(videoB64, audioB64, mixMode, originalVolume, 1.0)
-      if (result.error) throw new Error(result.error)
-
-      const byteChars = atob(result.video_base64)
-      const bytes = new Uint8Array(byteChars.length)
-      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
-      const blob = new Blob([bytes], { type: 'video/mp4' })
-      resultBlobRef.current = blob
-      if (resultUrl) URL.revokeObjectURL(resultUrl)
-      const url = URL.createObjectURL(blob)
-      setResultUrl(url)
-      if (onResult) onResult({ blob, url, base64: result.video_base64 })
-    } catch (err) {
-      alert('Voiceover failed: ' + err.message)
-    }
-    setApplying(false)
-  }
-
-  const handleSave = async () => {
-    const blob = resultBlobRef.current
-    if (!blob) return
-    const filename = 'voiceover-video.mp4'
-    try {
-      const file = new File([blob], filename, { type: 'video/mp4' })
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: filename })
-        return
-      }
-    } catch (e) { if (e.name === 'AbortError') return }
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = filename
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    setTimeout(() => URL.revokeObjectURL(url), 5000)
-  }
+  // No separate "Apply" button — the voiceover audio is stashed on each
+  // video item (item._voiceoverBlob) and automatically mixed in when the
+  // user clicks "Generate Preview" in the overlay editor. This avoids
+  // sending the raw multi-MB video file from mobile (which crashes iOS).
 
   const [expanded, setExpanded] = useState(false)
 
@@ -523,52 +436,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         </div>
       )}
 
-      {/* Apply to video */}
-      {audioUrl && (videoFiles.length > 0 || mergedVideoBase64) && (
-        <div className="border-t border-border pt-2 space-y-1.5">
-          <div className="flex items-center gap-3 text-[10px]">
-            <label className="flex items-center gap-1 cursor-pointer">
-              <input type="radio" name="vo-mode" value="mix" checked={mixMode === 'mix'} onChange={() => setMixMode('mix')} />
-              Mix with original audio
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer">
-              <input type="radio" name="vo-mode" value="replace" checked={mixMode === 'replace'} onChange={() => setMixMode('replace')} />
-              Replace original audio
-            </label>
-          </div>
-          {mixMode === 'mix' && (
-            <div className="flex items-center gap-2 text-[10px]">
-              <label className="text-muted">Original volume:</label>
-              <input
-                type="range" min={0} max={1} step={0.05} value={originalVolume}
-                onChange={e => setOriginalVolume(Number(e.target.value))}
-                className="flex-1 accent-[#2D9A5E]"
-              />
-              <span className="text-muted w-8 text-right">{Math.round(originalVolume * 100)}%</span>
-            </div>
-          )}
-          <button
-            onClick={applyVoiceover}
-            disabled={applying}
-            className="w-full text-[11px] py-2 border border-[#2D9A5E] rounded bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#248a50] disabled:opacity-50"
-          >
-            {applying ? 'Applying voiceover...' : `Apply to ${mergedVideoBase64 ? 'merged video' : videoFiles[0]?.file?.name || 'video'}`}
-          </button>
-        </div>
-      )}
-
-      {/* Result preview */}
-      {resultUrl && (
-        <div className="space-y-1">
-          <div className="text-[10px] font-medium text-ink">Result with voiceover:</div>
-          <div className="relative rounded border border-border overflow-hidden bg-black" style={{ maxHeight: 300 }}>
-            <video src={resultUrl} controls playsInline className="w-full max-h-[300px] object-contain" />
-          </div>
-          <button
-            onClick={handleSave}
-            className="w-full text-[10px] py-1.5 border border-[#2D9A5E] text-[#2D9A5E] rounded bg-white cursor-pointer font-sans hover:bg-[#f0faf4]"
-          >Save video with voiceover</button>
-        </div>
+      {/* Info — voiceover is applied via Generate Preview in the overlay editor */}
+      {audioUrl && (
+        <p className="text-[9px] text-muted border-t border-border pt-2">
+          Voiceover will be included when you click <strong>Generate Preview</strong> in the overlay editor below. The preview will have trim + overlays + this voiceover mixed in.
+        </p>
       )}
       </div>}
     </div>
