@@ -1,5 +1,22 @@
 import { useState, useRef, useEffect } from 'react'
 
+// Read a Blob or File as base64
+const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+  const r = new FileReader()
+  r.onload = () => {
+    const bytes = new Uint8Array(r.result)
+    let binary = ''
+    const chunk = 8192
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+    }
+    resolve(btoa(binary))
+  }
+  r.onerror = reject
+  r.readAsArrayBuffer(blob)
+})
+const fileToBase64 = blobToBase64
+
 /**
  * Voiceover recorder + ElevenLabs TTS. Renders below the video trim/merge
  * section. Two modes:
@@ -201,26 +218,32 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         r.readAsArrayBuffer(audioBlob)
       })
 
-      // Pick video source: merged > first uploaded video
+      // Pick video source — prefer smaller, already-processed sources to
+      // avoid sending the raw 30-100MB file (which crashes iOS Safari).
+      // Priority: merged result > existing overlay preview > trimmed preview > raw file
       let videoB64
+      const item = videoFiles[0]
       if (mergedVideoBase64) {
         videoB64 = mergedVideoBase64
-      } else if (videoFiles.length > 0) {
-        const file = videoFiles[0].file
-        videoB64 = await new Promise((resolve, reject) => {
-          const r = new FileReader()
-          r.onload = () => {
-            const bytes = new Uint8Array(r.result)
-            let binary = ''
-            const chunk = 8192
-            for (let i = 0; i < bytes.length; i += chunk) {
-              binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
-            }
-            resolve(btoa(binary))
-          }
-          r.onerror = reject
-          r.readAsArrayBuffer(file)
-        })
+      } else if (item?._overlayPreviewUrl || item?._sharedPreviewUrl) {
+        // Use the already-generated preview (trimmed + overlaid, small MP4)
+        const previewUrl = item._overlayPreviewUrl || item._sharedPreviewUrl
+        const resp = await fetch(previewUrl)
+        const blob = await resp.blob()
+        videoB64 = await blobToBase64(blob)
+      } else if (item) {
+        // No preview exists — ask the server to trim + normalize first
+        // instead of sending the raw file. This is much smaller.
+        const rawB64 = await fileToBase64(item.file)
+        const trimResult = await api.previewStory(
+          '', rawB64, item.file.type, 'none', 70,
+          { trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null }
+        )
+        // previewStory returns a blob URL — read it
+        const resp = await fetch(trimResult)
+        const blob = await resp.blob()
+        videoB64 = await blobToBase64(blob)
+        URL.revokeObjectURL(trimResult)
       } else {
         throw new Error('No video to apply voiceover to')
       }
