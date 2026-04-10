@@ -45,13 +45,17 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [ttsText, setTtsText] = useState('')
   const [ttsLoading, setTtsLoading] = useState(false)
   const [voices, setVoices] = useState([])
-  const [selectedVoice, setSelectedVoice] = useState(settings?.elevenlabs_voice_id || '')
+  const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('posty_tts_voice') || settings?.elevenlabs_voice_id || '')
   const [voicesLoaded, setVoicesLoaded] = useState(false)
-  // ElevenLabs voice settings
-  const [ttsStability, setTtsStability] = useState(0.5)
-  const [ttsSimilarity, setTtsSimilarity] = useState(0.75)
-  const [ttsStyle, setTtsStyle] = useState(0)
-  const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(true)
+  // ElevenLabs voice settings — persisted to localStorage
+  const [ttsStability, setTtsStability] = useState(() => Number(localStorage.getItem('posty_tts_stability')) || 0.5)
+  const [ttsSimilarity, setTtsSimilarity] = useState(() => Number(localStorage.getItem('posty_tts_similarity')) || 0.75)
+  const [ttsStyle, setTtsStyle] = useState(() => Number(localStorage.getItem('posty_tts_style')) || 0)
+  const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(() => localStorage.getItem('posty_tts_boost') !== 'false')
+  useEffect(() => { localStorage.setItem('posty_tts_stability', ttsStability) }, [ttsStability])
+  useEffect(() => { localStorage.setItem('posty_tts_similarity', ttsSimilarity) }, [ttsSimilarity])
+  useEffect(() => { localStorage.setItem('posty_tts_style', ttsStyle) }, [ttsStyle])
+  useEffect(() => { localStorage.setItem('posty_tts_boost', ttsSpeakerBoost) }, [ttsSpeakerBoost])
 
   // Mix settings are used by CaptionEditor's Generate Preview, not here.
   // Keeping state minimal — voiceover audio is stashed on item._voiceoverBlob.
@@ -75,7 +79,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       if (r.voices && r.voices.length > 0) {
         setVoices(r.voices)
         // Auto-select the first voice if none is set
-        if (!selectedVoice) setSelectedVoice(r.voices[0].voice_id)
+        if (!selectedVoice) { setSelectedVoice(r.voices[0].voice_id); localStorage.setItem('posty_tts_voice', r.voices[0].voice_id) }
       }
       setVoicesLoaded(true)
     }).catch(() => setVoicesLoaded(true))
@@ -350,7 +354,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             {voices.length > 0 ? (
               <select
                 value={selectedVoice}
-                onChange={e => setSelectedVoice(e.target.value)}
+                onChange={e => { setSelectedVoice(e.target.value); localStorage.setItem('posty_tts_voice', e.target.value) }}
                 className="text-[10px] border border-border rounded py-1 px-1.5 bg-white flex-1 min-w-[120px]"
               >
                 {voices.map(v => (
