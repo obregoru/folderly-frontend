@@ -2218,9 +2218,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           onClick={async () => {
                             setGeneratingPreview(true)
                             try {
-                              // For photos, send the raw photo file with photoToVideo flag
-                              // For videos, send the raw video file
-                              const rawBase64 = await fileToBase64(item.file)
+                              // Prefer the Supabase upload key (already compressed on server)
+                              // over reading the raw file as base64 (which crashes iOS for
+                              // files over ~30MB). Falls back to base64 for small files or
+                              // when no upload has happened yet.
+                              const uploadKey = item.uploadResult?.original_temp_path
+                              const rawBase64 = uploadKey || await fileToBase64(item.file)
                               const rawType = item.file.type
                               const api = await import('../api')
                               // If AI per-platform overlays are active, preview the selected destination's text
@@ -2374,9 +2377,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         setPostStatus('Processing video (trim + overlays + voiceover)...')
                         try {
                           const pOpening = openingText, pClosing = closingText
+                          const postUploadKey = item.uploadResult?.original_temp_path
+                          const postVideoSrc = postUploadKey || videoSrcB64
                           previewUrl = await api.previewStory(
                             storyCaptionStyle === 'overlay' ? (storyText || value) : value,
-                            videoSrcB64, videoSrcType,
+                            postVideoSrc, videoSrcType,
                             storyCaptionStyle, overlayYPct,
                             {
                               fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,

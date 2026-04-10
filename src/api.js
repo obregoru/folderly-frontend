@@ -229,9 +229,15 @@ export const postToFacebook = (caption, imageBase64, mediaType) =>
   postWithDupCheck('/post/facebook', { caption, image_base64: imageBase64, media_type: mediaType })
 export const postToInstagram = (caption, imageBase64, mediaType, overlayOpts) =>
   postWithDupCheck('/post/instagram', { caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts })
-export const previewStory = async (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) => {
+export const previewStory = async (caption, imageBase64OrUploadKey, mediaType, captionStyle, overlayYPct, fontOpts) => {
+  // If the "base64" param is actually a Supabase upload key (starts with "temp/"),
+  // send it as upload_key instead of image_base64 so the server fetches it directly.
+  // This avoids iOS crashing on large base64 payloads.
+  const isUploadKey = typeof imageBase64OrUploadKey === 'string' && imageBase64OrUploadKey.startsWith('temp/')
   const resp = await fetch(api('/post/story/preview'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({
-    caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct,
+    caption,
+    ...(isUploadKey ? { upload_key: imageBase64OrUploadKey } : { image_base64: imageBase64OrUploadKey }),
+    media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct,
     font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline,
     font_outline_width: fontOpts?.fontOutlineWidth, line_height: fontOpts?.lineHeight, letter_spacing: fontOpts?.letterSpacing,
     trim_start: fontOpts?.trimStart, trim_end: fontOpts?.trimEnd,
