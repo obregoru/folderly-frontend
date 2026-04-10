@@ -1019,15 +1019,13 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     blog: platform === 'blog',
   })
   const storyEnabled = postDests.ig_story || postDests.fb_story
-  const [videoSrcBase] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
-  // Append a Media Fragments URI (#t=start,end) so the browser plays only
-  // the trimmed range natively. Recomputed on every render so trim changes
-  // (which bump _trimVersion via forceRerender below) take effect.
+  // Plain blob URL. We do NOT append a Media Fragments URI (#t=start,end)
+  // here — Safari refuses to honor fragments on blob: URLs, which is why
+  // the scrub video was black and didn't play. Trim enforcement happens
+  // via currentTime + timeupdate clamping below instead.
+  const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
   const _ts = item._trimStart || 0
   const _te = item._trimEnd
-  const videoSrc = (_ts > 0 || _te != null)
-    ? `${videoSrcBase}#t=${_ts.toFixed(2)}${_te != null ? `,${_te.toFixed(2)}` : ''}`
-    : videoSrcBase
 
   // Persist overlay settings. Two scopes:
   //  - Customized tab: write to item._tabOverrides[platform] (only this tab)
@@ -1676,42 +1674,58 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <>
                               {isVideoFile ? (
                                 <video
-                                  // Remount on trim change so the browser re-parses
-                                  // the Media Fragments URI (#t=start,end) in src.
-                                  key={`${_ts}-${_te ?? 'end'}`}
                                   ref={videoPreviewRef}
                                   src={videoSrc}
                                   className="w-full h-full object-cover"
                                   style={{ objectPosition: 'center 33%' }}
                                   muted
-                                  loop
                                   playsInline
                                   preload="auto"
                                   onTimeUpdate={e => {
                                     const v = e.target
                                     setVideoTime(v.currentTime)
-                                    // Belt-and-suspenders: even though the fragment URL
-                                    // tells the browser to stop at trimEnd, the loop
-                                    // attribute can sometimes wrap past it on Safari —
-                                    // clamp to be safe.
                                     const start = item._trimStart || 0
                                     const end = item._trimEnd ?? (v.duration || Infinity)
                                     if (v.currentTime >= end - 0.03) {
-                                      try { v.currentTime = start } catch {}
+                                      try {
+                                        v.currentTime = start
+                                        // Manual loop since we can't use the loop
+                                        // attribute (it ignores trim bounds)
+                                        if (!v.paused) v.play().catch(() => {})
+                                      } catch {}
                                     }
                                   }}
-                                  onLoadedMetadata={e => {
-                                    setVideoDuration(e.target.duration)
-                                    // Force iOS to actually paint the first frame
-                                    // (otherwise the scrub player is just black until
-                                    // the user hits play). Briefly play and pause.
+                                  onLoadedData={e => {
+                                    // loadeddata fires when the first frame is
+                                    // actually decoded (loadedmetadata only fires
+                                    // when dimensions are known). This is the
+                                    // earliest point where seeking + drawing
+                                    // actually produces a visible frame.
+                                    const v = e.target
+                                    setVideoDuration(v.duration)
                                     try {
-                                      e.target.muted = true
-                                      const p = e.target.play()
+                                      v.currentTime = item._trimStart || 0
+                                      // Kick the decoder to force a first-frame
+                                      // paint on iOS. muted + playsInline satisfy
+                                      // autoplay policy.
+                                      v.muted = true
+                                      const p = v.play()
                                       if (p && typeof p.then === 'function') {
-                                        p.then(() => setTimeout(() => { try { e.target.pause() } catch {} }, 150)).catch(() => {})
+                                        p.then(() => {
+                                          setTimeout(() => { try { v.pause() } catch {} }, 200)
+                                        }).catch(() => {})
                                       }
                                     } catch {}
+                                  }}
+                                  onPlay={e => {
+                                    // If the user clicks play, make sure we're
+                                    // inside the trim range before playback continues.
+                                    const v = e.target
+                                    const start = item._trimStart || 0
+                                    const end = item._trimEnd ?? (v.duration || Infinity)
+                                    if (v.currentTime < start || v.currentTime >= end - 0.05) {
+                                      try { v.currentTime = start } catch {}
+                                    }
                                   }}
                                 />
                               ) : (
@@ -1764,7 +1778,21 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               {isVideoFile && (
                                 <div className="absolute bottom-1 left-1 right-1 flex items-center gap-0.5">
                                   <button onClick={() => { const v = videoPreviewRef.current; if (v) { const s = item._trimStart || 0; v.currentTime = Math.max(s, v.currentTime - 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&lt;</button>
-                                  <button onClick={() => { const v = videoPreviewRef.current; if (v) v.paused ? v.play() : v.pause() }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
+                                  <button onClick={() => {
+                                    const v = videoPreviewRef.current
+                                    if (!v) return
+                                    if (v.paused) {
+                                      // Ensure we're inside the trim range before playing
+                                      const start = item._trimStart || 0
+                                      const end = item._trimEnd ?? (v.duration || Infinity)
+                                      if (v.currentTime < start || v.currentTime >= end - 0.05) {
+                                        try { v.currentTime = start } catch {}
+                                      }
+                                      v.play().catch(err => console.warn('[scrub] play failed:', err.message))
+                                    } else {
+                                      v.pause()
+                                    }
+                                  }} className="text-white text-[8px] bg-black/60 rounded px-1.5 py-0.5 cursor-pointer">{videoPreviewRef.current?.paused !== false ? '\u25B6' : '\u23F8'}</button>
                                   <button onClick={() => { const v = videoPreviewRef.current; if (v) { const e = item._trimEnd ?? (v.duration || 0); v.currentTime = Math.min(e - 0.05, v.currentTime + 2) } }} className="text-white text-[8px] bg-black/60 rounded px-1 py-0.5 cursor-pointer">&gt;</button>
                                   <span className="text-white text-[7px] bg-black/60 rounded px-1 py-0.5 ml-auto">{videoTime.toFixed(1)}s</span>
                                 </div>
