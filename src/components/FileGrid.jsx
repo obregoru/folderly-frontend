@@ -177,6 +177,25 @@ function VideoThumb({ file, onClick, className }) {
   )
 }
 
+function ImageThumb({ file, onClick }) {
+  const [src] = useState(() => URL.createObjectURL(file))
+  const [aspect, setAspect] = useState(() => file._imgAspect || null)
+  // Stash the detected aspect back on the file so downstream consumers
+  // (and re-renders) can reuse it without re-decoding the image.
+  useEffect(() => { if (aspect != null) file._imgAspect = aspect }, [aspect])
+  const isPortrait = aspect != null && aspect < 1
+  const height = isPortrait ? 195 : 78
+  return (
+    <img
+      src={src}
+      onClick={onClick}
+      onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
+      className="w-full object-cover block cursor-pointer hover:opacity-80"
+      style={{ height, imageOrientation: 'from-image' }}
+    />
+  )
+}
+
 export default function FileGrid({ files, onRemove }) {
   const [previewItem, setPreviewItem] = useState(null)
 
@@ -191,11 +210,7 @@ export default function FileGrid({ files, onRemove }) {
         {files.map(item => (
           <div key={item.id} className="border border-border rounded-sm overflow-hidden bg-white relative">
             {item.isImg ? (
-              <img
-                src={URL.createObjectURL(item.file)}
-                onClick={() => setPreviewItem(item)}
-                className="w-full h-[78px] object-cover block cursor-pointer hover:opacity-80"
-              />
+              <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
             ) : item.file.type?.startsWith('video/') ? (
               <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
             ) : (
