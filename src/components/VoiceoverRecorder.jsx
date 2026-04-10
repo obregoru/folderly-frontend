@@ -255,11 +255,46 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             <video
               ref={monitorRef}
               src={monitorSrc}
-              muted
+              muted={recording || !audioUrl}
               playsInline
               preload="auto"
+              controls={!!audioUrl && !recording}
               className="w-full max-h-[220px] object-contain"
               onLoadedMetadata={e => setMonitorDuration(e.target.duration)}
+              onPlay={() => {
+                // Sync: when video plays, start the voiceover audio
+                if (audioUrl && audioPreviewRef.current) {
+                  const v = monitorRef.current
+                  const start = monitorTrimStart
+                  const outputTime = Math.max(0, (v?.currentTime || 0) - start)
+                  try { audioPreviewRef.current.currentTime = outputTime } catch {}
+                  audioPreviewRef.current.play().catch(() => {})
+                  setPreviewing(true)
+                }
+              }}
+              onPause={() => {
+                if (audioPreviewRef.current) try { audioPreviewRef.current.pause() } catch {}
+                setPreviewing(false)
+              }}
+              onSeeked={() => {
+                if (audioUrl && audioPreviewRef.current) {
+                  const v = monitorRef.current
+                  const start = monitorTrimStart
+                  const outputTime = Math.max(0, (v?.currentTime || 0) - start)
+                  try { audioPreviewRef.current.currentTime = Math.min(outputTime, audioPreviewRef.current.duration || 999) } catch {}
+                }
+              }}
+              onTimeUpdate={e => {
+                const v = e.target
+                // Enforce trim bounds
+                const start = monitorTrimStart
+                const end = monitorTrimEnd ?? (v.duration || Infinity)
+                if (v.currentTime >= end - 0.03) {
+                  try { v.currentTime = start; v.pause() } catch {}
+                  if (audioPreviewRef.current) try { audioPreviewRef.current.pause(); audioPreviewRef.current.currentTime = 0 } catch {}
+                  setPreviewing(false)
+                }
+              }}
             />
             {/* Recording overlay badge */}
             {recording && (
@@ -302,31 +337,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               />
             </div>
           )}
-          {/* Audio element for synced preview playback. NOT display:none because
-              iOS Safari won't allow play() on hidden media elements even from a
-              user gesture. Instead we make it tiny and transparent. */}
+          {/* Hidden audio companion — plays voiceover synced with the video.
+              iOS requires the element to be in the DOM and not display:none,
+              so we make it 1px tall and transparent. The video controls drive
+              play/pause/seek and the audio follows. */}
           {audioUrl && (
             <audio
               ref={audioPreviewRef}
               src={audioUrl}
-              controls
               playsInline
-              onPause={() => { try { monitorRef.current?.pause() } catch {}; setPreviewing(false) }}
-              onEnded={() => { try { monitorRef.current?.pause() } catch {}; setPreviewing(false) }}
-              onPlay={() => {
-                const v = monitorRef.current
-                if (v) {
-                  try { v.currentTime = monitorTrimStart + (audioPreviewRef.current?.currentTime || 0) } catch {}
-                  v.muted = true
-                  v.play().catch(() => {})
-                }
-                setPreviewing(true)
+              preload="auto"
+              onEnded={() => {
+                // Audio finished but video may still be playing — that's fine,
+                // the rest of the video plays with just original audio (muted
+                // in this monitor, but will have it in the final render).
               }}
-              onSeeked={(e) => {
-                const v = monitorRef.current
-                if (v) try { v.currentTime = monitorTrimStart + (e.target.currentTime || 0) } catch {}
-              }}
-              className="w-full h-8 mt-1"
+              style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
             />
           )}
         </div>
