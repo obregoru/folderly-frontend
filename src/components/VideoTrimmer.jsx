@@ -25,9 +25,10 @@ export default function VideoTrimmer({ item }) {
   // Detect mobile — iOS/Android video seek-and-decode is much slower than
   // desktop, so we capture fewer frames and give the decoder more time.
   const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '')
-  const FRAME_COUNT = isMobile ? 5 : 10
-  // iOS in particular: seeks can silently hang, so we time them out rather
-  // than wait forever.
+  // More frames = finer visual resolution. With 5 frames on a 10s video
+  // each thumbnail covers 2.5s, so being off by one keyframe (~1s) is
+  // very noticeable. 8 on mobile / 12 on desktop keeps it tight.
+  const FRAME_COUNT = isMobile ? 8 : 12
   const SEEK_TIMEOUT_MS = isMobile ? 2500 : 1500
 
   // Probe source video duration + capture filmstrip thumbnails. iOS Safari
@@ -178,11 +179,30 @@ export default function VideoTrimmer({ item }) {
     return () => { cancelled = true }
   }, [src, videoDuration])
 
-  // Write-through to item + invalidate cached previews so any later post
-  // or preview rebuild uses the new trim bounds. Also broadcasts a custom
-  // event so CaptionEditor (which lives in a separate component tree and
-  // won't re-render from our mutation) can update its scrub player.
-  const commitTrim = (nextStart, nextEnd) => {
+  // Write-through to item + invalidate cached previews. Also snaps values
+  // to the nearest keyframe the browser can actually seek to, so the trim
+  // the user sees in playback matches the handle position.
+  const commitTrim = async (nextStart, nextEnd) => {
+    // Snap to keyframes using the hidden video element. The browser's
+    // .currentTime after a seek reflects where it actually landed.
+    const v = hiddenVideoRef.current
+    if (v && v.duration) {
+      try {
+        if (nextStart > 0) {
+          v.currentTime = nextStart
+          await new Promise(r => { const h = () => { v.removeEventListener('seeked', h); r() }; v.addEventListener('seeked', h); setTimeout(r, 300) })
+          nextStart = v.currentTime
+        }
+        if (nextEnd != null) {
+          v.currentTime = nextEnd
+          await new Promise(r => { const h = () => { v.removeEventListener('seeked', h); r() }; v.addEventListener('seeked', h); setTimeout(r, 300) })
+          nextEnd = v.currentTime >= v.duration - 0.05 ? null : v.currentTime
+        }
+      } catch {}
+      // Update local state to the snapped values
+      setTrimStart(nextStart)
+      if (nextEnd !== trimEnd) setTrimEnd(nextEnd)
+    }
     item._trimStart = nextStart
     item._trimEnd = nextEnd
     item._trimVersion = (item._trimVersion || 0) + 1
