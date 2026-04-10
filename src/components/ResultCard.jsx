@@ -2511,46 +2511,65 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             onClick={async () => {
               try {
                 const filename = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
-                // If there's already a generated preview (overlay-processed), use that
+                // If there's already a generated preview (trim + overlays + voiceover), use that
                 if (generatedPreviewUrl) {
                   await saveVideo(generatedPreviewUrl, filename)
                   return
                 }
+                // No preview exists — generate one now with the full pipeline
+                // (trim + overlays + voiceover) so the download has everything.
                 setConverting(true)
-                const apiMod = await import('../api')
-                const b64 = await fileToBase64(item.file)
-                let result
-                let videoB64
-                if (isImageFile && photoToVideoEnabled) {
-                  // Photo → motion video (zoom or pan) — reuse cached Ken Burns video if available
-                  const cacheKey = `${photoToVideoMotion}::${photoToVideoDuration}`
-                  item._kenBurnsCaches = item._kenBurnsCaches || {}
-                  if (item._kenBurnsCaches[cacheKey]) {
-                    videoB64 = item._kenBurnsCaches[cacheKey]
-                  } else {
-                    result = await apiMod.photoToVideo(b64, item.file.type, photoToVideoDuration, photoToVideoMotion)
-                    if (result.error) throw new Error(result.error)
-                    videoB64 = result.video_base64
-                    item._kenBurnsCaches[cacheKey] = videoB64
+                const api = await import('../api')
+                const rawBase64 = await fileToBase64(item.file)
+                const rawType = item.file.type
+                const aiActive = aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]
+                const pOpening = aiActive ? (perPlatformOverlays[previewDestKey].opening || '') : openingText
+                const pClosing = aiActive ? (perPlatformOverlays[previewDestKey].closing || '') : closingText
+                let url = await api.previewStory(
+                  storyCaptionStyle === 'overlay' ? (storyText || value) : value,
+                  rawBase64, rawType,
+                  storyCaptionStyle, overlayYPct,
+                  {
+                    fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
+                    trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
+                    openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
+                    photoToVideo: isImageFile && photoToVideoEnabled,
+                    photoToVideoDuration,
+                    photoToVideoMotion,
                   }
-                } else {
-                  // Video → convert to MP4 (medium quality)
-                  result = await apiMod.convertToMp4(b64, item.file.type, mp4Quality)
-                  if (result.error) throw new Error(result.error)
-                  videoB64 = result.mp4_base64
+                )
+                // Mix voiceover if available
+                if (item._voiceoverBlob) {
+                  try {
+                    const previewResp = await fetch(url)
+                    const previewBlob = await previewResp.blob()
+                    const vB64 = await new Promise((resolve) => {
+                      const r = new FileReader(); r.onload = () => { const b = new Uint8Array(r.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); resolve(btoa(s)) }; r.readAsArrayBuffer(previewBlob)
+                    })
+                    const aB64 = await new Promise((resolve) => {
+                      const r = new FileReader(); r.onload = () => { const b = new Uint8Array(r.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); resolve(btoa(s)) }; r.readAsArrayBuffer(item._voiceoverBlob)
+                    })
+                    const mixResult = await api.addVoiceover(vB64, aB64, 'mix', 0.3, 1.0)
+                    if (!mixResult.error) {
+                      URL.revokeObjectURL(url)
+                      const bc = atob(mixResult.video_base64); const by = new Uint8Array(bc.length); for (let i = 0; i < bc.length; i++) by[i] = bc.charCodeAt(i)
+                      url = URL.createObjectURL(new Blob([by], { type: 'video/mp4' }))
+                    }
+                  } catch (voErr) { console.warn('[download] voiceover mix failed:', voErr.message) }
                 }
-                const byteChars = atob(videoB64)
-                const bytes = new Uint8Array(byteChars.length)
-                for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
-                const blob = new Blob([bytes], { type: 'video/mp4' })
-                await saveVideo(blob, filename)
+                // Cache as the generated preview so subsequent saves are instant
+                if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
+                setGeneratedPreviewUrl(url)
+                item._overlayPreviewUrl = url
+                // Now save
+                await saveVideo(url, filename)
               } catch (e) { alert('Download failed: ' + e.message) }
               setConverting(false)
             }}
             className="text-[11px] py-1 px-2.5 border border-[#6C5CE7] text-[#6C5CE7] rounded-sm bg-white cursor-pointer font-sans hover:bg-[#f3f0ff] disabled:opacity-50"
-            title={generatedPreviewUrl ? 'Download the generated overlay video' : 'Download the video as MP4'}
+            title="Download the complete video (trim + overlays + voiceover)"
           >
-            {converting ? 'Preparing...' : (generatedPreviewUrl ? 'Download video' : 'Download as MP4')}
+            {converting ? 'Preparing...' : 'Download MP4'}
           </button>
         )}
         {platform === 'google' && (
