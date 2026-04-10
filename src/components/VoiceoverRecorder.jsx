@@ -17,6 +17,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [audioBlob, setAudioBlob] = useState(null)
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
+  // Video monitor — plays muted during recording so you can narrate to picture
+  const monitorRef = useRef(null)
+  const [recordTime, setRecordTime] = useState(0)
+  const recordTimerRef = useRef(null)
+  const [monitorDuration, setMonitorDuration] = useState(0)
 
   // --- TTS state ---
   const [ttsText, setTtsText] = useState('')
@@ -35,6 +40,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const hasElevenLabs = !!settings?.elevenlabs_configured
   const [tab, setTab] = useState('record') // record | tts
 
+  // Video source for the recording monitor. Prefer merged video URL, else first video file.
+  const monitorItem = videoFiles[0] || null
+  const [monitorSrc] = useState(() => {
+    if (monitorItem?.file) return URL.createObjectURL(monitorItem.file)
+    return null
+  })
+  const monitorTrimStart = monitorItem?._trimStart || 0
+  const monitorTrimEnd = monitorItem?._trimEnd ?? null
+
   // Load voices when TTS tab is selected
   useEffect(() => {
     if (tab !== 'tts' || !hasElevenLabs || voicesLoaded) return
@@ -44,7 +58,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     }).catch(() => setVoicesLoaded(true))
   }, [tab, hasElevenLabs, voicesLoaded])
 
-  // --- Mic recording ---
+  // --- Mic recording (synced with muted video monitor) ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -57,8 +71,28 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         setAudioBlob(blob)
         if (audioUrl) URL.revokeObjectURL(audioUrl)
         setAudioUrl(URL.createObjectURL(blob))
+        // Pause the monitor
+        try { monitorRef.current?.pause() } catch {}
+        clearInterval(recordTimerRef.current)
       }
       mediaRecorderRef.current = mr
+
+      // Start the muted video monitor in sync with the recording.
+      // Seek to trimStart so the video starts at the right spot.
+      const v = monitorRef.current
+      if (v) {
+        v.muted = true
+        try { v.currentTime = monitorTrimStart } catch {}
+        v.play().catch(() => {})
+      }
+
+      // Recording timer
+      setRecordTime(0)
+      const startTs = Date.now()
+      recordTimerRef.current = setInterval(() => {
+        setRecordTime((Date.now() - startTs) / 1000)
+      }, 100)
+
       mr.start()
       setRecording(true)
     } catch (err) {
@@ -70,8 +104,32 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop()
       setRecording(false)
+      clearInterval(recordTimerRef.current)
     }
   }
+
+  // Track the monitor video's currentTime for the playhead bar.
+  // We use a separate state + RAF so the bar animates smoothly.
+  const [monitorTime, setMonitorTime] = useState(0)
+  useEffect(() => {
+    if (!recording) return
+    let raf
+    const tick = () => {
+      const v = monitorRef.current
+      if (v) {
+        setMonitorTime(v.currentTime)
+        // Auto-stop at trimEnd
+        const end = monitorTrimEnd ?? v.duration
+        if (v.currentTime >= end - 0.05) {
+          stopRecording()
+          return
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [recording, monitorTrimEnd])
 
   // --- TTS ---
   const generateTTS = async () => {
@@ -197,19 +255,67 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       {/* Record tab */}
       {tab === 'record' && (
         <div className="space-y-2">
+          {/* Video monitor — muted playback so you can narrate to what you see */}
+          {monitorSrc && (
+            <div className="relative rounded border border-border overflow-hidden bg-black" style={{ maxHeight: 220 }}>
+              <video
+                ref={monitorRef}
+                src={monitorSrc}
+                muted
+                playsInline
+                preload="auto"
+                className="w-full max-h-[220px] object-contain"
+                onLoadedMetadata={e => setMonitorDuration(e.target.duration)}
+              />
+              {/* Recording overlay badge */}
+              {recording && (
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-[#c0392b] text-white text-[10px] font-medium rounded-full px-2 py-0.5">
+                  <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                  REC {recordTime.toFixed(1)}s
+                </div>
+              )}
+              {!recording && !audioUrl && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                  <span className="text-white text-[11px] bg-black/60 rounded-full px-3 py-1">Press record — video will play muted while you narrate</span>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Playhead bar showing recording position relative to video duration */}
+          {monitorSrc && monitorDuration > 0 && (
+            <div className="relative h-2 bg-[#e5e5e5] rounded overflow-hidden">
+              {/* Trimmed region highlight */}
+              <div
+                className="absolute top-0 bottom-0 bg-[#2D9A5E]/20"
+                style={{
+                  left: `${(monitorTrimStart / monitorDuration) * 100}%`,
+                  width: `${(((monitorTrimEnd ?? monitorDuration) - monitorTrimStart) / monitorDuration) * 100}%`,
+                }}
+              />
+              {/* Playhead */}
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-[#c0392b]"
+                style={{ left: `${((recording ? monitorTime : monitorTrimStart) / monitorDuration) * 100}%` }}
+              />
+            </div>
+          )}
           <div className="flex items-center gap-2">
             {!recording ? (
               <button
                 onClick={startRecording}
                 className="text-[11px] py-1.5 px-3 bg-[#c0392b] text-white rounded border-none cursor-pointer font-sans"
-              >Start recording</button>
+              >{audioUrl ? 'Re-record' : 'Start recording'}</button>
             ) : (
               <button
                 onClick={stopRecording}
                 className="text-[11px] py-1.5 px-3 bg-[#c0392b] text-white rounded border-none cursor-pointer font-sans animate-pulse"
               >Stop recording</button>
             )}
-            {recording && <span className="text-[10px] text-[#c0392b] animate-pulse">Recording...</span>}
+            {recording && (
+              <span className="text-[10px] text-muted">
+                {recordTime.toFixed(1)}s / {((monitorTrimEnd ?? monitorDuration) - monitorTrimStart).toFixed(1)}s
+              </span>
+            )}
           </div>
         </div>
       )}
