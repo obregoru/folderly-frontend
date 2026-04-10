@@ -89,7 +89,11 @@ async function saveVideo(sourceBlobOrUrl, filename, onAfter) {
     // Try native share sheet first — iOS/Android give users "Save Video" /
     // "Save to Photos" from here.
     try {
-      const file = new File([blob], filename, { type: blob.type || 'video/mp4' })
+      // Ensure the file has the right MIME type — blob: URL fetches
+      // sometimes produce blobs with an empty type.
+      const mime = blob.type || 'video/mp4'
+      const typedBlob = mime === blob.type ? blob : new Blob([blob], { type: mime })
+      const file = new File([typedBlob], filename, { type: mime })
       if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: filename })
         if (onAfter) onAfter()
@@ -1838,18 +1842,22 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   // the middle of the clip).
                                   let showOpening, showClosing
                                   if (isPaused && hasTimedOverlays) {
-                                    const nearEnd = outputTime >= closingStart
-                                    showOpening = effOpening && !nearEnd
-                                    showClosing = effClosing && nearEnd
-                                    // If only one is set, always show it while paused
-                                    if (!effOpening) { showOpening = false; showClosing = !!effClosing }
-                                    if (!effClosing) { showClosing = false; showOpening = !!effOpening }
+                                    // When paused, show both opening and closing (separated
+                                    // by a newline) so the user can see all their overlay
+                                    // text at a glance while editing. During playback, show
+                                    // each at its scheduled time.
+                                    showOpening = !!effOpening
+                                    showClosing = !!effClosing
                                   } else {
                                     showOpening = hasTimedOverlays && effOpening && outputTime <= openingDuration
                                     showClosing = hasTimedOverlays && effClosing && outputTime >= closingStart
                                   }
                                   const showFull = !hasTimedOverlays && storyText
-                                  displayText = showOpening ? effOpening : showClosing ? effClosing : showFull ? storyText : null
+                                  if (isPaused && showOpening && showClosing) {
+                                    displayText = effOpening + '\n—\n' + effClosing
+                                  } else {
+                                    displayText = showOpening ? effOpening : showClosing ? effClosing : showFull ? storyText : null
+                                  }
                                 }
                                 if (!displayText) return null
                                 const previewH = Math.round(180 / 9 * 16)
