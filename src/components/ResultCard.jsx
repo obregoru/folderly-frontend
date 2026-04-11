@@ -2277,7 +2277,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                     }
                                     r.readAsArrayBuffer(item._voiceoverBlob)
                                   })
-                                  const mixResult = await api.addVoiceover(videoB64, audioB64, 'mix', 0.3, 1.0)
+                                  const mixResult = await api.addVoiceover(videoB64, audioB64, item._voiceoverMode || 'mix', item._voiceoverOrigVol ?? 0.3, 1.0)
                                   if (!mixResult.error) {
                                     URL.revokeObjectURL(url)
                                     const byteChars = atob(mixResult.video_base64)
@@ -2401,7 +2401,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               const prevBlob = await prevResp.blob()
                               const vB64 = await new Promise(r2 => { const rd = new FileReader(); rd.onload = () => { const b = new Uint8Array(rd.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); r2(btoa(s)) }; rd.readAsArrayBuffer(prevBlob) })
                               const aB64 = await new Promise(r2 => { const rd = new FileReader(); rd.onload = () => { const b = new Uint8Array(rd.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); r2(btoa(s)) }; rd.readAsArrayBuffer(item._voiceoverBlob) })
-                              const mixR = await api.addVoiceover(vB64, aB64, 'mix', 0.3, 1.0)
+                              const mixR = await api.addVoiceover(vB64, aB64, item._voiceoverMode || 'mix', item._voiceoverOrigVol ?? 0.3, 1.0)
                               if (!mixR.error) {
                                 URL.revokeObjectURL(previewUrl)
                                 const bc = atob(mixR.video_base64); const by = new Uint8Array(bc.length); for (let i = 0; i < bc.length; i++) by[i] = bc.charCodeAt(i)

@@ -57,8 +57,18 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   useEffect(() => { localStorage.setItem('posty_tts_style', ttsStyle) }, [ttsStyle])
   useEffect(() => { localStorage.setItem('posty_tts_boost', ttsSpeakerBoost) }, [ttsSpeakerBoost])
 
-  // Mix settings are used by CaptionEditor's Generate Preview, not here.
-  // Keeping state minimal — voiceover audio is stashed on item._voiceoverBlob.
+  // Audio mix mode — persisted to localStorage + stashed on items
+  const [voMixMode, setVoMixMode] = useState(() => localStorage.getItem('posty_vo_mode') || 'mix')
+  const [voOrigVolume, setVoOrigVolume] = useState(() => Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3)
+  useEffect(() => { localStorage.setItem('posty_vo_mode', voMixMode) }, [voMixMode])
+  useEffect(() => { localStorage.setItem('posty_vo_orig_vol', voOrigVolume) }, [voOrigVolume])
+  // Stash on items so ResultCard can read during preview/post
+  useEffect(() => {
+    for (const vf of videoFiles) {
+      vf._voiceoverMode = voMixMode
+      vf._voiceoverOrigVol = voOrigVolume
+    }
+  }, [voMixMode, voOrigVolume, videoFiles])
 
   const hasElevenLabs = !!settings?.elevenlabs_configured
   const [tab, setTab] = useState('record') // record | tts
@@ -489,11 +499,35 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         </div>
       )}
 
-      {/* Info — voiceover is applied via Generate Preview in the overlay editor */}
+      {/* Audio mix settings + info */}
       {audioUrl && (
-        <p className="text-[9px] text-muted border-t border-border pt-2">
-          Voiceover will be included when you click <strong>Generate Preview</strong> in the overlay editor below. The preview will have trim + overlays + this voiceover mixed in.
-        </p>
+        <div className="border-t border-border pt-2 space-y-1.5">
+          <div className="flex items-center gap-3 text-[10px]">
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input type="radio" name="vo-mix-mode" value="replace" checked={voMixMode === 'replace'} onChange={() => setVoMixMode('replace')} />
+              Replace original audio
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input type="radio" name="vo-mix-mode" value="mix" checked={voMixMode === 'mix'} onChange={() => setVoMixMode('mix')} />
+              Mix with original
+            </label>
+          </div>
+          {voMixMode === 'mix' && (
+            <div className="flex items-center gap-2 text-[10px]">
+              <label className="text-muted">Original volume:</label>
+              <input
+                type="range" min={0} max={1} step={0.05} value={voOrigVolume}
+                onChange={e => setVoOrigVolume(Number(e.target.value))}
+                className="flex-1 accent-[#2D9A5E]"
+              />
+              <span className="text-muted w-8 text-right">{Math.round(voOrigVolume * 100)}%</span>
+            </div>
+          )}
+          <p className="text-[9px] text-muted">
+            {voMixMode === 'replace' ? 'Original audio will be removed — only your voiceover will play.' : `Original audio at ${Math.round(voOrigVolume * 100)}% + voiceover at 100%.`}
+            {' '}Applied when you click <strong>Generate Preview</strong> below.
+          </p>
+        </div>
       )}
       </div>}
     </div>
