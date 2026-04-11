@@ -265,7 +265,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             <video
               ref={monitorRef}
               src={monitorSrc}
-              muted={recording || !audioUrl}
+              muted
               playsInline
               preload="auto"
               controls={!!audioUrl && !recording}
