@@ -906,7 +906,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                         <input
                           type="number"
                           min={12}
-                          max={200}
+                          max={999}
                           value={schedFontSize}
                           onChange={e => setSchedFontSize(Math.max(12, Math.min(200, Number(e.target.value) || 48)))}
                           className="w-12 text-[9px] border border-border rounded px-1 bg-white"
@@ -2110,10 +2110,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           <input
                             type="number"
                             min={12}
-                            max={200}
+                            max={999}
                             step={1}
                             value={storyFontSize}
-                            onChange={e => setStoryFontSize(Math.max(12, Math.min(200, Number(e.target.value) || 48)))}
+                            onChange={e => setStoryFontSize(Math.max(12, Math.min(999, Number(e.target.value) || 48)))}
                             className="w-12 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
                             title="Font size in points (12–200)"
                           />
@@ -2218,12 +2218,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           onClick={async () => {
                             setGeneratingPreview(true)
                             try {
-                              // Prefer the Supabase upload key (already compressed on server)
-                              // over reading the raw file as base64 (which crashes iOS for
-                              // files over ~30MB). Falls back to base64 for small files or
-                              // when no upload has happened yet.
-                              const uploadKey = item.uploadResult?.original_temp_path
-                              const rawBase64 = uploadKey || await fileToBase64(item.file)
+                              // For large files, send the Supabase upload key so the server
+                              // fetches it directly. For small files, send base64 as usual.
+                              const uploadKey = item.uploadResult?.original_temp_path || null
+                              const rawBase64 = uploadKey ? null : await fileToBase64(item.file)
                               const rawType = item.file.type
                               const api = await import('../api')
                               // If AI per-platform overlays are active, preview the selected destination's text
@@ -2235,6 +2233,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 rawBase64, rawType,
                                 storyCaptionStyle, overlayYPct,
                                 {
+                                  uploadKey,
                                   fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
                                   trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
                                   openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
@@ -2377,17 +2376,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         setPostStatus('Processing video (trim + overlays + voiceover)...')
                         try {
                           const pOpening = openingText, pClosing = closingText
-                          const postUploadKey = item.uploadResult?.original_temp_path
-                          const postVideoSrc = postUploadKey || videoSrcB64
+                          const postUploadKey = item.uploadResult?.original_temp_path || null
                           previewUrl = await api.previewStory(
                             storyCaptionStyle === 'overlay' ? (storyText || value) : value,
-                            postVideoSrc, videoSrcType,
+                            postUploadKey ? null : videoSrcB64, videoSrcType,
                             storyCaptionStyle, overlayYPct,
                             {
+                              uploadKey: postUploadKey,
                               fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
                               trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
                               openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
-                              photoToVideo: false, // videoSrcB64 is already a video at this point
+                              photoToVideo: false,
                             }
                           )
                           // Mix voiceover if available

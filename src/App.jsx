@@ -52,7 +52,7 @@ export default function App() {
   const [refineCtx, setRefineCtx] = useState(null)
   const [showAdmin, setShowAdmin] = useState(false)
   const [rules, setRules] = useState({ name: true, cta: true, brand: true, seo: true, hashtags: true })
-  const [userHint, setUserHint] = useState('')
+  const [userHint, setUserHint] = useState(() => sessionStorage.getItem('posty_hint') || '')
   const [reviewing, setReviewing] = useState(false)
   const [reviewResult, setReviewResult] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -304,6 +304,9 @@ export default function App() {
     setFiles([])
     setFolderCtx(null)
     setUserHint('')
+    sessionStorage.removeItem('posty_hint')
+    window._postyMergedVideo = null
+    window._postyVoiceoverVideo = null
   }
 
   const getTones = () => {
@@ -628,7 +631,7 @@ export default function App() {
               id="posty-hint"
               rows={2}
               value={userHint}
-              onChange={e => { setUserHint(e.target.value); setReviewResult(null) }}
+              onChange={e => { setUserHint(e.target.value); sessionStorage.setItem('posty_hint', e.target.value); setReviewResult(null) }}
               className="field-input resize-y mt-1"
               placeholder="e.g. Girls night, wine canvas painting"
             />
@@ -679,7 +682,7 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <div className="font-serif text-[17px]">Generated content</div>
               <div className="flex gap-1 flex-wrap">
-                <button onClick={clearAll} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Clear</button>
+                <button onClick={() => { if (confirm('Start a new session? This will clear all uploads, captions, trims, voiceovers, and overlays.')) clearAll() }} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-[#c0392b] text-[#c0392b] rounded-sm bg-white cursor-pointer font-sans hover:bg-[#fdeaea]">New</button>
                 {hasCaptions && <button onClick={regenAll} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Regen all</button>}
                 {hasCaptions && <button onClick={handleExportSeo} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans hidden sm:block">SEO photos</button>}
                 {hasCaptions && <button onClick={handleExportAll} disabled={exporting} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans disabled:opacity-40">
