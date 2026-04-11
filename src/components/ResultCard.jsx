@@ -904,12 +904,12 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
                           </optgroup>
                         </select>
                         <input
-                          type="number"
-                          min={12}
-                          max={999}
+                          type="text"
+                          inputMode="numeric"
                           value={schedFontSize}
-                          onChange={e => setSchedFontSize(Math.max(12, Math.min(200, Number(e.target.value) || 48)))}
-                          className="w-12 text-[9px] border border-border rounded px-1 bg-white"
+                          onChange={e => { const raw = e.target.value.replace(/[^0-9]/g, ''); setSchedFontSize(raw === '' ? '' : Number(raw)) }}
+                          onBlur={e => setSchedFontSize(Math.max(1, Number(e.target.value) || 48))}
+                          className="w-14 text-[9px] border border-border rounded px-1 bg-white"
                           title="Font size (pt)"
                         />
                         <input type="color" value={schedFontColor} onChange={e => setSchedFontColor(e.target.value)} className="w-5 h-4 border-none" title="Font color" />
@@ -2108,14 +2108,19 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         <label className="flex items-center gap-1 text-[10px] text-muted">
                           <span>Size:</span>
                           <input
-                            type="number"
-                            min={12}
-                            max={999}
-                            step={1}
+                            type="text"
+                            inputMode="numeric"
                             value={storyFontSize}
-                            onChange={e => setStoryFontSize(Math.max(12, Math.min(999, Number(e.target.value) || 48)))}
-                            className="w-12 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
-                            title="Font size in points (12–200)"
+                            onChange={e => {
+                              const raw = e.target.value.replace(/[^0-9]/g, '')
+                              setStoryFontSize(raw === '' ? '' : Number(raw))
+                            }}
+                            onBlur={e => {
+                              const n = Number(e.target.value) || 48
+                              setStoryFontSize(Math.max(1, n))
+                            }}
+                            className="w-14 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                            title="Font size in points"
                           />
                           <span className="text-[9px] text-muted">pt</span>
                         </label>
