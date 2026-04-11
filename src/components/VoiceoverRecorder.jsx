@@ -499,9 +499,16 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         </div>
       )}
 
-      {/* Audio mix settings + info */}
+      {/* Discard + mix settings */}
       {audioUrl && (
         <div className="border-t border-border pt-2 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-[#2D9A5E] font-medium">Voiceover ready</span>
+            <button
+              onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob; try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {} }}
+              className="text-[10px] py-1 px-2.5 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer hover:bg-[#fdeaea] ml-auto"
+            >Discard &amp; start over</button>
+          </div>
           <div className="flex items-center gap-3 text-[10px]">
             <label className="flex items-center gap-1 cursor-pointer">
               <input type="radio" name="vo-mix-mode" value="replace" checked={voMixMode === 'replace'} onChange={() => setVoMixMode('replace')} />
