@@ -67,29 +67,33 @@ export default function VideoMerge({ videoFiles, onMerged }) {
   const handleMerge = async () => {
     setMerging(true)
     setError(null)
-    setProgress('Reading files...')
+    setProgress('Uploading clips...')
     try {
       const api = await import('../api')
       const clips = []
       for (let i = 0; i < order.length; i++) {
         const item = videoFiles[order[i]]
-        setProgress(`Preparing clip ${i + 1}/${order.length}...`)
-        // Prefer upload key (server-side read) over base64 (crashes iOS for large files)
-        const uploadKey = item.uploadResult?.original_temp_path || null
-        if (uploadKey) {
-          clips.push({
-            upload_key: uploadKey,
-            trim_start: item._trimStart || 0,
-            trim_end: item._trimEnd ?? null,
-          })
+        // Ensure each clip has been uploaded to the server (sets uploadResult
+        // with original_temp_path). This uses FormData multipart upload which
+        // works on iOS for any file size — no base64 encoding needed.
+        let uploadKey = item.uploadResult?.original_temp_path || null
+        if (!uploadKey) {
+          setProgress(`Uploading clip ${i + 1}/${order.length} (${item.file.name})...`)
+          try {
+            const result = await api.uploadFile(item.file, null, null, {})
+            item.uploadResult = result
+            uploadKey = result.original_temp_path
+          } catch (e) {
+            throw new Error(`Upload clip ${i + 1} failed: ${e.message}`)
+          }
         } else {
-          const b64 = await fileToBase64(item.file)
-          clips.push({
-            video_base64: b64,
-            trim_start: item._trimStart || 0,
-            trim_end: item._trimEnd ?? null,
-          })
+          setProgress(`Preparing clip ${i + 1}/${order.length}...`)
         }
+        clips.push({
+          upload_key: uploadKey,
+          trim_start: item._trimStart || 0,
+          trim_end: item._trimEnd ?? null,
+        })
       }
       setProgress(`Merging ${clips.length} clips on server...`)
       const result = await api.mergeVideos(clips, transition, transDuration)
