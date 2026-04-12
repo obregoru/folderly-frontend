@@ -302,6 +302,7 @@ export const getVoices = () =>
 // Merge 2+ trimmed video clips into a single MP4 with optional transitions
 // clips: [{ video_base64, trim_start, trim_end }], transition: string, transition_duration: number
 export const mergeVideos = async (clips, transition = 'none', transitionDuration = 1) => {
+  // Step 1: POST clips → server merges and saves to /tmp, returns merge_id
   const resp = await fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration }) })
   if (!resp.ok) {
     let msg = 'Merge failed'
@@ -311,8 +312,13 @@ export const mergeVideos = async (clips, transition = 'none', transitionDuration
     } catch {}
     throw new Error(msg)
   }
-  // Server returns raw MP4 binary (not JSON) to avoid base64 size issues
-  const blob = await resp.blob()
+  const { merge_id } = await resp.json()
+  if (!merge_id) throw new Error('Merge failed: no merge ID returned')
+
+  // Step 2: GET the merged video as a binary download
+  const dlResp = await fetch(api(`/post/merge-download/${merge_id}`), { credentials: 'include' })
+  if (!dlResp.ok) throw new Error('Failed to download merged video')
+  const blob = await dlResp.blob()
   if (blob.size < 1000) throw new Error('Merge produced empty or corrupt video')
   return URL.createObjectURL(blob)
 }
