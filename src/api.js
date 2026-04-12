@@ -304,11 +304,16 @@ export const getVoices = () =>
 export const mergeVideos = async (clips, transition = 'none', transitionDuration = 1) => {
   const resp = await fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration }) })
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}))
-    throw new Error(err.error || 'Merge failed')
+    let msg = 'Merge failed'
+    try {
+      const text = await resp.text()
+      try { msg = JSON.parse(text).error || msg } catch { msg = text.slice(0, 200) || msg }
+    } catch {}
+    throw new Error(msg)
   }
   // Server returns raw MP4 binary (not JSON) to avoid base64 size issues
   const blob = await resp.blob()
+  if (blob.size < 1000) throw new Error('Merge produced empty or corrupt video')
   return URL.createObjectURL(blob)
 }
 
