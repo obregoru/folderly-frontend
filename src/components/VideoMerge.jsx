@@ -96,23 +96,20 @@ export default function VideoMerge({ videoFiles, onMerged }) {
         })
       }
       setProgress(`Merging ${clips.length} clips on server...`)
-      const result = await api.mergeVideos(clips, transition, transDuration)
-      if (result.error) throw new Error(result.error)
+      // mergeVideos now returns a blob URL directly (binary response, not JSON)
+      const url = await api.mergeVideos(clips, transition, transDuration)
 
-      // Convert base64 result to blob URL for preview
-      const byteChars = atob(result.video_base64)
-      const bytes = new Uint8Array(byteChars.length)
-      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
-      const blob = new Blob([bytes], { type: 'video/mp4' })
+      // Read blob for save button
+      const resp = await fetch(url)
+      const blob = await resp.blob()
       mergedBlobRef.current = blob
 
       if (mergedUrl) URL.revokeObjectURL(mergedUrl)
-      const url = URL.createObjectURL(blob)
       setMergedUrl(url)
       setProgress('')
 
       // Notify parent so it can use the merged video in the post flow
-      if (onMerged) onMerged({ blob, url, base64: result.video_base64 })
+      if (onMerged) onMerged({ blob, url })
     } catch (err) {
       setError(err.message)
       setProgress('')

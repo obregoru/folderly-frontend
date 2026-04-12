@@ -301,8 +301,16 @@ export const getVoices = () =>
 
 // Merge 2+ trimmed video clips into a single MP4 with optional transitions
 // clips: [{ video_base64, trim_start, trim_end }], transition: string, transition_duration: number
-export const mergeVideos = (clips, transition = 'none', transitionDuration = 1) =>
-  fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration }) }).then(r => r.json())
+export const mergeVideos = async (clips, transition = 'none', transitionDuration = 1) => {
+  const resp = await fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration }) })
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}))
+    throw new Error(err.error || 'Merge failed')
+  }
+  // Server returns raw MP4 binary (not JSON) to avoid base64 size issues
+  const blob = await resp.blob()
+  return URL.createObjectURL(blob)
+}
 
 // YouTube
 export const startYoutubeConnect = () =>
