@@ -73,13 +73,23 @@ export default function VideoMerge({ videoFiles, onMerged }) {
       const clips = []
       for (let i = 0; i < order.length; i++) {
         const item = videoFiles[order[i]]
-        setProgress(`Encoding clip ${i + 1}/${order.length}...`)
-        const b64 = await fileToBase64(item.file)
-        clips.push({
-          video_base64: b64,
-          trim_start: item._trimStart || 0,
-          trim_end: item._trimEnd ?? null,
-        })
+        setProgress(`Preparing clip ${i + 1}/${order.length}...`)
+        // Prefer upload key (server-side read) over base64 (crashes iOS for large files)
+        const uploadKey = item.uploadResult?.original_temp_path || null
+        if (uploadKey) {
+          clips.push({
+            upload_key: uploadKey,
+            trim_start: item._trimStart || 0,
+            trim_end: item._trimEnd ?? null,
+          })
+        } else {
+          const b64 = await fileToBase64(item.file)
+          clips.push({
+            video_base64: b64,
+            trim_start: item._trimStart || 0,
+            trim_end: item._trimEnd ?? null,
+          })
+        }
       }
       setProgress(`Merging ${clips.length} clips on server...`)
       const result = await api.mergeVideos(clips, transition, transDuration)

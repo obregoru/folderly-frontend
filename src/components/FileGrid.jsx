@@ -196,22 +196,27 @@ function ImageThumb({ file, onClick }) {
   )
 }
 
-export default function FileGrid({ files, onRemove }) {
+export default function FileGrid({ files, onRemove, VideoTrimmer }) {
   const [previewItem, setPreviewItem] = useState(null)
 
   if (!files.length) return null
+
+  const hasVideos = files.some(f => f.file?.type?.startsWith('video/'))
 
   return (
     <>
       {previewItem && (
         <MediaLightbox item={previewItem} onClose={() => setPreviewItem(null)} />
       )}
-      <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
-        {files.map(item => (
-          <div key={item.id} className="border border-border rounded-sm overflow-hidden bg-white relative">
+      <div className={hasVideos ? "flex flex-col gap-2" : "grid gap-2"} style={hasVideos ? undefined : { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+        {files.map(item => {
+          const isVideo = item.file?.type?.startsWith('video/')
+          return (
+          <div key={item.id}>
+          <div className="border border-border rounded-sm overflow-hidden bg-white relative">
             {item.isImg ? (
               <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
-            ) : item.file.type?.startsWith('video/') ? (
+            ) : isVideo ? (
               <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
             ) : (
               <div
@@ -228,7 +233,11 @@ export default function FileGrid({ files, onRemove }) {
             {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
             {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}
           </div>
-        ))}
+          {/* Trim bar right under its video */}
+          {isVideo && VideoTrimmer && <VideoTrimmer item={item} />}
+          </div>
+          )
+        })}
       </div>
     </>
   )

@@ -568,16 +568,7 @@ export default function App() {
             </div>
           )}
 
-          <FileGrid files={files} onRemove={removeFile} />
-
-          {/* Per-video trim strips — one iOS-style filmstrip trimmer per uploaded video */}
-          {files.filter(f => f.file?.type?.startsWith('video/')).length > 0 && (
-            <div className="flex flex-col gap-2">
-              {files.filter(f => f.file?.type?.startsWith('video/')).map(f => (
-                <VideoTrimmer key={f.id} item={f} />
-              ))}
-            </div>
-          )}
+          <FileGrid files={files} onRemove={removeFile} VideoTrimmer={VideoTrimmer} />
 
           {/* Merge videos — shown below trimmers when 2+ videos are uploaded */}
           {files.filter(f => f.file?.type?.startsWith('video/')).length >= 2 && (
