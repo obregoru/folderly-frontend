@@ -2,9 +2,16 @@ import { useState, useEffect, useRef } from 'react'
 
 function MediaLightbox({ item, onClose }) {
   const file = item.file
-  const isImg = item.isImg
+  const isImg = item.isImg || item._mediaType?.startsWith('image/')
   const videoRef = useRef(null)
-  const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
+  const [src] = useState(() => {
+    if (file instanceof Blob || file instanceof File) return URL.createObjectURL(file)
+    // Restored file — serve from server via upload key
+    if (item._uploadKey && item._tenantSlug) {
+      return `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
+    }
+    return null
+  })
 
   // Read the current trim bounds from the item. We read at mount AND on
   // every render so the user can re-trim while the lightbox is open and
@@ -56,7 +63,9 @@ function MediaLightbox({ item, onClose }) {
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
       <div className="relative max-w-[90vw] max-h-[85vh]" onClick={e => e.stopPropagation()}>
         <button onClick={onClose} className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10">&times;</button>
-        {isImg ? (
+        {!src ? (
+          <div className="text-white text-[13px] p-8">No preview available — file needs to be re-uploaded</div>
+        ) : isImg ? (
           <img src={src} className="max-w-full max-h-[80vh] rounded object-contain" />
         ) : (
           <>
@@ -64,7 +73,6 @@ function MediaLightbox({ item, onClose }) {
               ref={videoRef}
               src={src}
               controls
-              autoPlay
               playsInline
               className="max-w-full max-h-[80vh] rounded"
             />
