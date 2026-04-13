@@ -1593,9 +1593,19 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
               onClick={async () => {
                 setConverting(true)
                 try {
-                  const b64 = await fileToBase64(item.file)
+                  let b64
+                  if (item.file) {
+                    b64 = await fileToBase64(item.file)
+                  } else if (item._publicUrl || item._uploadKey) {
+                    const url = item._publicUrl || `${apiUrl}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
+                    const resp = await fetch(url)
+                    const blob = await resp.blob()
+                    b64 = await fileToBase64(blob)
+                  } else {
+                    throw new Error('Video file not available')
+                  }
                   const api = await import('../api')
-                  const r = await api.convertToMp4(b64, item.file?.type || item._mediaType, mp4Quality)
+                  const r = await api.convertToMp4(b64, item.file?.type || item._mediaType || 'video/mp4', mp4Quality)
                   if (r.error) throw new Error(r.error)
                   const byteChars = atob(r.mp4_base64)
                   const bytes = new Uint8Array(byteChars.length)
