@@ -25,21 +25,32 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }).catch(() => {})
   }, [])
 
-  // Create a job if one doesn't exist
+  // Create a job if one doesn't exist. Uses a pending promise to prevent
+  // concurrent calls from creating duplicate jobs.
+  const ensureJobPromiseRef = useRef(null)
   const ensureJob = useCallback(async () => {
     if (jobIdRef.current) return jobIdRef.current
-    try {
-      const job = await api.createJob()
-      const id = job.id || job.uuid
-      setJobId(id)
-      sessionStorage.setItem('posty_active_job', id)
-      // Refresh job list so new draft appears in count
-      api.listJobs().then(jobs => { if (Array.isArray(jobs)) setJobList(jobs) }).catch(() => {})
-      return id
-    } catch (e) {
-      console.error('[useJobSync] create job failed:', e.message)
-      return null
-    }
+    // If another call is already creating a job, wait for it
+    if (ensureJobPromiseRef.current) return ensureJobPromiseRef.current
+    ensureJobPromiseRef.current = (async () => {
+      try {
+        // Double-check after awaiting — another call may have finished first
+        if (jobIdRef.current) return jobIdRef.current
+        const job = await api.createJob()
+        const id = job.id || job.uuid
+        setJobId(id)
+        jobIdRef.current = id
+        sessionStorage.setItem('posty_active_job', id)
+        api.listJobs().then(jobs => { if (Array.isArray(jobs)) setJobList(jobs) }).catch(() => {})
+        return id
+      } catch (e) {
+        console.error('[useJobSync] create job failed:', e.message)
+        return null
+      } finally {
+        ensureJobPromiseRef.current = null
+      }
+    })()
+    return ensureJobPromiseRef.current
   }, [])
 
   // Save job-level fields (debounced)
