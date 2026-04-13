@@ -721,11 +721,11 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
     <div className="px-3.5 py-2 border-b border-border bg-[#f9f8f6]">
       <div className="flex items-center gap-2 flex-wrap">
         <button
-          onClick={handlePostAll}
+          onClick={useSuggestedTimes ? handleScheduleAll : handlePostAll}
           disabled={posting || scheduling}
           className="text-[11px] py-1.5 px-3 rounded-sm bg-[#2D9A5E] text-white cursor-pointer font-sans font-medium hover:bg-[#248a50] disabled:opacity-50 border-none"
         >
-          {posting ? 'Posting...' : `Post All (${postable.length})`}
+          {posting ? 'Posting...' : scheduling ? 'Scheduling...' : useSuggestedTimes ? `Schedule All (${postable.length})` : `Post All (${postable.length})`}
         </button>
         <button
           onClick={() => targetWeek ? handleScheduleAll() : setShowSchedule(!showSchedule)}
