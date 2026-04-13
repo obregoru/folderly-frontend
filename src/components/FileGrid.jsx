@@ -201,7 +201,7 @@ export default function FileGrid({ files, onRemove, VideoTrimmer }) {
 
   if (!files.length) return null
 
-  const hasVideos = files.some(f => f.file?.type?.startsWith('video/'))
+  const hasVideos = files.some(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))
 
   return (
     <>
@@ -210,21 +210,33 @@ export default function FileGrid({ files, onRemove, VideoTrimmer }) {
       )}
       <div className={hasVideos ? "flex flex-col gap-2" : "grid gap-2"} style={hasVideos ? undefined : { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
         {files.map(item => {
-          const isVideo = item.file?.type?.startsWith('video/')
+          const isVideo = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
+          const isImg = item.isImg || item._mediaType?.startsWith('image/')
+          const fileName = item.file?.name || item._filename || 'Untitled'
           return (
           <div key={item.id}>
           <div className="border border-border rounded-sm overflow-hidden bg-white relative">
-            {item.isImg ? (
+            {isImg && item.file ? (
               <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
-            ) : isVideo ? (
+            ) : isVideo && item.file ? (
               <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
+            ) : item._restored && item._uploadKey ? (
+              /* Restored from job — no File object, show thumbnail from server */
+              <div onClick={() => setPreviewItem(item)} className="w-full h-[120px] bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative">
+                <img
+                  src={`${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`}
+                  className="w-full h-full object-cover"
+                  onError={e => { e.target.style.display = 'none' }}
+                />
+                {isVideo && <span className="absolute text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>}
+              </div>
             ) : (
               <div
                 onClick={() => setPreviewItem(item)}
                 className="w-full h-[120px] bg-ink flex items-center justify-center text-white text-[22px] cursor-pointer hover:bg-[#333]"
               >▶</div>
             )}
-            <div className="text-[9px] text-muted py-1 px-1.5 whitespace-nowrap overflow-hidden text-ellipsis">{item.file.name}</div>
+            <div className="text-[9px] text-muted py-1 px-1.5 whitespace-nowrap overflow-hidden text-ellipsis">{fileName}</div>
             <button
               onClick={() => onRemove(item.id)}
               className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-xs flex items-center justify-center cursor-pointer border-none"

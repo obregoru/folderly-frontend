@@ -173,7 +173,8 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             uploadResult: { original_temp_path: f.upload_key },
             _trimStart: f.trim_start || 0,
             _trimEnd: f.trim_end ?? null,
-            _restored: true, // flag so UI knows this is a restored file
+            _restored: true,
+            _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
             _filename: f.filename,
             _mediaType: f.media_type,
