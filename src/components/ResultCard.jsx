@@ -1737,7 +1737,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     </select>
                   )}
                 </div>
-                {(storyCaptionStyle === 'overlay' || (isImageFile && photoToVideoEnabled) || (isVideoFile && ((item._trimStart || 0) > 0 || item._trimEnd != null))) && (
+                {(storyCaptionStyle === 'overlay' || (isImageFile && photoToVideoEnabled) || isVideoFile) && (
                   <div className="mt-1.5 space-y-1.5">
                     {/* Preview with live overlay positioning — works for videos and photo-to-video */}
                     {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
