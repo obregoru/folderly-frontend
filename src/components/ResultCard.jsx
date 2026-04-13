@@ -147,8 +147,8 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
 
   // Tags
   const tags = [...new Set([
-    ...(folderCtx ? allTags(folderCtx.parsed) : []),
-    ...allTags(item.parsed)
+    ...(folderCtx?.parsed ? allTags(folderCtx.parsed) : []),
+    ...(item.parsed ? allTags(item.parsed) : []),
   ])]
 
   // Thumbnail src — memoized to prevent re-render blob URL churn
