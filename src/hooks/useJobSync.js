@@ -212,6 +212,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
+            _publicUrl: f.public_url || null,
             _filename: f.filename,
             _mediaType: f.media_type,
           }

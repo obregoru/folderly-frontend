@@ -6,7 +6,8 @@ function MediaLightbox({ item, onClose }) {
   const videoRef = useRef(null)
   const [src] = useState(() => {
     if (file instanceof Blob || file instanceof File) return URL.createObjectURL(file)
-    // Restored file — serve from server via upload key
+    // Restored file — prefer Supabase public URL (no auth, no memory pressure)
+    if (item._publicUrl) return item._publicUrl
     if (item._uploadKey && item._tenantSlug) {
       return `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
     }
@@ -228,18 +229,18 @@ export default function FileGrid({ files, onRemove, VideoTrimmer }) {
               <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
             ) : isVideo && item.file ? (
               <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
-            ) : item._restored && item._uploadKey ? (
-              /* Restored from job — no File object, stream from server */
+            ) : item._restored && (item._publicUrl || item._uploadKey) ? (
+              /* Restored from job — no File object, use public URL or serve endpoint */
               <div onClick={() => setPreviewItem(item)} className="w-full h-[120px] bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative">
                 {isVideo ? (
                   <video
-                    src={`${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`}
+                    src={item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`}
                     className="w-full h-full object-cover"
                     muted playsInline preload="metadata"
                   />
                 ) : (
                   <img
-                    src={`${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`}
+                    src={item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`}
                     className="w-full h-full object-cover"
                     onError={e => { e.target.style.display = 'none' }}
                   />

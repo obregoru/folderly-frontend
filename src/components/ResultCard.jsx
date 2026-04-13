@@ -1105,7 +1105,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   // via currentTime + timeupdate clamping below instead.
   const [videoSrc] = useState(() => {
     if (item.file) return safeObjectURL(item.file) || ''
-    // Restored file — stream from server
+    // Restored file — prefer Supabase public URL (CDN, no auth needed, no memory pressure)
+    if (item._publicUrl) return item._publicUrl
     if (item._uploadKey && item._tenantSlug) {
       return `${apiUrl}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
     }
