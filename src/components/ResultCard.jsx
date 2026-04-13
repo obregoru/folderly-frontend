@@ -1515,6 +1515,30 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           >Copy tags</button>
         </div>
       )}
+      {/* Mobile: AI score badge */}
+      {scoreLabel && (
+        <div className="md:hidden mt-2 flex items-center gap-2">
+          <span
+            onClick={() => setShowAiAnalysis(!showAiAnalysis)}
+            className={`text-[11px] py-1 px-3 rounded-xl font-semibold border cursor-pointer ${
+              humanScore >= 70 ? 'bg-[#e8efe9] text-[#3a6b42] border-[#3a6b42]' :
+              humanScore >= 40 ? 'bg-[#fef3cd] text-[#856404] border-[#856404]' :
+              'bg-[#fdeaea] text-[#c0392b] border-[#c0392b]'
+            }`}
+          >
+            {scoreLabel} {humanScore}%
+          </span>
+          <span className="text-[9px] text-muted">AI detection score for this caption</span>
+        </div>
+      )}
+      {/* Mobile: AI analysis detail */}
+      {showAiAnalysis && score && (
+        <div className="md:hidden mt-1 border border-border rounded bg-[#fafafa] p-2 text-[10px]">
+          <div className="font-medium mb-1">AI Detection: {score.provider === 'zerogpt' ? 'ZeroGPT' : 'Built-in'}</div>
+          {score.reason && <div className="text-muted">{score.reason}</div>}
+          <button onClick={() => setShowAiAnalysis(false)} className="text-[9px] text-muted hover:underline mt-1">Close</button>
+        </div>
+      )}
       {/* Mobile: copy + regen buttons near the caption */}
       <div className="md:hidden flex gap-2 mt-2">
         <button
