@@ -2690,8 +2690,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           className="text-[11px] py-1 px-2.5 border border-[#6C5CE7] text-[#6C5CE7] rounded-sm bg-white cursor-pointer font-sans hover:bg-[#f3f0ff] disabled:opacity-50"
         >{regenPlatformLoading ? 'Regenerating...' : `Regen ${platform}`}</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
-        {/* Download video button — on Google/TikTok tabs, when a video source is available */}
-        {(platform === 'google' || platform === 'tiktok') && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
+        {/* Download video button — any platform, when a video source is available */}
+        {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
           <button
             disabled={converting}
             onClick={async () => {
