@@ -500,8 +500,8 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
       const caption = getText(item.captions[p.key])
       if (!caption) continue
 
-      let imageBase64 = null, mediaType = null
-      const isVideo = item.file?.type?.startsWith('video/')
+      let imageBase64 = null, mediaType = null, uploadKey = null
+      const isVideo = item.file?.type?.startsWith('video/') || (!item.file && item._mediaType?.startsWith('video/'))
       if (item.isImg && item.file) {
         const cropRatio = PLATFORM_CROPS[p.key]
         if (cropRatio) {
@@ -519,8 +519,13 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         try { imageBase64 = await fileToBase64(item.file) } catch { imageBase64 = null }
         mediaType = item.file?.type || item._mediaType
       }
+      // Restored files: no File object, use upload_key for server-side fetch
+      if (!imageBase64 && item._uploadKey) {
+        uploadKey = item._uploadKey
+        mediaType = item._mediaType || 'video/mp4'
+      }
 
-      const post = { platform: p.key, caption, image_base64: imageBase64, media_type: mediaType, job_name: item.job_name || item.file?.name?.replace(/\.[^.]+$/, '') }
+      const post = { platform: p.key, caption, image_base64: imageBase64, upload_key: uploadKey, media_type: mediaType, job_name: item.job_name || item.file?.name?.replace(/\.[^.]+$/, '') }
       if (p.key === 'blog') {
         const blogCap = item.captions[p.key]
         post.title = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'
