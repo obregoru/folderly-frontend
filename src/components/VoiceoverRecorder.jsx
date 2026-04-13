@@ -52,9 +52,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [selectedVoice, setSelectedVoice] = useState(() => rvs.voiceId || localStorage.getItem('posty_tts_voice') || settings?.elevenlabs_voice_id || '')
   const [voicesLoaded, setVoicesLoaded] = useState(false)
   // ElevenLabs voice settings — restored from job first, then localStorage
-  const [ttsStability, setTtsStability] = useState(() => rvs.stability ?? Number(localStorage.getItem('posty_tts_stability')) || 0.5)
-  const [ttsSimilarity, setTtsSimilarity] = useState(() => rvs.similarity ?? Number(localStorage.getItem('posty_tts_similarity')) || 0.75)
-  const [ttsStyle, setTtsStyle] = useState(() => rvs.style ?? Number(localStorage.getItem('posty_tts_style')) || 0)
+  const [ttsStability, setTtsStability] = useState(() => rvs.stability ?? (Number(localStorage.getItem('posty_tts_stability')) || 0.5))
+  const [ttsSimilarity, setTtsSimilarity] = useState(() => rvs.similarity ?? (Number(localStorage.getItem('posty_tts_similarity')) || 0.75))
+  const [ttsStyle, setTtsStyle] = useState(() => rvs.style ?? (Number(localStorage.getItem('posty_tts_style')) || 0))
   const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(() => rvs.speakerBoost ?? (localStorage.getItem('posty_tts_boost') !== 'false'))
   useEffect(() => { localStorage.setItem('posty_tts_stability', ttsStability) }, [ttsStability])
   useEffect(() => { localStorage.setItem('posty_tts_similarity', ttsSimilarity) }, [ttsSimilarity])
@@ -66,7 +66,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
 
   // Audio mix mode — restored from job first, then localStorage
   const [voMixMode, setVoMixMode] = useState(() => rvs.mode || localStorage.getItem('posty_vo_mode') || 'mix')
-  const [voOrigVolume, setVoOrigVolume] = useState(() => rvs.originalVolume ?? Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3)
+  const [voOrigVolume, setVoOrigVolume] = useState(() => rvs.originalVolume ?? (Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3))
   useEffect(() => { localStorage.setItem('posty_vo_mode', voMixMode) }, [voMixMode])
   useEffect(() => { localStorage.setItem('posty_vo_orig_vol', voOrigVolume) }, [voOrigVolume])
   // Stash on items so ResultCard can read during preview/post
