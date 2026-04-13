@@ -365,12 +365,15 @@ export default function App() {
       if (!item.isImg) {
         try { videoThumb = await captureVideoFrame(item.file) } catch { videoThumb = null }
       }
+      // Ensure job exists so files go into permanent jobs/ storage
+      const activeJobId = await jobSync.ensureJob()
       const uploadResult = await api.uploadFile(
         item.file,
         folderCtx?.name,
         batchId,
         item.parsed,
-        videoThumb
+        videoThumb,
+        activeJobId
       )
       item.uploadResult = uploadResult
       // Auto-save file to job
@@ -630,6 +633,7 @@ export default function App() {
           {files.filter(f => f.file?.type?.startsWith('video/')).length >= 2 && (
             <VideoMerge
               videoFiles={files.filter(f => f.file?.type?.startsWith('video/'))}
+              jobId={jobSync.jobId}
               onMerged={({ blob, url, base64 }) => {
                 // Store the merged video so the post flow can use it.
                 // We stash it on window for now — a proper state solution

@@ -29,7 +29,7 @@ const TRANSITIONS = [
  * Lets users reorder clips, pick a transition, and merge into a single MP4.
  * The merged result becomes a virtual file item that the post flow can use.
  */
-export default function VideoMerge({ videoFiles, onMerged }) {
+export default function VideoMerge({ videoFiles, jobId, onMerged }) {
   const [order, setOrder] = useState(() => videoFiles.map((_, i) => i))
   const [transition, setTransition] = useState('crossfade')
   const [transDuration, setTransDuration] = useState(1)
@@ -80,7 +80,7 @@ export default function VideoMerge({ videoFiles, onMerged }) {
         if (!uploadKey) {
           setProgress(`Uploading clip ${i + 1}/${order.length} (${item.file.name})...`)
           try {
-            const result = await api.uploadFile(item.file, null, null, {})
+            const result = await api.uploadFile(item.file, null, null, {}, null, jobId)
             item.uploadResult = result
             uploadKey = result.original_temp_path
           } catch (e) {

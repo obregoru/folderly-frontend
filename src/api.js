@@ -75,11 +75,12 @@ export const updateJobFile = (jobId, fileId, data) => fetch(api(`/jobs/${jobId}/
 export const deleteJobFile = (jobId, fileId) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
 
 // Uploads
-export const uploadFile = (file, folderName, batchId, parsedKeywords, videoThumb) => {
+export const uploadFile = (file, folderName, batchId, parsedKeywords, videoThumb, jobId) => {
   const fd = new FormData()
   fd.append('file', file)
   if (folderName) fd.append('folder_name', folderName)
   if (batchId) fd.append('batch_id', batchId)
+  if (jobId) fd.append('job_id', jobId)
   fd.append('parsed_keywords', JSON.stringify(parsedKeywords))
   if (videoThumb) fd.append('video_thumbnail', videoThumb, 'thumb.jpg')
   return fetch(api('/upload'), { method: 'POST', headers: csrf(), credentials: 'include', body: fd }).then(r => {
