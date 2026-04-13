@@ -1841,7 +1841,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     {/* Preview with live overlay positioning — works for videos and photo-to-video */}
                     {(isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="flex gap-1">
-                        <div className="relative rounded border border-border overflow-hidden bg-black" style={{ maxHeight: 320 }}>
+                        <div className="relative rounded border border-border overflow-hidden bg-black mx-auto" style={{ maxHeight: 320, width: 180, maxWidth: '100%' }}>
                           {generatedPreviewUrl ? (
                             <>
                               <video src={generatedPreviewUrl} className="w-full max-h-[320px] object-contain" controls playsInline />
