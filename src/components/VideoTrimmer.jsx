@@ -241,6 +241,9 @@ export default function VideoTrimmer({ item }) {
   // Hidden video element — MUST be in the DOM for iOS Safari to decode
   // frames into canvas. It's 80×80 offscreen (1×1 is too small on iOS,
   // the decoder sometimes returns garbage) and invisible.
+  // crossOrigin="anonymous" is needed for Supabase CDN URLs so the canvas
+  // isn't tainted when we drawImage + toDataURL for filmstrip thumbnails.
+  const isCrossOrigin = src && !src.startsWith('blob:')
   const hiddenVideoEl = (
     <video
       ref={hiddenVideoRef}
@@ -248,6 +251,7 @@ export default function VideoTrimmer({ item }) {
       muted
       playsInline
       preload="auto"
+      crossOrigin={isCrossOrigin ? 'anonymous' : undefined}
       style={{ position: 'absolute', width: 80, height: 80, opacity: 0, pointerEvents: 'none', left: -9999, top: -9999 }}
     />
   )
