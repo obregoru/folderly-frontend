@@ -296,7 +296,12 @@ export default function App() {
     return () => { cancelled = true; clearTimeout(timer); navigator.serviceWorker.removeEventListener('message', swListener) }
   }, [user])
 
-  const showError = msg => { setError(msg); setTimeout(() => setError(null), 7000) }
+  const showError = msg => {
+    setError(msg)
+    setTimeout(() => setError(null), 10000)
+    // Also alert on mobile so the user definitely sees it
+    if (window.innerWidth < 768) alert(msg)
+  }
 
   const saveSettingsToServer = useCallback((newSettings) => {
     setSettings(prev => {
@@ -377,10 +382,11 @@ export default function App() {
     }
 
     // Build body
+    const parsed = item.parsed || { occasions: [], products: [], moments: [] }
     const merged = {
-      occasions: [...(folderCtx?.parsed.occasions || []), ...item.parsed.occasions],
-      products: [...(folderCtx?.parsed.products || []), ...item.parsed.products],
-      moments: [...(folderCtx?.parsed.moments || []), ...item.parsed.moments],
+      occasions: [...(folderCtx?.parsed?.occasions || []), ...(parsed.occasions || [])],
+      products: [...(folderCtx?.parsed?.products || []), ...(parsed.products || [])],
+      moments: [...(folderCtx?.parsed?.moments || []), ...(parsed.moments || [])],
     }
     const occ = settings.occasion_override || merged.occasions[0] || ''
     const avail = settings.availability_on !== false ? (settings.availability_text || '') : ''
@@ -460,7 +466,9 @@ export default function App() {
         try {
           await genCaptions(item, batch.id)
         } catch (e) {
-          showError(`Error on "${item.file.name}": ${e.message}`)
+          console.error('[genCaptions] error:', e)
+          const fname = item.file?.name || item._filename || 'file'
+          showError(`Error on "${fname}": ${e.message}`)
           setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'error', errMsg: e.message } : f))
         }
       }
