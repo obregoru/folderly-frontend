@@ -74,6 +74,10 @@ export const addJobFile = (jobId, data) => fetch(api(`/jobs/${jobId}/files`), { 
 export const updateJobFile = (jobId, fileId, data) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const deleteJobFile = (jobId, fileId) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
 
+// Voice analysis
+export const analyzeVoice = (examples) =>
+  fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())
+
 // Uploads
 export const uploadFile = (file, folderName, batchId, parsedKeywords, videoThumb, jobId) => {
   const fd = new FormData()

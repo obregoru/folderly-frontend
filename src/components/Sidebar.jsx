@@ -151,6 +151,91 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
             ))}
           </div>
         </div>
+        {/* Voice Analysis + Posting Style */}
+        <div className="mb-2 border-t border-border pt-2">
+          <label className="text-[11px] text-muted block mb-0.5">
+            Posting style <HelpTip text="Describe how your brand talks — recurring phrases, humor style, sign-offs, anything that makes your voice unique. This is injected into every caption generation. Or paste example captions below and let AI analyze your style." />
+          </label>
+          <textarea
+            rows={3}
+            className="field-input resize-y text-[11px]"
+            placeholder="e.g. We always end with a question. We're sarcastic but warm. We never say 'amazing' or 'incredible'. We use '...' for dramatic pauses."
+            value={s.posting_style || ''}
+            onChange={e => save('posting_style', e.target.value)}
+          />
+          <details className="mt-1.5">
+            <summary className="text-[10px] text-[#6C5CE7] cursor-pointer">Analyze example captions with AI</summary>
+            <div className="mt-1.5 space-y-1.5">
+              <textarea
+                id="voice-examples"
+                rows={4}
+                className="field-input resize-y text-[11px]"
+                placeholder="Paste 3-5 example captions you've written or want to sound like. One per line or separated by blank lines."
+              />
+              <button
+                onClick={async () => {
+                  const el = document.getElementById('voice-examples')
+                  if (!el?.value?.trim()) return
+                  el.disabled = true
+                  try {
+                    const result = await api.analyzeVoice(el.value.trim())
+                    if (result.error) { alert(result.error); return }
+                    // Show results
+                    const analysis = result
+                    // Auto-apply detected settings if user confirms
+                    const changes = []
+                    if (analysis.detected?.tone && analysis.detected.tone !== s.default_tone) changes.push(`Tone: ${s.default_tone || 'warm'} → ${analysis.detected.tone}`)
+                    if (analysis.detected?.pov && analysis.detected.pov !== s.default_pov) changes.push(`POV: ${s.default_pov || 'first_plural'} → ${analysis.detected.pov}`)
+                    if (analysis.detected?.marketing_intensity && analysis.detected.marketing_intensity !== s.marketing_intensity) changes.push(`Marketing: ${s.marketing_intensity || 'balanced'} → ${analysis.detected.marketing_intensity}`)
+
+                    let msg = '🎯 Voice Analysis Complete\n\n'
+                    msg += `Tone: ${analysis.detected?.tone_description || analysis.detected?.tone}\n`
+                    msg += `POV: ${analysis.detected?.pov_description || analysis.detected?.pov}\n`
+                    msg += `Marketing: ${analysis.detected?.marketing_intensity}\n`
+                    msg += `Length: ${analysis.detected?.caption_length}\n`
+                    msg += `Emoji: ${analysis.detected?.emoji_usage}\n`
+                    msg += `Hashtags: ${analysis.detected?.hashtag_style}\n\n`
+                    if (analysis.distinctive_patterns?.length) {
+                      msg += 'Distinctive patterns:\n' + analysis.distinctive_patterns.map(p => '• ' + p).join('\n') + '\n\n'
+                    }
+                    if (analysis.not_yet_supported?.length) {
+                      msg += 'Not yet supported:\n' + analysis.not_yet_supported.map(p => '• ' + p).join('\n') + '\n\n'
+                    }
+                    if (changes.length) {
+                      msg += 'Recommended changes:\n' + changes.join('\n') + '\n\n'
+                    }
+                    if (analysis.suggested_posting_style) {
+                      msg += 'Suggested posting style description:\n' + analysis.suggested_posting_style
+                    }
+                    alert(msg)
+
+                    // Apply settings if user wants
+                    if (changes.length && confirm('Apply the detected tone, POV, and marketing settings?')) {
+                      if (analysis.detected?.tone) save('default_tone', analysis.detected.tone)
+                      if (analysis.detected?.pov) save('default_pov', analysis.detected.pov)
+                      if (analysis.detected?.marketing_intensity) save('marketing_intensity', analysis.detected.marketing_intensity)
+                    }
+                    // Apply suggested posting style if empty
+                    if (analysis.suggested_posting_style && (!s.posting_style || confirm('Replace your posting style description with the AI-suggested one?'))) {
+                      save('posting_style', analysis.suggested_posting_style)
+                    }
+                  } catch (e) { alert('Analysis failed: ' + e.message) }
+                  finally { el.disabled = false }
+                }}
+                className="text-[10px] py-1 px-2.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+              >Analyze my voice</button>
+              {s.voice_analysis?.detected && (
+                <div className="text-[9px] text-muted bg-[#f3f0ff] rounded p-1.5">
+                  Last analysis: {s.voice_analysis.detected.tone_description || s.voice_analysis.detected.tone}
+                  {s.voice_analysis.distinctive_patterns?.length > 0 && (
+                    <span> · {s.voice_analysis.distinctive_patterns.length} patterns detected</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">SEO keywords <HelpTip text="Global brand-level keywords that always apply. Keyword sets below add activity-specific keywords on top of these." /></label>
           <input className="field-input" placeholder="perfume making, candle workshop, date night Milwaukee" value={s.seo_keywords || ''} onChange={e => save('seo_keywords', e.target.value)} /></div>
 
