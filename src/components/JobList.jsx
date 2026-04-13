@@ -16,7 +16,7 @@ function timeAgo(dateStr) {
 
 export default function JobList({ jobs, activeJobId, onResume, onNew, onArchive }) {
   const [expanded, setExpanded] = useState(false)
-  const drafts = jobs.filter(j => j.status === 'draft')
+  const drafts = jobs.filter(j => j.status === 'draft' && (j.file_count > 0 || j.hint_text || j.job_name))
 
   // Always show the component so "New job" button is available
 
