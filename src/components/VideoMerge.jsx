@@ -29,15 +29,20 @@ const TRANSITIONS = [
  * Lets users reorder clips, pick a transition, and merge into a single MP4.
  * The merged result becomes a virtual file item that the post flow can use.
  */
-export default function VideoMerge({ videoFiles, jobId, onMerged }) {
+export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeUrl }) {
   const [order, setOrder] = useState(() => videoFiles.map((_, i) => i))
   const [transition, setTransition] = useState('crossfade')
   const [transDuration, setTransDuration] = useState(1)
   const [merging, setMerging] = useState(false)
   const [progress, setProgress] = useState('')
-  const [mergedUrl, setMergedUrl] = useState(() => window._postyMergedVideo?.url || null)
+  const [mergedUrl, setMergedUrl] = useState(() => restoredMergeUrl || window._postyMergedVideo?.url || null)
   const [error, setError] = useState(null)
   const mergedBlobRef = useRef(window._postyMergedVideo?.blob || null)
+
+  // Pick up restored merge URL when it arrives after mount
+  useEffect(() => {
+    if (restoredMergeUrl && !mergedUrl) setMergedUrl(restoredMergeUrl)
+  }, [restoredMergeUrl])
 
   // Keep order in sync if files change — also clear stale merge result
   const fileIds = videoFiles.map(f => f.id).join(',')

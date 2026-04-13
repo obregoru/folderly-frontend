@@ -215,6 +215,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _publicUrl: f.public_url || null,
             _filename: f.filename,
             _mediaType: f.media_type,
+            _overlaySettings: job.overlay_settings || {},
           }
         })
         setFiles(restoredFiles)

@@ -41,6 +41,7 @@ export default function App() {
   const [files, setFiles] = useState([])
   const [folderCtx, setFolderCtx] = useState(null)
   const [restoredVoiceover, setRestoredVoiceover] = useState(null)
+  const [restoredMergeUrl, setRestoredMergeUrl] = useState(null)
   const [hashtagSets, setHashtagSets] = useState([])
   const [selectedHashtagSetId, setSelectedHashtagSetId] = useState(null)
   const [autoHashtagSetId, setAutoHashtagSetId] = useState(null) // tracks auto-selection
@@ -373,6 +374,7 @@ export default function App() {
     uploadingRef.current.clear()
     setFolderCtx(null)
     setRestoredVoiceover(null)
+    setRestoredMergeUrl(null)
     sessionStorage.removeItem('posty_hint')
     window._postyMergedVideo = null
     window._postyVoiceoverVideo = null
@@ -651,9 +653,14 @@ export default function App() {
             uploadsInProgress={uploadsInProgress}
             onResume={async (id) => {
               setRestoredVoiceover(null)
+              setRestoredMergeUrl(null)
               const job = await jobSync.loadJob(id)
               if (job) {
                 if (job.hint_text) setUserHint(job.hint_text)
+                // Restore merged video URL
+                if (window._postyMergedVideo?.url) {
+                  setRestoredMergeUrl(window._postyMergedVideo.url)
+                }
                 // Restore voiceover state for VoiceoverRecorder
                 const voAudio = window._postyVoiceoverAudio
                 if (job.voiceover_settings || voAudio) {
@@ -692,6 +699,7 @@ export default function App() {
             <VideoMerge
               videoFiles={files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))}
               jobId={jobSync.jobId}
+              restoredMergeUrl={restoredMergeUrl}
               onMerged={({ blob, url, base64 }) => {
                 // Store the merged video so the post flow can use it.
                 // We stash it on window for now — a proper state solution
