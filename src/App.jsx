@@ -358,9 +358,13 @@ export default function App() {
   }
 
   const genCaptions = async (item, batchId) => {
-    // Upload file if needed (skip for restored files that already have an upload key)
-    if (!item._restored || !item.uploadResult?.original_temp_path) {
-      if (!item.file) throw new Error('No file to upload — please re-add this file')
+    // Upload file if we have one. Only skip for restored files where the
+    // upload key points to a jobs/ path (persistent). Always re-upload if
+    // the key points to temp/ (will be cleaned up) or if item.file exists
+    // (user added the file fresh in this session).
+    const hasValidUploadKey = item.uploadResult?.original_temp_path?.startsWith('jobs/')
+    if (item.file || !hasValidUploadKey) {
+      if (!item.file) throw new Error('Video file not available — please re-upload this file')
       let videoThumb = null
       if (!item.isImg) {
         try { videoThumb = await captureVideoFrame(item.file) } catch { videoThumb = null }
