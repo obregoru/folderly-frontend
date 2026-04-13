@@ -126,7 +126,7 @@ async function saveVideo(sourceBlobOrUrl, filename, onAfter) {
   }
 }
 
-export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings, targetWeek }) {
+export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings, targetWeek, onOverlayChange }) {
   // Find which platforms have captions
   const available = item.captions
     ? PLATFORMS.filter(p => item.captions[p.key])
@@ -276,6 +276,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
                   onSave={(newText) => onUpdateCaption(p.key, newText, getId(cap))}
                   onRegen={onRegen}
                   onRefine={(val) => onRefine(val, p.key, getId(cap))}
+                  onOverlayChange={onOverlayChange}
                 />
               </div>
             )
@@ -989,7 +990,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   )
 }
 
-function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, item, settings, apiUrl, onSave, onRegen, onRefine }) {
+function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, item, settings, apiUrl, onSave, onRegen, onRefine, onOverlayChange }) {
   const [value, setValue] = useState(text)
   const [title, setTitle] = useState(blogTitle || '')
   const [tags, setTags] = useState(ytTags || [])
@@ -1092,7 +1093,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   //  - Not customized: write to item._overlaySettings (shared baseline, affects every
   //    non-customized tab the user switches to)
   useEffect(() => {
-    const settings = {
+    const overlayState = {
       storyCaptionStyle, overlayYPct, storyText,
       storyFontSize, storyFontFamily, storyFontColor,
       storyFontOutline, storyFontOutlineWidth, storyLineHeight, storyLetterSpacing,
@@ -1101,10 +1102,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       openingText, closingText, openingDuration, closingDuration,
     }
     if (customizedForTab) {
-      item._tabOverrides[platform] = settings
+      item._tabOverrides[platform] = overlayState
     } else {
-      item._overlaySettings = settings
+      item._overlaySettings = overlayState
     }
+    // Auto-save overlay settings to the job (debounced by the hook)
+    if (onOverlayChange && !customizedForTab) onOverlayChange(overlayState)
   }, [
     customizedForTab,
     storyCaptionStyle, overlayYPct, storyText,

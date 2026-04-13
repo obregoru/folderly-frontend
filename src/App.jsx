@@ -638,6 +638,7 @@ export default function App() {
               onResult={({ blob, url, base64 }) => {
                 window._postyVoiceoverVideo = { blob, url, base64 }
               }}
+              onSettingsChange={(voSettings) => jobSync.saveVoiceoverSettings(voSettings)}
             />
           )}
 
@@ -746,6 +747,7 @@ export default function App() {
                   apiUrl={apiUrl}
                   settings={settings}
                   targetWeek={targetWeek}
+                  onOverlayChange={(overlaySettings) => jobSync.saveOverlaySettings(overlaySettings)}
                 />
               </ErrorBoundary>
             )

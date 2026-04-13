@@ -27,7 +27,7 @@ const fileToBase64 = blobToBase64
  * (from uploads or the merged result) and clicks "Apply" to mix the
  * voiceover onto the video server-side.
  */
-export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult }) {
+export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange }) {
   // --- Recording state ---
   const [recording, setRecording] = useState(false)
   const [audioUrl, setAudioUrl] = useState(null)
@@ -69,6 +69,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       vf._voiceoverOrigVol = voOrigVolume
     }
   }, [voMixMode, voOrigVolume, videoFiles])
+
+  // Auto-save voiceover settings to job when they change
+  useEffect(() => {
+    if (onSettingsChange) {
+      onSettingsChange({
+        mode: voMixMode,
+        originalVolume: voOrigVolume,
+        ttsText,
+        voiceId: selectedVoice,
+        stability: ttsStability,
+        similarity: ttsSimilarity,
+        style: ttsStyle,
+        speakerBoost: ttsSpeakerBoost,
+      })
+    }
+  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost])
 
   const hasElevenLabs = !!settings?.elevenlabs_configured
   const [tab, setTab] = useState('record') // record | tts
