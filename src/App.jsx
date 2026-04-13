@@ -499,19 +499,28 @@ export default function App() {
     setGenerating(true)
     if (userHint) localStorage.setItem('posty_last_hint', userHint)
     try {
-      const batch = await api.createBatch(folderCtx?.name, files.length)
-      for (let i = 0; i < files.length; i++) {
-        const item = files[i]
-        item.batchId = batch.id
-        setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'loading', captions: null } : f))
-        try {
-          await genCaptions(item, batch.id)
-        } catch (e) {
-          console.error('[genCaptions] error:', e)
-          const fname = item.file?.name || item._filename || 'file'
-          showError(`Error on "${fname}": ${e.message}`)
-          setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'error', errMsg: e.message } : f))
-        }
+      // Generate captions only for the FIRST file — all files in a job
+      // share one set of captions. The first file is the "representative"
+      // (for merged videos it's the first clip; for multi-photo it's the first photo).
+      const primaryItem = files[0]
+      primaryItem.batchId = null
+      setFiles(prev => prev.map(f => f.id === primaryItem.id ? { ...f, status: 'loading', captions: null } : f))
+      try {
+        const batch = await api.createBatch(folderCtx?.name, 1)
+        primaryItem.batchId = batch.id
+        await genCaptions(primaryItem, batch.id)
+        // Share captions with all other files so they show as "done"
+        const sharedCaptions = primaryItem.captions
+        const sharedJobName = primaryItem.job_name
+        setFiles(prev => prev.map(f => f.id !== primaryItem.id
+          ? { ...f, status: 'done', captions: sharedCaptions, job_name: sharedJobName || f.job_name }
+          : f
+        ))
+      } catch (e) {
+        console.error('[genCaptions] error:', e)
+        const fname = primaryItem.file?.name || primaryItem._filename || 'file'
+        showError(`Error on "${fname}": ${e.message}`)
+        setFiles(prev => prev.map(f => f.id === primaryItem.id ? { ...f, status: 'error', errMsg: e.message } : f))
       }
     } catch (e) {
       showError('Failed to create batch: ' + e.message)
@@ -530,9 +539,8 @@ export default function App() {
   }
 
   const regenAll = async () => {
-    for (const item of files.filter(f => f.captions)) {
-      await regenOne(item)
-    }
+    const primary = files.find(f => f.captions)
+    if (primary) await regenOne(primary)
   }
 
   const updateCaption = (itemId, platform, text, captionId) => {
@@ -789,15 +797,19 @@ export default function App() {
           )}
           {/* Calendar removed — now in ScheduleModal. Component kept in components/Calendar.jsx if needed again */}
           <ScheduledPosts />
-          {files.filter(f => f.status).map(item => {
+          {/* Show one ResultCard per job — all files share one set of captions.
+              The primary file (first with captions) represents the job. */}
+          {(() => {
+            const primary = files.find(f => f.status === 'done' || f.status === 'loading' || f.status === 'error')
+            if (!primary) return null
             return (
-              <ErrorBoundary key={item.id} name={item.file?.name}>
+              <ErrorBoundary key={primary.id} name={primary.file?.name || primary._filename}>
                 <ResultCard
-                  item={item}
+                  item={primary}
                   folderCtx={folderCtx}
-                  onRegen={() => regenOne(item)}
-                  onUpdateCaption={(platform, text, captionId) => updateCaption(item.id, platform, text, captionId)}
-                  onRefine={(textVal, platform, captionId) => setRefineCtx({ item, textarea: textVal, platform, captionId })}
+                  onRegen={() => regenOne(primary)}
+                  onUpdateCaption={(platform, text, captionId) => updateCaption(primary.id, platform, text, captionId)}
+                  onRefine={(textVal, platform, captionId) => setRefineCtx({ item: primary, textarea: textVal, platform, captionId })}
                   apiUrl={apiUrl}
                   settings={settings}
                   targetWeek={targetWeek}
@@ -805,7 +817,7 @@ export default function App() {
                 />
               </ErrorBoundary>
             )
-          })}
+          })()}
         </main>
       </div>
 
