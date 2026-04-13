@@ -353,16 +353,13 @@ export default function App() {
   }
 
   const genCaptions = async (item, batchId) => {
-    // Skip upload for restored files that already have an upload key
-    if (item._restored && item.uploadResult?.original_temp_path) {
-      // Already uploaded in a previous session — reuse
-    } else if (item.file) {
-      // Upload file first
+    // Upload file if needed (skip for restored files that already have an upload key)
+    if (!item._restored || !item.uploadResult?.original_temp_path) {
+      if (!item.file) throw new Error('No file to upload — please re-add this file')
       let videoThumb = null
       if (!item.isImg) {
         try { videoThumb = await captureVideoFrame(item.file) } catch { videoThumb = null }
       }
-
       const uploadResult = await api.uploadFile(
         item.file,
         folderCtx?.name,
@@ -377,8 +374,6 @@ export default function App() {
         item.previouslyUsed = true
         item.previousCaptions = uploadResult.previous_captions
       }
-    } else {
-      throw new Error('No file to upload — please re-add this file')
     }
 
     // Build body
@@ -398,7 +393,7 @@ export default function App() {
       tone: getTones(),
       availability: avail,
       platforms,
-      upload_id: uploadResult.id,
+      upload_id: item.uploadResult?.id || item.uploadResult?.uuid,
       batch_id: batchId || undefined,
       hashtag_set_id: selectedHashtagSetId || undefined,
       seo_keyword_set_id: selectedSeoKeywordSetId || undefined,
