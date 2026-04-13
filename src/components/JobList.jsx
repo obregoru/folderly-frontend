@@ -18,7 +18,7 @@ export default function JobList({ jobs, activeJobId, onResume, onNew, onArchive 
   const [expanded, setExpanded] = useState(false)
   const drafts = jobs.filter(j => j.status === 'draft')
 
-  if (drafts.length === 0 && !activeJobId) return null
+  // Always show the component so "New job" button is available
 
   return (
     <div className="bg-white border border-border rounded-sm p-2">
