@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 
 // Read file as base64 (same helper as ResultCard)
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
