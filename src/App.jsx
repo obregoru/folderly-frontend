@@ -359,7 +359,8 @@ export default function App() {
         } catch (e) {
           console.error('[eager upload] failed:', e.message)
         } finally {
-          uploadingRef.current.delete(item.id)
+          // Don't delete from uploadingRef — keep the guard permanent so
+          // re-renders of the effect never re-process the same file
           setUploadsInProgress(n => Math.max(0, n - 1))
         }
       })
@@ -368,6 +369,7 @@ export default function App() {
 
   const clearAll = () => {
     jobSync.newJob()
+    uploadingRef.current.clear()
     setFolderCtx(null)
     sessionStorage.removeItem('posty_hint')
     window._postyMergedVideo = null
