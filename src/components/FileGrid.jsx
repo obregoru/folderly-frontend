@@ -229,13 +229,21 @@ export default function FileGrid({ files, onRemove, VideoTrimmer }) {
             ) : isVideo && item.file ? (
               <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
             ) : item._restored && item._uploadKey ? (
-              /* Restored from job — no File object, show thumbnail from server */
+              /* Restored from job — no File object, stream from server */
               <div onClick={() => setPreviewItem(item)} className="w-full h-[120px] bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative">
-                <img
-                  src={`${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`}
-                  className="w-full h-full object-cover"
-                  onError={e => { e.target.style.display = 'none' }}
-                />
+                {isVideo ? (
+                  <video
+                    src={`${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`}
+                    className="w-full h-full object-cover"
+                    muted playsInline preload="metadata"
+                  />
+                ) : (
+                  <img
+                    src={`${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`}
+                    className="w-full h-full object-cover"
+                    onError={e => { e.target.style.display = 'none' }}
+                  />
+                )}
                 {isVideo && <span className="absolute text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>}
               </div>
             ) : (
