@@ -88,12 +88,14 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
 
   // Save file to job when uploaded (called from App.jsx after upload)
   const saveFileToJob = useCallback(async (file) => {
+    // Skip if already saved to DB
+    if (fileIdMapRef.current[file.id]) return
     const id = await ensureJob()
     if (!id) return
     try {
       const result = await api.addJobFile(id, {
-        filename: file.file?.name || file.filename,
-        media_type: file.file?.type || file.media_type,
+        filename: file.file?.name || file.filename || file._filename,
+        media_type: file.file?.type || file.media_type || file._mediaType,
         upload_key: file.uploadResult?.original_temp_path || null,
         file_order: files.indexOf(file),
         trim_start: file._trimStart || 0,
