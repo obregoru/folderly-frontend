@@ -235,16 +235,23 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
 
   // Start a fresh new job
   const newJob = useCallback(async () => {
+    const hadJob = !!jobIdRef.current
     setJobId(null)
     sessionStorage.removeItem('posty_active_job')
     fileIdMapRef.current = {}
     setFiles([])
     setUserHint('')
-    // Refresh job list so the previous draft appears
-    try {
-      const jobs = await api.listJobs()
-      if (Array.isArray(jobs)) setJobList(jobs)
-    } catch {}
+    // Refresh job list so the previous draft appears.
+    // If there was an active job, the eager upload may still be finishing,
+    // so refresh again after a short delay to catch the file count.
+    const refresh = async () => {
+      try {
+        const jobs = await api.listJobs()
+        if (Array.isArray(jobs)) setJobList(jobs)
+      } catch {}
+    }
+    await refresh()
+    if (hadJob) setTimeout(refresh, 2000)
   }, [setFiles, setUserHint])
 
   // Archive current job
