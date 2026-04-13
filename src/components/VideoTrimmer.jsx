@@ -10,8 +10,14 @@ import { useState, useEffect, useRef } from 'react'
  */
 export default function VideoTrimmer({ item }) {
   const file = item.file
-  const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
-  // Skip rendering if no file (restored jobs have file=null)
+  const [src] = useState(() => {
+    if (file instanceof Blob || file instanceof File) return URL.createObjectURL(file)
+    if (item._publicUrl) return item._publicUrl
+    if (item._uploadKey && item._tenantSlug) {
+      return `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
+    }
+    return null
+  })
   if (!src) return null
   const [videoDuration, setVideoDuration] = useState(0)
   const [trimStart, setTrimStart] = useState(() => item._trimStart ?? 0)
@@ -259,7 +265,7 @@ export default function VideoTrimmer({ item }) {
     <div className="bg-white border border-border rounded-sm p-2">
       {hiddenVideoEl}
       <div className="flex items-center gap-2 text-[10px] mb-1">
-        <span className="font-medium text-ink truncate max-w-[40%]" title={file.name}>Trim: {file.name}</span>
+        <span className="font-medium text-ink truncate max-w-[40%]" title={file?.name || item._filename || 'Video'}>Trim: {file?.name || item._filename || 'Video'}</span>
         <span className="text-muted text-[9px] whitespace-nowrap">
           {trimStart.toFixed(1)}s → {(trimEnd ?? videoDuration).toFixed(1)}s
           <span className="text-[#d97706] font-medium ml-1">· {((trimEnd ?? videoDuration) - trimStart).toFixed(1)}s kept</span>
