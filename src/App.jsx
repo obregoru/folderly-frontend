@@ -332,7 +332,11 @@ export default function App() {
 
   const removeFile = id => setFiles(prev => prev.filter(f => f.id !== id))
 
-  const clearAll = () => {
+  const clearAll = async () => {
+    // If there's active work but no job yet, create one so it's saved as a draft
+    if (!jobSync.jobId && (files.length > 0 || userHint)) {
+      await jobSync.ensureJob()
+    }
     jobSync.newJob()
     setFolderCtx(null)
     sessionStorage.removeItem('posty_hint')
