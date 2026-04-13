@@ -182,42 +182,35 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
                     if (result.error) { alert(result.error); return }
                     // Show results
                     const analysis = result
-                    // Auto-apply detected settings if user confirms
-                    const changes = []
-                    if (analysis.detected?.tone && analysis.detected.tone !== s.default_tone) changes.push(`Tone: ${s.default_tone || 'warm'} → ${analysis.detected.tone}`)
-                    if (analysis.detected?.pov && analysis.detected.pov !== s.default_pov) changes.push(`POV: ${s.default_pov || 'first_plural'} → ${analysis.detected.pov}`)
-                    if (analysis.detected?.marketing_intensity && analysis.detected.marketing_intensity !== s.marketing_intensity) changes.push(`Marketing: ${s.marketing_intensity || 'balanced'} → ${analysis.detected.marketing_intensity}`)
-
-                    let msg = '🎯 Voice Analysis Complete\n\n'
-                    msg += `Tone: ${analysis.detected?.tone_description || analysis.detected?.tone}\n`
-                    msg += `POV: ${analysis.detected?.pov_description || analysis.detected?.pov}\n`
-                    msg += `Marketing: ${analysis.detected?.marketing_intensity}\n`
-                    msg += `Length: ${analysis.detected?.caption_length}\n`
-                    msg += `Emoji: ${analysis.detected?.emoji_usage}\n`
-                    msg += `Hashtags: ${analysis.detected?.hashtag_style}\n\n`
+                    // Build summary
+                    const d = analysis.detected || {}
+                    let msg = 'Voice Analysis Complete\n\n'
+                    msg += `Tone: ${d.tone_description || d.tone || '?'}\n`
+                    msg += `POV: ${d.pov_description || d.pov || '?'}\n`
+                    msg += `Marketing: ${d.marketing_intensity || '?'}\n`
+                    msg += `Length: ${d.caption_length || '?'}\n`
                     if (analysis.distinctive_patterns?.length) {
-                      msg += 'Distinctive patterns:\n' + analysis.distinctive_patterns.map(p => '• ' + p).join('\n') + '\n\n'
+                      msg += '\nDistinctive patterns:\n' + analysis.distinctive_patterns.map(p => '• ' + p).join('\n')
                     }
                     if (analysis.not_yet_supported?.length) {
-                      msg += 'Not yet supported:\n' + analysis.not_yet_supported.map(p => '• ' + p).join('\n') + '\n\n'
+                      msg += '\n\nNot yet supported:\n' + analysis.not_yet_supported.map(p => '• ' + p).join('\n')
                     }
-                    if (changes.length) {
-                      msg += 'Recommended changes:\n' + changes.join('\n') + '\n\n'
-                    }
-                    if (analysis.suggested_posting_style) {
-                      msg += 'Suggested posting style description:\n' + analysis.suggested_posting_style
-                    }
+
+                    // Collect all changes to apply in one batch
+                    const toApply = {}
+                    if (d.tone && d.tone !== s.default_tone) toApply.default_tone = d.tone
+                    if (d.pov && d.pov !== s.default_pov) toApply.default_pov = d.pov
+                    if (d.marketing_intensity && d.marketing_intensity !== s.marketing_intensity) toApply.marketing_intensity = d.marketing_intensity
+                    if (analysis.suggested_posting_style) toApply.posting_style = analysis.suggested_posting_style
+
+                    const changeList = Object.entries(toApply).map(([k, v]) => `  ${k}: ${v}`).join('\n')
+                    if (changeList) msg += '\n\nRecommended updates:\n' + changeList
+
                     alert(msg)
 
-                    // Apply settings if user wants
-                    if (changes.length && confirm('Apply the detected tone, POV, and marketing settings?')) {
-                      if (analysis.detected?.tone) save('default_tone', analysis.detected.tone)
-                      if (analysis.detected?.pov) save('default_pov', analysis.detected.pov)
-                      if (analysis.detected?.marketing_intensity) save('marketing_intensity', analysis.detected.marketing_intensity)
-                    }
-                    // Apply suggested posting style if empty
-                    if (analysis.suggested_posting_style && (!s.posting_style || confirm('Replace your posting style description with the AI-suggested one?'))) {
-                      save('posting_style', analysis.suggested_posting_style)
+                    // Single confirm for all changes
+                    if (Object.keys(toApply).length > 0 && confirm('Apply the recommended settings? (tone, POV, marketing, posting style)')) {
+                      for (const [k, v] of Object.entries(toApply)) save(k, v)
                     }
                   } catch (e) { alert('Analysis failed: ' + e.message) }
                   finally { el.disabled = false }
