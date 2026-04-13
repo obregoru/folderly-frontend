@@ -1326,6 +1326,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [googlePostEnabled, setGooglePostEnabled] = useState(true)
   const [googleGalleryEnabled, setGoogleGalleryEnabled] = useState(true)
   const [converting, setConverting] = useState(false)
+  const [regenPlatformLoading, setRegenPlatformLoading] = useState(false)
   const [mp4Quality, setMp4Quality] = useState('medium')
   const [wpCatsLoaded, setWpCatsLoaded] = useState(false)
   const [wpPublish, setWpPublish] = useState(false)
@@ -2580,7 +2581,43 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         {!canPostYt && platform === 'youtube' && !isVideo && (
           <span className="text-[10px] text-muted italic">YouTube requires a video</span>
         )}
-        <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regenerate</button>
+        <button onClick={onRegen} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Regen all</button>
+        <button
+          disabled={regenPlatformLoading}
+          onClick={async () => {
+            setRegenPlatformLoading(true)
+            try {
+              const api = await import('../api')
+              const body = {
+                filename: item.file?.name || item._filename || 'file',
+                folder_name: '',
+                occasion: '',
+                tone: settings?.default_tone || 'warm',
+                availability: '',
+                platforms: [platform],
+                upload_id: item.uploadResult?.id || item.uploadResult?.uuid,
+                rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
+                user_hint: '',
+              }
+              if (item.isImg && item.file) {
+                const { toBase64 } = await import('../lib/crop')
+                body.base64 = await toBase64(item.file)
+                body.media_type = item.file?.type || item._mediaType || 'image/jpeg'
+              }
+              const caps = {}
+              await api.generateStream(body, (partial) => { Object.assign(caps, partial) })
+              const newText = typeof caps[platform] === 'object' ? (caps[platform].text || caps[platform].description || JSON.stringify(caps[platform])) : (caps[platform] || '')
+              if (newText) {
+                setValue(newText)
+                onSave(newText)
+              }
+            } catch (e) {
+              alert('Regen failed: ' + e.message)
+            }
+            setRegenPlatformLoading(false)
+          }}
+          className="text-[11px] py-1 px-2.5 border border-[#6C5CE7] text-[#6C5CE7] rounded-sm bg-white cursor-pointer font-sans hover:bg-[#f3f0ff] disabled:opacity-50"
+        >{regenPlatformLoading ? 'Regenerating...' : `Regen ${platform}`}</button>
         <button onClick={() => navigator.clipboard.writeText(value)} className="text-[11px] py-1 px-2.5 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Copy</button>
         {/* Download video button — on Google/TikTok tabs, when a video source is available */}
         {(platform === 'google' || platform === 'tiktok') && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
