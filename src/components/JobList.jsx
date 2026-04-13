@@ -14,11 +14,9 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString()
 }
 
-export default function JobList({ jobs, activeJobId, onResume, onNew, onArchive }) {
+export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, onResume, onNew, onArchive }) {
   const [expanded, setExpanded] = useState(false)
   const drafts = jobs.filter(j => j.status === 'draft' && (j.file_count > 0 || j.hint_text || j.job_name))
-
-  // Always show the component so "New job" button is available
 
   return (
     <div className="bg-white border border-border rounded-sm p-2">
@@ -33,8 +31,9 @@ export default function JobList({ jobs, activeJobId, onResume, onNew, onArchive 
         </button>
         <button
           onClick={onNew}
-          className="text-[10px] py-1 px-2.5 border border-[#2D9A5E] text-[#2D9A5E] rounded bg-white cursor-pointer hover:bg-[#f0faf4]"
-        >New job</button>
+          disabled={uploadsInProgress > 0}
+          className="text-[10px] py-1 px-2.5 border border-[#2D9A5E] text-[#2D9A5E] rounded bg-white cursor-pointer hover:bg-[#f0faf4] disabled:opacity-40 disabled:cursor-not-allowed"
+        >{uploadsInProgress > 0 ? `Saving ${uploadsInProgress} file${uploadsInProgress > 1 ? 's' : ''}...` : 'New job'}</button>
       </div>
 
       {expanded && (

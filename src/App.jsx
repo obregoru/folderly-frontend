@@ -332,13 +332,18 @@ export default function App() {
 
   const removeFile = id => setFiles(prev => prev.filter(f => f.id !== id))
 
-  // Eagerly upload new files and save to job so drafts persist even before Generate
+  // Eagerly upload new files and save to job so drafts persist even before Generate.
+  // Serialized to avoid race conditions and server overload with large videos.
   const uploadingRef = useRef(new Set())
+  const uploadQueueRef = useRef(Promise.resolve())
+  const [uploadsInProgress, setUploadsInProgress] = useState(0)
   useEffect(() => {
     for (const item of files) {
       if (!item.file || item.uploadResult || item._restored || uploadingRef.current.has(item.id)) continue
       uploadingRef.current.add(item.id)
-      ;(async () => {
+      setUploadsInProgress(n => n + 1)
+      // Chain onto queue so uploads run one at a time
+      uploadQueueRef.current = uploadQueueRef.current.then(async () => {
         try {
           let videoThumb = null
           if (!item.isImg) {
@@ -350,13 +355,14 @@ export default function App() {
           )
           item.uploadResult = uploadResult
           setFiles(prev => prev.map(f => f.id === item.id ? { ...f, uploadResult } : f))
-          jobSync.saveFileToJob(item)
+          await jobSync.saveFileToJob(item)
         } catch (e) {
           console.error('[eager upload] failed:', e.message)
         } finally {
           uploadingRef.current.delete(item.id)
+          setUploadsInProgress(n => Math.max(0, n - 1))
         }
-      })()
+      })
     }
   }, [files, folderCtx, jobSync])
 
@@ -629,6 +635,7 @@ export default function App() {
           <JobList
             jobs={jobSync.jobList}
             activeJobId={jobSync.jobId}
+            uploadsInProgress={uploadsInProgress}
             onResume={async (id) => {
               const job = await jobSync.loadJob(id)
               if (job) {
