@@ -78,7 +78,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged }) {
         // works on iOS for any file size — no base64 encoding needed.
         let uploadKey = item.uploadResult?.original_temp_path || null
         if (!uploadKey) {
-          setProgress(`Uploading clip ${i + 1}/${order.length} (${item.file.name})...`)
+          setProgress(`Uploading clip ${i + 1}/${order.length} (${item.file?.name || item._filename || 'Untitled'})...`)
           try {
             const result = await api.uploadFile(item.file, null, null, {}, null, jobId)
             item.uploadResult = result
@@ -150,7 +150,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged }) {
           return (
             <div key={item.id} className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]">
               <span className="text-muted font-medium w-4">{pos + 1}.</span>
-              <span className="flex-1 truncate" title={item.file.name}>{item.file.name}</span>
+              <span className="flex-1 truncate" title={item.file?.name || item._filename || 'Untitled'}>{item.file?.name || item._filename || 'Untitled'}</span>
               {(ts > 0 || te != null) && (
                 <span className="text-[9px] text-[#d97706]">trimmed</span>
               )}
