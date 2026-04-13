@@ -2030,11 +2030,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             </>
                           )}
                         </div>
-                        {storyCaptionStyle === 'overlay' && (
-                          <div className="flex flex-col items-center" style={{ height: 320 }}>
-                            <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
-                          </div>
-                        )}
+                        {storyCaptionStyle === 'overlay' && (() => {
+                          const pH = 320
+                          const safeTop = Math.round(pH * 0.15)
+                          const safeBottom = Math.round(pH * 0.75)
+                          return (
+                            <div className="flex flex-col items-center" style={{ height: safeBottom - safeTop, marginTop: safeTop }}>
+                              <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
+                            </div>
+                          )
+                        })()}
                       </div>
                     )}
                     {/* Hidden voiceover audio companion — video is the primary player,
