@@ -2245,7 +2245,14 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               // For large files, send the Supabase upload key so the server
                               // fetches it directly. For small files, send base64 as usual.
                               const uploadKey = item.uploadResult?.original_temp_path || null
-                              const rawBase64 = uploadKey ? null : await fileToBase64(item.file)
+                              // Send BOTH upload key and base64 when possible. The server
+                              // tries the key first (fast, no upload needed), falls back to
+                              // base64 if the file was cleaned up. For large files where
+                              // base64 would crash iOS, we skip base64 and rely on the key.
+                              let rawBase64 = null
+                              if (item.file) {
+                                try { rawBase64 = await fileToBase64(item.file) } catch { rawBase64 = null }
+                              }
                               const rawType = item.file?.type || item._mediaType
                               const api = await import('../api')
                               // If AI per-platform overlays are active, preview the selected destination's text
