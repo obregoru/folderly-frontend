@@ -353,25 +353,32 @@ export default function App() {
   }
 
   const genCaptions = async (item, batchId) => {
-    // Upload file first
-    let videoThumb = null
-    if (!item.isImg) {
-      try { videoThumb = await captureVideoFrame(item.file) } catch { videoThumb = null }
-    }
+    // Skip upload for restored files that already have an upload key
+    if (item._restored && item.uploadResult?.original_temp_path) {
+      // Already uploaded in a previous session — reuse
+    } else if (item.file) {
+      // Upload file first
+      let videoThumb = null
+      if (!item.isImg) {
+        try { videoThumb = await captureVideoFrame(item.file) } catch { videoThumb = null }
+      }
 
-    const uploadResult = await api.uploadFile(
-      item.file,
-      folderCtx?.name,
-      batchId,
-      item.parsed,
-      videoThumb
-    )
-    item.uploadResult = uploadResult
-    // Auto-save file to job
-    jobSync.saveFileToJob(item)
-    if (uploadResult.previously_used) {
-      item.previouslyUsed = true
-      item.previousCaptions = uploadResult.previous_captions
+      const uploadResult = await api.uploadFile(
+        item.file,
+        folderCtx?.name,
+        batchId,
+        item.parsed,
+        videoThumb
+      )
+      item.uploadResult = uploadResult
+      // Auto-save file to job
+      jobSync.saveFileToJob(item)
+      if (uploadResult.previously_used) {
+        item.previouslyUsed = true
+        item.previousCaptions = uploadResult.previous_captions
+      }
+    } else {
+      throw new Error('No file to upload — please re-add this file')
     }
 
     // Build body
@@ -385,7 +392,7 @@ export default function App() {
     const platforms = getActivePlatforms()
 
     const body = {
-      filename: item.file.name,
+      filename: item.file?.name || item._filename || 'video.mp4',
       folder_name: folderCtx?.name || '',
       occasion: occ,
       tone: getTones(),
