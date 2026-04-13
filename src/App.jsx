@@ -332,6 +332,34 @@ export default function App() {
 
   const removeFile = id => setFiles(prev => prev.filter(f => f.id !== id))
 
+  // Eagerly upload new files and save to job so drafts persist even before Generate
+  const uploadingRef = useRef(new Set())
+  useEffect(() => {
+    for (const item of files) {
+      if (!item.file || item.uploadResult || item._restored || uploadingRef.current.has(item.id)) continue
+      uploadingRef.current.add(item.id)
+      ;(async () => {
+        try {
+          let videoThumb = null
+          if (!item.isImg) {
+            try { videoThumb = await captureVideoFrame(item.file) } catch {}
+          }
+          const activeJobId = await jobSync.ensureJob()
+          const uploadResult = await api.uploadFile(
+            item.file, folderCtx?.name, null, item.parsed, videoThumb, activeJobId
+          )
+          item.uploadResult = uploadResult
+          setFiles(prev => prev.map(f => f.id === item.id ? { ...f, uploadResult } : f))
+          jobSync.saveFileToJob(item)
+        } catch (e) {
+          console.error('[eager upload] failed:', e.message)
+        } finally {
+          uploadingRef.current.delete(item.id)
+        }
+      })()
+    }
+  }, [files, folderCtx, jobSync])
+
   const clearAll = () => {
     jobSync.newJob()
     setFolderCtx(null)
@@ -358,12 +386,10 @@ export default function App() {
   }
 
   const genCaptions = async (item, batchId) => {
-    // Upload file if we have one. Only skip for restored files where the
-    // upload key points to a jobs/ path (persistent). Always re-upload if
-    // the key points to temp/ (will be cleaned up) or if item.file exists
-    // (user added the file fresh in this session).
+    // Upload file if needed. Skip if already uploaded to jobs/ storage
+    // (eager upload on add, or restored file).
     const hasValidUploadKey = item.uploadResult?.original_temp_path?.startsWith('jobs/')
-    if (item.file || !hasValidUploadKey) {
+    if (!hasValidUploadKey) {
       if (!item.file) throw new Error('Video file not available — please re-upload this file')
       let videoThumb = null
       if (!item.isImg) {
