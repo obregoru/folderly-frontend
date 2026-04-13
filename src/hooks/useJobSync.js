@@ -33,6 +33,8 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
       const id = job.id || job.uuid
       setJobId(id)
       sessionStorage.setItem('posty_active_job', id)
+      // Refresh job list so new draft appears in count
+      api.listJobs().then(jobs => { if (Array.isArray(jobs)) setJobList(jobs) }).catch(() => {})
       return id
     } catch (e) {
       console.error('[useJobSync] create job failed:', e.message)
@@ -232,12 +234,17 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
   }, [setUserHint, setFiles])
 
   // Start a fresh new job
-  const newJob = useCallback(() => {
+  const newJob = useCallback(async () => {
     setJobId(null)
     sessionStorage.removeItem('posty_active_job')
     fileIdMapRef.current = {}
     setFiles([])
     setUserHint('')
+    // Refresh job list so the previous draft appears
+    try {
+      const jobs = await api.listJobs()
+      if (Array.isArray(jobs)) setJobList(jobs)
+    } catch {}
   }, [setFiles, setUserHint])
 
   // Archive current job
