@@ -542,28 +542,25 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         opening_duration: schedOpeningDuration, closing_duration: schedClosingDuration,
       } : {}
 
+      // Must be declared BEFORE it's used below
+      const usePreRendered = overlayBase64 && schedOverlay === 'overlay'
+
       if (p.key === 'instagram' && schedDests.ig_post && !isVideo) {
-        // IG Post = still image feed post (no overlays)
         posts.push(post)
       }
       if (p.key === 'instagram' && schedDests.ig_reel && isVideo) {
-        // IG Reel = video to reels, may carry overlays
         const reelPost = { ...post, platform: 'instagram' }
         if (usePreRendered) { reelPost.image_base64 = overlayBase64; reelPost.media_type = 'video/mp4' }
         else if (schedOverlay === 'overlay') Object.assign(reelPost, overlayOpts)
         posts.push(reelPost)
       }
-      else if (p.key === 'facebook' && schedDests.fb_post) posts.push(post) // FB post = no overlays
+      else if (p.key === 'facebook' && schedDests.fb_post) posts.push(post)
       else if (p.key === 'youtube' && schedDests.yt_shorts) {
-        // YT Shorts: use pre-rendered overlay if available
         if (usePreRendered) { post.image_base64 = overlayBase64; post.media_type = 'video/mp4' }
         else if (schedOverlay === 'overlay') Object.assign(post, overlayOpts)
         posts.push(post)
       }
       else if (p.key !== 'instagram' && p.key !== 'facebook' && p.key !== 'youtube') posts.push(post)
-
-      // For overlay destinations: use pre-generated preview if available, otherwise pass overlay opts for backend processing
-      const usePreRendered = overlayBase64 && schedOverlay === 'overlay'
       const overlayB64 = usePreRendered ? overlayBase64 : imageBase64
       const overlayMt = usePreRendered ? 'video/mp4' : mediaType
       const overlayPostOpts = usePreRendered ? {} : overlayOpts // skip overlay opts if already processed
