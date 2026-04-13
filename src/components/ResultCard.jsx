@@ -332,7 +332,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   const [schedOpeningDuration, setSchedOpeningDuration] = useState(3)
   const [schedClosingDuration, setSchedClosingDuration] = useState(3)
   // Per-platform destination toggles for scheduling
-  const isVideoFile = item.file?.type?.startsWith('video/')
+  const isVideoFile = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
   const [schedDests, setSchedDests] = useState(() => {
     const d = {}
     if (available.some(p => p.key === 'instagram') && settings?.ig_connected) { d.ig_post = !isVideoFile; d.ig_reel = isVideoFile; d.ig_story = settings?.fb_stories_default === true }
@@ -1170,8 +1170,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   }, [storyCaptionStyle, value])
 
   // Generate story preview when enabled (images only — videos use inline player)
-  const isVideoFile = item.file?.type?.startsWith('video/')
-  const isImageFile = item.file?.type?.startsWith('image/')
+  const isVideoFile = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
+  const isImageFile = item.file?.type?.startsWith('image/') || item._mediaType?.startsWith('image/')
   // Photo-to-video: when an image has video destinations checked and the user enables conversion
   const hasVideoDest = postDests.ig_reel || postDests.ig_story || postDests.fb_reel || postDests.fb_story || postDests.tiktok
   const canPhotoToVideo = isImageFile && hasVideoDest
