@@ -94,11 +94,10 @@ async function saveVideo(sourceBlobOrUrl, filename, onAfter) {
     } else {
       throw new Error('Unsupported video source')
     }
-    // Try native share sheet first — iOS/Android give users "Save Video" /
-    // "Save to Photos" from here.
-    try {
-      // Ensure the file has the right MIME type — blob: URL fetches
-      // sometimes produce blobs with an empty type.
+    // Try native share sheet on MOBILE only — iOS/Android give users "Save Video" /
+    // "Save to Photos" from here. Desktop should use the classic download dialog.
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '')
+    if (isMobile) try {
       const mime = blob.type || 'video/mp4'
       const typedBlob = mime === blob.type ? blob : new Blob([blob], { type: mime })
       const file = new File([typedBlob], filename, { type: mime })
