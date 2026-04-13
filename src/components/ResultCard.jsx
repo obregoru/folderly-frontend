@@ -152,16 +152,20 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
   ])]
 
   // Thumbnail src — memoized to prevent re-render blob URL churn
-  const [thumbSrc] = useState(() => item.isImg
-    ? URL.createObjectURL(item.file)
-    : (item.uploadResult?.thumbnail_path
-      ? (item.uploadResult.thumbnail_path.startsWith('http') ? item.uploadResult.thumbnail_path : `/uploads/${item.uploadResult.thumbnail_path}`)
-      : null))
+  const [thumbSrc] = useState(() => {
+    if (item.isImg && item.file) return URL.createObjectURL(item.file)
+    if (item._restored && item._uploadKey) return `${apiUrl}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`
+    if (item.uploadResult?.thumbnail_path) {
+      return item.uploadResult.thumbnail_path.startsWith('http') ? item.uploadResult.thumbnail_path : `/uploads/${item.uploadResult.thumbnail_path}`
+    }
+    return null
+  })
   const [fileSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : null)
-  const isVideo = item.file?.type?.startsWith('video/')
+  const isVideo = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
   const [showPreview, setShowPreview] = useState(false)
   const [videoThumb, setVideoThumb] = useState(() => item.file?._videoThumb || null)
   const [videoAspect, setVideoAspect] = useState(() => item.file?._videoAspect || null)
+  const fileName = item.file?.name || item._filename || 'Untitled'
 
   return (
     <div className="bg-white border border-border rounded mb-2.5">
@@ -193,8 +197,12 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
           <div onClick={() => setShowPreview(true)} className="rounded-sm overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-80 relative bg-black" style={{ width: videoAspect && videoAspect < 1 ? 24 : 36, height: videoAspect && videoAspect < 1 ? 36 : 24 }}>
             {videoThumb ? (
               <img src={videoThumb} className="w-full h-full object-cover" />
-            ) : (
+            ) : fileSrc ? (
               <video src={fileSrc + '#t=0.5'} className="w-full h-full object-cover" muted playsInline preload="auto" />
+            ) : thumbSrc ? (
+              <img src={thumbSrc} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-ink" />
             )}
             <div className="absolute inset-0 flex items-center justify-center"><span className="text-white text-[10px] bg-black/50 rounded-full w-5 h-5 flex items-center justify-center">▶</span></div>
           </div>
@@ -204,7 +212,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
           <div className="w-9 h-9 rounded-sm bg-ink flex items-center justify-center text-white text-[13px] flex-shrink-0">?</div>
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium truncate" title={item.file.name}>{item.file.name}</div>
+          <div className="text-xs font-medium truncate" title={fileName}>{fileName}</div>
           {tags.length > 0 && (
             <div className="mt-0.5 flex flex-wrap gap-0.5">
               {tags.map(t => <span key={t} className="inline-block bg-sage-light text-sage border border-[#C2D4C9] rounded-full px-[7px] text-[10px]">{t}</span>)}
@@ -401,7 +409,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
           }
         } else if (isVideoFile && item.file) {
           try { imageBase64 = await fileToBase64(item.file) } catch { imageBase64 = null }
-          mediaType = item.file.type
+          mediaType = item.file?.type || item._mediaType
         }
 
         // Use fully-processed video (trim + overlay + voiceover) when available
@@ -501,7 +509,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         }
       } else if (isVideo && item.file) {
         try { imageBase64 = await fileToBase64(item.file) } catch { imageBase64 = null }
-        mediaType = item.file.type
+        mediaType = item.file?.type || item._mediaType
       }
 
       const post = { platform: p.key, caption, image_base64: imageBase64, media_type: mediaType, job_name: item.job_name || item.file?.name?.replace(/\.[^.]+$/, '') }
@@ -1329,12 +1337,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     if (!item.file) return { imageBase64: null, mediaType: null }
 
     const isStory = targetPlatform === 'instagram_story' || targetPlatform === 'facebook_story'
-    const isVideo = item.file.type && item.file.type.startsWith('video/')
+    const isVideo = item.file?.type || item._mediaType && item.file?.type || item._mediaType.startsWith('video/')
 
     // For videos, use ArrayBuffer approach (iOS Safari fails with readAsDataURL on large files)
     if (isVideo) {
       const imageBase64 = await fileToBase64(item.file)
-      return { imageBase64, mediaType: item.file.type }
+      return { imageBase64, mediaType: item.file?.type || item._mediaType }
     }
 
     if (!item.isImg && !item.file?.type?.startsWith('image/')) return { imageBase64: null, mediaType: null }
@@ -1359,7 +1367,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       r.onerror = reject
       r.readAsDataURL(item.file)
     })
-    return { imageBase64, mediaType: item.file.type || 'image/jpeg' }
+    return { imageBase64, mediaType: item.file?.type || item._mediaType || 'image/jpeg' }
   }
 
   const handlePost = async (target, opts = {}) => {
@@ -1509,7 +1517,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                 try {
                   const b64 = await fileToBase64(item.file)
                   const api = await import('../api')
-                  const r = await api.convertToMp4(b64, item.file.type, mp4Quality)
+                  const r = await api.convertToMp4(b64, item.file?.type || item._mediaType, mp4Quality)
                   if (r.error) throw new Error(r.error)
                   const byteChars = atob(r.mp4_base64)
                   const bytes = new Uint8Array(byteChars.length)
@@ -2230,7 +2238,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               // fetches it directly. For small files, send base64 as usual.
                               const uploadKey = item.uploadResult?.original_temp_path || null
                               const rawBase64 = uploadKey ? null : await fileToBase64(item.file)
-                              const rawType = item.file.type
+                              const rawType = item.file?.type || item._mediaType
                               const api = await import('../api')
                               // If AI per-platform overlays are active, preview the selected destination's text
                               const aiActive = aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]
