@@ -2031,7 +2031,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           )}
                         </div>
                         {storyCaptionStyle === 'overlay' && (
-                          <div className="flex flex-col items-center self-stretch py-4">
+                          <div className="flex flex-col items-center" style={{ height: 320 }}>
                             <input type="range" min="0" max="100" value={overlayYPct} onChange={e => setOverlayYPct(Number(e.target.value))} className="h-full cursor-pointer" style={{ writingMode: 'vertical-lr', direction: 'ltr', width: 14 }} />
                           </div>
                         )}
