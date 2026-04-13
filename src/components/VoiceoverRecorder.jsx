@@ -69,6 +69,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [voOrigVolume, setVoOrigVolume] = useState(() => rvs.originalVolume ?? (Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3))
   useEffect(() => { localStorage.setItem('posty_vo_mode', voMixMode) }, [voMixMode])
   useEffect(() => { localStorage.setItem('posty_vo_orig_vol', voOrigVolume) }, [voOrigVolume])
+  // When restoredVoiceover changes (draft resume), update all state from it
+  useEffect(() => {
+    if (!restoredVoiceover) return
+    const s = restoredVoiceover.settings || {}
+    if (s.ttsText) setTtsText(s.ttsText)
+    if (s.voiceId) setSelectedVoice(s.voiceId)
+    if (s.stability != null) setTtsStability(s.stability)
+    if (s.similarity != null) setTtsSimilarity(s.similarity)
+    if (s.style != null) setTtsStyle(s.style)
+    if (s.speakerBoost != null) setTtsSpeakerBoost(s.speakerBoost)
+    if (s.mode) setVoMixMode(s.mode)
+    if (s.originalVolume != null) setVoOrigVolume(s.originalVolume)
+    if (restoredVoiceover.audioBlob) {
+      setAudioBlob(restoredVoiceover.audioBlob)
+      setAudioUrl(restoredVoiceover.audioUrl || URL.createObjectURL(restoredVoiceover.audioBlob))
+      setAudioIsRestored(true)
+    }
+  }, [restoredVoiceover])
+
   // Stash on items so ResultCard can read during preview/post
   useEffect(() => {
     for (const vf of videoFiles) {
