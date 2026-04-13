@@ -316,7 +316,7 @@ export default function App() {
     for (let i = 0; i < fileList.length; i++) {
       const f = fileList[i]
       if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) continue
-      if (files.find(x => x.file.name === f.name && x.file.size === f.size)) continue
+      if (files.find(x => x.file?.name === f.name && x.file?.size === f.size)) continue
       const id = Math.random().toString(36).slice(2)
       newFiles.push({
         file: f, id, parsed: parse(f.name.replace(/\.[^.]+$/, '')),
