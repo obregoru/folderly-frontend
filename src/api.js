@@ -249,6 +249,7 @@ export const previewStory = async (caption, imageBase64, mediaType, captionStyle
     caption,
     image_base64: imageBase64,
     upload_key: fontOpts?.uploadKey || null,
+    job_id: fontOpts?.jobId || null,
     media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct,
     font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline,
     font_outline_width: fontOpts?.fontOutlineWidth, line_height: fontOpts?.lineHeight, letter_spacing: fontOpts?.letterSpacing,
@@ -316,9 +317,9 @@ export const getVoices = () =>
 
 // Merge 2+ trimmed video clips into a single MP4 with optional transitions
 // clips: [{ video_base64, trim_start, trim_end }], transition: string, transition_duration: number
-export const mergeVideos = async (clips, transition = 'none', transitionDuration = 1) => {
-  // Step 1: POST clips → server merges and saves to /tmp, returns merge_id
-  const resp = await fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration }) })
+export const mergeVideos = async (clips, transition = 'none', transitionDuration = 1, jobId = null) => {
+  // Step 1: POST clips → server merges and saves to /tmp + Supabase (if job_id), returns merge_id
+  const resp = await fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration, job_id: jobId }) })
   if (!resp.ok) {
     let msg = 'Merge failed'
     try {

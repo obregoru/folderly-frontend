@@ -97,7 +97,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged }) {
       }
       setProgress(`Merging ${clips.length} clips on server...`)
       // mergeVideos now returns a blob URL directly (binary response, not JSON)
-      const url = await api.mergeVideos(clips, transition, transDuration)
+      const url = await api.mergeVideos(clips, transition, transDuration, jobId)
 
       // Read blob for save button
       const resp = await fetch(url)

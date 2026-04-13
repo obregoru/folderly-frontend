@@ -2330,6 +2330,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                 storyCaptionStyle, overlayYPct,
                                 {
                                   uploadKey,
+                                  jobId: sessionStorage.getItem('posty_active_job') || null,
                                   fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
                                   trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
                                   openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
@@ -2479,6 +2480,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             storyCaptionStyle, overlayYPct,
                             {
                               uploadKey: postUploadKey,
+                              jobId: sessionStorage.getItem('posty_active_job') || null,
                               fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
                               trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
                               openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
