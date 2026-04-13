@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { allTags } from '../lib/parse'
+
+// Safe wrapper — URL.createObjectURL crashes if given a non-Blob value.
+// Restored files have item.file = null, and various code paths can produce
+// null/undefined blobs. This helper returns null instead of crashing.
+function safeObjectURL(blobOrFile) {
+  if (!blobOrFile || !(blobOrFile instanceof Blob || blobOrFile instanceof File)) return null
+  try { return URL.createObjectURL(blobOrFile) } catch { return null }
+}
 import { CROP_RATIOS, smartCrop, applyWatermark } from '../lib/crop'
 import { getWeekStart, slotToDate, getAvailableSlots, formatWeekRange } from '../lib/weekSlots'
 import CropStrip from './CropStrip'
@@ -111,7 +119,7 @@ async function saveVideo(sourceBlobOrUrl, filename, onAfter) {
       }
     }
     // Desktop fallback: classic <a download>
-    const url = URL.createObjectURL(blob)
+    const url = safeObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = filename
@@ -153,14 +161,14 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
 
   // Thumbnail src — memoized to prevent re-render blob URL churn
   const [thumbSrc] = useState(() => {
-    if (item.isImg && item.file) return URL.createObjectURL(item.file)
+    if (item.isImg && item.file) return safeObjectURL(item.file)
     if (item._restored && item._uploadKey) return `${apiUrl}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`
     if (item.uploadResult?.thumbnail_path) {
       return item.uploadResult.thumbnail_path.startsWith('http') ? item.uploadResult.thumbnail_path : `/uploads/${item.uploadResult.thumbnail_path}`
     }
     return null
   })
-  const [fileSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : null)
+  const [fileSrc] = useState(() => item.file ? safeObjectURL(item.file) : null)
   const isVideo = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
   const [showPreview, setShowPreview] = useState(false)
   const [videoThumb, setVideoThumb] = useState(() => item.file?._videoThumb || null)
@@ -1092,7 +1100,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   // here — Safari refuses to honor fragments on blob: URLs, which is why
   // the scrub video was black and didn't play. Trim enforcement happens
   // via currentTime + timeupdate clamping below instead.
-  const [videoSrc] = useState(() => item.file ? URL.createObjectURL(item.file) : item.url || '')
+  const [videoSrc] = useState(() => item.file ? safeObjectURL(item.file) : item.url || '')
   const _ts = item._trimStart || 0
   const _te = item._trimEnd
 
@@ -1196,8 +1204,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   useEffect(() => {
     const check = () => {
       const blob = item._voiceoverBlob
-      if (blob && !voiceoverUrl) {
-        setVoiceoverUrl(URL.createObjectURL(blob))
+      if (blob instanceof Blob && !voiceoverUrl) {
+        setVoiceoverUrl(safeObjectURL(blob))
       } else if (!blob && voiceoverUrl) {
         URL.revokeObjectURL(voiceoverUrl)
         setVoiceoverUrl(null)
@@ -1275,10 +1283,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         }
 
         canvas.toBlob(b => {
-          if (!cancelled) setStoryPreview(URL.createObjectURL(b))
+          if (!cancelled) setStoryPreview(safeObjectURL(b))
         }, 'image/jpeg', 0.8)
       }
-      img.src = URL.createObjectURL(blob)
+      img.src = safeObjectURL(blob)
     })}).catch(() => {})
     return () => { cancelled = true }
   }, [storyEnabled, storyCaptionStyle, storyText, item, overlayYPct, storyFontSize, storyFontFamily, storyFontColor, storyFontOutline])
