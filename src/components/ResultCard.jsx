@@ -623,20 +623,6 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
     try {
       const api = await import('../api')
 
-      // If there's a video with edits (trim, overlay, voiceover) but no
-      // generated preview, warn the user. The scheduled post needs the
-      // fully-processed video to be pre-rendered.
-      const needsPreview = isVideoFile && !item._overlayPreviewUrl && (
-        (item._trimStart || 0) > 0 || item._trimEnd != null ||
-        item._voiceoverBlob ||
-        schedOverlay === 'overlay'
-      )
-      if (needsPreview) {
-        alert('Please click "Generate Preview" in one of the platform tabs first. The scheduled post needs the final video with your trim, overlays, and voiceover applied.')
-        setScheduling(false)
-        return
-      }
-
       const posts = await buildPostsPayload()
 
       if ((useSuggestedTimes || targetWeek) && settings?.posting_schedule?.schedule) {
