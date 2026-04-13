@@ -630,9 +630,9 @@ export default function App() {
           <FileGrid files={files} onRemove={removeFile} VideoTrimmer={VideoTrimmer} />
 
           {/* Merge videos — shown below trimmers when 2+ videos are uploaded */}
-          {files.filter(f => f.file?.type?.startsWith('video/')).length >= 2 && (
+          {files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/')).length >= 2 && (
             <VideoMerge
-              videoFiles={files.filter(f => f.file?.type?.startsWith('video/'))}
+              videoFiles={files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))}
               jobId={jobSync.jobId}
               onMerged={({ blob, url, base64 }) => {
                 // Store the merged video so the post flow can use it.
@@ -644,9 +644,9 @@ export default function App() {
           )}
 
           {/* Voiceover — shown when 1+ video is uploaded (or merged result exists) */}
-          {files.filter(f => f.file?.type?.startsWith('video/')).length > 0 && (
+          {files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/')).length > 0 && (
             <VoiceoverRecorder
-              videoFiles={files.filter(f => f.file?.type?.startsWith('video/'))}
+              videoFiles={files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))}
               mergedVideoBase64={window._postyMergedVideo?.base64 || null}
               settings={settings}
               onResult={({ blob, url, base64 }) => {

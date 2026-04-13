@@ -95,10 +95,17 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const monitorFileRef = useRef(null)
   useEffect(() => {
     const file = monitorItem?.file
-    if (file === monitorFileRef.current) return
+    if (file === monitorFileRef.current && monitorSrc) return
     monitorFileRef.current = file
-    if (monitorSrc) URL.revokeObjectURL(monitorSrc)
-    setMonitorSrc(file ? URL.createObjectURL(file) : null)
+    if (monitorSrc && monitorSrc.startsWith('blob:')) URL.revokeObjectURL(monitorSrc)
+    if (file instanceof Blob || file instanceof File) {
+      setMonitorSrc(URL.createObjectURL(file))
+    } else if (monitorItem?._uploadKey && monitorItem?._tenantSlug) {
+      // Restored file — stream from server
+      setMonitorSrc(`${import.meta.env.VITE_API_URL || ''}/api/t/${monitorItem._tenantSlug}/upload/serve?key=${encodeURIComponent(monitorItem._uploadKey)}`)
+    } else {
+      setMonitorSrc(null)
+    }
     setMonitorDuration(0)
     // Clear stale voiceover when the source video changes
     if (audioUrl) {

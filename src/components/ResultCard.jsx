@@ -1100,7 +1100,14 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   // here — Safari refuses to honor fragments on blob: URLs, which is why
   // the scrub video was black and didn't play. Trim enforcement happens
   // via currentTime + timeupdate clamping below instead.
-  const [videoSrc] = useState(() => item.file ? safeObjectURL(item.file) : item.url || '')
+  const [videoSrc] = useState(() => {
+    if (item.file) return safeObjectURL(item.file) || ''
+    // Restored file — stream from server
+    if (item._uploadKey && item._tenantSlug) {
+      return `${apiUrl}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
+    }
+    return item.url || ''
+  })
   const _ts = item._trimStart || 0
   const _te = item._trimEnd
 
