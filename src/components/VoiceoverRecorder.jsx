@@ -27,11 +27,15 @@ const fileToBase64 = blobToBase64
  * (from uploads or the merged result) and clicks "Apply" to mix the
  * voiceover onto the video server-side.
  */
-export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange, jobId }) {
+export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange, jobId, restoredVoiceover }) {
+  // restoredVoiceover = { settings: {...}, audioBlob, audioUrl } from job restore
+  const rv = restoredVoiceover || {}
+  const rvs = rv.settings || {}
+
   // --- Recording state ---
   const [recording, setRecording] = useState(false)
-  const [audioUrl, setAudioUrl] = useState(null)
-  const [audioBlob, setAudioBlob] = useState(null)
+  const [audioUrl, setAudioUrl] = useState(rv.audioUrl || null)
+  const [audioBlob, setAudioBlob] = useState(rv.audioBlob || null)
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
   // Video monitor — plays muted during recording so you can narrate to picture
@@ -42,24 +46,27 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [monitorDuration, setMonitorDuration] = useState(0)
 
   // --- TTS state ---
-  const [ttsText, setTtsText] = useState('')
+  const [ttsText, setTtsText] = useState(rvs.ttsText || '')
   const [ttsLoading, setTtsLoading] = useState(false)
   const [voices, setVoices] = useState([])
-  const [selectedVoice, setSelectedVoice] = useState(() => localStorage.getItem('posty_tts_voice') || settings?.elevenlabs_voice_id || '')
+  const [selectedVoice, setSelectedVoice] = useState(() => rvs.voiceId || localStorage.getItem('posty_tts_voice') || settings?.elevenlabs_voice_id || '')
   const [voicesLoaded, setVoicesLoaded] = useState(false)
-  // ElevenLabs voice settings — persisted to localStorage
-  const [ttsStability, setTtsStability] = useState(() => Number(localStorage.getItem('posty_tts_stability')) || 0.5)
-  const [ttsSimilarity, setTtsSimilarity] = useState(() => Number(localStorage.getItem('posty_tts_similarity')) || 0.75)
-  const [ttsStyle, setTtsStyle] = useState(() => Number(localStorage.getItem('posty_tts_style')) || 0)
-  const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(() => localStorage.getItem('posty_tts_boost') !== 'false')
+  // ElevenLabs voice settings — restored from job first, then localStorage
+  const [ttsStability, setTtsStability] = useState(() => rvs.stability ?? Number(localStorage.getItem('posty_tts_stability')) || 0.5)
+  const [ttsSimilarity, setTtsSimilarity] = useState(() => rvs.similarity ?? Number(localStorage.getItem('posty_tts_similarity')) || 0.75)
+  const [ttsStyle, setTtsStyle] = useState(() => rvs.style ?? Number(localStorage.getItem('posty_tts_style')) || 0)
+  const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(() => rvs.speakerBoost ?? (localStorage.getItem('posty_tts_boost') !== 'false'))
   useEffect(() => { localStorage.setItem('posty_tts_stability', ttsStability) }, [ttsStability])
   useEffect(() => { localStorage.setItem('posty_tts_similarity', ttsSimilarity) }, [ttsSimilarity])
   useEffect(() => { localStorage.setItem('posty_tts_style', ttsStyle) }, [ttsStyle])
   useEffect(() => { localStorage.setItem('posty_tts_boost', ttsSpeakerBoost) }, [ttsSpeakerBoost])
 
-  // Audio mix mode — persisted to localStorage + stashed on items
-  const [voMixMode, setVoMixMode] = useState(() => localStorage.getItem('posty_vo_mode') || 'mix')
-  const [voOrigVolume, setVoOrigVolume] = useState(() => Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3)
+  // Track whether audio was restored (not newly generated) for dimming Generate button
+  const [audioIsRestored, setAudioIsRestored] = useState(!!rv.audioBlob)
+
+  // Audio mix mode — restored from job first, then localStorage
+  const [voMixMode, setVoMixMode] = useState(() => rvs.mode || localStorage.getItem('posty_vo_mode') || 'mix')
+  const [voOrigVolume, setVoOrigVolume] = useState(() => rvs.originalVolume ?? Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3)
   useEffect(() => { localStorage.setItem('posty_vo_mode', voMixMode) }, [voMixMode])
   useEffect(() => { localStorage.setItem('posty_vo_orig_vol', voOrigVolume) }, [voOrigVolume])
   // Stash on items so ResultCard can read during preview/post
@@ -85,6 +92,13 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       })
     }
   }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost])
+
+  // Clear "restored" flag when TTS settings change so Generate button un-dims
+  const ttsSettingsKeyRef = useRef(`${rvs.ttsText}|${rvs.voiceId}|${rvs.stability}|${rvs.similarity}|${rvs.style}|${rvs.speakerBoost}`)
+  useEffect(() => {
+    const current = `${ttsText}|${selectedVoice}|${ttsStability}|${ttsSimilarity}|${ttsStyle}|${ttsSpeakerBoost}`
+    if (current !== ttsSettingsKeyRef.current) setAudioIsRestored(false)
+  }, [ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost])
 
   // Save voiceover audio blob to job storage (Supabase)
   const persistAudio = async (blob) => {
@@ -522,10 +536,10 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           />
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={generateTTS}
+              onClick={() => { setAudioIsRestored(false); generateTTS() }}
               disabled={ttsLoading || !ttsText.trim()}
-              className="text-[10px] py-1 px-2.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-            >{ttsLoading ? 'Generating...' : 'Generate voice'}</button>
+              className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${audioIsRestored && audioBlob ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+            >{ttsLoading ? 'Generating...' : audioIsRestored && audioBlob ? 'Voice loaded ✓' : 'Generate voice'}</button>
             {ttsText.trim() && (
               <span className="text-[9px] text-muted">~{ttsText.trim().length} characters</span>
             )}

@@ -35,9 +35,9 @@ export default function VideoMerge({ videoFiles, jobId, onMerged }) {
   const [transDuration, setTransDuration] = useState(1)
   const [merging, setMerging] = useState(false)
   const [progress, setProgress] = useState('')
-  const [mergedUrl, setMergedUrl] = useState(null)
+  const [mergedUrl, setMergedUrl] = useState(() => window._postyMergedVideo?.url || null)
   const [error, setError] = useState(null)
-  const mergedBlobRef = useRef(null)
+  const mergedBlobRef = useRef(window._postyMergedVideo?.blob || null)
 
   // Keep order in sync if files change — also clear stale merge result
   const fileIds = videoFiles.map(f => f.id).join(',')

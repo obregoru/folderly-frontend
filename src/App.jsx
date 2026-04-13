@@ -40,6 +40,7 @@ export default function App() {
   const [settings, setSettings] = useState({})
   const [files, setFiles] = useState([])
   const [folderCtx, setFolderCtx] = useState(null)
+  const [restoredVoiceover, setRestoredVoiceover] = useState(null)
   const [hashtagSets, setHashtagSets] = useState([])
   const [selectedHashtagSetId, setSelectedHashtagSetId] = useState(null)
   const [autoHashtagSetId, setAutoHashtagSetId] = useState(null) // tracks auto-selection
@@ -371,9 +372,11 @@ export default function App() {
     jobSync.newJob()
     uploadingRef.current.clear()
     setFolderCtx(null)
+    setRestoredVoiceover(null)
     sessionStorage.removeItem('posty_hint')
     window._postyMergedVideo = null
     window._postyVoiceoverVideo = null
+    window._postyVoiceoverAudio = null
   }
 
   const getTones = () => {
@@ -647,11 +650,19 @@ export default function App() {
             activeJobId={jobSync.jobId}
             uploadsInProgress={uploadsInProgress}
             onResume={async (id) => {
+              setRestoredVoiceover(null)
               const job = await jobSync.loadJob(id)
               if (job) {
-                // Restore overlay settings, voiceover settings, etc. from the job
-                // These will be picked up by the components when they render
                 if (job.hint_text) setUserHint(job.hint_text)
+                // Restore voiceover state for VoiceoverRecorder
+                const voAudio = window._postyVoiceoverAudio
+                if (job.voiceover_settings || voAudio) {
+                  setRestoredVoiceover({
+                    settings: job.voiceover_settings || {},
+                    audioBlob: voAudio?.blob || null,
+                    audioUrl: voAudio?.url || null,
+                  })
+                }
               }
             }}
             onNew={() => { if (confirm('Start a new job? Current work is auto-saved.')) clearAll() }}
@@ -697,6 +708,7 @@ export default function App() {
               mergedVideoBase64={window._postyMergedVideo?.base64 || null}
               settings={settings}
               jobId={jobSync.jobId}
+              restoredVoiceover={restoredVoiceover}
               onResult={({ blob, url, base64 }) => {
                 window._postyVoiceoverVideo = { blob, url, base64 }
               }}
