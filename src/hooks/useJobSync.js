@@ -112,8 +112,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
   // Save captions for a file
   const saveFileCaptions = useCallback(async (file) => {
     const id = jobIdRef.current
-    const dbFileId = fileIdMapRef.current[file.id]
-    if (!id || !dbFileId) return
+    if (!id) return
+    let dbFileId = fileIdMapRef.current[file.id]
+    // If we don't have a DB file ID yet, create the file record first
+    if (!dbFileId) {
+      try {
+        const result = await api.addJobFile(id, {
+          filename: file.file?.name || file._filename || 'file',
+          media_type: file.file?.type || file._mediaType || 'video/mp4',
+          upload_key: file.uploadResult?.original_temp_path || null,
+          file_order: 0,
+        })
+        if (result.id) { dbFileId = result.id; fileIdMapRef.current[file.id] = dbFileId }
+      } catch { return }
+    }
+    if (!dbFileId) return
     try {
       await api.updateJobFile(id, dbFileId, {
         captions: file.captions || {},
@@ -162,13 +175,20 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
         const restoredFiles = job.files.map((f, i) => {
           const fileId = Math.random().toString(36).slice(2)
           fileIdMapRef.current[fileId] = f.id
+          // Check if captions were actually saved (not just empty default {})
+          const caps = f.captions && typeof f.captions === 'object' ? f.captions : null
+          const hasCaps = caps && Object.keys(caps).some(k => {
+            if (k === 'job_name') return false // job_name alone doesn't count
+            const v = caps[k]
+            return v && (typeof v === 'string' ? v.trim() : true)
+          })
           return {
             id: fileId,
-            file: null, // File object can't be restored
+            file: null,
             isImg: f.media_type?.startsWith('image/'),
             parsed: { occasions: [], products: [], moments: [] },
-            status: f.captions && Object.keys(f.captions).length > 0 ? 'done' : null,
-            captions: f.captions || null,
+            status: hasCaps ? 'done' : null,
+            captions: hasCaps ? caps : null,
             job_name: f.captions?.job_name || job.job_name,
             uploadResult: { original_temp_path: f.upload_key },
             _trimStart: f.trim_start || 0,
