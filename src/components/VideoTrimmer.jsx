@@ -10,7 +10,9 @@ import { useState, useEffect, useRef } from 'react'
  */
 export default function VideoTrimmer({ item }) {
   const file = item.file
-  const [src] = useState(() => URL.createObjectURL(file))
+  const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
+  // Skip rendering if no file (restored jobs have file=null)
+  if (!src) return null
   const [videoDuration, setVideoDuration] = useState(0)
   const [trimStart, setTrimStart] = useState(() => item._trimStart ?? 0)
   const [trimEnd, setTrimEnd] = useState(() => item._trimEnd ?? null)

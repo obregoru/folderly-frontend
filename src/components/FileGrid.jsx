@@ -4,7 +4,7 @@ function MediaLightbox({ item, onClose }) {
   const file = item.file
   const isImg = item.isImg
   const videoRef = useRef(null)
-  const [src] = useState(() => URL.createObjectURL(file))
+  const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
 
   // Read the current trim bounds from the item. We read at mount AND on
   // every render so the user can re-trim while the lightbox is open and
@@ -84,7 +84,7 @@ function VideoThumb({ file, onClick, className }) {
   const videoRef = useRef(null)
   const [poster, setPoster] = useState(null)
   const [aspect, setAspect] = useState(null)
-  const [src] = useState(() => URL.createObjectURL(file))
+  const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
 
   useEffect(() => {
     const v = videoRef.current
@@ -178,7 +178,7 @@ function VideoThumb({ file, onClick, className }) {
 }
 
 function ImageThumb({ file, onClick }) {
-  const [src] = useState(() => URL.createObjectURL(file))
+  const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
   const [aspect, setAspect] = useState(() => file._imgAspect || null)
   // Stash the detected aspect back on the file so downstream consumers
   // (and re-renders) can reuse it without re-decoding the image.
