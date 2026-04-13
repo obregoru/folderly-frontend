@@ -18,6 +18,8 @@ import ScheduledPosts from './components/ScheduledPosts'
 // import Calendar from './components/Calendar'
 import ScheduleModal from './components/ScheduleModal'
 import HistoryModal from './components/HistoryModal'
+import JobList from './components/JobList'
+import useJobSync from './hooks/useJobSync'
 import RefineModal from './components/RefineModal'
 import AdminPanel from './components/AdminPanel'
 import WeekPlanner from './components/WeekPlanner'
@@ -61,6 +63,31 @@ export default function App() {
 
   const tenantSlug = api.tenantSlug()
   const apiUrl = `${import.meta.env.VITE_API_URL || ''}/api/t/${tenantSlug}`
+
+  // Job persistence — auto-saves session state to database
+  const jobSync = useJobSync({ files, setFiles, userHint, setUserHint, settings })
+
+  // Warn before closing if there's active work
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (files.length > 0 || userHint) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [files.length, userHint])
+
+  // Save trim changes to job when they happen
+  useEffect(() => {
+    const onTrimChange = (e) => {
+      const item = files.find(f => f.id === e.detail?.itemId)
+      if (item) jobSync.saveFileTrim(item)
+    }
+    window.addEventListener('posty-trim-change', onTrimChange)
+    return () => window.removeEventListener('posty-trim-change', onTrimChange)
+  }, [files, jobSync.saveFileTrim])
 
   // Check if already logged in
   useEffect(() => {
@@ -301,9 +328,8 @@ export default function App() {
   const removeFile = id => setFiles(prev => prev.filter(f => f.id !== id))
 
   const clearAll = () => {
-    setFiles([])
+    jobSync.newJob()
     setFolderCtx(null)
-    setUserHint('')
     sessionStorage.removeItem('posty_hint')
     window._postyMergedVideo = null
     window._postyVoiceoverVideo = null
@@ -341,6 +367,8 @@ export default function App() {
       videoThumb
     )
     item.uploadResult = uploadResult
+    // Auto-save file to job
+    jobSync.saveFileToJob(item)
     if (uploadResult.previously_used) {
       item.previouslyUsed = true
       item.previousCaptions = uploadResult.previous_captions
@@ -390,6 +418,9 @@ export default function App() {
       // Update UI immediately as each batch arrives
       setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'done', captions: { ...f.captions, ...partialCaps }, job_name: partialCaps.job_name || f.job_name, uploadResult: item.uploadResult, previouslyUsed: item.previouslyUsed, previousCaptions: item.previousCaptions } : f))
     })
+    // Auto-save captions to job
+    item.captions = allCaps
+    jobSync.saveFileCaptions(item)
     return allCaps
   }
 
@@ -552,6 +583,21 @@ export default function App() {
 
           <WeekPlanner settings={settings} targetWeek={targetWeek} onWeekSelect={setTargetWeek} />
 
+          <JobList
+            jobs={jobSync.jobList}
+            activeJobId={jobSync.jobId}
+            onResume={async (id) => {
+              const job = await jobSync.loadJob(id)
+              if (job) {
+                // Restore overlay settings, voiceover settings, etc. from the job
+                // These will be picked up by the components when they render
+                if (job.hint_text) setUserHint(job.hint_text)
+              }
+            }}
+            onNew={() => { if (confirm('Start a new job? Current work is auto-saved.')) clearAll() }}
+            onArchive={(id) => { if (confirm('Archive this draft?')) jobSync.archiveJob(id) }}
+          />
+
           <Dropzone onFiles={addFiles} />
 
           {folderCtx && (
@@ -671,7 +717,11 @@ export default function App() {
           {/* Results */}
           {files.some(f => f.status) && (
             <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-              <div className="font-serif text-[17px]">Generated content</div>
+              <div className="font-serif text-[17px] flex items-center gap-2">
+                Generated content
+                {jobSync.savingJob && <span className="text-[9px] text-muted animate-pulse">Saving...</span>}
+                {jobSync.jobId && !jobSync.savingJob && <span className="text-[9px] text-[#2D9A5E]">Auto-saved</span>}
+              </div>
               <div className="flex gap-1 flex-wrap">
                 <button onClick={() => { if (confirm('Start a new session? This will clear all uploads, captions, trims, voiceovers, and overlays.')) clearAll() }} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-[#c0392b] text-[#c0392b] rounded-sm bg-white cursor-pointer font-sans hover:bg-[#fdeaea]">New</button>
                 {hasCaptions && <button onClick={regenAll} className="text-[10px] md:text-[11px] py-1 px-2 md:px-3 border border-border rounded-sm bg-white cursor-pointer font-sans">Regen all</button>}
