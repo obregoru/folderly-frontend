@@ -169,6 +169,46 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     debouncedSaveJob({ voiceover_settings: voiceoverSettings })
   }, [debouncedSaveJob])
 
+  // Flush all pending saves immediately — called by explicit Save button
+  const saveAll = useCallback(async () => {
+    const id = await ensureJob()
+    if (!id) return
+    try {
+      setSavingJob(true)
+      // Save hint
+      if (typeof window !== 'undefined') {
+        const hint = document.getElementById('posty-hint')?.value
+        if (hint) await api.updateJob(id, { hint_text: hint })
+      }
+      // Save captions for the primary file
+      const primaryFile = files.find(f => f.captions)
+      if (primaryFile) {
+        const dbFileId = fileIdMapRef.current[primaryFile.id]
+        if (dbFileId) {
+          await api.updateJobFile(id, dbFileId, {
+            captions: primaryFile.captions || {},
+            upload_key: primaryFile.uploadResult?.original_temp_path || null,
+          })
+        }
+        if (primaryFile.job_name || primaryFile.captions?.job_name) {
+          await api.updateJob(id, { job_name: primaryFile.job_name || primaryFile.captions?.job_name })
+        }
+      }
+      // Flush any pending debounced save (overlay/voiceover settings)
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      // Refresh job list
+      const jobs = await api.listJobs()
+      if (Array.isArray(jobs)) setJobList(jobs)
+    } catch (e) {
+      console.error('[useJobSync] saveAll failed:', e.message)
+    } finally {
+      setSavingJob(false)
+    }
+  }, [ensureJob, files])
+
   // Load a job by ID and reconstruct state
   const loadJob = useCallback(async (id) => {
     setLoadingJob(true)
@@ -324,6 +364,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     savingJob,
     ensureJob,
     saveJob,
+    saveAll,
     saveFileToJob,
     saveFileTrim,
     saveFileCaptions,

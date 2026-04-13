@@ -14,8 +14,9 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString()
 }
 
-export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, onResume, onNew, onArchive }) {
+export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, saving = false, onResume, onNew, onSave, onArchive }) {
   const [expanded, setExpanded] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
   const drafts = jobs.filter(j => j.status === 'draft' && (j.file_count > 0 || j.hint_text || j.job_name))
 
   return (
@@ -29,11 +30,18 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, onRe
           Saved drafts ({drafts.length})
           <span className="text-[9px] text-muted">{expanded ? '▲' : '▼'}</span>
         </button>
-        <button
-          onClick={onNew}
-          disabled={uploadsInProgress > 0}
-          className="text-[10px] py-1 px-2.5 border border-[#2D9A5E] text-[#2D9A5E] rounded bg-white cursor-pointer hover:bg-[#f0faf4] disabled:opacity-40 disabled:cursor-not-allowed"
-        >{uploadsInProgress > 0 ? `Saving ${uploadsInProgress} file${uploadsInProgress > 1 ? 's' : ''}...` : 'New job'}</button>
+        <div className="flex gap-1.5">
+          <button
+            onClick={async () => { if (onSave) { await onSave(); setJustSaved(true); setTimeout(() => setJustSaved(false), 2000) } }}
+            disabled={uploadsInProgress > 0 || saving}
+            className={`text-[10px] py-1 px-2.5 border rounded bg-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${justSaved ? 'border-[#2D9A5E] text-[#2D9A5E]' : 'border-[#6C5CE7] text-[#6C5CE7] hover:bg-[#f3f0ff]'}`}
+          >{saving ? 'Saving...' : justSaved ? 'Saved' : 'Save'}</button>
+          <button
+            onClick={onNew}
+            disabled={uploadsInProgress > 0}
+            className="text-[10px] py-1 px-2.5 border border-[#2D9A5E] text-[#2D9A5E] rounded bg-white cursor-pointer hover:bg-[#f0faf4] disabled:opacity-40 disabled:cursor-not-allowed"
+          >{uploadsInProgress > 0 ? `Saving ${uploadsInProgress} file${uploadsInProgress > 1 ? 's' : ''}...` : 'New job'}</button>
+        </div>
       </div>
 
       {expanded && (

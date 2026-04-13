@@ -651,6 +651,8 @@ export default function App() {
             jobs={jobSync.jobList}
             activeJobId={jobSync.jobId}
             uploadsInProgress={uploadsInProgress}
+            saving={jobSync.savingJob}
+            onSave={() => jobSync.saveAll()}
             onResume={async (id) => {
               setRestoredVoiceover(null)
               setRestoredMergeUrl(null)
