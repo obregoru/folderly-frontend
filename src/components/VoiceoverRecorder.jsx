@@ -27,7 +27,7 @@ const fileToBase64 = blobToBase64
  * (from uploads or the merged result) and clicks "Apply" to mix the
  * voiceover onto the video server-side.
  */
-export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange }) {
+export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange, jobId }) {
   // --- Recording state ---
   const [recording, setRecording] = useState(false)
   const [audioUrl, setAudioUrl] = useState(null)
@@ -85,6 +85,18 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       })
     }
   }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost])
+
+  // Save voiceover audio blob to job storage (Supabase)
+  const persistAudio = async (blob) => {
+    if (!jobId || !blob) return
+    try {
+      const b64 = await blobToBase64(blob)
+      const api = await import('../api')
+      await api.saveVoiceover(b64, jobId, blob.type || 'audio/webm')
+    } catch (e) {
+      console.warn('[voiceover] persist failed:', e.message)
+    }
+  }
 
   const hasElevenLabs = !!settings?.elevenlabs_configured
   const [tab, setTab] = useState('record') // record | tts
@@ -148,6 +160,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         // Stash on video items so CaptionEditor can include it in previews
         for (const vf of videoFiles) vf._voiceoverBlob = blob
         try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+        // Save to job storage for persistence
+        persistAudio(blob)
         // Pause the monitor
         try { monitorRef.current?.pause() } catch {}
         clearInterval(recordTimerRef.current)
@@ -238,6 +252,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       setAudioUrl(URL.createObjectURL(blob))
       // Stash on video items so CaptionEditor can include it in previews
       for (const vf of videoFiles) vf._voiceoverBlob = blob
+      try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+      // Save to job storage for persistence
+      persistAudio(blob)
     } catch (err) {
       alert('TTS failed: ' + err.message)
     }

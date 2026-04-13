@@ -653,6 +653,7 @@ export default function App() {
               videoFiles={files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))}
               mergedVideoBase64={window._postyMergedVideo?.base64 || null}
               settings={settings}
+              jobId={jobSync.jobId}
               onResult={({ blob, url, base64 }) => {
                 window._postyVoiceoverVideo = { blob, url, base64 }
               }}

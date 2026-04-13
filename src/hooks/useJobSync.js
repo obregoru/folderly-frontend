@@ -171,8 +171,9 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
       // Restore files — we can't restore File objects, but we can restore
       // metadata, captions, trim, and upload keys. The UI will show
       // thumbnails via the /upload/thumbnail endpoint.
+      let restoredFiles = []
       if (job.files && job.files.length > 0) {
-        const restoredFiles = job.files.map((f, i) => {
+        restoredFiles = job.files.map((f, i) => {
           const fileId = Math.random().toString(36).slice(2)
           fileIdMapRef.current[fileId] = f.id
           // Check if captions were actually saved (not just empty default {})
@@ -201,6 +202,23 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
           }
         })
         setFiles(restoredFiles)
+      }
+
+      // Restore voiceover audio if saved
+      if (job.voiceover_audio_key) {
+        try {
+          const tenantSlug = api.tenantSlug()
+          const serveUrl = `${import.meta.env.VITE_API_URL || ''}/api/t/${tenantSlug}/upload/serve?key=${encodeURIComponent(job.voiceover_audio_key)}`
+          const resp = await fetch(serveUrl, { credentials: 'include' })
+          if (resp.ok) {
+            const blob = await resp.blob()
+            // Stash on all restored files
+            for (const f of restoredFiles || []) f._voiceoverBlob = blob
+            console.log('[useJobSync] voiceover audio restored from', job.voiceover_audio_key)
+          }
+        } catch (e) {
+          console.warn('[useJobSync] voiceover restore failed:', e.message)
+        }
       }
 
       // Return the full job so the caller can restore overlay/voiceover settings
