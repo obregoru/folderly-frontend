@@ -156,8 +156,9 @@ function TenantsPanel({ tenants, isSuperAdmin, currentUser, onRefresh, error, se
               {editData.notify_enabled && (
                 <>
                   <div className="mb-3">
-                    <label className="block text-xs font-medium text-muted mb-1">Notification email (or carrier SMS gateway)</label>
-                    <input className={inp} value={editData.notify_email} onChange={e => setEditData(d => ({ ...d, notify_email: e.target.value }))} placeholder="you@example.com or 5551234567@vtext.com" />
+                    <label className="block text-xs font-medium text-muted mb-1">Notification email(s)</label>
+                    <input className={inp} value={editData.notify_email} onChange={e => setEditData(d => ({ ...d, notify_email: e.target.value }))} placeholder="you@example.com, 5551234567@vtext.com" />
+                    <p className="text-[10px] text-muted mt-1">Comma-separated for multiple recipients. Use phone#@vtext.com (Verizon), @tmomail.net (T-Mobile), or @txt.att.net (AT&T) for SMS.</p>
                   </div>
                   <div className="mb-3">
                     <label className="block text-xs font-medium text-muted mb-1">Remind before</label>
