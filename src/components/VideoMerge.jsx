@@ -174,7 +174,18 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
   }
 
   const handleSave = async () => {
-    const blob = mergedBlobRef.current
+    // If we have no blob ref (e.g. resumed draft), fetch it from the URL
+    let blob = mergedBlobRef.current
+    if (!blob && mergedUrl) {
+      try {
+        const resp = await fetch(mergedUrl)
+        blob = await resp.blob()
+        mergedBlobRef.current = blob
+      } catch (e) {
+        alert('Failed to load merged video: ' + e.message)
+        return
+      }
+    }
     if (!blob) return
     const filename = 'merged-video.mp4'
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '')
