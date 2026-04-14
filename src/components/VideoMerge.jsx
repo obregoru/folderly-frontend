@@ -44,14 +44,18 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
     if (restoredMergeUrl && !mergedUrl) setMergedUrl(restoredMergeUrl)
   }, [restoredMergeUrl])
 
-  // Re-render when any item's duration becomes known (from VideoTrimmer).
-  // Durations are written as mutations onto item._videoDuration which React
-  // can't observe directly, so we bump a counter to trigger re-render.
+  // Re-render when any item's duration becomes known (from VideoTrimmer) OR
+  // when the user commits a new trim range. Both are mutations React can't
+  // observe, so we bump a counter to force re-render.
   const [, setDurTick] = useState(0)
   useEffect(() => {
-    const onDur = () => setDurTick(t => t + 1)
-    window.addEventListener('posty-video-duration', onDur)
-    return () => window.removeEventListener('posty-video-duration', onDur)
+    const bump = () => setDurTick(t => t + 1)
+    window.addEventListener('posty-video-duration', bump)
+    window.addEventListener('posty-trim-change', bump)
+    return () => {
+      window.removeEventListener('posty-video-duration', bump)
+      window.removeEventListener('posty-trim-change', bump)
+    }
   }, [])
 
   // Probe duration directly for any clip that doesn't yet have one.
