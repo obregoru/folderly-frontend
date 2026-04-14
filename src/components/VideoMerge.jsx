@@ -177,15 +177,19 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
     const blob = mergedBlobRef.current
     if (!blob) return
     const filename = 'merged-video.mp4'
-    try {
-      const file = new File([blob], filename, { type: 'video/mp4' })
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: filename })
-        return
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '')
+    if (isMobile) {
+      try {
+        const file = new File([blob], filename, { type: 'video/mp4' })
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: filename })
+          return
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') return
       }
-    } catch (e) {
-      if (e.name === 'AbortError') return
     }
+    // Desktop: classic save-as dialog
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url; a.download = filename
