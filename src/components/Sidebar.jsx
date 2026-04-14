@@ -322,6 +322,9 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       {/* Notifications */}
       <NotificationSettings settings={s} />
 
+      {/* Upload concurrency (advanced / experimental) */}
+      <UploadConcurrencySetting />
+
       {/* Default hashtags per platform */}
       <div>
         <div className="s-head">Default hashtags <HelpTip text="Hashtags automatically added to every post on each platform. Set per-platform or use 'All platforms' for shared ones. Limits: TikTok 5, Instagram 30, X/Twitter 3-5. Google doesn't use hashtags." /></div>
@@ -558,6 +561,28 @@ function AudienceTargeting({ settings, save }) {
           />
         </div>
       ))}
+    </div>
+  )
+}
+
+function UploadConcurrencySetting() {
+  const [val, setVal] = useState(() => Number(localStorage.getItem('posty_upload_concurrency')) || 1)
+  useEffect(() => { localStorage.setItem('posty_upload_concurrency', String(val)) }, [val])
+  return (
+    <div>
+      <div className="s-head">Upload concurrency <HelpTip text="Experimental. 1 = safe (one file at a time). 2-3 = faster for multi-file uploads but may cause issues. If problems occur, set back to 1." /></div>
+      <select
+        className="field-input text-[11px]"
+        value={val}
+        onChange={e => setVal(Number(e.target.value))}
+      >
+        <option value={1}>1 — Serial (safe, default)</option>
+        <option value={2}>2 — Parallel (experimental)</option>
+        <option value={3}>3 — Parallel (aggressive)</option>
+      </select>
+      {val > 1 && (
+        <p className="text-[9px] text-[#d97706] mt-1">⚠ Experimental. Change back to 1 if uploads misbehave.</p>
+      )}
     </div>
   )
 }

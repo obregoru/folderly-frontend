@@ -347,38 +347,64 @@ export default function App() {
   }
 
   // Eagerly upload new files and save to job so drafts persist even before Generate.
-  // Serialized to avoid race conditions and server overload with large videos.
+  // Concurrency controlled by localStorage 'posty_upload_concurrency' (default 1 = serial).
+  // Set to 2 or 3 to parallelize. Falls back to serial if the toggle isn't set.
   const uploadingRef = useRef(new Set())
   const uploadQueueRef = useRef(Promise.resolve())
+  const activeUploadsRef = useRef(0)
+  const pendingUploadsRef = useRef([])
   const [uploadsInProgress, setUploadsInProgress] = useState(0)
+
   useEffect(() => {
+    const getConcurrency = () => {
+      const n = Number(localStorage.getItem('posty_upload_concurrency')) || 1
+      return Math.max(1, Math.min(4, n))
+    }
+
+    const runOne = async (item) => {
+      try {
+        let videoThumb = null
+        if (!item.isImg) {
+          try { videoThumb = await captureVideoFrame(item.file) } catch {}
+        }
+        const activeJobId = await jobSync.ensureJob()
+        const uploadResult = await api.uploadFile(
+          item.file, folderCtx?.name, null, item.parsed, videoThumb, activeJobId
+        )
+        item.uploadResult = uploadResult
+        setFiles(prev => prev.map(f => f.id === item.id ? { ...f, uploadResult } : f))
+        await jobSync.saveFileToJob(item)
+      } catch (e) {
+        console.error('[eager upload] failed:', e.message)
+      } finally {
+        setUploadsInProgress(n => Math.max(0, n - 1))
+        activeUploadsRef.current -= 1
+        pump()
+      }
+    }
+
+    const pump = () => {
+      const limit = getConcurrency()
+      while (activeUploadsRef.current < limit && pendingUploadsRef.current.length > 0) {
+        const next = pendingUploadsRef.current.shift()
+        activeUploadsRef.current += 1
+        if (limit === 1) {
+          // Serial: chain onto shared promise (preserves exact old behavior)
+          uploadQueueRef.current = uploadQueueRef.current.then(() => runOne(next))
+        } else {
+          // Parallel: fire up to `limit` at once
+          runOne(next)
+        }
+      }
+    }
+
     for (const item of files) {
       if (!item.file || item.uploadResult || item._restored || uploadingRef.current.has(item.id)) continue
       uploadingRef.current.add(item.id)
       setUploadsInProgress(n => n + 1)
-      // Chain onto queue so uploads run one at a time
-      uploadQueueRef.current = uploadQueueRef.current.then(async () => {
-        try {
-          let videoThumb = null
-          if (!item.isImg) {
-            try { videoThumb = await captureVideoFrame(item.file) } catch {}
-          }
-          const activeJobId = await jobSync.ensureJob()
-          const uploadResult = await api.uploadFile(
-            item.file, folderCtx?.name, null, item.parsed, videoThumb, activeJobId
-          )
-          item.uploadResult = uploadResult
-          setFiles(prev => prev.map(f => f.id === item.id ? { ...f, uploadResult } : f))
-          await jobSync.saveFileToJob(item)
-        } catch (e) {
-          console.error('[eager upload] failed:', e.message)
-        } finally {
-          // Don't delete from uploadingRef — keep the guard permanent so
-          // re-renders of the effect never re-process the same file
-          setUploadsInProgress(n => Math.max(0, n - 1))
-        }
-      })
+      pendingUploadsRef.current.push(item)
     }
+    pump()
   }, [files, folderCtx, jobSync])
 
   const clearAll = () => {
