@@ -564,21 +564,6 @@ function AudienceTargeting({ settings, save }) {
 
 function NotificationSettings({ settings }) {
   const s = settings
-  const [testStatus, setTestStatus] = useState('')
-  const [testing, setTesting] = useState(false)
-
-  const sendTest = async () => {
-    setTesting(true)
-    setTestStatus('')
-    try {
-      await api.testNotificationEmail()
-      setTestStatus(`✓ Sent to ${s.notify_email}`)
-    } catch (err) {
-      setTestStatus(`✗ ${err.message}`)
-    }
-    setTesting(false)
-    setTimeout(() => setTestStatus(''), 6000)
-  }
 
   return (
     <div>
@@ -588,16 +573,6 @@ function NotificationSettings({ settings }) {
           Reminders → <strong>{s.notify_email || 'not set'}</strong>
           <br />{s.notify_minutes_before || 15} min before scheduled posts
           {!s.email_configured && <p className="text-[#c0392b] mt-1">Email provider not configured. Set up in Admin → Edit Tenant.</p>}
-          {s.notify_email && s.email_configured && (
-            <div className="mt-1.5 flex items-center gap-2">
-              <button
-                onClick={sendTest}
-                disabled={testing}
-                className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded bg-white cursor-pointer hover:bg-[#f3f0ff] disabled:opacity-50"
-              >{testing ? 'Sending...' : 'Send test email'}</button>
-              {testStatus && <span className={`text-[10px] ${testStatus.startsWith('✓') ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}`}>{testStatus}</span>}
-            </div>
-          )}
         </div>
       ) : (
         <p className="text-[11px] text-muted">Disabled. Enable in Admin → Edit Tenant.</p>

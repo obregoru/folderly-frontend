@@ -230,6 +230,9 @@ function TenantsPanel({ tenants, isSuperAdmin, currentUser, onRefresh, error, se
                       </div>
                     </>
                   )}
+                  {editData.notify_email && (
+                    <NotificationTestButton notifyEmail={editData.notify_email} />
+                  )}
                 </>
               )}
 
@@ -575,5 +578,38 @@ function BlocklistPanel({ items, onRefresh, error, setError }) {
         </table>
       </div>
     </>
+  )
+}
+
+function NotificationTestButton({ notifyEmail }) {
+  const [testing, setTesting] = useState(false)
+  const [status, setStatus] = useState('')
+
+  const sendTest = async () => {
+    setTesting(true)
+    setStatus('')
+    try {
+      await api.testNotificationEmail()
+      setStatus(`✓ Sent to ${notifyEmail}`)
+    } catch (err) {
+      setStatus(`✗ ${err.message}`)
+    }
+    setTesting(false)
+    setTimeout(() => setStatus(''), 8000)
+  }
+
+  return (
+    <div className="mb-3 flex items-center gap-2 flex-wrap">
+      <button
+        type="button"
+        onClick={sendTest}
+        disabled={testing}
+        className="text-xs py-1.5 px-3 border border-[#6C5CE7] text-[#6C5CE7] rounded bg-white cursor-pointer hover:bg-[#f3f0ff] disabled:opacity-50"
+      >{testing ? 'Sending...' : 'Send test email'}</button>
+      {status && (
+        <span className={`text-xs ${status.startsWith('✓') ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}`}>{status}</span>
+      )}
+      <span className="text-[10px] text-muted">Save settings first if you changed them</span>
+    </div>
   )
 }
