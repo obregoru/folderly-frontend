@@ -202,13 +202,13 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
             <>
               {post.title && <div className="text-[10px] md:text-sm font-medium text-ink mb-0.5">{post.title}</div>}
               <div
-                className={`text-[10px] md:text-sm text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 md:p-3 mb-1.5 max-h-[150px] md:max-h-[250px] overflow-y-auto ${post.status === 'pending' ? 'cursor-text hover:border-[#6C5CE7]' : ''}`}
-                onClick={e => { e.stopPropagation(); if (post.status === 'pending') setEditing(true) }}
-                title={post.status === 'pending' ? 'Click to edit' : undefined}
+                className={`text-[10px] md:text-sm text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 md:p-3 mb-1.5 max-h-[150px] md:max-h-[250px] overflow-y-auto ${(post.status === 'pending' || post.status === 'failed') ? 'cursor-text hover:border-[#6C5CE7]' : ''}`}
+                onClick={e => { e.stopPropagation(); if (post.status === 'pending' || post.status === 'failed') setEditing(true) }}
+                title={(post.status === 'pending' || post.status === 'failed') ? 'Click to edit' : undefined}
               >
                 {post.caption}
               </div>
-              {post.status === 'pending' && (
+              {(post.status === 'pending' || post.status === 'failed') && (
                 <div className="text-[9px] text-muted mb-1.5">Click caption above to edit</div>
               )}
             </>
@@ -235,7 +235,7 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
                   onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
                   className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
                 >{mType === 'video' || mType === 'short' ? 'Play video' : 'View media'}</button>
-                {post.status === 'pending' && (
+                {(post.status === 'pending' || post.status === 'failed') && (
                   <button onClick={(e) => { e.stopPropagation(); setEditing(true) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Edit</button>
                 )}
               </>
@@ -243,7 +243,7 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
             {post.status === 'pending' && !editing && (
               <button onClick={(e) => { e.stopPropagation(); if (confirm('Remove this scheduled post?')) onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Remove</button>
             )}
-            {post.status === 'failed' && (
+            {post.status === 'failed' && !editing && (
               <>
                 <button onClick={(e) => { e.stopPropagation(); onRetry(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Retry</button>
                 <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
