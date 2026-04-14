@@ -150,6 +150,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
       <div className="space-y-1">
         {order.map((fileIdx, pos) => {
           const item = videoFiles[fileIdx]
+          if (!item) return null
           const ts = item._trimStart || 0
           const te = item._trimEnd
           return (
