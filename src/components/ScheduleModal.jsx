@@ -89,9 +89,23 @@ function MediaLightbox({ url, mediaType, onClose }) {
 }
 
 // Single post row — tap to expand and see full details
-function PostRow({ post, onCancel, onRetry, onDelete }) {
+function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
   const [expanded, setExpanded] = useState(false)
   const [showMedia, setShowMedia] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editCaption, setEditCaption] = useState(post.caption || '')
+  const [editTitle, setEditTitle] = useState(post.title || '')
+  const [saving, setSaving] = useState(false)
+  const needsTitle = post.platform === 'blog' || post.platform === 'youtube'
+  const handleSaveEdit = async () => {
+    setSaving(true)
+    try {
+      await api.updateScheduledPost(post.uuid, { caption: editCaption, title: needsTitle ? editTitle : undefined })
+      setEditing(false)
+      if (onReload) onReload()
+    } catch (err) { alert('Save failed: ' + err.message) }
+    setSaving(false)
+  }
   const st = STATUS_STYLES[post.status] || STATUS_STYLES.pending
   const time = new Date(post.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
   const fullDate = new Date(post.scheduled_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -165,12 +179,33 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
           </div>
           <div className="text-[10px] md:text-xs text-muted mb-1">{fullDate}</div>
 
-          {post.title && <div className="text-[10px] md:text-sm font-medium text-ink mb-0.5">{post.title}</div>}
-
-          {/* Full caption */}
-          <div className="text-[10px] md:text-sm text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 md:p-3 mb-1.5 max-h-[150px] md:max-h-[250px] overflow-y-auto">
-            {post.caption}
-          </div>
+          {editing ? (
+            <>
+              {needsTitle && (
+                <input
+                  className="w-full text-[11px] md:text-sm border border-border rounded py-1 md:py-1.5 px-2 mb-1 bg-white"
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  placeholder="Title"
+                  onClick={e => e.stopPropagation()}
+                />
+              )}
+              <textarea
+                rows={6}
+                className="w-full text-[11px] md:text-sm border border-border rounded py-1.5 px-2 mb-1.5 bg-white resize-y"
+                value={editCaption}
+                onChange={e => setEditCaption(e.target.value)}
+                onClick={e => e.stopPropagation()}
+              />
+            </>
+          ) : (
+            <>
+              {post.title && <div className="text-[10px] md:text-sm font-medium text-ink mb-0.5">{post.title}</div>}
+              <div className="text-[10px] md:text-sm text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 md:p-3 mb-1.5 max-h-[150px] md:max-h-[250px] overflow-y-auto">
+                {post.caption}
+              </div>
+            </>
+          )}
 
           {post.error_message && (
             <div className="text-[10px] text-[#c0392b] bg-[#fdeaea] rounded p-1.5 mb-1.5">{post.error_message}</div>
@@ -178,15 +213,27 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
 
           {/* Actions */}
           <div className="flex gap-2 items-center flex-wrap">
-            <button
-              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(post.caption); }}
-              className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
-            >Copy content</button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
-              className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
-            >{mType === 'video' || mType === 'short' ? 'Play video' : 'View media'}</button>
-            {post.status === 'pending' && (
+            {editing ? (
+              <>
+                <button onClick={(e) => { e.stopPropagation(); handleSaveEdit() }} disabled={saving} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 bg-[#6C5CE7] text-white rounded border-none cursor-pointer disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
+                <button onClick={(e) => { e.stopPropagation(); setEditCaption(post.caption || ''); setEditTitle(post.title || ''); setEditing(false) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Cancel edit</button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(post.caption); }}
+                  className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
+                >Copy content</button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowMedia(true) }}
+                  className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded bg-white hover:bg-cream cursor-pointer"
+                >{mType === 'video' || mType === 'short' ? 'Play video' : 'View media'}</button>
+                {post.status === 'pending' && (
+                  <button onClick={(e) => { e.stopPropagation(); setEditing(true) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Edit</button>
+                )}
+              </>
+            )}
+            {post.status === 'pending' && !editing && (
               <button onClick={(e) => { e.stopPropagation(); if (confirm('Remove this scheduled post?')) onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#c0392b] rounded text-[#c0392b] bg-white hover:bg-[#fdeaea] cursor-pointer">Remove</button>
             )}
             {post.status === 'failed' && (
@@ -206,18 +253,18 @@ function PostRow({ post, onCancel, onRetry, onDelete }) {
 }
 
 // ── Day View: timeline for a single day ──
-function DayView({ posts, onCancel, onRetry, onDelete }) {
+function DayView({ posts, onCancel, onRetry, onDelete, onReload }) {
   const sorted = [...posts].sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at))
   if (sorted.length === 0) return <div className="text-xs text-muted py-8 text-center">No posts scheduled</div>
   return (
     <div className="px-4 py-2">
-      {sorted.map(p => <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />)}
+      {sorted.map(p => <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} onReload={onReload} />)}
     </div>
   )
 }
 
 // ── Week View: 7-column grid ──
-function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete }) {
+function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete, onReload }) {
   const { from } = getWeekRange(anchor)
   const [selectedDay, setSelectedDay] = useState(null)
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -278,7 +325,7 @@ function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete }) {
             {selectedDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </div>
           {postsByDay[days.findIndex(d => isSameDay(d, selectedDay))]?.map(p => (
-            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />
+            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} onReload={onReload} />
           ))}
         </div>
       )}
@@ -287,7 +334,7 @@ function WeekView({ posts, anchor, onDayClick, onCancel, onRetry, onDelete }) {
 }
 
 // ── Month View: calendar grid ──
-function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
+function MonthView({ posts, anchor, onCancel, onRetry, onDelete, onReload }) {
   const [selectedDay, setSelectedDay] = useState(null)
   const year = anchor.getFullYear(), month = anchor.getMonth()
   const firstDay = new Date(year, month, 1).getDay()
@@ -347,7 +394,7 @@ function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
             {selectedDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </div>
           {getPostsForDay(selectedDay).map(p => (
-            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />
+            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} onReload={onReload} />
           ))}
         </div>
       )}
@@ -356,7 +403,7 @@ function MonthView({ posts, anchor, onCancel, onRetry, onDelete }) {
 }
 
 // ── Plan View: month grid with job names ──
-function PlanView({ posts, anchor, onCancel, onRetry, onDelete }) {
+function PlanView({ posts, anchor, onCancel, onRetry, onDelete, onReload }) {
   const [selectedDay, setSelectedDay] = useState(null)
   const year = anchor.getFullYear(), month = anchor.getMonth()
   const firstDay = new Date(year, month, 1).getDay()
@@ -414,7 +461,7 @@ function PlanView({ posts, anchor, onCancel, onRetry, onDelete }) {
             {selectedDay.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </div>
           {getPostsForDay(selectedDay).map(p => (
-            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} />
+            <PostRow key={p.uuid} post={p} onCancel={onCancel} onRetry={onRetry} onDelete={onDelete} onReload={onReload} />
           ))}
         </div>
       )}
@@ -525,10 +572,10 @@ export default function ScheduleModal({ onClose }) {
         {/* Calendar content */}
         <div className="flex-1 overflow-y-auto">
           {loading && <div className="text-xs text-muted py-8 text-center">Loading...</div>}
-          {!loading && view === 'day' && <DayView posts={posts} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
-          {!loading && view === 'week' && <WeekView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
-          {!loading && view === 'month' && <MonthView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
-          {!loading && view === 'plan' && <PlanView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} />}
+          {!loading && view === 'day' && <DayView posts={posts} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} onReload={load} />}
+          {!loading && view === 'week' && <WeekView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} onReload={load} />}
+          {!loading && view === 'month' && <MonthView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} onReload={load} />}
+          {!loading && view === 'plan' && <PlanView posts={posts} anchor={anchor} onCancel={handleCancel} onRetry={handleRetry} onDelete={handleDelete} onReload={load} />}
         </div>
 
         {/* Legend */}
