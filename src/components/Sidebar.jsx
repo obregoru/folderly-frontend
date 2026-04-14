@@ -429,31 +429,7 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
       </div>
 
       {/* Audience targeting (per platform) */}
-      <div>
-        <div className="s-head">Audience targeting <HelpTip text="Optional: describe who you're talking to on each platform (e.g. 'younger crowd, date nights' for TikTok). AI will adapt framing and references to resonate, while keeping your brand voice. Leave blank to skip." /></div>
-        {[
-          { key: 'tiktok', label: 'TikTok', enabled: s.platform_tiktok !== false, placeholder: 'e.g. younger crowd, date nights, friends' },
-          { key: 'instagram', label: 'Instagram', enabled: s.platform_instagram !== false, placeholder: 'e.g. aesthetic lifestyle, aspirational' },
-          { key: 'facebook', label: 'Facebook', enabled: s.platform_facebook !== false, placeholder: 'e.g. family, birthdays, local community' },
-          { key: 'twitter', label: 'X / Twitter', enabled: s.platform_twitter === true, placeholder: 'e.g. industry peers, quick takes' },
-          { key: 'google', label: 'Google Business', enabled: s.platform_google === true, placeholder: 'e.g. local customers searching for services' },
-          { key: 'blog', label: 'Blog', enabled: s.platform_blog === true, placeholder: 'e.g. SEO readers, informational searchers' },
-          { key: 'youtube', label: 'YouTube', enabled: s.platform_youtube === true, placeholder: 'e.g. younger viewers, trend-aware' },
-        ].filter(p => p.enabled).map(p => (
-          <div key={p.key} className="mt-1.5">
-            <label className="text-[10px] text-muted block mb-0.5">{p.label}</label>
-            <input
-              className="field-input text-[11px]"
-              placeholder={p.placeholder}
-              value={(s.platform_audiences && s.platform_audiences[p.key]) || ''}
-              onChange={e => {
-                const next = { ...(s.platform_audiences || {}), [p.key]: e.target.value }
-                save('platform_audiences', next)
-              }}
-            />
-          </div>
-        ))}
-      </div>
+      <AudienceTargeting settings={s} save={save} />
 
       {/* Quality */}
       <div>
@@ -533,6 +509,55 @@ function WatermarkUpload({ path, onUploaded }) {
         <input type="file" accept="image/png" className="hidden" onChange={handleFile} />
       </label>
       {status && !uploading && <span className="text-[10px] text-sage">{status}</span>}
+    </div>
+  )
+}
+
+// Audience targeting with local state + save on blur (avoids per-keystroke
+// save flood that was clobbering values).
+function AudienceTargeting({ settings, save }) {
+  const s = settings
+  const platforms = [
+    { key: 'tiktok', label: 'TikTok', enabled: s.platform_tiktok !== false, placeholder: 'e.g. younger crowd, date nights, friends' },
+    { key: 'instagram', label: 'Instagram', enabled: s.platform_instagram !== false, placeholder: 'e.g. aesthetic lifestyle, aspirational' },
+    { key: 'facebook', label: 'Facebook', enabled: s.platform_facebook !== false, placeholder: 'e.g. family, birthdays, local community' },
+    { key: 'twitter', label: 'X / Twitter', enabled: s.platform_twitter === true, placeholder: 'e.g. industry peers, quick takes' },
+    { key: 'google', label: 'Google Business', enabled: s.platform_google === true, placeholder: 'e.g. local customers searching for services' },
+    { key: 'blog', label: 'Blog', enabled: s.platform_blog === true, placeholder: 'e.g. SEO readers, informational searchers' },
+    { key: 'youtube', label: 'YouTube', enabled: s.platform_youtube === true, placeholder: 'e.g. younger viewers, trend-aware' },
+  ].filter(p => p.enabled)
+
+  // Local draft of audience values — only persisted on blur to avoid
+  // per-keystroke saves overwriting the JSONB column with stale partial state.
+  const [draft, setDraft] = useState(() => ({ ...(s.platform_audiences || {}) }))
+  // Re-sync when settings come back from server (e.g. after another save)
+  useEffect(() => {
+    setDraft(prev => {
+      const next = { ...(s.platform_audiences || {}), ...prev }
+      return next
+    })
+  }, [s.platform_audiences])
+
+  const flush = (key) => {
+    const merged = { ...(s.platform_audiences || {}), ...draft, [key]: draft[key] || '' }
+    save('platform_audiences', merged)
+  }
+
+  return (
+    <div>
+      <div className="s-head">Audience targeting <HelpTip text="Optional: describe who you're talking to on each platform (e.g. 'younger crowd, date nights' for TikTok). AI will adapt framing and references to resonate, while keeping your brand voice. Leave blank to skip." /></div>
+      {platforms.map(p => (
+        <div key={p.key} className="mt-1.5">
+          <label className="text-[10px] text-muted block mb-0.5">{p.label}</label>
+          <input
+            className="field-input text-[11px]"
+            placeholder={p.placeholder}
+            value={draft[p.key] || ''}
+            onChange={e => setDraft(d => ({ ...d, [p.key]: e.target.value }))}
+            onBlur={() => flush(p.key)}
+          />
+        </div>
+      ))}
     </div>
   )
 }
