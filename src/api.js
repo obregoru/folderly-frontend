@@ -401,3 +401,5 @@ export const retryScheduledPost = (uuid, scheduledAt) =>
   fetch(api(`/schedule/${uuid}/retry`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ scheduled_at: scheduledAt }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const deleteScheduledPost = (uuid) =>
   fetch(api(`/schedule/${uuid}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
+export const updateScheduledPost = (uuid, { caption, title, scheduled_at } = {}) =>
+  fetch(api(`/schedule/${uuid}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify({ caption, title, scheduled_at }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })

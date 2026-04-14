@@ -71,28 +71,7 @@ export default function ScheduledPosts() {
             <div className="px-3.5 py-2">
               <div className="text-[10px] text-muted uppercase tracking-wide mb-1.5">Upcoming</div>
               {pending.map(p => (
-                <div key={p.uuid} className="flex items-center justify-between py-1.5 gap-2">
-                  {p.image_url && (
-                    <img src={p.image_url} className="w-10 h-10 rounded-sm object-cover flex-shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
-                        {PLATFORM_LABELS[p.platform] || p.platform}
-                      </span>
-                      <span className="text-[10px] text-muted">
-                        {new Date(p.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-ink truncate mt-0.5" title={p.caption}>
-                      {p.title ? <><strong>{p.title}</strong> — </> : ''}{p.caption.slice(0, 80)}{p.caption.length > 80 ? '...' : ''}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleCancel(p.uuid)}
-                    className="text-[10px] text-red-500 hover:underline flex-shrink-0"
-                  >Cancel</button>
-                </div>
+                <PendingRow key={p.uuid} post={p} onCancel={handleCancel} onReload={load} />
               ))}
             </div>
           )}
@@ -144,6 +123,89 @@ export default function ScheduledPosts() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function PendingRow({ post, onCancel, onReload }) {
+  const [editing, setEditing] = useState(false)
+  const [caption, setCaption] = useState(post.caption || '')
+  const [title, setTitle] = useState(post.title || '')
+  const [saving, setSaving] = useState(false)
+  const p = post
+  const needsTitle = p.platform === 'blog' || p.platform === 'youtube'
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await api.updateScheduledPost(p.uuid, { caption, title: needsTitle ? title : undefined })
+      setEditing(false)
+      onReload()
+    } catch (err) {
+      alert('Save failed: ' + err.message)
+    }
+    setSaving(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="py-2 border-b border-border last:border-0">
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
+            {PLATFORM_LABELS[p.platform] || p.platform}
+          </span>
+          <span className="text-[10px] text-muted">
+            {new Date(p.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          </span>
+        </div>
+        {needsTitle && (
+          <input
+            className="w-full text-[11px] border border-border rounded py-1 px-1.5 mb-1 bg-white"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Title"
+          />
+        )}
+        <textarea
+          rows={4}
+          className="w-full text-[11px] border border-border rounded py-1 px-1.5 bg-white resize-y"
+          value={caption}
+          onChange={e => setCaption(e.target.value)}
+        />
+        <div className="flex gap-1 mt-1">
+          <button onClick={handleSave} disabled={saving} className="text-[10px] py-0.5 px-2 bg-[#6C5CE7] text-white rounded cursor-pointer border-none disabled:opacity-50">
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+          <button onClick={() => { setCaption(p.caption || ''); setTitle(p.title || ''); setEditing(false) }} className="text-[10px] py-0.5 px-2 border border-border text-muted rounded cursor-pointer bg-white">
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between py-1.5 gap-2">
+      {p.image_url && (
+        <img src={p.image_url} className="w-10 h-10 rounded-sm object-cover flex-shrink-0" />
+      )}
+      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditing(true)} title="Click to edit">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
+            {PLATFORM_LABELS[p.platform] || p.platform}
+          </span>
+          <span className="text-[10px] text-muted">
+            {new Date(p.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          </span>
+        </div>
+        <div className="text-[10px] text-ink truncate mt-0.5" title={p.caption}>
+          {p.title ? <><strong>{p.title}</strong> — </> : ''}{(p.caption || '').slice(0, 80)}{(p.caption || '').length > 80 ? '...' : ''}
+        </div>
+      </div>
+      <div className="flex gap-1 flex-shrink-0">
+        <button onClick={() => setEditing(true)} className="text-[10px] text-[#6C5CE7] hover:underline">Edit</button>
+        <button onClick={() => onCancel(p.uuid)} className="text-[10px] text-red-500 hover:underline">Cancel</button>
+      </div>
     </div>
   )
 }

@@ -396,30 +396,29 @@ export default function VideoTrimmer({ item }) {
             const distToEnd = Math.abs(clickTime - (trimEnd ?? videoDuration))
             const dragging = distToStart <= distToEnd ? 'start' : 'end'
             let lastSeek = 0
+            const seekAllVideos = (t) => {
+              // Seek every <video> element associated with this item so the
+              // user sees the frame wherever they're looking.
+              const videos = document.querySelectorAll(`video[data-posty-item-id="${item.id}"]`)
+              videos.forEach(v => { try { v.currentTime = t } catch {} })
+              // Also notify ResultCard preview (tracked by ref, no data attribute)
+              try { window.dispatchEvent(new CustomEvent('posty-trim-scrub', { detail: { itemId: item.id, time: t } })) } catch {}
+            }
             const onMove = (ev) => {
               const t = toTime(ev.clientX)
+              let target
               if (dragging === 'start') {
-                const clamped = Math.min(t, (trimEndRef.current ?? videoDuration) - 0.5)
-                setTrimStart(clamped)
-                // Seek video so user can see the frame at the trim point
-                const now = Date.now()
-                if (now - lastSeek > 150) { // throttle to ~6 seeks/sec
-                  lastSeek = now
-                  const vid = hiddenVideoRef.current
-                  if (vid) try { vid.currentTime = clamped } catch {}
-                  // Also notify ResultCard preview to seek
-                  try { window.dispatchEvent(new CustomEvent('posty-trim-scrub', { detail: { itemId: item.id, time: clamped } })) } catch {}
-                }
+                target = Math.min(t, (trimEndRef.current ?? videoDuration) - 0.5)
+                setTrimStart(target)
               } else {
                 const v = Math.max(t, trimStartRef.current + 0.5)
                 setTrimEnd(v >= videoDuration - 0.05 ? null : v)
-                const now = Date.now()
-                if (now - lastSeek > 150) {
-                  lastSeek = now
-                  const vid = hiddenVideoRef.current
-                  if (vid) try { vid.currentTime = v >= videoDuration - 0.05 ? videoDuration - 0.1 : v } catch {}
-                  try { window.dispatchEvent(new CustomEvent('posty-trim-scrub', { detail: { itemId: item.id, time: v } })) } catch {}
-                }
+                target = v >= videoDuration - 0.05 ? videoDuration - 0.1 : v
+              }
+              const now = Date.now()
+              if (now - lastSeek > 100) { // ~10 seeks/sec for smoother scrub
+                lastSeek = now
+                seekAllVideos(target)
               }
             }
             // Apply initial move so the handle snaps to the tap position

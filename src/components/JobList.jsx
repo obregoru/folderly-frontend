@@ -61,6 +61,7 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, savi
                 </div>
                 <div className="text-[9px] text-muted">
                   {j.file_count || 0} file{j.file_count !== 1 ? 's' : ''} · {timeAgo(j.updated_at)}
+                  <span className="ml-1 font-mono opacity-60" title={j.uuid}>#{j.uuid?.slice(0, 8)}</span>
                   {j.uuid === activeJobId && <span className="text-[#2D9A5E] ml-1">(current)</span>}
                 </div>
               </div>

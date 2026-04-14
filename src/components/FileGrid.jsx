@@ -90,7 +90,7 @@ function MediaLightbox({ item, onClose }) {
   )
 }
 
-function VideoThumb({ file, onClick, className }) {
+function VideoThumb({ file, onClick, className, itemId }) {
   const videoRef = useRef(null)
   const [poster, setPoster] = useState(null)
   const [aspect, setAspect] = useState(null)
@@ -175,11 +175,7 @@ function VideoThumb({ file, onClick, className }) {
 
   return (
     <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 ${className || ''}`} style={{ height }}>
-      {poster ? (
-        <img src={poster} className="w-full h-full object-cover rounded-sm" />
-      ) : (
-        <video ref={videoRef} src={src} className="w-full h-full object-cover" muted playsInline preload="auto" />
-      )}
+      <video ref={videoRef} data-posty-item-id={itemId} src={src} poster={poster || undefined} className="w-full h-full object-cover" muted playsInline preload="auto" />
       <div className="absolute inset-0 flex items-center justify-center">
         <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
       </div>
@@ -229,12 +225,13 @@ export default function FileGrid({ files, onRemove, VideoTrimmer }) {
             {isImg && item.file ? (
               <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
             ) : isVideo && item.file ? (
-              <VideoThumb file={item.file} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
+              <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
             ) : item._restored && (item._publicUrl || item._uploadKey) ? (
               /* Restored from job — no File object, use public URL or serve endpoint */
               <div onClick={() => setPreviewItem(item)} className="w-full h-[120px] bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative">
                 {isVideo ? (
                   <video
+                    data-posty-item-id={item.id}
                     src={item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`}
                     className="w-full h-full object-cover"
                     muted playsInline preload="auto"
