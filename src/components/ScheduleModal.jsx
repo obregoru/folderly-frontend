@@ -201,9 +201,16 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
           ) : (
             <>
               {post.title && <div className="text-[10px] md:text-sm font-medium text-ink mb-0.5">{post.title}</div>}
-              <div className="text-[10px] md:text-sm text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 md:p-3 mb-1.5 max-h-[150px] md:max-h-[250px] overflow-y-auto">
+              <div
+                className={`text-[10px] md:text-sm text-ink whitespace-pre-wrap leading-relaxed bg-white border border-border rounded p-2 md:p-3 mb-1.5 max-h-[150px] md:max-h-[250px] overflow-y-auto ${post.status === 'pending' ? 'cursor-text hover:border-[#6C5CE7]' : ''}`}
+                onClick={e => { e.stopPropagation(); if (post.status === 'pending') setEditing(true) }}
+                title={post.status === 'pending' ? 'Click to edit' : undefined}
+              >
                 {post.caption}
               </div>
+              {post.status === 'pending' && (
+                <div className="text-[9px] text-muted mb-1.5">Click caption above to edit</div>
+              )}
             </>
           )}
 
