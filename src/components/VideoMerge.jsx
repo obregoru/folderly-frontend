@@ -73,6 +73,13 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
     setMerging(true)
     setError(null)
     setProgress('Uploading clips...')
+    // Clear the stale merged result immediately so it's obvious a new merge is in progress
+    if (mergedUrl) {
+      try { URL.revokeObjectURL(mergedUrl) } catch {}
+      setMergedUrl(null)
+      mergedBlobRef.current = null
+      window._postyMergedVideo = null
+    }
     try {
       const api = await import('../api')
       const clips = []
