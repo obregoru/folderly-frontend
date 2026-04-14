@@ -109,6 +109,18 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [ensureJob, files])
 
+  // Save filmstrip thumbnails so draft resume is instant
+  const saveFileTrimThumbs = useCallback(async (file, thumbs) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId || !Array.isArray(thumbs)) return
+    try {
+      await api.updateJobFile(id, dbFileId, { trim_thumbs: thumbs })
+    } catch (e) {
+      console.error('[useJobSync] save trim thumbs failed:', e.message)
+    }
+  }, [])
+
   // Save file trim changes
   const saveFileTrim = useCallback(async (file) => {
     const id = jobIdRef.current
@@ -249,6 +261,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             uploadResult: { original_temp_path: f.upload_key },
             _trimStart: f.trim_start || 0,
             _trimEnd: f.trim_end ?? null,
+            _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
@@ -367,6 +380,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveAll,
     saveFileToJob,
     saveFileTrim,
+    saveFileTrimThumbs,
     saveFileCaptions,
     saveOverlaySettings,
     saveVoiceoverSettings,

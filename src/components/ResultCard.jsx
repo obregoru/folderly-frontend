@@ -1163,7 +1163,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       forceRerender(t => t + 1)
     }
     window.addEventListener('posty-trim-change', onTrimChange)
-    return () => window.removeEventListener('posty-trim-change', onTrimChange)
+    // Live scrub during drag — seek preview video to the handle position
+    const onTrimScrub = (ev) => {
+      if (ev.detail?.itemId !== item.id) return
+      const vp = videoPreviewRef?.current
+      if (vp) try { vp.currentTime = ev.detail.time } catch {}
+    }
+    window.addEventListener('posty-trim-scrub', onTrimScrub)
+    return () => {
+      window.removeEventListener('posty-trim-change', onTrimChange)
+      window.removeEventListener('posty-trim-scrub', onTrimScrub)
+    }
   }, [item.id])
 
   // Sync when text prop changes (e.g. after refine/regen)

@@ -22,7 +22,7 @@ export default function VideoTrimmer({ item }) {
   const [videoDuration, setVideoDuration] = useState(0)
   const [trimStart, setTrimStart] = useState(() => item._trimStart ?? 0)
   const [trimEnd, setTrimEnd] = useState(() => item._trimEnd ?? null)
-  const [trimThumbs, setTrimThumbs] = useState([])
+  const [trimThumbs, setTrimThumbs] = useState(() => Array.isArray(item._trimThumbs) ? item._trimThumbs : [])
   const stripRef = useRef(null)
   // Pointer-up closures need fresh values.
   const trimStartRef = useRef(trimStart)
@@ -78,6 +78,12 @@ export default function VideoTrimmer({ item }) {
 
   useEffect(() => {
     if (videoDuration <= 0) return
+    // Skip regeneration if we already have saved thumbs from the job
+    if (Array.isArray(item._trimThumbs) && item._trimThumbs.length > 0) {
+      setTrimThumbs(item._trimThumbs)
+      setThumbProgress({ done: item._trimThumbs.length, total: item._trimThumbs.length })
+      return
+    }
     const v = hiddenVideoRef.current
     if (!v) return
     let cancelled = false
@@ -181,6 +187,21 @@ export default function VideoTrimmer({ item }) {
           }
         } catch {}
         if (isMobile) await new Promise(r => setTimeout(r, 40))
+      }
+      // After both passes complete, save thumbs to the job so resume is instant
+      if (!cancelled) {
+        const finalThumbs = thumbs.map((tt, idx) => {
+          if (tt) return tt
+          for (let j = idx + 1; j < thumbs.length; j++) if (thumbs[j]) return thumbs[j]
+          for (let j = idx - 1; j >= 0; j--) if (thumbs[j]) return thumbs[j]
+          return null
+        }).filter(Boolean)
+        item._trimThumbs = finalThumbs
+        try {
+          window.dispatchEvent(new CustomEvent('posty-trim-thumbs', {
+            detail: { itemId: item.id, thumbs: finalThumbs },
+          }))
+        } catch {}
       }
     }
     capture()
@@ -374,13 +395,31 @@ export default function VideoTrimmer({ item }) {
             const distToStart = Math.abs(clickTime - trimStart)
             const distToEnd = Math.abs(clickTime - (trimEnd ?? videoDuration))
             const dragging = distToStart <= distToEnd ? 'start' : 'end'
+            let lastSeek = 0
             const onMove = (ev) => {
               const t = toTime(ev.clientX)
               if (dragging === 'start') {
-                setTrimStart(Math.min(t, (trimEndRef.current ?? videoDuration) - 0.5))
+                const clamped = Math.min(t, (trimEndRef.current ?? videoDuration) - 0.5)
+                setTrimStart(clamped)
+                // Seek video so user can see the frame at the trim point
+                const now = Date.now()
+                if (now - lastSeek > 150) { // throttle to ~6 seeks/sec
+                  lastSeek = now
+                  const vid = hiddenVideoRef.current
+                  if (vid) try { vid.currentTime = clamped } catch {}
+                  // Also notify ResultCard preview to seek
+                  try { window.dispatchEvent(new CustomEvent('posty-trim-scrub', { detail: { itemId: item.id, time: clamped } })) } catch {}
+                }
               } else {
                 const v = Math.max(t, trimStartRef.current + 0.5)
                 setTrimEnd(v >= videoDuration - 0.05 ? null : v)
+                const now = Date.now()
+                if (now - lastSeek > 150) {
+                  lastSeek = now
+                  const vid = hiddenVideoRef.current
+                  if (vid) try { vid.currentTime = v >= videoDuration - 0.05 ? videoDuration - 0.1 : v } catch {}
+                  try { window.dispatchEvent(new CustomEvent('posty-trim-scrub', { detail: { itemId: item.id, time: v } })) } catch {}
+                }
               }
             }
             // Apply initial move so the handle snaps to the tap position

@@ -87,8 +87,16 @@ export default function App() {
       const item = files.find(f => f.id === e.detail?.itemId)
       if (item) jobSync.saveFileTrim(item)
     }
+    const onTrimThumbs = (e) => {
+      const item = files.find(f => f.id === e.detail?.itemId)
+      if (item && e.detail?.thumbs) jobSync.saveFileTrimThumbs(item, e.detail.thumbs)
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
-    return () => window.removeEventListener('posty-trim-change', onTrimChange)
+    window.addEventListener('posty-trim-thumbs', onTrimThumbs)
+    return () => {
+      window.removeEventListener('posty-trim-change', onTrimChange)
+      window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
+    }
   }, [files, jobSync.saveFileTrim])
 
   // Check if already logged in
