@@ -1862,6 +1862,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   controls
                                   playsInline
                                   preload="auto"
+                                  crossOrigin={videoSrc && !videoSrc.startsWith('blob:') ? 'anonymous' : undefined}
                                   onTimeUpdate={e => {
                                     const v = e.target
                                     setVideoTime(v.currentTime)

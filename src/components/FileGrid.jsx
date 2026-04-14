@@ -75,6 +75,7 @@ function MediaLightbox({ item, onClose }) {
               src={src}
               controls
               playsInline
+              crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
               className="max-w-full max-h-[80vh] rounded"
             />
             {hasTrim && (
@@ -236,7 +237,9 @@ export default function FileGrid({ files, onRemove, VideoTrimmer }) {
                   <video
                     src={item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`}
                     className="w-full h-full object-cover"
-                    muted playsInline preload="metadata"
+                    muted playsInline preload="auto"
+                    crossOrigin="anonymous"
+                    onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
                   />
                 ) : (
                   <img
