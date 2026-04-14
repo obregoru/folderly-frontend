@@ -171,7 +171,7 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
             >
               {mType === 'video' || mType === 'short' ? (
                 <div className="relative">
-                  <img src={post.image_url} className="max-w-[200px] h-auto rounded object-cover group-hover:opacity-80" />
+                  <video src={post.image_url} className="max-w-[200px] h-auto rounded object-cover bg-black group-hover:opacity-80" muted playsInline preload="metadata" crossOrigin="anonymous" />
                   <div className="absolute inset-0 flex items-center justify-center">
                     <span className="w-10 h-10 rounded-full bg-black/60 text-white text-lg flex items-center justify-center">▶</span>
                   </div>
