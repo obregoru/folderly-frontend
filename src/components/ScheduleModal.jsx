@@ -89,6 +89,8 @@ function MediaLightbox({ url, mediaType, onClose }) {
 }
 
 // Single post row — tap to expand and see full details
+const MANUAL_PLATFORMS = new Set(['tiktok', 'google'])
+
 function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
   const [expanded, setExpanded] = useState(false)
   const [showMedia, setShowMedia] = useState(false)
@@ -96,7 +98,18 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
   const [editCaption, setEditCaption] = useState(post.caption || '')
   const [editTitle, setEditTitle] = useState(post.title || '')
   const [saving, setSaving] = useState(false)
+  const [marking, setMarking] = useState(false)
   const needsTitle = post.platform === 'blog' || post.platform === 'youtube'
+  const isManual = MANUAL_PLATFORMS.has(post.platform)
+  const handleMarkPosted = async () => {
+    if (!confirm('Mark this post as posted? Use only if you posted it manually.')) return
+    setMarking(true)
+    try {
+      await api.markScheduledPostPosted(post.uuid)
+      if (onReload) onReload()
+    } catch (err) { alert('Failed: ' + err.message) }
+    setMarking(false)
+  }
   const handleSaveEdit = async () => {
     setSaving(true)
     try {
@@ -138,6 +151,7 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
               {PLATFORM_LABELS[post.platform?.replace('_story', '')] || post.platform}
             </span>
             {isStory && <span className="text-[8px] md:text-[10px] py-0.5 px-1 md:px-1.5 rounded-full bg-[#f3e8ff] text-[#9333ea]">Story</span>}
+            {isManual && <span className="text-[8px] md:text-[10px] py-0.5 px-1 md:px-1.5 rounded-full bg-[#fff6e0] text-[#a06a00] font-medium">Manual</span>}
             <span className="text-[8px] md:text-[10px] py-0.5 px-1 md:px-1.5 rounded-full" style={{ background: mBadge.bg, color: mBadge.text }}>{mBadge.label}</span>
             <span className="text-[8px] md:text-[10px] py-0.5 px-1 md:px-1.5 rounded-full" style={{ background: st.bg, color: st.text }}>{st.label}</span>
           </div>
@@ -237,6 +251,9 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
                 >{mType === 'video' || mType === 'short' ? 'Play video' : 'View media'}</button>
                 {(post.status === 'pending' || post.status === 'failed') && (
                   <button onClick={(e) => { e.stopPropagation(); setEditing(true) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#6C5CE7] rounded text-[#6C5CE7] bg-white hover:bg-[#f3f0ff] cursor-pointer">Edit</button>
+                )}
+                {isManual && (post.status === 'pending' || post.status === 'failed') && (
+                  <button onClick={(e) => { e.stopPropagation(); handleMarkPosted() }} disabled={marking} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#2D9A5E] rounded text-[#2D9A5E] bg-white hover:bg-[#f0faf4] cursor-pointer disabled:opacity-50">{marking ? 'Marking...' : 'Mark posted'}</button>
                 )}
               </>
             )}

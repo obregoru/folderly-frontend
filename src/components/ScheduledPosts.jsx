@@ -131,13 +131,26 @@ export default function ScheduledPosts() {
   )
 }
 
+const MANUAL_PLATFORMS = new Set(['tiktok', 'google'])
+
 function PendingRow({ post, onCancel, onReload }) {
   const [editing, setEditing] = useState(false)
   const [caption, setCaption] = useState(post.caption || '')
   const [title, setTitle] = useState(post.title || '')
   const [saving, setSaving] = useState(false)
+  const [marking, setMarking] = useState(false)
   const p = post
   const needsTitle = p.platform === 'blog' || p.platform === 'youtube'
+  const isManual = MANUAL_PLATFORMS.has(p.platform)
+  const handleMarkPosted = async () => {
+    if (!confirm('Mark this post as posted? Use only if you posted it manually.')) return
+    setMarking(true)
+    try {
+      await api.markScheduledPostPosted(p.uuid)
+      onReload()
+    } catch (err) { alert('Failed: ' + err.message) }
+    setMarking(false)
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -198,10 +211,13 @@ function PendingRow({ post, onCancel, onReload }) {
         )
       )}
       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditing(true)} title="Click to edit">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[10px] font-medium" style={{ color: PLATFORM_COLORS[p.platform] }}>
             {PLATFORM_LABELS[p.platform] || p.platform}
           </span>
+          {isManual && (
+            <span className="text-[9px] py-0.5 px-1 rounded bg-[#fff6e0] text-[#a06a00] font-medium">Manual</span>
+          )}
           <span className="text-[10px] text-muted">
             {new Date(p.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
           </span>
@@ -210,8 +226,11 @@ function PendingRow({ post, onCancel, onReload }) {
           {p.title ? <><strong>{p.title}</strong> — </> : ''}{(p.caption || '').slice(0, 80)}{(p.caption || '').length > 80 ? '...' : ''}
         </div>
       </div>
-      <div className="flex gap-1 flex-shrink-0">
+      <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
         <button onClick={() => setEditing(true)} className="text-[10px] text-[#6C5CE7] hover:underline">Edit</button>
+        {isManual && (
+          <button onClick={handleMarkPosted} disabled={marking} className="text-[10px] text-[#2D9A5E] hover:underline disabled:opacity-50">{marking ? '...' : 'Mark posted'}</button>
+        )}
         <button onClick={() => onCancel(p.uuid)} className="text-[10px] text-red-500 hover:underline">Cancel</button>
       </div>
     </div>
