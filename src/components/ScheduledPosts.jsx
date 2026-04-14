@@ -82,7 +82,11 @@ export default function ScheduledPosts() {
               {completed.slice(0, 10).map(p => (
                 <div key={p.uuid} className="flex items-center justify-between py-1 gap-2">
                   {p.image_url && (
-                    <img src={p.image_url} className="w-7 h-7 rounded-sm object-cover flex-shrink-0" />
+                    p.media_type?.startsWith('video/') ? (
+                      <video src={p.image_url} className="w-7 h-7 rounded-sm object-cover flex-shrink-0 bg-black" muted playsInline preload="metadata" crossOrigin="anonymous" />
+                    ) : (
+                      <img src={p.image_url} className="w-7 h-7 rounded-sm object-cover flex-shrink-0" />
+                    )
                   )}
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: STATUS_COLORS[p.status] }} />
@@ -187,7 +191,11 @@ function PendingRow({ post, onCancel, onReload }) {
   return (
     <div className="flex items-center justify-between py-1.5 gap-2">
       {p.image_url && (
-        <img src={p.image_url} className="w-10 h-10 rounded-sm object-cover flex-shrink-0" />
+        p.media_type?.startsWith('video/') ? (
+          <video src={p.image_url} className="w-10 h-10 rounded-sm object-cover flex-shrink-0 bg-black" muted playsInline preload="metadata" crossOrigin="anonymous" />
+        ) : (
+          <img src={p.image_url} className="w-10 h-10 rounded-sm object-cover flex-shrink-0" />
+        )
       )}
       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditing(true)} title="Click to edit">
         <div className="flex items-center gap-1.5">
