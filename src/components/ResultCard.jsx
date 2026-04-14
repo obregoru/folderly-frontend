@@ -524,7 +524,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
         mediaType = item._mediaType || 'video/mp4'
       }
 
-      const post = { platform: p.key, caption, image_base64: imageBase64, upload_key: uploadKey, media_type: mediaType, job_name: item.job_name || item.file?.name?.replace(/\.[^.]+$/, '') }
+      const post = { platform: p.key, caption, image_base64: imageBase64, upload_key: uploadKey, media_type: mediaType, job_name: item.job_name || item.file?.name?.replace(/\.[^.]+$/, ''), job_uuid: item._jobUuid || null }
       if (p.key === 'blog') {
         const blogCap = item.captions[p.key]
         post.title = getTitle(blogCap) || item.name || item.file?.name?.replace(/\.[^.]+$/, '') || 'New Post'

@@ -836,6 +836,8 @@ export default function App() {
           {(() => {
             const primary = files.find(f => f.status === 'done' || f.status === 'loading' || f.status === 'error')
             if (!primary) return null
+            // Stamp current job UUID on the item so schedulePosts can link back
+            primary._jobUuid = jobSync.jobId
             return (
               <ErrorBoundary key={primary.id} name={primary.file?.name || primary._filename}>
                 <ResultCard
