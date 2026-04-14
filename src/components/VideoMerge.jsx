@@ -155,33 +155,66 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
 
       {/* Clip order */}
       <div className="space-y-1">
-        {order.map((fileIdx, pos) => {
-          const item = videoFiles[fileIdx]
-          if (!item) return null
-          const ts = item._trimStart || 0
-          const te = item._trimEnd
+        {(() => {
+          const clipDurations = order.map(fileIdx => {
+            const item = videoFiles[fileIdx]
+            if (!item) return 0
+            const dur = item._videoDuration || 0
+            if (!dur) return 0
+            const ts = item._trimStart || 0
+            const te = item._trimEnd ?? dur
+            return Math.max(0, te - ts)
+          })
+          const totalKept = clipDurations.reduce((a, b) => a + b, 0)
+          const transOverhead = transition !== 'none' && order.length > 1
+            ? (order.length - 1) * transDuration
+            : 0
+          const finalTotal = Math.max(0, totalKept - transOverhead)
           return (
-            <div key={item.id} className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]">
-              <span className="text-muted font-medium w-4">{pos + 1}.</span>
-              <span className="flex-1 truncate" title={item.file?.name || item._filename || 'Untitled'}>{item.file?.name || item._filename || 'Untitled'}</span>
-              {(ts > 0 || te != null) && (
-                <span className="text-[9px] text-[#d97706]">trimmed</span>
+            <>
+              {order.map((fileIdx, pos) => {
+                const item = videoFiles[fileIdx]
+                if (!item) return null
+                const ts = item._trimStart || 0
+                const te = item._trimEnd
+                const kept = clipDurations[pos]
+                return (
+                  <div key={item.id} className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]">
+                    <span className="text-muted font-medium w-4">{pos + 1}.</span>
+                    <span className="flex-1 truncate" title={item.file?.name || item._filename || 'Untitled'}>{item.file?.name || item._filename || 'Untitled'}</span>
+                    {kept > 0 && (
+                      <span className="text-[9px] text-muted whitespace-nowrap" title="Time kept after trim">{kept.toFixed(1)}s</span>
+                    )}
+                    {(ts > 0 || te != null) && (
+                      <span className="text-[9px] text-[#d97706]">trimmed</span>
+                    )}
+                    <div className="flex gap-0.5">
+                      <button
+                        onClick={() => moveUp(pos)}
+                        disabled={pos === 0}
+                        className="text-[10px] text-muted hover:text-ink disabled:opacity-30 bg-transparent border-none cursor-pointer px-1"
+                      >&#9650;</button>
+                      <button
+                        onClick={() => moveDown(pos)}
+                        disabled={pos === order.length - 1}
+                        className="text-[10px] text-muted hover:text-ink disabled:opacity-30 bg-transparent border-none cursor-pointer px-1"
+                      >&#9660;</button>
+                    </div>
+                  </div>
+                )
+              })}
+              {totalKept > 0 && (
+                <div className="flex items-center gap-2 px-2 py-1 text-[10px] border-t border-border/50 mt-1 pt-1.5">
+                  <span className="text-muted flex-1">Total merged length</span>
+                  <span className="font-medium text-ink">{finalTotal.toFixed(1)}s</span>
+                  {transOverhead > 0 && (
+                    <span className="text-[9px] text-muted whitespace-nowrap">({totalKept.toFixed(1)}s − {transOverhead.toFixed(1)}s transitions)</span>
+                  )}
+                </div>
               )}
-              <div className="flex gap-0.5">
-                <button
-                  onClick={() => moveUp(pos)}
-                  disabled={pos === 0}
-                  className="text-[10px] text-muted hover:text-ink disabled:opacity-30 bg-transparent border-none cursor-pointer px-1"
-                >&#9650;</button>
-                <button
-                  onClick={() => moveDown(pos)}
-                  disabled={pos === order.length - 1}
-                  className="text-[10px] text-muted hover:text-ink disabled:opacity-30 bg-transparent border-none cursor-pointer px-1"
-                >&#9660;</button>
-              </div>
-            </div>
+            </>
           )
-        })}
+        })()}
       </div>
 
       {/* Transition picker */}
