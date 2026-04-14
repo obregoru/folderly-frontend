@@ -183,6 +183,42 @@ function VideoThumb({ file, onClick, className, itemId }) {
   )
 }
 
+// Restored file thumbnail — measures aspect ratio on load so vertical
+// videos get the tall layout (260px) like fresh portrait uploads.
+function RestoredMedia({ item, isVideo, onClick }) {
+  const [aspect, setAspect] = useState(() => item._videoDuration && item._videoAspect ? item._videoAspect : null)
+  useEffect(() => { if (aspect != null) item._videoAspect = aspect }, [aspect, item])
+  const isPortrait = aspect != null && aspect < 1
+  const height = isPortrait ? 260 : 120
+  const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
+  return (
+    <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative" style={{ height }}>
+      {isVideo ? (
+        <video
+          data-posty-item-id={item.id}
+          src={src}
+          className="w-full h-full object-contain"
+          muted playsInline preload="auto"
+          crossOrigin="anonymous"
+          onLoadedMetadata={e => {
+            const v = e.target
+            if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+          }}
+          onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
+        />
+      ) : (
+        <img
+          src={src}
+          className="w-full h-full object-contain"
+          onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
+          onError={e => { e.target.style.display = 'none' }}
+        />
+      )}
+      {isVideo && <span className="absolute text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>}
+    </div>
+  )
+}
+
 function ImageThumb({ file, onClick }) {
   const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
   const [aspect, setAspect] = useState(() => file._imgAspect || null)
@@ -227,26 +263,7 @@ export default function FileGrid({ files, onRemove, VideoTrimmer }) {
             ) : isVideo && item.file ? (
               <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
             ) : item._restored && (item._publicUrl || item._uploadKey) ? (
-              /* Restored from job — no File object, use public URL or serve endpoint */
-              <div onClick={() => setPreviewItem(item)} className="w-full h-[120px] bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative">
-                {isVideo ? (
-                  <video
-                    data-posty-item-id={item.id}
-                    src={item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`}
-                    className="w-full h-full object-cover"
-                    muted playsInline preload="auto"
-                    crossOrigin="anonymous"
-                    onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
-                  />
-                ) : (
-                  <img
-                    src={item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/thumbnail?key=${encodeURIComponent(item._uploadKey)}`}
-                    className="w-full h-full object-cover"
-                    onError={e => { e.target.style.display = 'none' }}
-                  />
-                )}
-                {isVideo && <span className="absolute text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>}
-              </div>
+              <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} />
             ) : (
               <div
                 onClick={() => setPreviewItem(item)}
