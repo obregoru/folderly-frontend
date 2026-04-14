@@ -44,6 +44,46 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
     if (restoredMergeUrl && !mergedUrl) setMergedUrl(restoredMergeUrl)
   }, [restoredMergeUrl])
 
+  // Re-render when any item's duration becomes known (from VideoTrimmer).
+  // Durations are written as mutations onto item._videoDuration which React
+  // can't observe directly, so we bump a counter to trigger re-render.
+  const [, setDurTick] = useState(0)
+  useEffect(() => {
+    const onDur = () => setDurTick(t => t + 1)
+    window.addEventListener('posty-video-duration', onDur)
+    return () => window.removeEventListener('posty-video-duration', onDur)
+  }, [])
+
+  // Probe duration directly for any clip that doesn't yet have one.
+  // Uses a hidden <video> element; works for both File blobs and public URLs.
+  useEffect(() => {
+    let cancelled = false
+    for (const item of videoFiles) {
+      if (item._videoDuration || item._videoDurationProbing) continue
+      const src = (item.file instanceof Blob || item.file instanceof File)
+        ? URL.createObjectURL(item.file)
+        : item._publicUrl
+      if (!src) continue
+      item._videoDurationProbing = true
+      const v = document.createElement('video')
+      v.preload = 'metadata'
+      v.muted = true
+      if (!src.startsWith('blob:')) v.crossOrigin = 'anonymous'
+      v.src = src
+      const done = () => {
+        if (cancelled) return
+        if (v.duration && isFinite(v.duration)) {
+          item._videoDuration = v.duration
+          setDurTick(t => t + 1)
+        }
+        if (src.startsWith('blob:')) try { URL.revokeObjectURL(src) } catch {}
+      }
+      v.addEventListener('loadedmetadata', done, { once: true })
+      v.addEventListener('error', done, { once: true })
+    }
+    return () => { cancelled = true }
+  }, [videoFiles])
+
   // Keep order in sync if files change — also clear stale merge result
   const fileIds = videoFiles.map(f => f.id).join(',')
   const prevFileIdsRef = useRef(fileIds)
