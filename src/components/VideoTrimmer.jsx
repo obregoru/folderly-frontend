@@ -54,12 +54,7 @@ export default function VideoTrimmer({ item }) {
 
     const onMeta = async () => {
       if (cancelled) return
-      if (v.duration && isFinite(v.duration)) {
-        setVideoDuration(v.duration)
-        // Stash on item so other components (VideoMerge) can compute kept length
-        item._videoDuration = v.duration
-        try { window.dispatchEvent(new CustomEvent('posty-video-duration', { detail: { itemId: item.id, duration: v.duration } })) } catch {}
-      }
+      if (v.duration && isFinite(v.duration)) setVideoDuration(v.duration)
       try {
         v.muted = true
         const p = v.play()
