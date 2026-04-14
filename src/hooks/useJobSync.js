@@ -289,46 +289,44 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
         setFiles(restoredFiles)
       }
 
-      // Restore merged video if saved
-      if (job.merged_video_url || job.merged_video_key) {
-        try {
-          const url = job.merged_video_url || `${import.meta.env.VITE_API_URL || ''}/api/t/${api.tenantSlug()}/upload/serve?key=${encodeURIComponent(job.merged_video_key)}`
-          const resp = await fetch(url)
-          if (resp.ok) {
-            const blob = await resp.blob()
-            const base64 = await new Promise(resolve => {
-              const r = new FileReader()
-              r.onload = () => resolve(r.result.split(',')[1])
-              r.readAsDataURL(blob)
-            })
-            window._postyMergedVideo = { blob, url: URL.createObjectURL(blob), base64 }
-            console.log('[useJobSync] merged video restored from', job.merged_video_key)
-          }
-        } catch (e) {
-          console.warn('[useJobSync] merged video restore failed:', e.message)
-        }
+      // Download merged video + voiceover audio IN PARALLEL (not sequential)
+      const tenantSlug = api.tenantSlug()
+      const fetchBlob = async (url) => {
+        const resp = await fetch(url)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const blob = await resp.blob()
+        const base64 = await new Promise(resolve => {
+          const r = new FileReader()
+          r.onload = () => resolve(r.result.split(',')[1])
+          r.readAsDataURL(blob)
+        })
+        return { blob, url: URL.createObjectURL(blob), base64 }
       }
 
-      // Restore voiceover audio if saved
-      if (job.voiceover_audio_url || job.voiceover_audio_key) {
-        try {
-          const url = job.voiceover_audio_url || `${import.meta.env.VITE_API_URL || ''}/api/t/${api.tenantSlug()}/upload/serve?key=${encodeURIComponent(job.voiceover_audio_key)}`
-          const resp = await fetch(url)
-          if (resp.ok) {
-            const blob = await resp.blob()
-            const base64 = await new Promise(resolve => {
-              const r = new FileReader()
-              r.onload = () => resolve(r.result.split(',')[1])
-              r.readAsDataURL(blob)
-            })
-            window._postyVoiceoverAudio = { blob, url: URL.createObjectURL(blob), base64 }
-            // Also stash on restored files for backward compat
-            for (const f of restoredFiles || []) f._voiceoverBlob = blob
-            console.log('[useJobSync] voiceover audio restored from', job.voiceover_audio_key)
-          }
-        } catch (e) {
-          console.warn('[useJobSync] voiceover restore failed:', e.message)
-        }
+      const mergeUrl = job.merged_video_url || (job.merged_video_key
+        ? `${import.meta.env.VITE_API_URL || ''}/api/t/${tenantSlug}/upload/serve?key=${encodeURIComponent(job.merged_video_key)}`
+        : null)
+      const voUrl = job.voiceover_audio_url || (job.voiceover_audio_key
+        ? `${import.meta.env.VITE_API_URL || ''}/api/t/${tenantSlug}/upload/serve?key=${encodeURIComponent(job.voiceover_audio_key)}`
+        : null)
+
+      const [mergeResult, voResult] = await Promise.allSettled([
+        mergeUrl ? fetchBlob(mergeUrl) : Promise.resolve(null),
+        voUrl ? fetchBlob(voUrl) : Promise.resolve(null),
+      ])
+
+      if (mergeResult.status === 'fulfilled' && mergeResult.value) {
+        window._postyMergedVideo = mergeResult.value
+        console.log('[useJobSync] merged video restored from', job.merged_video_key)
+      } else if (mergeResult.status === 'rejected') {
+        console.warn('[useJobSync] merged video restore failed:', mergeResult.reason?.message)
+      }
+      if (voResult.status === 'fulfilled' && voResult.value) {
+        window._postyVoiceoverAudio = voResult.value
+        for (const f of restoredFiles || []) f._voiceoverBlob = voResult.value.blob
+        console.log('[useJobSync] voiceover audio restored from', job.voiceover_audio_key)
+      } else if (voResult.status === 'rejected') {
+        console.warn('[useJobSync] voiceover restore failed:', voResult.reason?.message)
       }
 
       // Return the full job so the caller can restore overlay/voiceover/merge settings
