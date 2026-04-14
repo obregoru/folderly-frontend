@@ -340,7 +340,11 @@ export default function App() {
     }
   }, [files])
 
-  const removeFile = id => setFiles(prev => prev.filter(f => f.id !== id))
+  const removeFile = (id) => {
+    setFiles(prev => prev.filter(f => f.id !== id))
+    // Also delete from DB if this file was persisted to the job
+    jobSync.deleteFileFromJob(id)
+  }
 
   // Eagerly upload new files and save to job so drafts persist even before Generate.
   // Serialized to avoid race conditions and server overload with large videos.

@@ -109,6 +109,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [ensureJob, files])
 
+  // Delete a file from the job (called when user removes a file from the grid)
+  const deleteFileFromJob = useCallback(async (fileId) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[fileId]
+    if (!id || !dbFileId) return // file was never persisted
+    try {
+      await api.deleteJobFile(id, dbFileId)
+      delete fileIdMapRef.current[fileId]
+      // Refresh job list so file count updates
+      api.listJobs().then(jobs => { if (Array.isArray(jobs)) setJobList(jobs) }).catch(() => {})
+    } catch (e) {
+      console.error('[useJobSync] delete file failed:', e.message)
+    }
+  }, [])
+
   // Save filmstrip thumbnails so draft resume is instant
   const saveFileTrimThumbs = useCallback(async (file, thumbs) => {
     const id = jobIdRef.current
@@ -382,6 +397,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileTrim,
     saveFileTrimThumbs,
     saveFileCaptions,
+    deleteFileFromJob,
     saveOverlaySettings,
     saveVoiceoverSettings,
     loadJob,
