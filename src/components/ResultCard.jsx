@@ -1269,6 +1269,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         if (s.blob) segs.push({ audioBase64: await blobToBase64Str(s.blob), startTime: s.startTime || 0, volume: s.volume ?? 1 })
       }
       if (!segs.length) return url
+      console.log(`[voiceover mix] sending ${segs.length} segment(s) at times:`, segs.map(s => s.startTime))
       const r = await apiMod.addVoiceoverSegments(videoB64, segs, mode, origVol)
       if (r.error) throw new Error(r.error)
       const bc = atob(r.video_base64)
