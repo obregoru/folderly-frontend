@@ -1107,9 +1107,20 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 <div className="flex items-center gap-1 flex-wrap">
                   <label className="text-[9px] text-muted">At:</label>
                   <input
-                    type="number" min={0} step={0.5}
-                    value={seg.startTime}
-                    onChange={e => updateSegment(seg.id, { startTime: Number(e.target.value) || 0 })}
+                    type="text" inputMode="decimal"
+                    value={seg.startTimeStr ?? String(seg.startTime ?? '')}
+                    onChange={e => {
+                      const raw = e.target.value
+                      // Allow empty, digits, one dot. Parse what we can.
+                      const cleaned = raw.replace(/[^0-9.]/g, '')
+                      const parsed = cleaned === '' || cleaned === '.' ? 0 : parseFloat(cleaned)
+                      updateSegment(seg.id, { startTimeStr: cleaned, startTime: isNaN(parsed) ? 0 : parsed })
+                    }}
+                    onBlur={e => {
+                      // Normalize on blur so saved value is clean
+                      const parsed = parseFloat(e.target.value) || 0
+                      updateSegment(seg.id, { startTimeStr: String(parsed), startTime: parsed })
+                    }}
                     className="text-[10px] border border-border rounded py-0.5 px-1 bg-white w-14"
                   />
                   <span className="text-[9px] text-muted">s</span>

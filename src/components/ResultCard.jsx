@@ -2355,7 +2355,17 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <div className="flex items-center gap-1">
                               <span className="text-[9px] text-muted">Starts at:</span>
-                              <input type="number" min={0} step={0.5} value={middleStartTime} onChange={e => setMiddleStartTime(Number(e.target.value) || 0)} className="text-[9px] border border-border rounded py-0 px-1 bg-white w-14" />
+                              <input
+                                type="text" inputMode="decimal"
+                                value={middleStartTime === '' ? '' : String(middleStartTime)}
+                                onChange={e => {
+                                  const cleaned = e.target.value.replace(/[^0-9.]/g, '')
+                                  if (cleaned === '') { setMiddleStartTime(0); return }
+                                  const parsed = parseFloat(cleaned)
+                                  setMiddleStartTime(isNaN(parsed) ? 0 : parsed)
+                                }}
+                                className="text-[9px] border border-border rounded py-0 px-1 bg-white w-14"
+                              />
                               <span className="text-[9px] text-muted">s</span>
                             </div>
                             <div className="flex items-center gap-1">
