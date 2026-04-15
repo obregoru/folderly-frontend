@@ -198,8 +198,13 @@ function RestoredMedia({ item, isVideo, onClick }) {
           data-posty-item-id={item.id}
           src={src}
           className="w-full h-full object-contain"
-          muted playsInline preload="auto"
-          crossOrigin="anonymous"
+          muted playsInline preload="metadata"
+          // Use the first captured trim thumbnail as the poster. iOS Safari
+          // won't paint the first frame of a <video> until playback starts,
+          // so without a poster the tile stays black on mobile. The
+          // trim_thumbs array is persisted with the job and arrives as data
+          // URLs — perfect for a poster.
+          poster={Array.isArray(item._trimThumbs) && item._trimThumbs[0] ? item._trimThumbs[0] : undefined}
           onLoadedMetadata={e => {
             const v = e.target
             if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
