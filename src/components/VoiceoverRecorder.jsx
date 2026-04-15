@@ -336,6 +336,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     }
     const mappedCount = Array.from(map.values()).length
     console.log(`[VoiceoverRecorder] segment audio pool: ${mappedCount} ready, ${segments.length} total`)
+    // Dump the full map so we can see which text/startTime maps to which URL
+    for (const s of segments) {
+      const a = map.get(s.id)
+      console.log(`  seg ${s.id} @ ${s.startTime}s text="${(s.text || '').slice(0, 30)}" url=${(a?.src || s.audioUrl || '').slice(-60)}`)
+    }
   }, [segments])
   // "missing" warnings use a separate set so play/seek resets don't re-spam
   const segWarnedRef = useRef(new Set())
@@ -353,6 +358,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       if (segFiredRef.current.has(s.id)) continue
       if (videoTimeFromTrimStart >= (Number(s.startTime) || 0)) {
         segFiredRef.current.add(s.id)
+        console.log(`[VoiceoverRecorder] firing ${s.id} at ${s.startTime}s, src=${audio.src?.slice(-80)}, stateText="${(s.text || '').slice(0, 40)}"`)
         try { audio.currentTime = 0; audio.play().catch(err => console.warn('[seg play]', err)) } catch (e) { console.warn('[seg play]', e) }
       }
     }
@@ -368,6 +374,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const playSegment = (id) => {
     const seg = segments.find(s => s.id === id)
     if (!seg?.audioUrl) return
+    console.log(`[VoiceoverRecorder] ▶ test ${id} text="${(seg.text || '').slice(0, 40)}" url=${seg.audioUrl.slice(-60)}`)
     try {
       // Stop any currently playing test
       if (segTestAudioRef.current) { try { segTestAudioRef.current.pause() } catch {} }
