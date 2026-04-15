@@ -594,8 +594,10 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             return
           }
         }
-        // Check if preview audio is still playing
-        if (!recording && audioPreviewRef.current?.paused) {
+        // Track as long as the VIDEO is playing, not the audio. AI voiceovers
+        // are often shorter than the clip — the video should keep playing
+        // (with original audio or silence) after the voiceover ends.
+        if (!recording && v.paused && v.currentTime > 0) {
           setPreviewing(false)
           return
         }
