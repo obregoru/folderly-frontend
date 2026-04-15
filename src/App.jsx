@@ -801,6 +801,7 @@ export default function App() {
                 window._postyVoiceoverVideo = { blob, url, base64 }
               }}
               onSettingsChange={(voSettings) => jobSync.saveVoiceoverSettings(voSettings)}
+              onFlushSave={() => jobSync.flushPendingSave()}
             />
           )}
 

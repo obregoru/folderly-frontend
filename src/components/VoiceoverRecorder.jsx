@@ -28,7 +28,7 @@ const fileToBase64 = blobToBase64
  * (from uploads or the merged result) and clicks "Apply" to mix the
  * voiceover onto the video server-side.
  */
-export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange, jobId, restoredVoiceover }) {
+export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange, onFlushSave, jobId, restoredVoiceover }) {
   // restoredVoiceover = { settings: {...}, audioBlob, audioUrl } from job restore
   const rv = restoredVoiceover || {}
   const rvs = rv.settings || {}
@@ -302,6 +302,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       }
     } finally {
       setGeneratingAll(false)
+      // Wait one tick so the segment state updates are flushed into the
+      // pending save payload, then push it to the server immediately.
+      // Without this, fresh audio keys sit in the 800ms debounce window
+      // and are lost if the user refreshes.
+      if (onFlushSave) setTimeout(() => { onFlushSave().catch(e => console.warn('[flushSave] failed:', e.message)) }, 50)
     }
   }
   // Audio elements for segment playback during the synced preview.
@@ -625,6 +630,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       alert('TTS failed: ' + err.message)
     }
     setTtsLoading(false)
+    // Flush pending save so segment audioKeys persist immediately rather than
+    // sitting in the 800ms debounce (where a refresh would lose them).
+    if (onFlushSave) setTimeout(() => { onFlushSave().catch(e => console.warn('[flushSave] failed:', e.message)) }, 50)
   }
 
   // No separate "Apply" button — the voiceover audio is stashed on each

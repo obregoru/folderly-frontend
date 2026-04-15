@@ -206,6 +206,18 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     debouncedSaveJob({ voiceover_settings: voiceoverSettings })
   }, [debouncedSaveJob])
 
+  // Flush any pending debounced save to the server immediately. Called
+  // after TTS generation so newly-uploaded segment audio keys never sit
+  // in the 800ms debounce window — a refresh within that window would
+  // otherwise drop the keys.
+  const flushPendingSave = useCallback(async () => {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null }
+    if (Object.keys(pendingSaveDataRef.current).length === 0) return
+    const pending = pendingSaveDataRef.current
+    pendingSaveDataRef.current = {}
+    await saveJob(pending)
+  }, [saveJob])
+
   // Flush all pending saves immediately — called by explicit Save button
   const saveAll = useCallback(async () => {
     const id = await ensureJob()
@@ -424,6 +436,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     deleteFileFromJob,
     saveOverlaySettings,
     saveVoiceoverSettings,
+    flushPendingSave,
     loadJob,
     newJob,
     archiveJob,
