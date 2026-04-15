@@ -2329,9 +2329,10 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     {/* Opening/middle/closing text — shared (shown only when AI per-platform is OFF) */}
                     {storyCaptionStyle === 'overlay' && !aiOverlaysEnabled && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="space-y-1.5">
-                        <div className="flex gap-1.5">
+                        <div className="flex flex-col md:flex-row gap-1.5">
                           <div className="flex-1">
-                            <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for new line)"} />
+                            <label className="text-[11px] md:text-[9px] text-muted block mb-0.5 md:hidden">Opening</label>
+                            <textarea className="w-full text-[13px] md:text-[10px] border border-border rounded py-2 md:py-0.5 px-2 md:px-1 bg-white resize-y min-h-[80px] md:min-h-0" rows={3} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Shift+Enter for new line)"} />
                             <div className="flex items-center gap-1 mt-0.5">
                               <span className="text-[9px] text-muted">Duration:</span>
                               <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={openingDuration} onChange={e => setOpeningDuration(Number(e.target.value))}>
@@ -2340,7 +2341,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             </div>
                           </div>
                           <div className="flex-1">
-                            <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={closingText} onChange={e => setClosingText(e.target.value)} placeholder={"Closing text\n(Enter for new line)"} />
+                            <label className="text-[11px] md:text-[9px] text-muted block mb-0.5 md:hidden">Closing</label>
+                            <textarea className="w-full text-[13px] md:text-[10px] border border-border rounded py-2 md:py-0.5 px-2 md:px-1 bg-white resize-y min-h-[80px] md:min-h-0" rows={3} value={closingText} onChange={e => setClosingText(e.target.value)} placeholder={"Closing text\n(Shift+Enter for new line)"} />
                             <div className="flex items-center gap-1 mt-0.5">
                               <span className="text-[9px] text-muted">Duration:</span>
                               <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={closingDuration} onChange={e => setClosingDuration(Number(e.target.value))}>
@@ -2351,7 +2353,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         </div>
                         {/* Middle overlay — optional mid-clip callout */}
                         <div>
-                          <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={middleText} onChange={e => setMiddleText(e.target.value)} placeholder={"Middle text (optional)\n(Enter for new line)"} />
+                          <label className="text-[11px] md:text-[9px] text-muted block mb-0.5 md:hidden">Middle (optional)</label>
+                          <textarea className="w-full text-[13px] md:text-[10px] border border-border rounded py-2 md:py-0.5 px-2 md:px-1 bg-white resize-y min-h-[80px] md:min-h-0" rows={3} value={middleText} onChange={e => setMiddleText(e.target.value)} placeholder={"Middle text (optional)\n(Shift+Enter for new line)"} />
                           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <div className="flex items-center gap-1">
                               <span className="text-[9px] text-muted">Starts at:</span>
