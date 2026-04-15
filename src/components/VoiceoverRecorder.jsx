@@ -290,15 +290,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         map.delete(s.id)
       }
     }
+    const mappedCount = Array.from(map.values()).length
+    console.log(`[VoiceoverRecorder] segment audio pool: ${mappedCount} ready, ${segments.length} total`)
   }, [segments])
   // Called every timeupdate tick to fire any segment whose start time has arrived
   const maybeFireSegments = (videoTimeFromTrimStart) => {
     for (const s of segments) {
       const audio = segAudioMapRef.current.get(s.id)
-      if (!audio) continue
+      if (!audio) {
+        // Log once per missing segment so we can see why it didn't fire
+        if (!segFiredRef.current.has(`missing-${s.id}`)) {
+          console.log(`[VoiceoverRecorder] segment ${s.id} at ${s.startTime}s has no audio element (audioUrl=${!!s.audioUrl}, blob=${!!s.blob})`)
+          segFiredRef.current.add(`missing-${s.id}`)
+        }
+        continue
+      }
       if (segFiredRef.current.has(s.id)) continue
       if (videoTimeFromTrimStart >= (Number(s.startTime) || 0)) {
         segFiredRef.current.add(s.id)
+        console.log(`[VoiceoverRecorder] firing segment at ${s.startTime}s (current video ${videoTimeFromTrimStart.toFixed(2)}s)`)
         try { audio.currentTime = 0; audio.play().catch(err => console.warn('[seg play]', err)) } catch (e) { console.warn('[seg play]', e) }
       }
     }
