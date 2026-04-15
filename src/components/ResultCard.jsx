@@ -1298,8 +1298,29 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       }
     }
     check()
-    // Also listen for the voiceover-change event from VoiceoverRecorder
-    const onVoChange = () => check()
+    // Also listen for the voiceover-change event from VoiceoverRecorder.
+    // Invalidate any existing preview video too — the old preview has stale
+    // audio baked in, so we need the user to click Generate Preview again
+    // before they download/post. Otherwise an updated voiceover wouldn't
+    // make it into the exported file.
+    const onVoChange = () => {
+      check()
+      setGeneratedPreviewUrlInternal(prev => {
+        if (prev) { try { URL.revokeObjectURL(prev) } catch {} }
+        return null
+      })
+      // Clear cached previews on the item too so the post flow rebuilds
+      if (item._sharedPreviewUrl) { try { URL.revokeObjectURL(item._sharedPreviewUrl) } catch {} }
+      delete item._sharedPreviewUrl
+      if (item._tabPreviewUrls) {
+        for (const k of Object.keys(item._tabPreviewUrls)) {
+          try { URL.revokeObjectURL(item._tabPreviewUrls[k]) } catch {}
+        }
+        item._tabPreviewUrls = {}
+      }
+      if (item._overlayPreviewUrl) { try { URL.revokeObjectURL(item._overlayPreviewUrl) } catch {} }
+      delete item._overlayPreviewUrl
+    }
     window.addEventListener('posty-voiceover-change', onVoChange)
     return () => window.removeEventListener('posty-voiceover-change', onVoChange)
   }, [item._voiceoverBlob])
