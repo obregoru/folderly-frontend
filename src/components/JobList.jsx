@@ -75,15 +75,15 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, savi
                     try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
                   }}
                   disabled={duplicatingId === j.uuid}
-                  className="text-[9px] text-muted hover:text-[#6C5CE7] bg-transparent border-none cursor-pointer px-1 disabled:opacity-50"
+                  className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
                   title="Duplicate — copies all videos, audio, captions to a new job"
-                >{duplicatingId === j.uuid ? '…' : '⧉'}</button>
+                >{duplicatingId === j.uuid ? 'Copying…' : 'Duplicate'}</button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); onArchive(j.uuid) }}
-                className="text-[9px] text-muted hover:text-[#c0392b] bg-transparent border-none cursor-pointer px-1"
+                className="text-[10px] text-[#c0392b] hover:bg-[#fdeaea] bg-white border border-[#c0392b] rounded cursor-pointer py-0.5 px-2"
                 title="Archive this draft"
-              >×</button>
+              >Archive</button>
             </div>
           ))}
         </div>
