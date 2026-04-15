@@ -1923,7 +1923,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               <video src={generatedPreviewUrl} className="w-full max-h-[320px] object-contain" controls playsInline />
                               <button
                                 type="button"
-                                onClick={() => saveVideo(generatedPreviewUrl, buildDownloadName(item, 'overlay', 'mp4'))}
+                                onClick={() => saveVideo(generatedPreviewUrl, buildDownloadName(item, platform, 'mp4'))}
                                 className="absolute top-1 right-1 text-[7px] bg-black/60 text-white rounded px-1.5 py-0.5 hover:bg-black/80 z-10 cursor-pointer border-none"
                               >Save</button>
                             </>
@@ -2450,7 +2450,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <button onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }} className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer">Back to edit</button>
                             <button
                               type="button"
-                              onClick={() => saveVideo(generatedPreviewUrl, buildDownloadName(item, 'overlay', 'mp4'))}
+                              onClick={() => saveVideo(generatedPreviewUrl, buildDownloadName(item, platform, 'mp4'))}
                               className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer bg-white"
                             >Save</button>
                           </>
