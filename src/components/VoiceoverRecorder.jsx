@@ -219,6 +219,50 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       setGeneratingAll(false)
     }
   }
+  // Audio elements for segment playback during the synced preview.
+  // Keyed by segment id so we can reuse across timeupdate ticks without re-triggering.
+  const segAudioMapRef = useRef(new Map())
+  const segFiredRef = useRef(new Set()) // ids that have started playing this cycle
+  // Rebuild/invalidate Audio elements whenever the segment list or its audio changes
+  useEffect(() => {
+    const map = segAudioMapRef.current
+    const current = new Set(segments.map(s => s.id))
+    // Remove stale audios
+    for (const [id, a] of map) {
+      if (!current.has(id)) { try { a.pause() } catch {}; map.delete(id) }
+    }
+    // Add/refresh audio for each segment that has a blob url
+    for (const s of segments) {
+      const existing = map.get(s.id)
+      if (s.audioUrl && (!existing || existing.src !== s.audioUrl)) {
+        if (existing) { try { existing.pause() } catch {} }
+        const a = new Audio(s.audioUrl)
+        a.preload = 'auto'
+        map.set(s.id, a)
+      } else if (!s.audioUrl && existing) {
+        try { existing.pause() } catch {}
+        map.delete(s.id)
+      }
+    }
+  }, [segments])
+  // Called every timeupdate tick to fire any segment whose start time has arrived
+  const maybeFireSegments = (videoTimeFromTrimStart) => {
+    for (const s of segments) {
+      const audio = segAudioMapRef.current.get(s.id)
+      if (!audio) continue
+      if (segFiredRef.current.has(s.id)) continue
+      if (videoTimeFromTrimStart >= (Number(s.startTime) || 0)) {
+        segFiredRef.current.add(s.id)
+        try { audio.currentTime = 0; audio.play().catch(err => console.warn('[seg play]', err)) } catch (e) { console.warn('[seg play]', e) }
+      }
+    }
+  }
+  const resetSegmentPlayback = () => {
+    segFiredRef.current.clear()
+    for (const a of segAudioMapRef.current.values()) {
+      try { a.pause(); a.currentTime = 0 } catch {}
+    }
+  }
   // Play a single segment's audio — returns the promise so we can surface errors
   const segTestAudioRef = useRef(null)
   const playSegment = (id) => {
@@ -516,16 +560,26 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 if (v.currentTime < start || v.currentTime >= end - 0.05) {
                   try { v.currentTime = start } catch {}
                 }
-                // Sync voiceover audio
+                // Sync voiceover audio (primary)
                 if (audioUrl && audioPreviewRef.current) {
                   const outputTime = Math.max(0, (v.currentTime || 0) - start)
                   try { audioPreviewRef.current.currentTime = outputTime } catch {}
                   audioPreviewRef.current.play().catch(() => {})
                   setPreviewing(true)
                 }
+                // Reset segment fired-state so they can trigger this playthrough.
+                // If we're resuming mid-video, mark any already-past segments as fired
+                // (we can't rewind an audio to the middle of a TTS clip gracefully).
+                const outputT = Math.max(0, (v.currentTime || 0) - start)
+                segFiredRef.current.clear()
+                for (const s of segments) {
+                  if ((Number(s.startTime) || 0) < outputT) segFiredRef.current.add(s.id)
+                }
+                setPreviewing(true)
               }}
               onPause={() => {
                 if (audioPreviewRef.current) try { audioPreviewRef.current.pause() } catch {}
+                for (const a of segAudioMapRef.current.values()) { try { a.pause() } catch {} }
                 setPreviewing(false)
               }}
               onSeeked={() => {
@@ -536,11 +590,20 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 // Clamp seek to trim range
                 if (v.currentTime < start) try { v.currentTime = start } catch {}
                 else if (v.currentTime >= end) try { v.currentTime = Math.max(start, end - 0.1) } catch {}
-                // Sync voiceover audio
+                // Sync voiceover audio (primary)
                 if (audioUrl && audioPreviewRef.current) {
                   const outputTime = Math.max(0, (v.currentTime || 0) - start)
                   try { audioPreviewRef.current.currentTime = Math.min(outputTime, audioPreviewRef.current.duration || 999) } catch {}
                 }
+                // Re-evaluate segment fired-state after seek: anything before
+                // the new position is marked fired (suppressed), anything after is fresh.
+                const outputT = Math.max(0, (v.currentTime || 0) - start)
+                segFiredRef.current.clear()
+                for (const s of segments) {
+                  if ((Number(s.startTime) || 0) < outputT - 0.05) segFiredRef.current.add(s.id)
+                }
+                // Pause any currently-playing segment so it doesn't continue out of context
+                for (const a of segAudioMapRef.current.values()) { try { a.pause(); a.currentTime = 0 } catch {} }
               }}
               onTimeUpdate={e => {
                 const v = e.target
@@ -550,9 +613,14 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 if (v.currentTime >= end - 0.03) {
                   try { v.currentTime = start; v.pause() } catch {}
                   if (audioPreviewRef.current) try { audioPreviewRef.current.pause(); audioPreviewRef.current.currentTime = 0 } catch {}
+                  resetSegmentPlayback()
                   setPreviewing(false)
                 } else if (v.currentTime < start - 0.05) {
                   try { v.currentTime = start } catch {}
+                } else {
+                  // Fire any timed segments whose startTime has now arrived
+                  const outputT = Math.max(0, v.currentTime - start)
+                  maybeFireSegments(outputT)
                 }
               }}
             />
