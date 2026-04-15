@@ -137,6 +137,21 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (s.speakerBoost != null) setTtsSpeakerBoost(s.speakerBoost)
     if (s.mode) setVoMixMode(s.mode)
     if (s.originalVolume != null) setVoOrigVolume(s.originalVolume)
+    if (Array.isArray(s.segments) && s.segments.length > 0) {
+      // Rehydrate segment list. Audio blobs aren't persisted, so each row
+      // starts without audio — the user clicks "Generate voices" to recreate.
+      setSegments(s.segments.map(seg => ({
+        id: seg.id || `seg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        text: seg.text || '',
+        voiceId: seg.voiceId || '',
+        startTime: Number(seg.startTime) || 0,
+        stability: seg.stability,
+        similarity: seg.similarity,
+        style: seg.style,
+        speakerBoost: seg.speakerBoost,
+        blob: null, audioUrl: null, generating: false,
+      })))
+    }
     if (restoredVoiceover.audioBlob) {
       setAudioBlob(restoredVoiceover.audioBlob)
       setAudioUrl(restoredVoiceover.audioUrl || URL.createObjectURL(restoredVoiceover.audioBlob))

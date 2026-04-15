@@ -67,10 +67,20 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
-  // Debounced save
+  // Debounced save. Accumulates pending fields into pendingSaveDataRef so
+  // multiple quick edits across different fields (overlay + voiceover +
+  // segments) all go out together on the next timer tick — and so the
+  // explicit Save button can flush them instead of losing them.
+  const pendingSaveDataRef = useRef({})
   const debouncedSaveJob = useCallback((data) => {
+    Object.assign(pendingSaveDataRef.current, data)
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => saveJob(data), 800)
+    saveTimerRef.current = setTimeout(() => {
+      const pending = pendingSaveDataRef.current
+      pendingSaveDataRef.current = {}
+      saveTimerRef.current = null
+      if (Object.keys(pending).length) saveJob(pending)
+    }, 800)
   }, [saveJob])
 
   // Save hint when it changes
@@ -221,10 +231,17 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
           await api.updateJob(id, { job_name: primaryFile.job_name || primaryFile.captions?.job_name })
         }
       }
-      // Flush any pending debounced save (overlay/voiceover settings)
+      // Flush any pending debounced save (overlay/voiceover/segments) to
+      // the server instead of dropping it. Without this, anything typed
+      // within the 800ms debounce window before clicking Save was lost.
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current)
         saveTimerRef.current = null
+      }
+      if (Object.keys(pendingSaveDataRef.current).length > 0) {
+        const pending = pendingSaveDataRef.current
+        pendingSaveDataRef.current = {}
+        await saveJob(pending)
       }
       // Refresh job list
       const jobs = await api.listJobs()
