@@ -323,6 +323,15 @@ export const photoToVideo = (imageBase64, mediaType, duration = 7, motion = 'zoo
 export const saveVoiceover = (audioBase64, jobId, mediaType) =>
   fetch(api('/post/save-voiceover'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ audio_base64: audioBase64, job_id: jobId, media_type: mediaType }) }).then(r => r.json())
 
+// Save a single timed voiceover segment to job storage so it survives draft resume
+export const saveVoiceoverSegment = (audioBase64, jobId, segmentId, mediaType) =>
+  fetch(api('/post/save-voiceover-segment'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ audio_base64: audioBase64, job_id: jobId, segment_id: segmentId, media_type: mediaType }),
+  }).then(r => r.json())
+
 // Voiceover — mix audio onto video
 export const addVoiceover = (videoBase64, audioBase64, mode = 'mix', originalVolume = 0.3, voiceoverVolume = 1.0) =>
   fetch(api('/post/add-voiceover'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ video_base64: videoBase64, audio_base64: audioBase64, mode, original_volume: originalVolume, voiceover_volume: voiceoverVolume }) }).then(r => r.json())

@@ -138,9 +138,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (s.mode) setVoMixMode(s.mode)
     if (s.originalVolume != null) setVoOrigVolume(s.originalVolume)
     if (Array.isArray(s.segments) && s.segments.length > 0) {
-      // Rehydrate segment list. Audio blobs aren't persisted, so each row
-      // starts without audio — the user clicks "Generate voices" to recreate.
-      setSegments(s.segments.map(seg => ({
+      // Rehydrate segment list with metadata. If a segment has a saved
+      // audioKey + public URL (from Supabase), fetch the bytes and populate
+      // the blob so playback works immediately — no "Generate voices" click
+      // required unless the text was changed after save.
+      const restored = s.segments.map(seg => ({
         id: seg.id || `seg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         text: seg.text || '',
         voiceId: seg.voiceId || '',
@@ -149,8 +151,27 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         similarity: seg.similarity,
         style: seg.style,
         speakerBoost: seg.speakerBoost,
+        audioKey: seg.audioKey || null,
         blob: null, audioUrl: null, generating: false,
-      })))
+      }))
+      setSegments(restored)
+      // Async: fetch persisted audio in parallel and update each segment as
+      // the blob arrives. Failures fall back to empty (user can regenerate).
+      for (const seg of restored) {
+        const remoteUrl = seg.audioKey && s.segments.find(x => x.id === seg.id)?.audioUrl
+        if (!remoteUrl) continue
+        ;(async () => {
+          try {
+            const resp = await fetch(remoteUrl)
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            const blob = await resp.blob()
+            const localUrl = URL.createObjectURL(blob)
+            updateSegment(seg.id, { blob, audioUrl: localUrl })
+          } catch (e) {
+            console.warn(`[segment restore] ${seg.id} fetch failed:`, e.message)
+          }
+        })()
+      }
     }
     if (restoredVoiceover.audioBlob) {
       setAudioBlob(restoredVoiceover.audioBlob)
@@ -201,7 +222,19 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       for (let i = 0; i < bc.length; i++) bytes[i] = bc.charCodeAt(i)
       const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
       const url = URL.createObjectURL(blob)
-      return { blob, audioUrl: url }
+      // Persist to Supabase so the segment survives draft resume. Without
+      // this, clicking Generate on every resume is required. Store the
+      // returned key in voiceover_settings.segments[].audioKey.
+      let audioKey = null
+      if (jobId) {
+        try {
+          const res = await api.saveVoiceoverSegment(r.audio_base64, jobId, seg.id, r.media_type || 'audio/mpeg')
+          if (res?.audio_key) audioKey = res.audio_key
+        } catch (e) {
+          console.warn('[segment TTS] persist failed (segment still works in memory):', e.message)
+        }
+      }
+      return { blob, audioUrl: url, audioKey }
     } catch (err) {
       console.error('[segment TTS]', err)
       throw err
@@ -254,7 +287,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       for (const seg of pending) {
         try {
           const result = await generateOneSegmentTTS(seg)
-          if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, generating: false })
+          if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, generating: false })
         } catch (err) {
           updateSegment(seg.id, { generating: false })
           alert(`Failed on segment at ${seg.startTime}s: ${err.message}`)
@@ -293,22 +326,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     const mappedCount = Array.from(map.values()).length
     console.log(`[VoiceoverRecorder] segment audio pool: ${mappedCount} ready, ${segments.length} total`)
   }, [segments])
+  // "missing" warnings use a separate set so play/seek resets don't re-spam
+  const segWarnedRef = useRef(new Set())
   // Called every timeupdate tick to fire any segment whose start time has arrived
   const maybeFireSegments = (videoTimeFromTrimStart) => {
     for (const s of segments) {
       const audio = segAudioMapRef.current.get(s.id)
       if (!audio) {
-        // Log once per missing segment so we can see why it didn't fire
-        if (!segFiredRef.current.has(`missing-${s.id}`)) {
-          console.log(`[VoiceoverRecorder] segment ${s.id} at ${s.startTime}s has no audio element (audioUrl=${!!s.audioUrl}, blob=${!!s.blob})`)
-          segFiredRef.current.add(`missing-${s.id}`)
+        if (!segWarnedRef.current.has(s.id)) {
+          console.log(`[VoiceoverRecorder] segment ${s.id} at ${s.startTime}s has no audio yet — click Generate voices`)
+          segWarnedRef.current.add(s.id)
         }
         continue
       }
       if (segFiredRef.current.has(s.id)) continue
       if (videoTimeFromTrimStart >= (Number(s.startTime) || 0)) {
         segFiredRef.current.add(s.id)
-        console.log(`[VoiceoverRecorder] firing segment at ${s.startTime}s (current video ${videoTimeFromTrimStart.toFixed(2)}s)`)
         try { audio.currentTime = 0; audio.play().catch(err => console.warn('[seg play]', err)) } catch (e) { console.warn('[seg play]', e) }
       }
     }
@@ -361,11 +394,12 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         similarity: ttsSimilarity,
         style: ttsStyle,
         speakerBoost: ttsSpeakerBoost,
-        // Persist segment metadata (no blobs — those are regenerated after resume)
+        // Persist segment metadata + audio key so blobs come back on resume
         segments: segments.map(s => ({
           id: s.id, text: s.text, voiceId: s.voiceId,
           startTime: s.startTime,
           stability: s.stability, similarity: s.similarity, style: s.style, speakerBoost: s.speakerBoost,
+          audioKey: s.audioKey || null,
         })),
       })
     }
@@ -572,7 +606,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         for (const seg of segsToGen) {
           try {
             const result = await generateOneSegmentTTS(seg)
-            if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, generating: false })
+            if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, generating: false })
           } catch (err) {
             updateSegment(seg.id, { generating: false })
             alert(`Segment at ${seg.startTime}s failed: ${err.message}`)
