@@ -106,6 +106,14 @@ export default function ScheduledPosts() {
                     )}
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
+                    {p.status === 'posted' && p.post_result?.url && (
+                      <a
+                        href={p.post_result.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-[#2D9A5E] hover:underline no-underline"
+                      >View ↗</a>
+                    )}
                     {p.status === 'failed' && (
                       <button
                         onClick={() => handleRetry(p.uuid)}

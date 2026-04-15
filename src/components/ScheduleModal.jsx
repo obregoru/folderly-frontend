@@ -266,6 +266,9 @@ function PostRow({ post, onCancel, onRetry, onDelete, onReload }) {
                 <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
               </>
             )}
+            {post.status === 'posted' && post.post_result?.url && (
+              <a href={post.post_result.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-[#2D9A5E] rounded text-[#2D9A5E] bg-white hover:bg-[#f0faf4] cursor-pointer no-underline">View post →</a>
+            )}
             {(post.status === 'posted' || post.status === 'cancelled') && (
               <button onClick={(e) => { e.stopPropagation(); onDelete(post.uuid) }} className="text-[9px] md:text-xs py-0.5 md:py-1 px-2 md:px-3 border border-border rounded text-muted bg-white hover:bg-cream cursor-pointer">Remove</button>
             )}
