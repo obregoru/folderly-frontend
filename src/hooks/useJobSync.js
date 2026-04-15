@@ -362,6 +362,9 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
       if (mergeResult.status === 'fulfilled' && mergeResult.value) {
         window._postyMergedVideo = mergeResult.value
         console.log('[useJobSync] merged video restored from', job.merged_video_key)
+        // Notify VoiceoverRecorder + others so they swap monitor src to the
+        // merged composition instead of videoFiles[0].
+        try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
       } else if (mergeResult.status === 'rejected') {
         console.warn('[useJobSync] merged video restore failed:', mergeResult.reason?.message)
       }
