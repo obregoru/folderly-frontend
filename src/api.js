@@ -127,7 +127,10 @@ export async function generateStream(body, onCaptions, onWarning) {
       if (line.startsWith('data: ')) {
         try {
           const evt = JSON.parse(line.slice(6))
-          if (evt.type === 'captions' && evt.data) onCaptions(evt.data)
+          if (evt.type === 'captions' && evt.data) {
+            console.log('[generateStream] captions event, keys:', Object.keys(evt.data))
+            onCaptions(evt.data)
+          }
           if (evt.type === 'warning' && onWarning) onWarning(evt.message)
           if (evt.type === 'error') throw new Error(evt.error)
         } catch (e) {
