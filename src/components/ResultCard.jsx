@@ -1381,7 +1381,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       delete item._overlayPreviewUrl
     }
     window.addEventListener('posty-voiceover-change', onVoChange)
-    return () => window.removeEventListener('posty-voiceover-change', onVoChange)
+    // Same invalidation on merge change — a re-merge produces a new
+    // source video, so any baked preview is stale and must be rebuilt
+    // before export. Without this, Download MP4 keeps serving the
+    // pre-merge output.
+    window.addEventListener('posty-merge-change', onVoChange)
+    return () => {
+      window.removeEventListener('posty-voiceover-change', onVoChange)
+      window.removeEventListener('posty-merge-change', onVoChange)
+    }
   }, [item._voiceoverBlob])
   const [videoTime, setVideoTime] = useState(0)
   const [videoDuration, setVideoDuration] = useState(0)
@@ -2544,15 +2552,29 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               let rawType = item.file?.type || item._mediaType
                               let previewTrimStart = item._trimStart || 0
                               let previewTrimEnd = item._trimEnd ?? null
-                              if (mergedMeta?.base64) {
-                                rawBase64 = mergedMeta.base64
-                                rawType = 'video/mp4'
-                                // The merged video is already the final comp — no
-                                // per-clip trim applies on top.
-                                uploadKey = null
-                                previewTrimStart = 0
-                                previewTrimEnd = null
-                              } else if (item.file) {
+                              if (mergedMeta?.blob || mergedMeta?.url || mergedMeta?.base64) {
+                                // Get base64 for the latest merge — compute on the
+                                // fly if onMerged didn't attach it (most paths don't).
+                                try {
+                                  if (mergedMeta.base64) {
+                                    rawBase64 = mergedMeta.base64
+                                  } else {
+                                    const blob = mergedMeta.blob || await (await fetch(mergedMeta.url)).blob()
+                                    rawBase64 = await fileToBase64(blob)
+                                    // Cache for subsequent previews
+                                    try { window._postyMergedVideo = { ...mergedMeta, base64: rawBase64 } } catch {}
+                                  }
+                                  rawType = 'video/mp4'
+                                  // The merged video is already the final comp — no
+                                  // per-clip trim applies on top.
+                                  uploadKey = null
+                                  previewTrimStart = 0
+                                  previewTrimEnd = null
+                                } catch (e) {
+                                  console.warn('[preview] merge base64 failed, falling back to item:', e.message)
+                                }
+                              }
+                              if (!rawBase64 && item.file) {
                                 try { rawBase64 = await fileToBase64(item.file) } catch { rawBase64 = null }
                               }
                               const api = await import('../api')
