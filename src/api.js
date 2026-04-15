@@ -185,12 +185,12 @@ export const deleteSeoKeywordSet = (id) =>
   fetch(api(`/seo-keywords/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
 // Generate per-platform video overlay texts (opening + closing) from a single hint
-export const generateOverlayTexts = (hint, destinations) =>
+export const generateOverlayTexts = (hint, destinations, opts = {}) =>
   fetch(api('/generate/overlay-texts'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ hint, destinations }),
+    body: JSON.stringify({ hint, destinations, category: opts.category || null, options_per_dest: opts.optionsPerDest || 1 }),
   }).then(r => r.json())
 
 // Public signup (no auth)

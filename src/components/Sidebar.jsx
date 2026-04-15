@@ -360,6 +360,9 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
         </div>
       )}
 
+      {/* Hook categories — overlay text generation library */}
+      <HookCategoriesEditor categories={s.hook_categories || []} onSave={cats => save('hook_categories', cats)} />
+
       {/* This batch */}
       <div>
         <div className="s-head">This batch <HelpTip text="Settings that apply to the current upload batch. Occasion and availability context help AI write more relevant content." /></div>
@@ -512,6 +515,80 @@ function WatermarkUpload({ path, onUploaded }) {
         <input type="file" accept="image/png" className="hidden" onChange={handleFile} />
       </label>
       {status && !uploading && <span className="text-[10px] text-sage">{status}</span>}
+    </div>
+  )
+}
+
+// Hook categories — short-name + AI prompt-context pairs that drive the
+// "Hook style" chips in the post composer for overlay text generation.
+function HookCategoriesEditor({ categories, onSave }) {
+  const [draft, setDraft] = useState(categories)
+  const [newName, setNewName] = useState('')
+  const [newCtx, setNewCtx] = useState('')
+  // Keep draft in sync if server values change
+  useEffect(() => { setDraft(categories) }, [categories])
+
+  const updateCat = (idx, field, val) => {
+    const next = draft.map((c, i) => i === idx ? { ...c, [field]: val } : c)
+    setDraft(next)
+  }
+  const removeCat = (idx) => {
+    const next = draft.filter((_, i) => i !== idx)
+    setDraft(next)
+    onSave(next)
+  }
+  const addCat = () => {
+    if (!newName.trim()) return
+    const next = [...draft, { name: newName.trim(), prompt_context: newCtx.trim() }]
+    setDraft(next)
+    setNewName('')
+    setNewCtx('')
+    onSave(next)
+  }
+
+  return (
+    <div>
+      <div className="s-head">Hook categories <HelpTip text="Pre-set hook styles (Date Night, Birthday, Hidden Gem, etc.) that appear as chips in the post composer. The AI uses your description to guide overlay text generation." /></div>
+      <div className="space-y-1.5">
+        {draft.map((c, i) => (
+          <div key={i} className="border border-border rounded p-1.5 bg-white">
+            <div className="flex items-center gap-1 mb-1">
+              <input
+                className="field-input text-[11px] flex-1"
+                value={c.name}
+                onChange={e => updateCat(i, 'name', e.target.value)}
+                onBlur={() => onSave(draft)}
+                placeholder="Category name"
+              />
+              <button onClick={() => removeCat(i)} className="text-[10px] text-red-500 hover:underline px-1" title="Remove">×</button>
+            </div>
+            <textarea
+              rows={2}
+              className="w-full text-[10px] border border-border rounded py-1 px-1.5 bg-white resize-y"
+              value={c.prompt_context || ''}
+              onChange={e => updateCat(i, 'prompt_context', e.target.value)}
+              onBlur={() => onSave(draft)}
+              placeholder="How AI should frame hooks for this category…"
+            />
+          </div>
+        ))}
+        <div className="border border-dashed border-border rounded p-1.5 bg-cream/30">
+          <input
+            className="field-input text-[11px] mb-1"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            placeholder="New category name"
+          />
+          <textarea
+            rows={2}
+            className="w-full text-[10px] border border-border rounded py-1 px-1.5 bg-white resize-y mb-1"
+            value={newCtx}
+            onChange={e => setNewCtx(e.target.value)}
+            placeholder="AI prompt context (optional)"
+          />
+          <button onClick={addCat} disabled={!newName.trim()} className="text-[10px] py-0.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50">+ Add category</button>
+        </div>
+      </div>
     </div>
   )
 }

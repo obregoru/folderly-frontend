@@ -1044,6 +1044,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   // AI per-platform overlay texts — when enabled, each destination gets its own opening/closing text
   const [aiOverlaysEnabled, setAiOverlaysEnabled] = useState(_os.aiOverlaysEnabled ?? false)
   const [perPlatformOverlays, setPerPlatformOverlays] = useState(_os.perPlatformOverlays || {})
+  const [selectedHookCategory, setSelectedHookCategory] = useState(null)
   const [generatingOverlays, setGeneratingOverlays] = useState(false)
   const [overlayHint, setOverlayHint] = useState(_os.overlayHint || '')
   const [previewDestKey, setPreviewDestKey] = useState(_os.previewDestKey || null)
@@ -2077,6 +2078,23 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     {/* AI overlay source hint + generate */}
                     {storyCaptionStyle === 'overlay' && aiOverlaysEnabled && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
                       <div className="border border-[#6C5CE7]/30 rounded p-2 bg-[#f3f0ff]/50 space-y-1.5">
+                        {/* Hook category quick-select chips */}
+                        {Array.isArray(settings?.hook_categories) && settings.hook_categories.length > 0 && (
+                          <div>
+                            <label className="text-[9px] text-muted block mb-1">Hook style (optional — guides AI)</label>
+                            <div className="flex flex-wrap gap-1">
+                              {settings.hook_categories.map(c => (
+                                <button
+                                  key={c.name}
+                                  type="button"
+                                  onClick={() => setSelectedHookCategory(selectedHookCategory === c.name ? null : c.name)}
+                                  className={`text-[9px] py-0.5 px-1.5 rounded border cursor-pointer ${selectedHookCategory === c.name ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-[#6C5CE7] border-[#6C5CE7]/40 hover:bg-[#6C5CE7]/10'}`}
+                                  title={c.prompt_context || c.name}
+                                >{c.name}</button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         <label className="text-[9px] text-muted">Describe what this video is about (one sentence)</label>
                         <textarea
                           rows={2}
@@ -2101,11 +2119,16 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               setGeneratingOverlays(true)
                               try {
                                 const api = await import('../api')
-                                const r = await api.generateOverlayTexts(overlayHint.trim(), dests)
+                                const r = await api.generateOverlayTexts(overlayHint.trim(), dests, { category: selectedHookCategory, optionsPerDest: 4 })
                                 if (r.error) throw new Error(r.error)
-                                setPerPlatformOverlays(r.destinations || {})
-                                // Set preview to first available destination
-                                const firstDest = dests.find(d => r.destinations?.[d])
+                                // Convert openings array → opening (pick first by default)
+                                const normalized = {}
+                                for (const [k, v] of Object.entries(r.destinations || {})) {
+                                  const openings = Array.isArray(v.openings) ? v.openings : (v.opening ? [v.opening] : [])
+                                  normalized[k] = { ...v, openings, opening: openings[0] || '' }
+                                }
+                                setPerPlatformOverlays(normalized)
+                                const firstDest = dests.find(d => normalized[d])
                                 if (firstDest) setPreviewDestKey(firstDest)
                               } catch (err) {
                                 alert('Generate failed: ' + err.message)
@@ -2115,7 +2138,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             disabled={generatingOverlays || !overlayHint.trim()}
                             className="text-[10px] py-1 px-2.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
                           >
-                            {generatingOverlays ? 'Generating...' : Object.keys(perPlatformOverlays).length > 0 ? 'Regenerate' : 'Generate overlays with AI'}
+                            {generatingOverlays ? 'Generating...' : Object.keys(perPlatformOverlays).length > 0 ? 'Regenerate' : 'Generate hooks with AI'}
                           </button>
                           {Object.keys(perPlatformOverlays).length > 0 && (
                             <select
@@ -2135,9 +2158,23 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           <div className="space-y-1 pt-1 border-t border-[#6C5CE7]/20">
                             {Object.entries(perPlatformOverlays).map(([destKey, val]) => {
                               const labels = { ig_reel: 'IG Reel', ig_story: 'IG Story', fb_reel: 'FB Reel', fb_story: 'FB Story', yt_shorts: 'YT Shorts', tiktok: 'TikTok' }
+                              const openings = Array.isArray(val.openings) ? val.openings : (val.opening ? [val.opening] : [])
                               return (
                                 <div key={destKey} className="bg-white border border-border rounded p-1.5">
-                                  <div className="text-[9px] font-medium text-[#6C5CE7] mb-0.5">{labels[destKey] || destKey}</div>
+                                  <div className="text-[9px] font-medium text-[#6C5CE7] mb-1">{labels[destKey] || destKey}</div>
+                                  {openings.length > 1 && (
+                                    <div className="flex flex-wrap gap-1 mb-1">
+                                      {openings.map((opt, i) => (
+                                        <button
+                                          key={i}
+                                          type="button"
+                                          onClick={() => setPerPlatformOverlays(prev => ({ ...prev, [destKey]: { ...prev[destKey], opening: opt } }))}
+                                          className={`text-[9px] py-0.5 px-1.5 rounded border cursor-pointer text-left ${val.opening === opt ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-ink border-border hover:bg-[#f3f0ff]'}`}
+                                          title="Click to use this hook"
+                                        >{opt}</button>
+                                      ))}
+                                    </div>
+                                  )}
                                   <div className="flex gap-1">
                                     <input
                                       type="text"
