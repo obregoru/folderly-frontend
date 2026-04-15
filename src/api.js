@@ -323,6 +323,21 @@ export const saveVoiceover = (audioBase64, jobId, mediaType) =>
 export const addVoiceover = (videoBase64, audioBase64, mode = 'mix', originalVolume = 0.3, voiceoverVolume = 1.0) =>
   fetch(api('/post/add-voiceover'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ video_base64: videoBase64, audio_base64: audioBase64, mode, original_volume: originalVolume, voiceover_volume: voiceoverVolume }) }).then(r => r.json())
 
+// Multi-segment voiceover — place N audio clips at different time offsets on a video.
+// segments: [{ audioBase64, startTime, volume? }, ...]
+export const addVoiceoverSegments = (videoBase64, segments, mode = 'mix', originalVolume = 0.3) =>
+  fetch(api('/post/add-voiceover-segments'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      video_base64: videoBase64,
+      segments: segments.map(s => ({ audio_base64: s.audioBase64, start_time: s.startTime || 0, volume: s.volume ?? 1 })),
+      mode,
+      original_volume: originalVolume,
+    }),
+  }).then(r => r.json())
+
 // ElevenLabs TTS
 export const textToSpeech = (text, voiceId, voiceSettings = {}) =>
   fetch(api('/generate/text-to-speech'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, voice_id: voiceId, ...voiceSettings }) }).then(r => r.json())

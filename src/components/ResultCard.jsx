@@ -1224,6 +1224,64 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   }, [hasVideoNow])
   const videoPreviewRef = useRef(null)
   const voiceoverAudioRef = useRef(null)
+  // Helper: convert a Blob to base64 string (chunked to avoid call-stack limits)
+  const blobToBase64Str = (blob) => new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => {
+      const bytes = new Uint8Array(r.result)
+      let binary = ''
+      const chunk = 8192
+      for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
+      resolve(btoa(binary))
+    }
+    r.onerror = reject
+    r.readAsArrayBuffer(blob)
+  })
+
+  // Mix the primary voiceover AND any timed segments onto the given preview
+  // URL. Returns a new blob URL (caller revokes the old one). Falls back to
+  // the original URL on failure so preview still works.
+  const mixAllVoiceoversOnto = async (url, apiMod) => {
+    const primary = item._voiceoverBlob
+    const extras = Array.isArray(item._voiceoverSegments) ? item._voiceoverSegments : []
+    if (!primary && extras.length === 0) return url
+    try {
+      const videoB64 = await blobToBase64Str(await (await fetch(url)).blob())
+      const mode = item._voiceoverMode || 'mix'
+      const origVol = item._voiceoverOrigVol ?? 0.3
+      // Single clip at t=0: use the simpler existing endpoint
+      if (primary && extras.length === 0) {
+        const audioB64 = await blobToBase64Str(primary)
+        const r = await apiMod.addVoiceover(videoB64, audioB64, mode, origVol, 1.0)
+        if (r.error) throw new Error(r.error)
+        const bc = atob(r.video_base64)
+        const bytes = new Uint8Array(bc.length)
+        for (let i = 0; i < bc.length; i++) bytes[i] = bc.charCodeAt(i)
+        URL.revokeObjectURL(url)
+        return URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }))
+      }
+      // Multi-segment path: assemble all clips with their start times
+      const segs = []
+      if (primary) {
+        segs.push({ audioBase64: await blobToBase64Str(primary), startTime: 0, volume: 1 })
+      }
+      for (const s of extras) {
+        if (s.blob) segs.push({ audioBase64: await blobToBase64Str(s.blob), startTime: s.startTime || 0, volume: s.volume ?? 1 })
+      }
+      if (!segs.length) return url
+      const r = await apiMod.addVoiceoverSegments(videoB64, segs, mode, origVol)
+      if (r.error) throw new Error(r.error)
+      const bc = atob(r.video_base64)
+      const bytes = new Uint8Array(bc.length)
+      for (let i = 0; i < bc.length; i++) bytes[i] = bc.charCodeAt(i)
+      URL.revokeObjectURL(url)
+      return URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }))
+    } catch (err) {
+      console.warn('[voiceover mix] failed, using video-only:', err.message)
+      return url
+    }
+  }
+
   // Track voiceover blob — it's set by VoiceoverRecorder on item._voiceoverBlob.
   // We poll for it since it's a plain mutation, not React state.
   const [voiceoverUrl, setVoiceoverUrl] = useState(null)
@@ -2432,48 +2490,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   photoToVideoMotion,
                                 }
                               )
-                              // If a voiceover has been recorded/generated, mix it onto the
-                              // preview video so the user hears the full result.
-                              if (item._voiceoverBlob) {
-                                try {
-                                  // Read the preview video as base64
-                                  const previewResp = await fetch(url)
-                                  const previewBlob = await previewResp.blob()
-                                  const videoB64 = await new Promise((resolve) => {
-                                    const r = new FileReader()
-                                    r.onload = () => {
-                                      const bytes = new Uint8Array(r.result)
-                                      let binary = ''
-                                      const chunk = 8192
-                                      for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
-                                      resolve(btoa(binary))
-                                    }
-                                    r.readAsArrayBuffer(previewBlob)
-                                  })
-                                  // Read the voiceover audio as base64
-                                  const audioB64 = await new Promise((resolve) => {
-                                    const r = new FileReader()
-                                    r.onload = () => {
-                                      const bytes = new Uint8Array(r.result)
-                                      let binary = ''
-                                      const chunk = 8192
-                                      for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk))
-                                      resolve(btoa(binary))
-                                    }
-                                    r.readAsArrayBuffer(item._voiceoverBlob)
-                                  })
-                                  const mixResult = await api.addVoiceover(videoB64, audioB64, item._voiceoverMode || 'mix', item._voiceoverOrigVol ?? 0.3, 1.0)
-                                  if (!mixResult.error) {
-                                    URL.revokeObjectURL(url)
-                                    const byteChars = atob(mixResult.video_base64)
-                                    const bytes = new Uint8Array(byteChars.length)
-                                    for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
-                                    url = URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }))
-                                  }
-                                } catch (voErr) {
-                                  console.warn('[preview] voiceover mix failed, using video-only preview:', voErr.message)
-                                }
-                              }
+                              // Mix primary voiceover + any timed segments onto the preview
+                              url = await mixAllVoiceoversOnto(url, api)
                               if (generatedPreviewUrl) URL.revokeObjectURL(generatedPreviewUrl)
                               setGeneratedPreviewUrl(url)
                               item._overlayPreviewUrl = url // share with PostAllBar
@@ -2559,7 +2577,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     // all video destinations. If no preview has been generated yet,
                     // generate one now so the posted video has everything applied.
                     let processedBase64 = null
-                    const needsProcessing = effectiveIsVideo && (hasOverlays || hasTrim || item._voiceoverBlob)
+                    const hasSegments = Array.isArray(item._voiceoverSegments) && item._voiceoverSegments.length > 0
+                    const needsProcessing = effectiveIsVideo && (hasOverlays || hasTrim || item._voiceoverBlob || hasSegments)
                     if (needsProcessing) {
                       let previewUrl = generatedPreviewUrl
                       if (!previewUrl) {
@@ -2581,21 +2600,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               photoToVideo: false,
                             }
                           )
-                          // Mix voiceover if available
-                          if (item._voiceoverBlob) {
-                            try {
-                              const prevResp = await fetch(previewUrl)
-                              const prevBlob = await prevResp.blob()
-                              const vB64 = await new Promise(r2 => { const rd = new FileReader(); rd.onload = () => { const b = new Uint8Array(rd.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); r2(btoa(s)) }; rd.readAsArrayBuffer(prevBlob) })
-                              const aB64 = await new Promise(r2 => { const rd = new FileReader(); rd.onload = () => { const b = new Uint8Array(rd.result); let s = ''; const c = 8192; for (let i = 0; i < b.length; i += c) s += String.fromCharCode.apply(null, b.subarray(i, i + c)); r2(btoa(s)) }; rd.readAsArrayBuffer(item._voiceoverBlob) })
-                              const mixR = await api.addVoiceover(vB64, aB64, item._voiceoverMode || 'mix', item._voiceoverOrigVol ?? 0.3, 1.0)
-                              if (!mixR.error) {
-                                URL.revokeObjectURL(previewUrl)
-                                const bc = atob(mixR.video_base64); const by = new Uint8Array(bc.length); for (let i = 0; i < bc.length; i++) by[i] = bc.charCodeAt(i)
-                                previewUrl = URL.createObjectURL(new Blob([by], { type: 'video/mp4' }))
-                              }
-                            } catch (voErr) { console.warn('[post] voiceover mix failed:', voErr.message) }
-                          }
+                          // Mix primary voiceover + any timed segments
+                          previewUrl = await mixAllVoiceoversOnto(previewUrl, api)
                           setGeneratedPreviewUrl(previewUrl)
                           item._overlayPreviewUrl = previewUrl
                         } catch (procErr) {

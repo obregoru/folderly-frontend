@@ -152,6 +152,64 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     }
   }, [voMixMode, voOrigVolume, videoFiles])
 
+  // --- Additional timed segments (multi-voiceover) ---
+  // Each segment is an optional TTS clip placed at a specific startTime on top
+  // of the primary recording/TTS. Blobs live in-memory during the session;
+  // on job restore only the metadata (text + startTime + voice) comes back
+  // so the user can re-generate audio with one click.
+  const [segments, setSegments] = useState(() => Array.isArray(rvs.segments) ? rvs.segments.map(s => ({ ...s })) : [])
+  const updateSegment = (id, patch) => setSegments(segs => segs.map(s => s.id === id ? { ...s, ...patch } : s))
+  const addSegment = () => setSegments(segs => [...segs, {
+    id: `seg-${Date.now()}`, text: '', voiceId: selectedVoice || '',
+    startTime: Math.max(1, Math.round((segs[segs.length - 1]?.startTime || 0) + 5)),
+    stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+    blob: null, audioUrl: null, generating: false,
+  }])
+  const removeSegment = (id) => setSegments(segs => {
+    const gone = segs.find(s => s.id === id)
+    if (gone?.audioUrl) { try { URL.revokeObjectURL(gone.audioUrl) } catch {} }
+    return segs.filter(s => s.id !== id)
+  })
+  const generateSegmentTTS = async (id) => {
+    const seg = segments.find(s => s.id === id)
+    if (!seg || !seg.text?.trim()) return
+    updateSegment(id, { generating: true })
+    try {
+      const r = await api.textToSpeech(seg.text.trim(), seg.voiceId || selectedVoice, {
+        stability: seg.stability ?? ttsStability,
+        similarity_boost: seg.similarity ?? ttsSimilarity,
+        style: seg.style ?? ttsStyle,
+        use_speaker_boost: seg.speakerBoost ?? ttsSpeakerBoost,
+      })
+      if (r.error) throw new Error(r.error)
+      const bc = atob(r.audio_base64)
+      const bytes = new Uint8Array(bc.length)
+      for (let i = 0; i < bc.length; i++) bytes[i] = bc.charCodeAt(i)
+      const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
+      const url = URL.createObjectURL(blob)
+      updateSegment(id, { blob, audioUrl: url, generating: false })
+    } catch (err) {
+      alert('Segment TTS failed: ' + err.message)
+      updateSegment(id, { generating: false })
+    }
+  }
+  const playSegment = (id) => {
+    const seg = segments.find(s => s.id === id)
+    if (!seg?.audioUrl) return
+    try { new Audio(seg.audioUrl).play() } catch {}
+  }
+  // Stash segment blobs on each video item for the preview/publish pipeline
+  useEffect(() => {
+    const ready = segments.filter(s => s.blob).map(s => ({
+      blob: s.blob, startTime: Number(s.startTime) || 0, volume: 1,
+    }))
+    for (const vf of videoFiles) {
+      if (ready.length) vf._voiceoverSegments = ready
+      else delete vf._voiceoverSegments
+    }
+    try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+  }, [segments, videoFiles])
+
   // Auto-save voiceover settings to job when they change
   useEffect(() => {
     if (onSettingsChange) {
@@ -164,9 +222,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         similarity: ttsSimilarity,
         style: ttsStyle,
         speakerBoost: ttsSpeakerBoost,
+        // Persist segment metadata (no blobs — those are regenerated after resume)
+        segments: segments.map(s => ({
+          id: s.id, text: s.text, voiceId: s.voiceId,
+          startTime: s.startTime,
+          stability: s.stability, similarity: s.similarity, style: s.style, speakerBoost: s.speakerBoost,
+        })),
       })
     }
-  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost])
+  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, segments])
 
   // Clear "restored" flag when TTS settings change so Generate button un-dims
   const ttsSettingsKeyRef = useRef(`${rvs.ttsText}|${rvs.voiceId}|${rvs.stability}|${rvs.similarity}|${rvs.style}|${rvs.speakerBoost}`)
@@ -726,6 +790,97 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             {voMixMode === 'replace' ? 'Original audio will be removed — only your voiceover will play.' : `Original audio at ${Math.round(voOrigVolume * 100)}% + voiceover at 100%.`}
             {' '}Applied when you click <strong>Generate Preview</strong> below.
           </p>
+        </div>
+      )}
+
+      {/* Additional timed segments — speak different things at different points */}
+      {hasElevenLabs && (
+        <div className="border-t border-border pt-2 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium text-ink">
+              Timed segments {segments.length > 0 && <span className="text-muted">({segments.length})</span>}
+            </span>
+            <button
+              type="button"
+              onClick={addSegment}
+              className="text-[10px] py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer hover:bg-[#f3f0ff]"
+              title="Add another voiceover clip that plays at a specific time"
+            >+ Add segment</button>
+          </div>
+          {segments.length === 0 && (
+            <p className="text-[9px] text-muted">Place extra voiceover clips at specific times (e.g. narrate at 5s, 12s, 25s). The primary recording/TTS above stays as-is.</p>
+          )}
+          {segments.map((seg) => {
+            const hasAudio = !!seg.blob
+            return (
+              <div key={seg.id} className="border border-border rounded p-1.5 bg-cream/30 space-y-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <label className="text-[9px] text-muted">At:</label>
+                  <input
+                    type="number" min={0} step={0.5}
+                    value={seg.startTime}
+                    onChange={e => updateSegment(seg.id, { startTime: Number(e.target.value) || 0 })}
+                    className="text-[10px] border border-border rounded py-0.5 px-1 bg-white w-14"
+                  />
+                  <span className="text-[9px] text-muted">s</span>
+                  {voices.length > 0 && (
+                    <select
+                      value={seg.voiceId || selectedVoice}
+                      onChange={e => updateSegment(seg.id, { voiceId: e.target.value })}
+                      className="text-[10px] border border-border rounded py-0.5 px-1 bg-white flex-1 min-w-[100px]"
+                      title="Voice for this segment"
+                    >
+                      {voices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeSegment(seg.id)}
+                    className="text-[10px] text-[#c0392b] hover:underline bg-transparent border-none cursor-pointer px-1"
+                    title="Remove this segment"
+                  >×</button>
+                </div>
+                <textarea
+                  rows={2}
+                  value={seg.text || ''}
+                  onChange={e => updateSegment(seg.id, { text: e.target.value, blob: null, audioUrl: null })}
+                  placeholder="What should be spoken at this point?"
+                  className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-y"
+                />
+                <div className="flex items-center gap-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => generateSegmentTTS(seg.id)}
+                    disabled={seg.generating || !seg.text?.trim()}
+                    className={`text-[10px] py-0.5 px-2 border-none rounded cursor-pointer disabled:opacity-50 ${hasAudio ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+                  >{seg.generating ? 'Generating…' : hasAudio ? 'Regenerate' : 'Generate voice'}</button>
+                  {hasAudio && (
+                    <button
+                      type="button"
+                      onClick={() => playSegment(seg.id)}
+                      className="text-[10px] py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
+                    >▶ Test</button>
+                  )}
+                  {!hasAudio && seg.text?.trim() && (
+                    <span className="text-[9px] text-muted">Click Generate to create audio for this segment</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          {segments.length > 1 && (() => {
+            // Warn if any segment overlaps with the next (approximate — we
+            // don't know exact durations without decoding, so check text length)
+            const sorted = [...segments].sort((a, b) => a.startTime - b.startTime)
+            const overlaps = []
+            for (let i = 0; i < sorted.length - 1; i++) {
+              // Rough: assume ~0.15s per character for TTS speech
+              const est = Math.max(1, (sorted[i].text || '').length * 0.15)
+              if (sorted[i].startTime + est > sorted[i + 1].startTime) overlaps.push(i)
+            }
+            if (!overlaps.length) return null
+            return <p className="text-[9px] text-[#c0392b]">⚠ Some segments may overlap — consider spacing them further apart.</p>
+          })()}
         </div>
       )}
       </div>}
