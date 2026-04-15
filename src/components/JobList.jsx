@@ -14,9 +14,10 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString()
 }
 
-export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, saving = false, onResume, onNew, onSave, onArchive }) {
+export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, saving = false, onResume, onNew, onSave, onArchive, onDuplicate }) {
   const [expanded, setExpanded] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
+  const [duplicatingId, setDuplicatingId] = useState(null)
   const drafts = jobs.filter(j => j.status === 'draft' && (j.file_count > 0 || j.hint_text || j.job_name))
 
   return (
@@ -65,6 +66,19 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, savi
                   {j.uuid === activeJobId && <span className="text-[#2D9A5E] ml-1">(current)</span>}
                 </div>
               </div>
+              {onDuplicate && (
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation()
+                    if (duplicatingId) return
+                    setDuplicatingId(j.uuid)
+                    try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
+                  }}
+                  disabled={duplicatingId === j.uuid}
+                  className="text-[9px] text-muted hover:text-[#6C5CE7] bg-transparent border-none cursor-pointer px-1 disabled:opacity-50"
+                  title="Duplicate — copies all videos, audio, captions to a new job"
+                >{duplicatingId === j.uuid ? '…' : '⧉'}</button>
+              )}
               <button
                 onClick={(e) => { e.stopPropagation(); onArchive(j.uuid) }}
                 className="text-[9px] text-muted hover:text-[#c0392b] bg-transparent border-none cursor-pointer px-1"

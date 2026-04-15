@@ -1062,8 +1062,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   })()
   const [convertingPhoto, setConvertingPhoto] = useState(false)
   const [openingText, setOpeningText] = useState(_os.openingText || '')
+  const [middleText, setMiddleText] = useState(_os.middleText || '')
   const [closingText, setClosingText] = useState(_os.closingText || '')
   const [openingDuration, setOpeningDuration] = useState(_os.openingDuration ?? 3)
+  const [middleStartTime, setMiddleStartTime] = useState(_os.middleStartTime ?? 4)
+  const [middleDuration, setMiddleDuration] = useState(_os.middleDuration ?? 3)
   const [closingDuration, setClosingDuration] = useState(_os.closingDuration ?? 3)
   // Preview URL scoping: customized tabs get their own preview URL at
   // item._tabPreviewUrls[platform]. Non-customized tabs share item._sharedPreviewUrl.
@@ -1126,7 +1129,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       storyFontOutline, storyFontOutlineWidth, storyLineHeight, storyLetterSpacing,
       aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
       photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
-      openingText, closingText, openingDuration, closingDuration,
+      openingText, middleText, closingText,
+      openingDuration, middleStartTime, middleDuration, closingDuration,
     }
     if (customizedForTab) {
       item._tabOverrides[platform] = overlayState
@@ -1142,7 +1146,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     storyFontOutline, storyFontOutlineWidth, storyLineHeight, storyLetterSpacing,
     aiOverlaysEnabled, perPlatformOverlays, overlayHint, previewDestKey,
     photoToVideoEnabled, photoToVideoDuration, photoZoom, photoPan,
-    openingText, closingText, openingDuration, closingDuration,
+    openingText, middleText, closingText,
+    openingDuration, middleStartTime, middleDuration, closingDuration,
   ])
 
   // Listen for trim changes on the parent file. item._trim* are plain
@@ -2199,25 +2204,44 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                       </div>
                     )}
 
-                    {/* Opening/closing text — shared (shown only when AI per-platform is OFF) */}
+                    {/* Opening/middle/closing text — shared (shown only when AI per-platform is OFF) */}
                     {storyCaptionStyle === 'overlay' && !aiOverlaysEnabled && (isVideoFile || (isImageFile && photoToVideoEnabled)) && (
-                      <div className="flex gap-1.5">
-                        <div className="flex-1">
-                          <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for new line)"} />
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className="text-[9px] text-muted">Duration:</span>
-                            <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={openingDuration} onChange={e => setOpeningDuration(Number(e.target.value))}>
-                              {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
-                            </select>
+                      <div className="space-y-1.5">
+                        <div className="flex gap-1.5">
+                          <div className="flex-1">
+                            <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={openingText} onChange={e => setOpeningText(e.target.value)} placeholder={"Opening text\n(Enter for new line)"} />
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-[9px] text-muted">Duration:</span>
+                              <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={openingDuration} onChange={e => setOpeningDuration(Number(e.target.value))}>
+                                {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={closingText} onChange={e => setClosingText(e.target.value)} placeholder={"Closing text\n(Enter for new line)"} />
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="text-[9px] text-muted">Duration:</span>
+                              <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={closingDuration} onChange={e => setClosingDuration(Number(e.target.value))}>
+                                {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
+                              </select>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex-1">
-                          <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={closingText} onChange={e => setClosingText(e.target.value)} placeholder={"Closing text\n(Enter for new line)"} />
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <span className="text-[9px] text-muted">Duration:</span>
-                            <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={closingDuration} onChange={e => setClosingDuration(Number(e.target.value))}>
-                              {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
-                            </select>
+                        {/* Middle overlay — optional mid-clip callout */}
+                        <div>
+                          <textarea className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-none" rows={2} value={middleText} onChange={e => setMiddleText(e.target.value)} placeholder={"Middle text (optional)\n(Enter for new line)"} />
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] text-muted">Starts at:</span>
+                              <input type="number" min={0} step={0.5} value={middleStartTime} onChange={e => setMiddleStartTime(Number(e.target.value) || 0)} className="text-[9px] border border-border rounded py-0 px-1 bg-white w-14" />
+                              <span className="text-[9px] text-muted">s</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] text-muted">Duration:</span>
+                              <select className="text-[9px] border border-border rounded py-0 px-0.5 bg-white" value={middleDuration} onChange={e => setMiddleDuration(Number(e.target.value))}>
+                                {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}s</option>)}
+                              </select>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -2402,6 +2426,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
                                   trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
                                   openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
+                                  middleText: middleText || null, middleStartTime, middleDuration,
                                   photoToVideo: isImageFile && photoToVideoEnabled,
                                   photoToVideoDuration,
                                   photoToVideoMotion,
@@ -2552,6 +2577,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
                               trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
                               openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
+                              middleText: middleText || null, middleStartTime, middleDuration,
                               photoToVideo: false,
                             }
                           )
@@ -2608,11 +2634,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                     // Helper: build the overlayOpts object for a destination with its specific text
                     const overlayOptsFor = (destKey) => {
                       const { opening, closing } = textFor(destKey)
-                      return { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, trim_start: item._trimStart || 0, trim_end: item._trimEnd ?? null, opening_text: opening, closing_text: closing, opening_duration: openingDuration, closing_duration: closingDuration }
+                      return { caption_style: 'overlay', overlay_y_pct: overlayYPct, font_size: storyFontSize, font_family: storyFontFamily, font_color: storyFontColor, font_outline: storyFontOutline, font_outline_width: storyFontOutlineWidth, line_height: storyLineHeight, letter_spacing: storyLetterSpacing, trim_start: item._trimStart || 0, trim_end: item._trimEnd ?? null, opening_text: opening, closing_text: closing, opening_duration: openingDuration, closing_duration: closingDuration, middle_text: middleText || null, middle_start_time: middleStartTime, middle_duration: middleDuration }
                     }
                     const fontOptsFor = (destKey) => {
                       const { opening, closing } = textFor(destKey)
-                      return { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null, openingText: opening, closingText: closing, openingDuration, closingDuration }
+                      return { fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing, trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null, openingText: opening, closingText: closing, openingDuration, closingDuration, middleText: middleText || null, middleStartTime, middleDuration }
                     }
                     // The processed video has trim + overlays + voiceover baked in.
                     // Use it for all video destinations. For AI per-platform mode,

@@ -714,6 +714,31 @@ export default function App() {
             }}
             onNew={() => { if (confirm('Start a new job? Current work is auto-saved.')) clearAll() }}
             onArchive={(id) => { if (confirm('Archive this draft?')) jobSync.archiveJob(id) }}
+            onDuplicate={async (id) => {
+              try {
+                const copy = await jobSync.duplicateJob(id)
+                if (copy && copy.id) {
+                  // Offer to open the new copy
+                  if (confirm(`Duplicated. Open "${copy.job_name || 'copy'}" now?`)) {
+                    setRestoredVoiceover(null)
+                    setRestoredMergeUrl(null)
+                    const job = await jobSync.loadJob(copy.id)
+                    if (job) {
+                      if (job.hint_text) setUserHint(job.hint_text)
+                      if (window._postyMergedVideo?.url) setRestoredMergeUrl(window._postyMergedVideo.url)
+                      const voAudio = window._postyVoiceoverAudio
+                      if (job.voiceover_settings || voAudio) {
+                        setRestoredVoiceover({
+                          settings: job.voiceover_settings || {},
+                          audioBlob: voAudio?.blob || null,
+                          audioUrl: voAudio?.url || null,
+                        })
+                      }
+                    }
+                  }
+                }
+              } catch (e) { alert('Duplicate failed: ' + e.message) }
+            }}
           />
 
           <Dropzone onFiles={addFiles} />

@@ -70,6 +70,7 @@ export const createJob = () => fetch(api('/jobs'), { method: 'POST', headers: h(
 export const getJob = (id) => fetch(api(`/jobs/${id}`), { credentials: 'include' }).then(r => r.json())
 export const updateJob = (id, data) => fetch(api(`/jobs/${id}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const deleteJob = (id) => fetch(api(`/jobs/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
+export const duplicateJob = (id) => fetch(api(`/jobs/${id}/duplicate`), { method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include', body: '{}' }).then(async r => { if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Duplicate failed') } return r.json() })
 export const addJobFile = (jobId, data) => fetch(api(`/jobs/${jobId}/files`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const updateJobFile = (jobId, fileId, data) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const deleteJobFile = (jobId, fileId) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
@@ -263,7 +264,7 @@ export const previewStory = async (caption, imageBase64, mediaType, captionStyle
     font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline,
     font_outline_width: fontOpts?.fontOutlineWidth, line_height: fontOpts?.lineHeight, letter_spacing: fontOpts?.letterSpacing,
     trim_start: fontOpts?.trimStart, trim_end: fontOpts?.trimEnd,
-    opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration,
+    opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, middle_text: fontOpts?.middleText, middle_start_time: fontOpts?.middleStartTime, middle_duration: fontOpts?.middleDuration,
     photo_to_video: fontOpts?.photoToVideo, photo_to_video_duration: fontOpts?.photoToVideoDuration, photo_to_video_motion: fontOpts?.photoToVideoMotion,
   }) })
   if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || 'Preview failed')
@@ -271,11 +272,11 @@ export const previewStory = async (caption, imageBase64, mediaType, captionStyle
   return URL.createObjectURL(blob)
 }
 export const postToFacebookStory = (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) =>
-  postWithDupCheck('/post/facebook/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, font_outline_width: fontOpts?.fontOutlineWidth, line_height: fontOpts?.lineHeight, letter_spacing: fontOpts?.letterSpacing, trim_start: fontOpts?.trimStart, trim_end: fontOpts?.trimEnd, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, fade_time: fontOpts?.fadeTime })
+  postWithDupCheck('/post/facebook/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, font_outline_width: fontOpts?.fontOutlineWidth, line_height: fontOpts?.lineHeight, letter_spacing: fontOpts?.letterSpacing, trim_start: fontOpts?.trimStart, trim_end: fontOpts?.trimEnd, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, middle_text: fontOpts?.middleText, middle_start_time: fontOpts?.middleStartTime, middle_duration: fontOpts?.middleDuration, fade_time: fontOpts?.fadeTime })
 export const postToFacebookReel = (caption, imageBase64, mediaType, overlayOpts) =>
   postWithDupCheck('/post/facebook/reel', { caption, image_base64: imageBase64, media_type: mediaType, ...overlayOpts })
 export const postToInstagramStory = (caption, imageBase64, mediaType, captionStyle, overlayYPct, fontOpts) =>
-  postWithDupCheck('/post/instagram/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, font_outline_width: fontOpts?.fontOutlineWidth, line_height: fontOpts?.lineHeight, letter_spacing: fontOpts?.letterSpacing, trim_start: fontOpts?.trimStart, trim_end: fontOpts?.trimEnd, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, fade_time: fontOpts?.fadeTime })
+  postWithDupCheck('/post/instagram/story', { caption, image_base64: imageBase64, media_type: mediaType, caption_style: captionStyle, overlay_y_pct: overlayYPct, font_size: fontOpts?.fontSize, font_family: fontOpts?.fontFamily, font_color: fontOpts?.fontColor, font_outline: fontOpts?.fontOutline, font_outline_width: fontOpts?.fontOutlineWidth, line_height: fontOpts?.lineHeight, letter_spacing: fontOpts?.letterSpacing, trim_start: fontOpts?.trimStart, trim_end: fontOpts?.trimEnd, opening_text: fontOpts?.openingText, closing_text: fontOpts?.closingText, opening_duration: fontOpts?.openingDuration, closing_duration: fontOpts?.closingDuration, middle_text: fontOpts?.middleText, middle_start_time: fontOpts?.middleStartTime, middle_duration: fontOpts?.middleDuration, fade_time: fontOpts?.fadeTime })
 
 // X / Twitter
 export const saveTwitterCredentials = (apiKey, apiSecret) =>
