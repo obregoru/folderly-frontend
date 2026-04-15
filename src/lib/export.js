@@ -6,10 +6,17 @@ export function slugify(s) {
 }
 
 export function getSeoName(item) {
-  if (item.uploadResult && item.uploadResult.seo_filename) {
+  // Prefer the job name (user-set or AI-suggested) so downloads group
+  // visually under one name. Fall back to seo_filename, then file name,
+  // then a generic label.
+  const jobName = item?.job_name || item?.captions?.job_name
+  if (jobName) return slugify(jobName)
+  if (item?.uploadResult?.seo_filename) {
     return item.uploadResult.seo_filename.replace(/\.[^.]+$/, '')
   }
-  return slugify(item.file.name.replace(/\.[^.]+$/, ''))
+  if (item?.file?.name) return slugify(item.file.name.replace(/\.[^.]+$/, ''))
+  if (item?._filename) return slugify(String(item._filename).replace(/\.[^.]+$/, ''))
+  return 'posty-image'
 }
 
 function capText(c) {

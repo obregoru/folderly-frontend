@@ -9,6 +9,7 @@ function safeObjectURL(blobOrFile) {
   try { return URL.createObjectURL(blobOrFile) } catch { return null }
 }
 import { CROP_RATIOS, smartCrop, applyWatermark } from '../lib/crop'
+import { buildDownloadName } from '../lib/filename'
 import { getWeekStart, slotToDate, getAvailableSlots, formatWeekRange } from '../lib/weekSlots'
 import CropStrip from './CropStrip'
 
@@ -1686,7 +1687,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                   const bytes = new Uint8Array(byteChars.length)
                   for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
                   const blob = new Blob([bytes], { type: 'video/mp4' })
-                  await saveVideo(blob, (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${mp4Quality}.mp4`)
+                  await saveVideo(blob, buildDownloadName(item, mp4Quality, 'mp4'))
                 } catch (e) { alert('Convert failed: ' + e.message) }
                 setConverting(false)
               }}
@@ -1922,7 +1923,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                               <video src={generatedPreviewUrl} className="w-full max-h-[320px] object-contain" controls playsInline />
                               <button
                                 type="button"
-                                onClick={() => saveVideo(generatedPreviewUrl, `${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`)}
+                                onClick={() => saveVideo(generatedPreviewUrl, buildDownloadName(item, 'overlay', 'mp4'))}
                                 className="absolute top-1 right-1 text-[7px] bg-black/60 text-white rounded px-1.5 py-0.5 hover:bg-black/80 z-10 cursor-pointer border-none"
                               >Save</button>
                             </>
@@ -2449,7 +2450,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                             <button onClick={() => { URL.revokeObjectURL(generatedPreviewUrl); setGeneratedPreviewUrl(null) }} className="text-[10px] py-1 px-2 border border-border text-muted rounded cursor-pointer">Back to edit</button>
                             <button
                               type="button"
-                              onClick={() => saveVideo(generatedPreviewUrl, `${item.file?.name?.replace(/\.[^.]+$/, '') || 'video'}-overlay.mp4`)}
+                              onClick={() => saveVideo(generatedPreviewUrl, buildDownloadName(item, 'overlay', 'mp4'))}
                               className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer bg-white"
                             >Save</button>
                           </>
@@ -2792,7 +2793,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
             disabled={converting}
             onClick={async () => {
               try {
-                const filename = (item.file?.name?.replace(/\.[^.]+$/, '') || 'video') + `-${platform}.mp4`
+                const filename = buildDownloadName(item, platform, 'mp4')
                 // If there's already a generated preview (trim + overlays + voiceover), use that
                 if (generatedPreviewUrl) {
                   await saveVideo(generatedPreviewUrl, filename)

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { buildDownloadName } from '../lib/filename'
 
 // Read file as base64 (same helper as ResultCard)
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -187,7 +188,10 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
       }
     }
     if (!blob) return
-    const filename = 'merged-video.mp4'
+    // Prefer the job name for the download filename so desktop saves are
+    // meaningful; fall back to the first clip's filename, then a generic.
+    const jobNamed = videoFiles.find(f => f.job_name)
+    const filename = buildDownloadName(jobNamed || videoFiles[0] || {}, 'merged', 'mp4')
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '')
     if (isMobile) {
       try {

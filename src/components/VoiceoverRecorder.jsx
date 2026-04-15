@@ -915,23 +915,32 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         </div>
       )}
 
-      {/* Additional timed segments — speak different things at different points */}
-      {hasElevenLabs && (
+      {/* Additional timed segments — hidden by default. Only shows when the
+          user clicks "+ Add timed segment" or when restoring a draft that
+          already has some. Keeps the common single-voiceover flow simple. */}
+      {hasElevenLabs && segments.length === 0 && (
+        <div className="border-t border-border pt-2">
+          <button
+            type="button"
+            onClick={addSegment}
+            className="text-[10px] text-[#6C5CE7] bg-transparent border-none cursor-pointer p-0 hover:underline"
+            title="Add an extra voiceover clip that plays at a specific time on the video"
+          >+ Add timed voiceover at another time</button>
+        </div>
+      )}
+      {hasElevenLabs && segments.length > 0 && (
         <div className="border-t border-border pt-2 space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-medium text-ink">
-              Timed segments {segments.length > 0 && <span className="text-muted">({segments.length})</span>}
+              Timed segments <span className="text-muted">({segments.length})</span>
             </span>
             <button
               type="button"
               onClick={addSegment}
               className="text-[10px] py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer hover:bg-[#f3f0ff]"
-              title="Add another voiceover clip that plays at a specific time"
-            >+ Add segment</button>
+              title="Add another voiceover clip at a different time"
+            >+ Add another</button>
           </div>
-          {segments.length === 0 && (
-            <p className="text-[9px] text-muted">Place extra voiceover clips at specific times (e.g. narrate at 5s, 12s, 25s). The primary recording/TTS above stays as-is.</p>
-          )}
           {segments.map((seg) => {
             const hasAudio = !!seg.blob
             return (
