@@ -346,6 +346,22 @@ export default function App() {
     jobSync.deleteFileFromJob(id)
   }
 
+  // Reorder files — keeps the merge list, file grid, trimmers, and voiceover
+  // monitor all pointing at the same first clip. Persists the new file_order
+  // back to the server so the draft resumes in the same order.
+  const reorderFiles = (fromIdx, toIdx) => {
+    setFiles(prev => {
+      if (fromIdx < 0 || fromIdx >= prev.length || toIdx < 0 || toIdx >= prev.length || fromIdx === toIdx) return prev
+      const next = prev.slice()
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      // Fire-and-forget persist — each file's index is its new order.
+      // jobSync.saveFileOrder handles the HTTP calls without blocking.
+      jobSync.saveFileOrder?.(next)
+      return next
+    })
+  }
+
   // Eagerly upload new files and save to job so drafts persist even before Generate.
   // Concurrency controlled by localStorage 'posty_upload_concurrency' (default 1 = serial).
   // Set to 2 or 3 to parallelize. Falls back to serial if the toggle isn't set.
@@ -780,6 +796,18 @@ export default function App() {
               videoFiles={files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))}
               jobId={jobSync.jobId}
               restoredMergeUrl={restoredMergeUrl}
+              onReorder={(fromIdxLocal, toIdxLocal) => {
+                // videoFiles is the filtered view. Translate filtered indices
+                // back to absolute indices in the full files array so the
+                // reorder moves the right items.
+                const videoOnly = files.filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))
+                const fromFileId = videoOnly[fromIdxLocal]?.id
+                const toFileId = videoOnly[toIdxLocal]?.id
+                if (!fromFileId || !toFileId) return
+                const fromAbs = files.findIndex(f => f.id === fromFileId)
+                const toAbs = files.findIndex(f => f.id === toFileId)
+                reorderFiles(fromAbs, toAbs)
+              }}
               onMerged={({ blob, url, base64 }) => {
                 // Store the merged video so the post flow can use it.
                 window._postyMergedVideo = { blob, url, base64 }

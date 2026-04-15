@@ -200,6 +200,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     debouncedSaveJob({ overlay_settings: overlaySettings })
   }, [debouncedSaveJob])
 
+  // Save new file order to the server. Called after a user reorders clips.
+  // file_order is the column job_files is sorted by on restore, so updating
+  // it makes the order persist across refreshes.
+  const saveFileOrder = useCallback(async (orderedFiles) => {
+    const id = jobIdRef.current
+    if (!id) return
+    await Promise.all(orderedFiles.map((file, idx) => {
+      const dbFileId = fileIdMapRef.current[file.id]
+      if (!dbFileId) return null
+      return api.updateJobFile(id, dbFileId, { file_order: idx }).catch(e => {
+        console.warn('[saveFileOrder]', file.id, e?.message)
+      })
+    }))
+  }, [])
+
   // Save voiceover settings
   const saveVoiceoverSettings = useCallback((voiceoverSettings) => {
     if (!jobIdRef.current) return
@@ -436,6 +451,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     deleteFileFromJob,
     saveOverlaySettings,
     saveVoiceoverSettings,
+    saveFileOrder,
     flushPendingSave,
     loadJob,
     newJob,

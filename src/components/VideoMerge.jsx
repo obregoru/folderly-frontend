@@ -30,8 +30,10 @@ const TRANSITIONS = [
  * Lets users reorder clips, pick a transition, and merge into a single MP4.
  * The merged result becomes a virtual file item that the post flow can use.
  */
-export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeUrl }) {
-  const [order, setOrder] = useState(() => videoFiles.map((_, i) => i))
+export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl }) {
+  // The merge list now uses the natural order of videoFiles so reordering here
+  // flows back to the file grid + voiceover preview. onReorder(fromIdx, toIdx)
+  // is implemented by App.jsx and persists the new order to the server.
   const [transition, setTransition] = useState('crossfade')
   const [transDuration, setTransDuration] = useState(1)
   const [merging, setMerging] = useState(false)
@@ -89,12 +91,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
     return () => { cancelled = true }
   }, [videoFiles])
 
-  // Keep order in sync if files change — also clear stale merge result
+  // Clear any stale merge result when the file list itself changes
   const fileIds = videoFiles.map(f => f.id).join(',')
   const prevFileIdsRef = useRef(fileIds)
   if (fileIds !== prevFileIdsRef.current) {
     prevFileIdsRef.current = fileIds
-    setOrder(videoFiles.map((_, i) => i))
     if (mergedUrl) { URL.revokeObjectURL(mergedUrl); setMergedUrl(null) }
     mergedBlobRef.current = null
     window._postyMergedVideo = null
@@ -103,15 +104,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
 
   const moveUp = (idx) => {
     if (idx <= 0) return
-    const next = [...order]
-    ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
-    setOrder(next)
+    if (onReorder) onReorder(idx, idx - 1)
   }
   const moveDown = (idx) => {
-    if (idx >= order.length - 1) return
-    const next = [...order]
-    ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
-    setOrder(next)
+    if (idx >= videoFiles.length - 1) return
+    if (onReorder) onReorder(idx, idx + 1)
   }
 
   const handleMerge = async () => {
@@ -128,14 +125,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
     try {
       const api = await import('../api')
       const clips = []
-      for (let i = 0; i < order.length; i++) {
-        const item = videoFiles[order[i]]
-        // Ensure each clip has been uploaded to the server (sets uploadResult
-        // with original_temp_path). This uses FormData multipart upload which
-        // works on iOS for any file size — no base64 encoding needed.
+      for (let i = 0; i < videoFiles.length; i++) {
+        const item = videoFiles[i]
         let uploadKey = item.uploadResult?.original_temp_path || null
         if (!uploadKey) {
-          setProgress(`Uploading clip ${i + 1}/${order.length} (${item.file?.name || item._filename || 'Untitled'})...`)
+          setProgress(`Uploading clip ${i + 1}/${videoFiles.length} (${item.file?.name || item._filename || 'Untitled'})...`)
           try {
             const result = await api.uploadFile(item.file, null, null, {}, null, jobId)
             item.uploadResult = result
@@ -144,7 +138,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
             throw new Error(`Upload clip ${i + 1} failed: ${e.message}`)
           }
         } else {
-          setProgress(`Preparing clip ${i + 1}/${order.length}...`)
+          setProgress(`Preparing clip ${i + 1}/${videoFiles.length} (${item.file?.name || item._filename || 'Untitled'})...`)
         }
         clips.push({
           upload_key: uploadKey,
@@ -219,24 +213,21 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
       {/* Clip order */}
       <div className="space-y-1">
         {(() => {
-          const clipDurations = order.map(fileIdx => {
-            const item = videoFiles[fileIdx]
-            if (!item) return 0
-            const dur = item._videoDuration || 0
+          const clipDurations = videoFiles.map(item => {
+            const dur = item?._videoDuration || 0
             if (!dur) return 0
             const ts = item._trimStart || 0
             const te = item._trimEnd ?? dur
             return Math.max(0, te - ts)
           })
           const totalKept = clipDurations.reduce((a, b) => a + b, 0)
-          const transOverhead = transition !== 'none' && order.length > 1
-            ? (order.length - 1) * transDuration
+          const transOverhead = transition !== 'none' && videoFiles.length > 1
+            ? (videoFiles.length - 1) * transDuration
             : 0
           const finalTotal = Math.max(0, totalKept - transOverhead)
           return (
             <>
-              {order.map((fileIdx, pos) => {
-                const item = videoFiles[fileIdx]
+              {videoFiles.map((item, pos) => {
                 if (!item) return null
                 const ts = item._trimStart || 0
                 const te = item._trimEnd
@@ -259,7 +250,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
                       >&#9650;</button>
                       <button
                         onClick={() => moveDown(pos)}
-                        disabled={pos === order.length - 1}
+                        disabled={pos === videoFiles.length - 1}
                         className="text-[10px] text-muted hover:text-ink disabled:opacity-30 bg-transparent border-none cursor-pointer px-1"
                       >&#9660;</button>
                     </div>
@@ -315,7 +306,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, restoredMergeU
         disabled={merging}
         className="w-full text-[11px] py-2 border border-[#6C5CE7] rounded bg-[#6C5CE7] text-white cursor-pointer font-sans font-medium hover:bg-[#5a4bd6] disabled:opacity-50"
       >
-        {merging ? (progress || 'Merging...') : mergedUrl ? 'Re-merge' : `Merge ${order.length} clips`}
+        {merging ? (progress || 'Merging...') : mergedUrl ? 'Re-merge' : `Merge ${videoFiles.length} clips`}
       </button>
 
       {error && (
