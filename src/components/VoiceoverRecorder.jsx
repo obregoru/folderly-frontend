@@ -211,18 +211,19 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // already have audio (or whose text changed) and runs TTS for each.
   const [generatingAll, setGeneratingAll] = useState(false)
   const generateAllSegments = async () => {
-    const pending = segments.filter(s => s.text?.trim() && !s.blob)
-    const primaryPending = !!(ttsText.trim() && !audioBlob)
-    if (pending.length === 0 && !primaryPending) {
-      alert('Nothing to generate — primary and all segments already have audio.')
+    // Regenerates every clip with text — primary + all segments.
+    const pending = segments.filter(s => s.text?.trim())
+    const primaryHasText = !!ttsText.trim()
+    if (pending.length === 0 && !primaryHasText) {
+      alert('Nothing to generate — add some text first.')
       return
     }
     setGeneratingAll(true)
     try {
-      // Mark all pending as generating so the user sees progress
+      // Mark all segments-with-text as generating so the user sees progress
       setSegments(segs => segs.map(s => pending.find(p => p.id === s.id) ? { ...s, generating: true } : s))
-      // First: primary voiceover if it needs regenerating (draft resume path)
-      if (primaryPending) {
+      // First: primary voiceover if it has text
+      if (primaryHasText) {
         setTtsLoading(true)
         try {
           const api = await import('../api')
@@ -525,17 +526,17 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
 
   // --- TTS ---
   const generateTTS = async () => {
-    // A clip is "pending" when it has text but no audio blob. Skip
-    // re-generating the primary if it already has audio — the segments
-    // button uses the same rule so both counts stay in sync.
-    const pendingSegs = segments.filter(s => s.text?.trim() && !s.blob)
-    const primaryPending = !!(ttsText.trim() && !audioBlob)
-    if (!primaryPending && pendingSegs.length === 0) return
+    // Regenerates EVERY voice clip that has text — primary + each segment
+    // with text. Meant as a one-click "make it all fresh" action. Matches
+    // the N count shown in the button.
+    const segsToGen = segments.filter(s => s.text?.trim())
+    const primaryHasText = !!ttsText.trim()
+    if (!primaryHasText && segsToGen.length === 0) return
     setTtsLoading(true)
     try {
       const api = await import('../api')
-      // 1) Generate the primary voiceover only if it's pending (has text, no blob)
-      if (primaryPending) {
+      // 1) Generate the primary voiceover if it has text
+      if (primaryHasText) {
         const r = await api.textToSpeech(ttsText.trim(), selectedVoice || undefined, {
           stability: ttsStability,
           similarity_boost: ttsSimilarity,
@@ -554,14 +555,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
         persistAudio(blob)
       }
-      // 2) Also generate any pending timed segments so a single click covers
-      //    "regenerate everything". Resume of a draft leaves segments without
-      //    blobs — this makes the top button re-fill them without an extra
-      //    second click on the timed-segments Generate button.
-      if (pendingSegs.length > 0) {
+      // 2) Regenerate every timed segment that has text
+      if (segsToGen.length > 0) {
         setGeneratingAll(true)
-        setSegments(segs => segs.map(s => pendingSegs.find(p => p.id === s.id) ? { ...s, generating: true } : s))
-        for (const seg of pendingSegs) {
+        setSegments(segs => segs.map(s => segsToGen.find(p => p.id === s.id) ? { ...s, generating: true } : s))
+        for (const seg of segsToGen) {
           try {
             const result = await generateOneSegmentTTS(seg)
             if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, generating: false })
@@ -927,25 +925,28 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           />
           <div className="flex items-center gap-2 flex-wrap">
             {(() => {
-              // A clip is "pending" if it has text but no audio blob. Same
-              // rule as the segments Generate button below so the two counts
-              // always agree.
-              const pendingSegCount = segments.filter(s => s.text?.trim() && !s.blob).length
-              const primaryPending = !!(ttsText.trim() && !audioBlob)
-              const totalPending = (primaryPending ? 1 : 0) + pendingSegCount
+              // Count every voice "clip" that has text — primary + each
+              // segment with text. The button always regenerates the full
+              // batch, so the count matches what ElevenLabs will actually
+              // be called for.
+              const segCount = segments.filter(s => s.text?.trim()).length
+              const primaryHasText = !!ttsText.trim()
+              const total = (primaryHasText ? 1 : 0) + segCount
+              const hasAnyAudio = !!audioBlob || segments.some(s => s.blob)
+              const allReady = total > 0 && audioBlob && segments.every(s => !s.text?.trim() || s.blob)
               const label = ttsLoading
                 ? 'Generating...'
-                : totalPending === 0 && audioBlob
+                : allReady
                   ? 'Voice loaded ✓'
-                  : totalPending > 1
-                    ? `Generate voices (${totalPending})`
+                  : total > 1
+                    ? `Generate voices (${total})`
                     : 'Generate voice'
               return (
                 <button
                   onClick={() => { setAudioIsRestored(false); generateTTS() }}
-                  disabled={ttsLoading || totalPending === 0}
-                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${totalPending === 0 && audioBlob ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
-                  title={pendingSegCount > 0 ? `Generates ${primaryPending ? 'the primary voice + ' : ''}${pendingSegCount} timed segment${pendingSegCount > 1 ? 's' : ''}` : ''}
+                  disabled={ttsLoading || total === 0}
+                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${allReady ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+                  title={total > 1 ? `Regenerates the primary voice + ${segCount} timed segment${segCount > 1 ? 's' : ''}` : ''}
                 >{label}</button>
               )
             })()}
@@ -1101,20 +1102,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           })()}
           {/* Single Generate-all action below the list — clearer than per-row buttons */}
           {segments.length > 0 && (() => {
-            const pendingSegCount = segments.filter(s => s.text?.trim() && !s.blob).length
+            // Same counting rule as the top button — every clip with text.
+            const segCount = segments.filter(s => s.text?.trim()).length
+            const primaryHasText = !!ttsText.trim()
+            const total = (primaryHasText ? 1 : 0) + segCount
+            const allReady = total > 0 && (!primaryHasText || audioBlob) && segments.every(s => !s.text?.trim() || s.blob)
             const readyCount = segments.filter(s => s.blob).length
-            const primaryPending = !!(ttsText.trim() && !audioBlob)
-            const totalPending = pendingSegCount + (primaryPending ? 1 : 0)
             return (
               <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={generateAllSegments}
-                  disabled={generatingAll || totalPending === 0}
-                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${totalPending === 0 ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
-                  title={totalPending === 0 ? 'Primary and all segments already generated' : `Generate ${totalPending} clip${totalPending > 1 ? 's' : ''}${primaryPending ? ' (includes primary)' : ''} — each is a separate ElevenLabs call`}
+                  disabled={generatingAll || total === 0}
+                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${allReady ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+                  title={`Regenerates ${primaryHasText ? 'the primary voice + ' : ''}${segCount} timed segment${segCount > 1 ? 's' : ''} — each is a separate ElevenLabs call`}
                 >
-                  {generatingAll ? 'Generating…' : totalPending === 0 ? `All ready ✓` : `Generate voices (${totalPending})`}
+                  {generatingAll ? 'Generating…' : allReady ? `All ready ✓` : `Generate voices (${total})`}
                 </button>
                 {readyCount > 0 && (
                   <span className="text-[9px] text-muted">Segments mix into one timeline on preview</span>
