@@ -533,6 +533,8 @@ function HookCategoriesEditor({ categories, onSave }) {
     setDraft(next)
   }
   const removeCat = (idx) => {
+    const cat = draft[idx]
+    if (!confirm(`Delete hook category "${cat?.name || ''}"? This can't be undone.`)) return
     const next = draft.filter((_, i) => i !== idx)
     setDraft(next)
     onSave(next)

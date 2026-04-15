@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import * as api from '../api'
 
 // Read a Blob or File as base64
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
@@ -48,6 +49,36 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // --- TTS state ---
   const [ttsText, setTtsText] = useState(rvs.ttsText || '')
   const [ttsLoading, setTtsLoading] = useState(false)
+
+  // --- Hook generator state (populates ttsText) ---
+  const hookCategories = Array.isArray(settings?.hook_categories) ? settings.hook_categories : []
+  const [hookCategoryName, setHookCategoryName] = useState('')
+  const [hookHint, setHookHint] = useState('')
+  const [hookOptions, setHookOptions] = useState([]) // string[]
+  const [hookIdx, setHookIdx] = useState(0)
+  const [hookLoading, setHookLoading] = useState(false)
+  const generateHook = async () => {
+    const hint = hookHint.trim() || hookCategoryName || 'engaging hook'
+    setHookLoading(true)
+    try {
+      const r = await api.generateOverlayTexts(hint, ['tiktok'], { category: hookCategoryName || null, optionsPerDest: 5 })
+      const dst = r?.destinations?.tiktok || {}
+      const opts = Array.isArray(dst.openings) && dst.openings.length ? dst.openings : (dst.opening ? [dst.opening] : [])
+      if (!opts.length) { alert('No hooks generated — try a different hint.'); setHookLoading(false); return }
+      setHookOptions(opts)
+      setHookIdx(0)
+      setTtsText(opts[0])
+    } catch (err) {
+      alert('Hook generation failed: ' + err.message)
+    }
+    setHookLoading(false)
+  }
+  const cycleHook = () => {
+    if (!hookOptions.length) return
+    const next = (hookIdx + 1) % hookOptions.length
+    setHookIdx(next)
+    setTtsText(hookOptions[next])
+  }
   const [voices, setVoices] = useState([])
   const [selectedVoice, setSelectedVoice] = useState(() => rvs.voiceId || localStorage.getItem('posty_tts_voice') || settings?.elevenlabs_voice_id || '')
   const [voicesLoaded, setVoicesLoaded] = useState(false)
@@ -546,11 +577,47 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               <span className="text-muted">Speaker boost</span>
             </div>
           </div>
+          {/* Hook generator — populates the textarea below with an AI hook */}
+          <div className="border border-border rounded p-1.5 bg-cream/30 space-y-1">
+            <div className="flex items-center gap-1 flex-wrap">
+              <label className="text-[10px] text-muted">Hook style:</label>
+              <select
+                value={hookCategoryName}
+                onChange={e => setHookCategoryName(e.target.value)}
+                className="text-[10px] border border-border rounded py-0.5 px-1 bg-white flex-1 min-w-[100px]"
+              >
+                <option value="">— pick a style —</option>
+                {hookCategories.map(c => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={generateHook}
+                disabled={hookLoading || !hookCategoryName}
+                className="text-[10px] py-0.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              >{hookLoading ? '…' : 'Generate hook'}</button>
+              {hookOptions.length > 1 && (
+                <button
+                  type="button"
+                  onClick={cycleHook}
+                  className="text-[10px] py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
+                  title={`${hookIdx + 1} / ${hookOptions.length}`}
+                >Try another ({hookIdx + 1}/{hookOptions.length})</button>
+              )}
+            </div>
+            <input
+              value={hookHint}
+              onChange={e => setHookHint(e.target.value)}
+              placeholder="Optional hint about this video (what's in it?)"
+              className="w-full text-[10px] border border-border rounded py-0.5 px-1.5 bg-white"
+            />
+          </div>
           <textarea
             rows={2}
             value={ttsText}
             onChange={e => setTtsText(e.target.value)}
-            placeholder="Type what the voiceover should say..."
+            placeholder="Type what the voiceover should say... or pick a hook style above"
             className="w-full text-[11px] border border-border rounded py-1 px-2 bg-white resize-none"
           />
           <div className="flex items-center gap-2 flex-wrap">
