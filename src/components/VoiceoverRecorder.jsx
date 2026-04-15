@@ -495,29 +495,53 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
 
   // --- TTS ---
   const generateTTS = async () => {
-    if (!ttsText.trim()) return
+    // Either the primary has text, or timed segments need audio — if neither,
+    // there's nothing to do. This lets users with only segments (no primary
+    // text) still use the big Generate button.
+    const pendingSegs = segments.filter(s => s.text?.trim() && !s.blob)
+    if (!ttsText.trim() && pendingSegs.length === 0) return
     setTtsLoading(true)
     try {
       const api = await import('../api')
-      const r = await api.textToSpeech(ttsText.trim(), selectedVoice || undefined, {
-        stability: ttsStability,
-        similarity_boost: ttsSimilarity,
-        style: ttsStyle,
-        use_speaker_boost: ttsSpeakerBoost,
-      })
-      if (r.error) throw new Error(r.error)
-      const byteChars = atob(r.audio_base64)
-      const bytes = new Uint8Array(byteChars.length)
-      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
-      const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
-      setAudioBlob(blob)
-      if (audioUrl) URL.revokeObjectURL(audioUrl)
-      setAudioUrl(URL.createObjectURL(blob))
-      // Stash on video items so CaptionEditor can include it in previews
-      for (const vf of videoFiles) vf._voiceoverBlob = blob
-      try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
-      // Save to job storage for persistence
-      persistAudio(blob)
+      // 1) Generate the primary voiceover if it has text
+      if (ttsText.trim()) {
+        const r = await api.textToSpeech(ttsText.trim(), selectedVoice || undefined, {
+          stability: ttsStability,
+          similarity_boost: ttsSimilarity,
+          style: ttsStyle,
+          use_speaker_boost: ttsSpeakerBoost,
+        })
+        if (r.error) throw new Error(r.error)
+        const byteChars = atob(r.audio_base64)
+        const bytes = new Uint8Array(byteChars.length)
+        for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+        const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
+        setAudioBlob(blob)
+        if (audioUrl) URL.revokeObjectURL(audioUrl)
+        setAudioUrl(URL.createObjectURL(blob))
+        for (const vf of videoFiles) vf._voiceoverBlob = blob
+        try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+        persistAudio(blob)
+      }
+      // 2) Also generate any pending timed segments so a single click covers
+      //    "regenerate everything". Resume of a draft leaves segments without
+      //    blobs — this makes the top button re-fill them without an extra
+      //    second click on the timed-segments Generate button.
+      if (pendingSegs.length > 0) {
+        setGeneratingAll(true)
+        setSegments(segs => segs.map(s => pendingSegs.find(p => p.id === s.id) ? { ...s, generating: true } : s))
+        for (const seg of pendingSegs) {
+          try {
+            const result = await generateOneSegmentTTS(seg)
+            if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, generating: false })
+          } catch (err) {
+            updateSegment(seg.id, { generating: false })
+            alert(`Segment at ${seg.startTime}s failed: ${err.message}`)
+            break
+          }
+        }
+        setGeneratingAll(false)
+      }
     } catch (err) {
       alert('TTS failed: ' + err.message)
     }
@@ -871,11 +895,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             className="w-full text-[11px] border border-border rounded py-1 px-2 bg-white resize-none"
           />
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => { setAudioIsRestored(false); generateTTS() }}
-              disabled={ttsLoading || !ttsText.trim()}
-              className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${audioIsRestored && audioBlob ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
-            >{ttsLoading ? 'Generating...' : audioIsRestored && audioBlob ? 'Voice loaded ✓' : 'Generate voice'}</button>
+            {(() => {
+              const pendingSegCount = segments.filter(s => s.text?.trim() && !s.blob).length
+              const totalPending = (ttsText.trim() ? 1 : 0) + pendingSegCount
+              const label = ttsLoading
+                ? 'Generating...'
+                : audioIsRestored && audioBlob && pendingSegCount === 0
+                  ? 'Voice loaded ✓'
+                  : pendingSegCount > 0
+                    ? `Generate voice${totalPending > 1 ? 's' : ''} (${totalPending})`
+                    : 'Generate voice'
+              return (
+                <button
+                  onClick={() => { setAudioIsRestored(false); generateTTS() }}
+                  disabled={ttsLoading || (!ttsText.trim() && pendingSegCount === 0)}
+                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${audioIsRestored && audioBlob && pendingSegCount === 0 ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+                  title={pendingSegCount > 0 ? `Generates the primary voice + ${pendingSegCount} timed segment${pendingSegCount > 1 ? 's' : ''}` : ''}
+                >{label}</button>
+              )
+            })()}
             {ttsText.trim() && (
               <span className="text-[9px] text-muted">~{ttsText.trim().length} characters</span>
             )}
