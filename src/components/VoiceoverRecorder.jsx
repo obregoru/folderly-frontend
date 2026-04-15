@@ -1071,6 +1071,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               title="Add another voiceover clip at a different time"
             >+ Add another</button>
           </div>
+          {(() => {
+            const missingAudio = segments.filter(s => s.text?.trim() && !s.blob).length
+            if (missingAudio === 0) return null
+            return (
+              <div className="text-[10px] bg-[#fff3cd] text-[#664d03] border border-[#ffe69c] rounded px-2 py-1">
+                ⚠ {missingAudio} segment{missingAudio > 1 ? 's' : ''} missing audio. Click <strong>Generate voices</strong> below to prepare {missingAudio > 1 ? 'them' : 'it'} for playback.
+              </div>
+            )
+          })()}
           {segments.map((seg) => {
             const hasAudio = !!seg.blob
             return (
