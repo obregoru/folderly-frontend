@@ -525,16 +525,17 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
 
   // --- TTS ---
   const generateTTS = async () => {
-    // Either the primary has text, or timed segments need audio — if neither,
-    // there's nothing to do. This lets users with only segments (no primary
-    // text) still use the big Generate button.
+    // A clip is "pending" when it has text but no audio blob. Skip
+    // re-generating the primary if it already has audio — the segments
+    // button uses the same rule so both counts stay in sync.
     const pendingSegs = segments.filter(s => s.text?.trim() && !s.blob)
-    if (!ttsText.trim() && pendingSegs.length === 0) return
+    const primaryPending = !!(ttsText.trim() && !audioBlob)
+    if (!primaryPending && pendingSegs.length === 0) return
     setTtsLoading(true)
     try {
       const api = await import('../api')
-      // 1) Generate the primary voiceover if it has text
-      if (ttsText.trim()) {
+      // 1) Generate the primary voiceover only if it's pending (has text, no blob)
+      if (primaryPending) {
         const r = await api.textToSpeech(ttsText.trim(), selectedVoice || undefined, {
           stability: ttsStability,
           similarity_boost: ttsSimilarity,
@@ -926,21 +927,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           />
           <div className="flex items-center gap-2 flex-wrap">
             {(() => {
+              // A clip is "pending" if it has text but no audio blob. Same
+              // rule as the segments Generate button below so the two counts
+              // always agree.
               const pendingSegCount = segments.filter(s => s.text?.trim() && !s.blob).length
-              const totalPending = (ttsText.trim() ? 1 : 0) + pendingSegCount
+              const primaryPending = !!(ttsText.trim() && !audioBlob)
+              const totalPending = (primaryPending ? 1 : 0) + pendingSegCount
               const label = ttsLoading
                 ? 'Generating...'
-                : audioIsRestored && audioBlob && pendingSegCount === 0
+                : totalPending === 0 && audioBlob
                   ? 'Voice loaded ✓'
-                  : pendingSegCount > 0
-                    ? `Generate voice${totalPending > 1 ? 's' : ''} (${totalPending})`
+                  : totalPending > 1
+                    ? `Generate voices (${totalPending})`
                     : 'Generate voice'
               return (
                 <button
                   onClick={() => { setAudioIsRestored(false); generateTTS() }}
-                  disabled={ttsLoading || (!ttsText.trim() && pendingSegCount === 0)}
-                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${audioIsRestored && audioBlob && pendingSegCount === 0 ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
-                  title={pendingSegCount > 0 ? `Generates the primary voice + ${pendingSegCount} timed segment${pendingSegCount > 1 ? 's' : ''}` : ''}
+                  disabled={ttsLoading || totalPending === 0}
+                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${totalPending === 0 && audioBlob ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+                  title={pendingSegCount > 0 ? `Generates ${primaryPending ? 'the primary voice + ' : ''}${pendingSegCount} timed segment${pendingSegCount > 1 ? 's' : ''}` : ''}
                 >{label}</button>
               )
             })()}

@@ -1236,6 +1236,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     const refresh = () => {
       const map = segAudioMapRef.current
       const segs = Array.isArray(item._voiceoverSegments) ? item._voiceoverSegments : []
+      console.log(`[ResultCard] voiceover segments refresh: ${segs.length} ready (item=${item.id})`)
       const currentIds = new Set(segs.map((_, i) => i))
       for (const [id, a] of map) {
         if (!currentIds.has(id)) { try { a.pause() } catch {}; map.delete(id) }
