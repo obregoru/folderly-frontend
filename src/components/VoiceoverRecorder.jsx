@@ -350,7 +350,19 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   }
 
   const hasElevenLabs = !!settings?.elevenlabs_configured
-  const [tab, setTab] = useState('record') // record | tts
+  // Default tab: if the restored voiceover looks like an ElevenLabs clip
+  // (has tts text, a voice id, or saved segments), start on the AI voice tab
+  // so the user sees what was previously generated — not an empty mic UI.
+  const looksLikeTts = !!(rvs.ttsText || rvs.voiceId || (Array.isArray(rvs.segments) && rvs.segments.length > 0))
+  const [tab, setTab] = useState(looksLikeTts ? 'tts' : 'record') // record | tts
+  // When restoredVoiceover arrives later (draft resume), re-evaluate the tab
+  useEffect(() => {
+    const s = restoredVoiceover?.settings
+    if (!s) return
+    if (s.ttsText || s.voiceId || (Array.isArray(s.segments) && s.segments.length > 0)) {
+      setTab('tts')
+    }
+  }, [restoredVoiceover])
 
   // Video source for the recording monitor. Recompute when videoFiles changes.
   const monitorItem = videoFiles[0] || null
