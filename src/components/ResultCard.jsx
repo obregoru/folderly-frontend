@@ -1225,6 +1225,64 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   }, [hasVideoNow])
   const videoPreviewRef = useRef(null)
   const voiceoverAudioRef = useRef(null)
+  // Audio elements for timed voiceover segment playback during the in-panel
+  // preview (when the user hits Play on the raw video, before Generate
+  // Preview bakes everything into one MP4). Mirrors the logic used in
+  // VoiceoverRecorder so both previews stay in sync.
+  const segAudioMapRef = useRef(new Map())
+  const segFiredRef = useRef(new Set())
+  // Rebuild audio element pool whenever segments (blobs) change
+  useEffect(() => {
+    const refresh = () => {
+      const map = segAudioMapRef.current
+      const segs = Array.isArray(item._voiceoverSegments) ? item._voiceoverSegments : []
+      const currentIds = new Set(segs.map((_, i) => i))
+      for (const [id, a] of map) {
+        if (!currentIds.has(id)) { try { a.pause() } catch {}; map.delete(id) }
+      }
+      segs.forEach((s, i) => {
+        if (!s.blob) return
+        const existing = map.get(i)
+        if (!existing || existing._segBlob !== s.blob) {
+          if (existing) { try { existing.pause() } catch {} }
+          const url = URL.createObjectURL(s.blob)
+          const a = new Audio(url)
+          a.preload = 'auto'
+          a._segBlob = s.blob
+          a._segStart = Number(s.startTime) || 0
+          a._segUrl = url
+          map.set(i, a)
+        } else if (existing) {
+          existing._segStart = Number(s.startTime) || 0
+        }
+      })
+    }
+    refresh()
+    const on = () => refresh()
+    window.addEventListener('posty-voiceover-change', on)
+    return () => {
+      window.removeEventListener('posty-voiceover-change', on)
+    }
+  }, [item])
+  const fireSegmentsAt = (outputT) => {
+    for (const [id, audio] of segAudioMapRef.current) {
+      if (segFiredRef.current.has(id)) continue
+      if (outputT >= (audio._segStart || 0)) {
+        segFiredRef.current.add(id)
+        try { audio.currentTime = 0; audio.play().catch(err => console.warn('[seg play]', err)) } catch {}
+      }
+    }
+  }
+  const resetSegments = () => {
+    segFiredRef.current.clear()
+    for (const a of segAudioMapRef.current.values()) {
+      try { a.pause(); a.currentTime = 0 } catch {}
+    }
+  }
+  const pauseAllSegments = () => {
+    for (const a of segAudioMapRef.current.values()) { try { a.pause() } catch {} }
+  }
+
   // Helper: convert a Blob to base64 string (chunked to avoid call-stack limits)
   const blobToBase64Str = (blob) => new Promise((resolve, reject) => {
     const r = new FileReader()
@@ -1968,8 +2026,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                     if (v.currentTime >= end - 0.03) {
                                       try { v.currentTime = start; v.pause() } catch {}
                                       if (voiceoverAudioRef.current) try { voiceoverAudioRef.current.pause(); voiceoverAudioRef.current.currentTime = 0 } catch {}
+                                      resetSegments()
                                     } else if (v.currentTime < start - 0.05) {
                                       try { v.currentTime = start } catch {}
+                                    } else {
+                                      // Fire any timed segments whose start time has arrived
+                                      fireSegmentsAt(Math.max(0, v.currentTime - start))
                                     }
                                   }}
                                   onLoadedData={e => {
@@ -1993,15 +2055,23 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                     if (v.currentTime < start || v.currentTime >= end - 0.05) {
                                       try { v.currentTime = start } catch {}
                                     }
-                                    // Sync voiceover audio
+                                    // Sync voiceover audio (primary)
                                     if (voiceoverUrl && voiceoverAudioRef.current) {
                                       const outputTime = Math.max(0, v.currentTime - start)
                                       try { voiceoverAudioRef.current.currentTime = outputTime } catch {}
                                       voiceoverAudioRef.current.play().catch(() => {})
                                     }
+                                    // Reset segment fire-state — mark any already-past as fired
+                                    // so they don't play mid-clip when resuming.
+                                    const outT = Math.max(0, v.currentTime - start)
+                                    segFiredRef.current.clear()
+                                    for (const [id, audio] of segAudioMapRef.current) {
+                                      if ((audio._segStart || 0) < outT) segFiredRef.current.add(id)
+                                    }
                                   }}
                                   onPause={() => {
                                     if (voiceoverAudioRef.current) try { voiceoverAudioRef.current.pause() } catch {}
+                                    pauseAllSegments()
                                   }}
                                   onSeeked={e => {
                                     const v = e.target
@@ -2010,6 +2080,15 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                       const outputTime = Math.max(0, v.currentTime - start)
                                       try { voiceoverAudioRef.current.currentTime = Math.min(outputTime, voiceoverAudioRef.current.duration || 999) } catch {}
                                     }
+                                    // Re-evaluate segment fired-state after seek so scrubbing
+                                    // doesn't replay an already-past segment, and pause any
+                                    // currently-playing one.
+                                    const outT = Math.max(0, v.currentTime - start)
+                                    segFiredRef.current.clear()
+                                    for (const [id, audio] of segAudioMapRef.current) {
+                                      if ((audio._segStart || 0) < outT - 0.05) segFiredRef.current.add(id)
+                                    }
+                                    pauseAllSegments()
                                   }}
                                 />
                               ) : (
