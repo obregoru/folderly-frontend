@@ -1684,47 +1684,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         </div>
       )}
       {/* Mobile: copy + regen buttons near the caption */}
-      <div className="md:hidden flex gap-2 mt-2">
-        <button
-          onClick={() => { navigator.clipboard.writeText(value); setPostStatus('Copied!'); setTimeout(() => setPostStatus(''), 2000) }}
-          className="flex-1 py-3 text-[14px] font-medium border border-sage rounded-sm bg-sage-light text-sage cursor-pointer font-sans active:bg-sage active:text-white min-h-[48px]"
-        >
-          {postStatus === 'Copied!' ? 'Copied!' : 'Copy'}
-        </button>
-        <button
-          disabled={regenPlatformLoading}
-          onClick={async () => {
-            setRegenPlatformLoading(true)
-            try {
-              const api = await import('../api')
-              const body = {
-                filename: item.file?.name || item._filename || 'file',
-                folder_name: '',
-                occasion: '',
-                tone: settings?.default_tone || 'warm',
-                availability: '',
-                platforms: [platform],
-                upload_id: item.uploadResult?.id || item.uploadResult?.uuid,
-                rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
-                user_hint: '',
-              }
-              if (item.isImg && item.file) {
-                const { toBase64 } = await import('../lib/crop')
-                body.base64 = await toBase64(item.file)
-                body.media_type = item.file?.type || item._mediaType || 'image/jpeg'
-              }
-              const caps = {}
-              await api.generateStream(body, (partial) => { Object.assign(caps, partial) })
-              const newText = typeof caps[platform] === 'object' ? (caps[platform].text || caps[platform].description || JSON.stringify(caps[platform])) : (caps[platform] || '')
-              if (newText) { setValue(newText); onSave(newText) }
-            } catch (e) { alert('Regen failed: ' + e.message) }
-            setRegenPlatformLoading(false)
-          }}
-          className="flex-1 py-3 text-[14px] font-medium border border-[#6C5CE7] rounded-sm bg-[#f3f0ff] text-[#6C5CE7] cursor-pointer font-sans active:bg-[#6C5CE7] active:text-white min-h-[48px] disabled:opacity-50"
-        >
-          {regenPlatformLoading ? 'Regenerating...' : 'Regen'}
-        </button>
-      </div>
+      {/* Mobile-only mini row removed — the full action row below now
+          shows at all widths and wraps, so this duplicate is no longer needed. */}
       <div className="flex flex-col gap-2 mt-2">
         {platform === 'youtube' && (
           <button
@@ -2846,7 +2807,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
           </div>
         )}
 
-        <div className="hidden md:flex justify-end gap-1.5 mt-2 items-center flex-wrap">
+        <div className="flex justify-end gap-1.5 mt-2 items-center flex-wrap">
         {!canPostYt && platform === 'youtube' && !isVideo && (
           <span className="text-[10px] text-muted italic">YouTube requires a video</span>
         )}
