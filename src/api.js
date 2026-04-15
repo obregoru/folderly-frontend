@@ -105,7 +105,7 @@ export const generate = (body) =>
   })
 
 // Generate (streaming)
-export async function generateStream(body, onCaptions) {
+export async function generateStream(body, onCaptions, onWarning) {
   const resp = await fetch(api('/generate/stream'), {
     method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(body)
   })
@@ -128,6 +128,7 @@ export async function generateStream(body, onCaptions) {
         try {
           const evt = JSON.parse(line.slice(6))
           if (evt.type === 'captions' && evt.data) onCaptions(evt.data)
+          if (evt.type === 'warning' && onWarning) onWarning(evt.message)
           if (evt.type === 'error') throw new Error(evt.error)
         } catch (e) {
           if (e.message !== 'Unexpected end of JSON input') throw e
