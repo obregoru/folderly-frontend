@@ -212,14 +212,44 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [generatingAll, setGeneratingAll] = useState(false)
   const generateAllSegments = async () => {
     const pending = segments.filter(s => s.text?.trim() && !s.blob)
-    if (pending.length === 0) {
-      alert('Nothing to generate — all segments already have audio.')
+    const primaryPending = !!(ttsText.trim() && !audioBlob)
+    if (pending.length === 0 && !primaryPending) {
+      alert('Nothing to generate — primary and all segments already have audio.')
       return
     }
     setGeneratingAll(true)
     try {
       // Mark all pending as generating so the user sees progress
       setSegments(segs => segs.map(s => pending.find(p => p.id === s.id) ? { ...s, generating: true } : s))
+      // First: primary voiceover if it needs regenerating (draft resume path)
+      if (primaryPending) {
+        setTtsLoading(true)
+        try {
+          const api = await import('../api')
+          const r = await api.textToSpeech(ttsText.trim(), selectedVoice || undefined, {
+            stability: ttsStability,
+            similarity_boost: ttsSimilarity,
+            style: ttsStyle,
+            use_speaker_boost: ttsSpeakerBoost,
+          })
+          if (r.error) throw new Error(r.error)
+          const bc = atob(r.audio_base64)
+          const bytes = new Uint8Array(bc.length)
+          for (let i = 0; i < bc.length; i++) bytes[i] = bc.charCodeAt(i)
+          const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
+          setAudioBlob(blob)
+          if (audioUrl) URL.revokeObjectURL(audioUrl)
+          setAudioUrl(URL.createObjectURL(blob))
+          for (const vf of videoFiles) vf._voiceoverBlob = blob
+          try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+          persistAudio(blob)
+        } catch (e) {
+          alert('Primary voiceover TTS failed: ' + e.message)
+        } finally {
+          setTtsLoading(false)
+        }
+      }
+      // Then: each pending timed segment
       for (const seg of pending) {
         try {
           const result = await generateOneSegmentTTS(seg)
@@ -1066,18 +1096,20 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           })()}
           {/* Single Generate-all action below the list — clearer than per-row buttons */}
           {segments.length > 0 && (() => {
-            const pendingCount = segments.filter(s => s.text?.trim() && !s.blob).length
+            const pendingSegCount = segments.filter(s => s.text?.trim() && !s.blob).length
             const readyCount = segments.filter(s => s.blob).length
+            const primaryPending = !!(ttsText.trim() && !audioBlob)
+            const totalPending = pendingSegCount + (primaryPending ? 1 : 0)
             return (
               <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={generateAllSegments}
-                  disabled={generatingAll || pendingCount === 0}
-                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${pendingCount === 0 ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
-                  title={pendingCount === 0 ? 'All segments already generated' : `Generate ${pendingCount} segment${pendingCount > 1 ? 's' : ''} — each is a separate ElevenLabs call`}
+                  disabled={generatingAll || totalPending === 0}
+                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${totalPending === 0 ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+                  title={totalPending === 0 ? 'Primary and all segments already generated' : `Generate ${totalPending} clip${totalPending > 1 ? 's' : ''}${primaryPending ? ' (includes primary)' : ''} — each is a separate ElevenLabs call`}
                 >
-                  {generatingAll ? 'Generating…' : pendingCount === 0 ? `All ${readyCount} ready ✓` : `Generate voices (${pendingCount})`}
+                  {generatingAll ? 'Generating…' : totalPending === 0 ? `All ready ✓` : `Generate voices (${totalPending})`}
                 </button>
                 {readyCount > 0 && (
                   <span className="text-[9px] text-muted">Segments mix into one timeline on preview</span>
