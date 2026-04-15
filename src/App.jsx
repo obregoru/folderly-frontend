@@ -499,6 +499,17 @@ export default function App() {
     if (item.isImg) {
       body.base64 = await toBase64(item.file)
       body.media_type = item.file.type || 'image/jpeg'
+    } else if (item.file && !item.isImg) {
+      // For videos: grab a frame and send it as the image context so Claude
+      // can see what's happening. Without this it would ask clarifying
+      // questions instead of generating captions.
+      try {
+        const frame = await captureVideoFrame(item.file)
+        if (frame) {
+          body.base64 = await toBase64(frame)
+          body.media_type = 'image/jpeg'
+        }
+      } catch (e) { console.warn('[generate] video frame capture failed:', e.message) }
     }
 
     // Use streaming endpoint -- returns captions progressively
