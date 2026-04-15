@@ -123,6 +123,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // Audio mix mode — restored from job first, then localStorage
   const [voMixMode, setVoMixMode] = useState(() => rvs.mode || localStorage.getItem('posty_vo_mode') || 'mix')
   const [voOrigVolume, setVoOrigVolume] = useState(() => rvs.originalVolume ?? (Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3))
+  // Optional delay before the primary voiceover starts. Default 0 keeps
+  // the old behavior (plays at t=0) so nothing regresses for existing jobs.
+  const [primaryStartTime, setPrimaryStartTime] = useState(() => Number(rvs.primaryStartTime) || 0)
   useEffect(() => { localStorage.setItem('posty_vo_mode', voMixMode) }, [voMixMode])
   useEffect(() => { localStorage.setItem('posty_vo_orig_vol', voOrigVolume) }, [voOrigVolume])
   // When restoredVoiceover changes (draft resume), update all state from it
@@ -137,6 +140,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (s.speakerBoost != null) setTtsSpeakerBoost(s.speakerBoost)
     if (s.mode) setVoMixMode(s.mode)
     if (s.originalVolume != null) setVoOrigVolume(s.originalVolume)
+    // Older drafts (no primaryStartTime) default to 0 — unchanged behavior.
+    if (s.primaryStartTime != null) setPrimaryStartTime(Number(s.primaryStartTime) || 0)
     if (Array.isArray(s.segments) && s.segments.length > 0) {
       // Rehydrate segment list with metadata. If a segment has a saved
       // audioKey + public URL (from Supabase), fetch the bytes and populate
@@ -185,8 +190,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     for (const vf of videoFiles) {
       vf._voiceoverMode = voMixMode
       vf._voiceoverOrigVol = voOrigVolume
+      vf._voiceoverPrimaryStart = Number(primaryStartTime) || 0
     }
-  }, [voMixMode, voOrigVolume, videoFiles])
+  }, [voMixMode, voOrigVolume, videoFiles, primaryStartTime])
 
   // --- Additional timed segments (multi-voiceover) ---
   // Each segment is an optional TTS clip placed at a specific startTime on top
@@ -344,6 +350,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   }, [segments])
   // "missing" warnings use a separate set so play/seek resets don't re-spam
   const segWarnedRef = useRef(new Set())
+  // Tracks whether the primary voiceover has been fired this playthrough
+  const primaryFiredRef = useRef(false)
   // Called every timeupdate tick to fire any segment whose start time has arrived
   const maybeFireSegments = (videoTimeFromTrimStart) => {
     for (const s of segments) {
@@ -412,6 +420,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         similarity: ttsSimilarity,
         style: ttsStyle,
         speakerBoost: ttsSpeakerBoost,
+        primaryStartTime,
         // Persist segment metadata + audio key so blobs come back on resume
         segments: segments.map(s => ({
           id: s.id, text: s.text, voiceId: s.voiceId,
@@ -421,7 +430,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         })),
       })
     }
-  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, segments])
+  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, segments, primaryStartTime])
 
   // Clear "restored" flag when TTS settings change so Generate button un-dims
   const ttsSettingsKeyRef = useRef(`${rvs.ttsText}|${rvs.voiceId}|${rvs.stability}|${rvs.similarity}|${rvs.style}|${rvs.speakerBoost}`)
@@ -727,17 +736,21 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 if (v.currentTime < start || v.currentTime >= end - 0.05) {
                   try { v.currentTime = start } catch {}
                 }
-                // Sync voiceover audio (primary)
+                // Sync voiceover audio (primary). Respect the primary start
+                // delay — play only when video reaches that time.
+                const outputT = Math.max(0, (v.currentTime || 0) - start)
+                const pStart = Number(primaryStartTime) || 0
+                primaryFiredRef.current = false
                 if (audioUrl && audioPreviewRef.current) {
-                  const outputTime = Math.max(0, (v.currentTime || 0) - start)
-                  try { audioPreviewRef.current.currentTime = outputTime } catch {}
-                  audioPreviewRef.current.play().catch(() => {})
-                  setPreviewing(true)
+                  try { audioPreviewRef.current.pause(); audioPreviewRef.current.currentTime = 0 } catch {}
+                  if (outputT >= pStart - 0.01) {
+                    // Already past the primary's start — play immediately
+                    try { audioPreviewRef.current.currentTime = Math.max(0, outputT - pStart) } catch {}
+                    audioPreviewRef.current.play().catch(() => {})
+                    primaryFiredRef.current = true
+                  }
                 }
                 // Reset segment fired-state so they can trigger this playthrough.
-                // If we're resuming mid-video, mark any already-past segments as fired
-                // (we can't rewind an audio to the middle of a TTS clip gracefully).
-                const outputT = Math.max(0, (v.currentTime || 0) - start)
                 segFiredRef.current.clear()
                 for (const s of segments) {
                   if ((Number(s.startTime) || 0) < outputT) segFiredRef.current.add(s.id)
@@ -785,8 +798,14 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 } else if (v.currentTime < start - 0.05) {
                   try { v.currentTime = start } catch {}
                 } else {
-                  // Fire any timed segments whose startTime has now arrived
                   const outputT = Math.max(0, v.currentTime - start)
+                  // Fire the primary voiceover when its start time arrives
+                  const pStart = Number(primaryStartTime) || 0
+                  if (audioUrl && audioPreviewRef.current && !primaryFiredRef.current && outputT >= pStart) {
+                    primaryFiredRef.current = true
+                    try { audioPreviewRef.current.currentTime = 0; audioPreviewRef.current.play().catch(() => {}) } catch {}
+                  }
+                  // Fire any timed segments whose startTime has now arrived
                   maybeFireSegments(outputT)
                 }
               }}
@@ -1010,6 +1029,23 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             placeholder="Type what the voiceover should say... or insert an AI hook above. Edit freely — nothing is sent to ElevenLabs until you click Generate voice."
             className="w-full text-[11px] border border-border rounded py-1 px-2 bg-white resize-none"
           />
+          {/* Start-time for the primary voiceover. Defaults to 0 so existing
+              drafts without this field keep playing at t=0 (no regression). */}
+          <div className="flex items-center gap-2 text-[10px]">
+            <label className="text-muted">Starts at:</label>
+            <input
+              type="text" inputMode="decimal"
+              value={primaryStartTime === '' ? '' : String(primaryStartTime)}
+              onChange={e => {
+                const cleaned = e.target.value.replace(/[^0-9.]/g, '')
+                if (cleaned === '') { setPrimaryStartTime(0); return }
+                const parsed = parseFloat(cleaned)
+                setPrimaryStartTime(isNaN(parsed) ? 0 : parsed)
+              }}
+              className="text-[10px] border border-border rounded py-0.5 px-1.5 bg-white w-16"
+            />
+            <span className="text-muted">s into the video</span>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
             {(() => {
               // Count every voice "clip" that has text — primary + each

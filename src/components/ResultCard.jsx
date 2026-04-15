@@ -1309,8 +1309,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       const videoB64 = await blobToBase64Str(await (await fetch(url)).blob())
       const mode = item._voiceoverMode || 'mix'
       const origVol = item._voiceoverOrigVol ?? 0.3
-      // Single clip at t=0: use the simpler existing endpoint
-      if (primary && extras.length === 0) {
+      // Single clip at t=0: use the simpler existing endpoint.
+      // When primaryStart > 0 we route through the multi-segment endpoint so
+      // the adelay is applied.
+      const primaryStartSingle = Number(item._voiceoverPrimaryStart) || 0
+      if (primary && extras.length === 0 && primaryStartSingle === 0) {
         const audioB64 = await blobToBase64Str(primary)
         const r = await apiMod.addVoiceover(videoB64, audioB64, mode, origVol, 1.0)
         if (r.error) throw new Error(r.error)
@@ -1320,10 +1323,12 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
         URL.revokeObjectURL(url)
         return URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }))
       }
-      // Multi-segment path: assemble all clips with their start times
+      // Multi-segment path: assemble all clips with their start times.
+      // The primary voiceover has its own optional start-time (defaults to 0).
+      const primaryStart = Number(item._voiceoverPrimaryStart) || 0
       const segs = []
       if (primary) {
-        segs.push({ audioBase64: await blobToBase64Str(primary), startTime: 0, volume: 1 })
+        segs.push({ audioBase64: await blobToBase64Str(primary), startTime: primaryStart, volume: 1 })
       }
       for (const s of extras) {
         if (s.blob) segs.push({ audioBase64: await blobToBase64Str(s.blob), startTime: s.startTime || 0, volume: s.volume ?? 1 })
