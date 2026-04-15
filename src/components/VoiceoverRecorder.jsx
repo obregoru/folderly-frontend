@@ -170,10 +170,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (gone?.audioUrl) { try { URL.revokeObjectURL(gone.audioUrl) } catch {} }
     return segs.filter(s => s.id !== id)
   })
-  const generateSegmentTTS = async (id) => {
-    const seg = segments.find(s => s.id === id)
-    if (!seg || !seg.text?.trim()) return
-    updateSegment(id, { generating: true })
+  // Generate TTS for one segment (used by the bulk "Generate all" button below)
+  const generateOneSegmentTTS = async (seg) => {
+    if (!seg.text?.trim()) return null
     try {
       const r = await api.textToSpeech(seg.text.trim(), seg.voiceId || selectedVoice, {
         stability: seg.stability ?? ttsStability,
@@ -187,16 +186,56 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       for (let i = 0; i < bc.length; i++) bytes[i] = bc.charCodeAt(i)
       const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
       const url = URL.createObjectURL(blob)
-      updateSegment(id, { blob, audioUrl: url, generating: false })
+      return { blob, audioUrl: url }
     } catch (err) {
-      alert('Segment TTS failed: ' + err.message)
-      updateSegment(id, { generating: false })
+      console.error('[segment TTS]', err)
+      throw err
     }
   }
+  // Single "Generate all voices" action: loops through segments that don't
+  // already have audio (or whose text changed) and runs TTS for each.
+  const [generatingAll, setGeneratingAll] = useState(false)
+  const generateAllSegments = async () => {
+    const pending = segments.filter(s => s.text?.trim() && !s.blob)
+    if (pending.length === 0) {
+      alert('Nothing to generate — all segments already have audio.')
+      return
+    }
+    setGeneratingAll(true)
+    try {
+      // Mark all pending as generating so the user sees progress
+      setSegments(segs => segs.map(s => pending.find(p => p.id === s.id) ? { ...s, generating: true } : s))
+      for (const seg of pending) {
+        try {
+          const result = await generateOneSegmentTTS(seg)
+          if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, generating: false })
+        } catch (err) {
+          updateSegment(seg.id, { generating: false })
+          alert(`Failed on segment at ${seg.startTime}s: ${err.message}`)
+          break // stop on first error so user can fix
+        }
+      }
+    } finally {
+      setGeneratingAll(false)
+    }
+  }
+  // Play a single segment's audio — returns the promise so we can surface errors
+  const segTestAudioRef = useRef(null)
   const playSegment = (id) => {
     const seg = segments.find(s => s.id === id)
     if (!seg?.audioUrl) return
-    try { new Audio(seg.audioUrl).play() } catch {}
+    try {
+      // Stop any currently playing test
+      if (segTestAudioRef.current) { try { segTestAudioRef.current.pause() } catch {} }
+      const a = new Audio(seg.audioUrl)
+      segTestAudioRef.current = a
+      a.play().catch(err => {
+        console.warn('[segment test] play rejected:', err)
+        alert('Browser blocked audio playback — try clicking Test again or check sound output.')
+      })
+    } catch (err) {
+      console.error('[segment test]', err)
+    }
   }
   // Stash segment blobs on each video item for the preview/publish pipeline
   useEffect(() => {
@@ -833,6 +872,21 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                       {voices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
                     </select>
                   )}
+                  {/* Status chip + Test + Remove */}
+                  {hasAudio && !seg.generating && (
+                    <span className="text-[9px] text-[#2D9A5E]" title="Audio ready">● ready</span>
+                  )}
+                  {seg.generating && (
+                    <span className="text-[9px] text-[#6C5CE7]">generating…</span>
+                  )}
+                  {hasAudio && (
+                    <button
+                      type="button"
+                      onClick={() => playSegment(seg.id)}
+                      className="text-[10px] py-0 px-1.5 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
+                      title="Play just this segment"
+                    >▶</button>
+                  )}
                   <button
                     type="button"
                     onClick={() => removeSegment(seg.id)}
@@ -843,28 +897,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 <textarea
                   rows={2}
                   value={seg.text || ''}
-                  onChange={e => updateSegment(seg.id, { text: e.target.value, blob: null, audioUrl: null })}
+                  onChange={e => {
+                    // Clearing blob forces re-generation (text changed = stale audio)
+                    const prev = seg.audioUrl
+                    if (prev) { try { URL.revokeObjectURL(prev) } catch {} }
+                    updateSegment(seg.id, { text: e.target.value, blob: null, audioUrl: null })
+                  }}
                   placeholder="What should be spoken at this point?"
                   className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-y"
                 />
-                <div className="flex items-center gap-1 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => generateSegmentTTS(seg.id)}
-                    disabled={seg.generating || !seg.text?.trim()}
-                    className={`text-[10px] py-0.5 px-2 border-none rounded cursor-pointer disabled:opacity-50 ${hasAudio ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
-                  >{seg.generating ? 'Generating…' : hasAudio ? 'Regenerate' : 'Generate voice'}</button>
-                  {hasAudio && (
-                    <button
-                      type="button"
-                      onClick={() => playSegment(seg.id)}
-                      className="text-[10px] py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
-                    >▶ Test</button>
-                  )}
-                  {!hasAudio && seg.text?.trim() && (
-                    <span className="text-[9px] text-muted">Click Generate to create audio for this segment</span>
-                  )}
-                </div>
               </div>
             )
           })}
@@ -880,6 +921,27 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             }
             if (!overlaps.length) return null
             return <p className="text-[9px] text-[#c0392b]">⚠ Some segments may overlap — consider spacing them further apart.</p>
+          })()}
+          {/* Single Generate-all action below the list — clearer than per-row buttons */}
+          {segments.length > 0 && (() => {
+            const pendingCount = segments.filter(s => s.text?.trim() && !s.blob).length
+            const readyCount = segments.filter(s => s.blob).length
+            return (
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={generateAllSegments}
+                  disabled={generatingAll || pendingCount === 0}
+                  className={`text-[10px] py-1 px-2.5 border-none rounded cursor-pointer disabled:opacity-50 ${pendingCount === 0 ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+                  title={pendingCount === 0 ? 'All segments already generated' : `Generate ${pendingCount} segment${pendingCount > 1 ? 's' : ''} — each is a separate ElevenLabs call`}
+                >
+                  {generatingAll ? 'Generating…' : pendingCount === 0 ? `All ${readyCount} ready ✓` : `Generate voices (${pendingCount})`}
+                </button>
+                {readyCount > 0 && (
+                  <span className="text-[9px] text-muted">Segments mix into one timeline on preview</span>
+                )}
+              </div>
+            )
           })()}
         </div>
       )}
