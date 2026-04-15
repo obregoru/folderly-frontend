@@ -184,6 +184,15 @@ export const updateSeoKeywordSet = (id, keywords) =>
 export const deleteSeoKeywordSet = (id) =>
   fetch(api(`/seo-keywords/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
+// Generate spoken-style voiceover hook(s) for the ElevenLabs TTS field
+export const generateVoiceoverHook = ({ hint, category, includeBody, count } = {}) =>
+  fetch(api('/generate/voiceover-hook'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ hint: hint || null, category: category || null, includeBody: !!includeBody, count: count || 4 }),
+  }).then(r => r.json())
+
 // Generate per-platform video overlay texts (opening + closing) from a single hint
 export const generateOverlayTexts = (hint, destinations, opts = {}) =>
   fetch(api('/generate/overlay-texts'), {

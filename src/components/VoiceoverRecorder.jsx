@@ -57,17 +57,44 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [hookOptions, setHookOptions] = useState([]) // string[]
   const [hookIdx, setHookIdx] = useState(0)
   const [hookLoading, setHookLoading] = useState(false)
+  const [hookIncludeBody, setHookIncludeBody] = useState(false)
+  const ttsRef = useRef(null)
+  // Insert text into the textarea — at the cursor if focused, else prepend.
+  // Never sends to ElevenLabs; user edits then clicks "Generate voice".
+  const insertIntoTts = (text) => {
+    if (!text) return
+    const ta = ttsRef.current
+    const current = ttsText || ''
+    let next
+    if (ta && document.activeElement === ta) {
+      const start = ta.selectionStart ?? 0
+      const end = ta.selectionEnd ?? 0
+      next = current.slice(0, start) + text + current.slice(end)
+      setTtsText(next)
+      // Restore caret right after the inserted text
+      requestAnimationFrame(() => {
+        try { ta.focus(); ta.setSelectionRange(start + text.length, start + text.length) } catch {}
+      })
+    } else {
+      // Prepend to the start with a space if there's existing text
+      next = current.trim() ? `${text} ${current}` : text
+      setTtsText(next)
+    }
+  }
   const generateHook = async () => {
-    const hint = hookHint.trim() || hookCategoryName || 'engaging hook'
     setHookLoading(true)
     try {
-      const r = await api.generateOverlayTexts(hint, ['tiktok'], { category: hookCategoryName || null, optionsPerDest: 5 })
-      const dst = r?.destinations?.tiktok || {}
-      const opts = Array.isArray(dst.openings) && dst.openings.length ? dst.openings : (dst.opening ? [dst.opening] : [])
+      const r = await api.generateVoiceoverHook({
+        hint: hookHint.trim() || null,
+        category: hookCategoryName || null,
+        includeBody: hookIncludeBody,
+        count: 4,
+      })
+      const opts = Array.isArray(r?.options) ? r.options : []
       if (!opts.length) { alert('No hooks generated — try a different hint.'); setHookLoading(false); return }
       setHookOptions(opts)
       setHookIdx(0)
-      setTtsText(opts[0])
+      // Just store options — user clicks "Insert" to put one in the textarea
     } catch (err) {
       alert('Hook generation failed: ' + err.message)
     }
@@ -75,9 +102,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   }
   const cycleHook = () => {
     if (!hookOptions.length) return
-    const next = (hookIdx + 1) % hookOptions.length
-    setHookIdx(next)
-    setTtsText(hookOptions[next])
+    setHookIdx((hookIdx + 1) % hookOptions.length)
   }
   const [voices, setVoices] = useState([])
   const [selectedVoice, setSelectedVoice] = useState(() => rvs.voiceId || localStorage.getItem('posty_tts_voice') || settings?.elevenlabs_voice_id || '')
@@ -577,7 +602,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               <span className="text-muted">Speaker boost</span>
             </div>
           </div>
-          {/* Hook generator — populates the textarea below with an AI hook */}
+          {/* AI hook helper — generates options you can review & insert into the
+              voiceover text. Nothing auto-fills, nothing auto-sends to ElevenLabs. */}
           <div className="border border-border rounded p-1.5 bg-cream/30 space-y-1">
             <div className="flex items-center gap-1 flex-wrap">
               <label className="text-[10px] text-muted">Hook style:</label>
@@ -591,33 +617,59 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   <option key={c.name} value={c.name}>{c.name}</option>
                 ))}
               </select>
+              <label className="text-[10px] text-muted flex items-center gap-1">
+                <input type="checkbox" checked={hookIncludeBody} onChange={e => setHookIncludeBody(e.target.checked)} className="accent-[#6C5CE7]" />
+                + body
+              </label>
               <button
                 type="button"
                 onClick={generateHook}
-                disabled={hookLoading || !hookCategoryName}
+                disabled={hookLoading || (!hookCategoryName && !hookHint.trim())}
                 className="text-[10px] py-0.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-              >{hookLoading ? '…' : 'Generate hook'}</button>
-              {hookOptions.length > 1 && (
-                <button
-                  type="button"
-                  onClick={cycleHook}
-                  className="text-[10px] py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
-                  title={`${hookIdx + 1} / ${hookOptions.length}`}
-                >Try another ({hookIdx + 1}/{hookOptions.length})</button>
-              )}
+                title="Generate hook options — nothing is sent to ElevenLabs yet"
+              >{hookLoading ? 'Thinking…' : 'Generate hooks'}</button>
             </div>
             <input
               value={hookHint}
               onChange={e => setHookHint(e.target.value)}
-              placeholder="Optional hint about this video (what's in it?)"
+              placeholder="What's in this video? (helps the AI write a relevant hook)"
               className="w-full text-[10px] border border-border rounded py-0.5 px-1.5 bg-white"
             />
+            {hookOptions.length > 0 && (
+              <div className="space-y-1 pt-1 border-t border-border/60">
+                <div className="flex items-center gap-1 text-[10px] text-muted">
+                  <span>Option {hookIdx + 1} of {hookOptions.length}</span>
+                  {hookOptions.length > 1 && (
+                    <button type="button" onClick={cycleHook} className="text-[#6C5CE7] hover:underline bg-transparent border-none cursor-pointer p-0">Next ›</button>
+                  )}
+                  <span className="ml-auto text-muted/70">Review, then insert</span>
+                </div>
+                <div className="text-[11px] bg-white border border-border rounded p-1.5 italic text-foreground/90">
+                  "{hookOptions[hookIdx]}"
+                </div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => insertIntoTts(hookOptions[hookIdx])}
+                    className="text-[10px] py-0.5 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer"
+                    title="Insert at cursor (or prepend if textarea isn't focused)"
+                  >Insert into voiceover</button>
+                  <button
+                    type="button"
+                    onClick={() => { setTtsText(hookOptions[hookIdx]); requestAnimationFrame(() => ttsRef.current?.focus()) }}
+                    className="text-[10px] py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
+                    title="Replace the entire voiceover text with this option"
+                  >Replace</button>
+                </div>
+              </div>
+            )}
           </div>
           <textarea
-            rows={2}
+            ref={ttsRef}
+            rows={3}
             value={ttsText}
             onChange={e => setTtsText(e.target.value)}
-            placeholder="Type what the voiceover should say... or pick a hook style above"
+            placeholder="Type what the voiceover should say... or insert an AI hook above. Edit freely — nothing is sent to ElevenLabs until you click Generate voice."
             className="w-full text-[11px] border border-border rounded py-1 px-2 bg-white resize-none"
           />
           <div className="flex items-center gap-2 flex-wrap">
