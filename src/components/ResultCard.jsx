@@ -2531,18 +2531,27 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           onClick={async () => {
                             setGeneratingPreview(true)
                             try {
-                              // For large files, send the Supabase upload key so the server
-                              // fetches it directly. For small files, send base64 as usual.
-                              const uploadKey = item.uploadResult?.original_temp_path || null
-                              // Send BOTH upload key and base64 when possible. The server
-                              // tries the key first (fast, no upload needed), falls back to
-                              // base64 if the file was cleaned up. For large files where
-                              // base64 would crash iOS, we skip base64 and rely on the key.
+                              // Prefer the merged composition when one exists — the
+                              // user's intent is to preview the full piece (trims,
+                              // transitions, voiceover, overlays), not the single
+                              // source clip this ResultCard was built from.
+                              const mergedMeta = typeof window !== 'undefined' ? window._postyMergedVideo : null
+                              let uploadKey = item.uploadResult?.original_temp_path || null
                               let rawBase64 = null
-                              if (item.file) {
+                              let rawType = item.file?.type || item._mediaType
+                              let previewTrimStart = item._trimStart || 0
+                              let previewTrimEnd = item._trimEnd ?? null
+                              if (mergedMeta?.base64) {
+                                rawBase64 = mergedMeta.base64
+                                rawType = 'video/mp4'
+                                // The merged video is already the final comp — no
+                                // per-clip trim applies on top.
+                                uploadKey = null
+                                previewTrimStart = 0
+                                previewTrimEnd = null
+                              } else if (item.file) {
                                 try { rawBase64 = await fileToBase64(item.file) } catch { rawBase64 = null }
                               }
-                              const rawType = item.file?.type || item._mediaType
                               const api = await import('../api')
                               // If AI per-platform overlays are active, preview the selected destination's text
                               const aiActive = aiOverlaysEnabled && previewDestKey && perPlatformOverlays[previewDestKey]
@@ -2556,7 +2565,7 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                                   uploadKey,
                                   jobId: sessionStorage.getItem('posty_active_job') || null,
                                   fontSize: storyFontSize, fontFamily: storyFontFamily, fontColor: storyFontColor, fontOutline: storyFontOutline, fontOutlineWidth: storyFontOutlineWidth, lineHeight: storyLineHeight, letterSpacing: storyLetterSpacing,
-                                  trimStart: item._trimStart || 0, trimEnd: item._trimEnd ?? null,
+                                  trimStart: previewTrimStart, trimEnd: previewTrimEnd,
                                   openingText: pOpening, closingText: pClosing, openingDuration, closingDuration,
                                   middleText: middleText || null, middleStartTime, middleDuration,
                                   photoToVideo: isImageFile && photoToVideoEnabled,
