@@ -450,35 +450,55 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     }
   }, [restoredVoiceover])
 
-  // Video source for the recording monitor. Recompute when videoFiles changes.
-  const monitorItem = videoFiles[0] || null
+  // Video source for the voiceover monitor. Priority order:
+  //   1. Freshly-merged video (user just hit Merge / Re-merge) — no trim,
+  //      plays from 0 to its natural end since the merge is already the
+  //      final composition.
+  //   2. First video file (restored draft or single-clip flow) with its
+  //      trim bounds applied during playback.
   const [monitorSrc, setMonitorSrc] = useState(null)
+  const [mergedMonitorActive, setMergedMonitorActive] = useState(false)
   const monitorFileRef = useRef(null)
+  const monitorItem = videoFiles[0] || null
+
+  // Watch for a fresh merge (posty-voiceover-change isn't fired by Merge,
+  // but window._postyMergedVideo is updated). Re-evaluate on mount and on
+  // video files change, plus listen for a custom merged event.
   useEffect(() => {
-    const file = monitorItem?.file
-    if (file === monitorFileRef.current && monitorSrc) return
-    monitorFileRef.current = file
-    if (monitorSrc && monitorSrc.startsWith('blob:')) URL.revokeObjectURL(monitorSrc)
-    if (file instanceof Blob || file instanceof File) {
-      setMonitorSrc(URL.createObjectURL(file))
-    } else if (monitorItem?._uploadKey && monitorItem?._tenantSlug) {
-      // Restored file — stream from server
-      setMonitorSrc(`${import.meta.env.VITE_API_URL || ''}/api/t/${monitorItem._tenantSlug}/upload/serve?key=${encodeURIComponent(monitorItem._uploadKey)}`)
-    } else {
-      setMonitorSrc(null)
+    const refresh = () => {
+      const mergedUrl = (typeof window !== 'undefined' && window._postyMergedVideo?.url) || null
+      const file = monitorItem?.file
+      // Prefer the latest merge when it's available
+      if (mergedUrl) {
+        if (monitorSrc === mergedUrl) return
+        if (monitorSrc && monitorSrc.startsWith('blob:') && !mergedMonitorActive) URL.revokeObjectURL(monitorSrc)
+        setMonitorSrc(mergedUrl)
+        setMergedMonitorActive(true)
+        setMonitorDuration(0)
+        return
+      }
+      if (file === monitorFileRef.current && monitorSrc && !mergedMonitorActive) return
+      monitorFileRef.current = file
+      if (monitorSrc && monitorSrc.startsWith('blob:') && !mergedMonitorActive) URL.revokeObjectURL(monitorSrc)
+      if (file instanceof Blob || file instanceof File) {
+        setMonitorSrc(URL.createObjectURL(file))
+      } else if (monitorItem?._uploadKey && monitorItem?._tenantSlug) {
+        setMonitorSrc(`${import.meta.env.VITE_API_URL || ''}/api/t/${monitorItem._tenantSlug}/upload/serve?key=${encodeURIComponent(monitorItem._uploadKey)}`)
+      } else {
+        setMonitorSrc(null)
+      }
+      setMergedMonitorActive(false)
+      setMonitorDuration(0)
     }
-    setMonitorDuration(0)
-    // Clear stale voiceover when the source video changes
-    if (audioUrl) {
-      setAudioBlob(null)
-      URL.revokeObjectURL(audioUrl)
-      setAudioUrl(null)
-      for (const vf of videoFiles) delete vf._voiceoverBlob
-      try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
-    }
+    refresh()
+    const onMerge = () => refresh()
+    window.addEventListener('posty-merge-change', onMerge)
+    return () => window.removeEventListener('posty-merge-change', onMerge)
   }, [monitorItem?.id])
-  const monitorTrimStart = monitorItem?._trimStart || 0
-  const monitorTrimEnd = monitorItem?._trimEnd ?? null
+  // Use no trim bounds when the monitor is playing the merged video — the
+  // merge output is already the finished composition.
+  const monitorTrimStart = mergedMonitorActive ? 0 : (monitorItem?._trimStart || 0)
+  const monitorTrimEnd = mergedMonitorActive ? null : (monitorItem?._trimEnd ?? null)
 
   // Load voices as soon as ElevenLabs is configured (don't wait for tab switch)
   useEffect(() => {

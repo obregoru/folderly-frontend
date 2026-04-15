@@ -782,9 +782,10 @@ export default function App() {
               restoredMergeUrl={restoredMergeUrl}
               onMerged={({ blob, url, base64 }) => {
                 // Store the merged video so the post flow can use it.
-                // We stash it on window for now — a proper state solution
-                // would be a context, but this keeps it simple.
                 window._postyMergedVideo = { blob, url, base64 }
+                // Notify VoiceoverRecorder + others so they can swap monitor
+                // source to the latest merge instead of the first source clip.
+                try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
               }}
             />
           )}
