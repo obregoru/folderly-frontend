@@ -222,17 +222,23 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       for (let i = 0; i < bc.length; i++) bytes[i] = bc.charCodeAt(i)
       const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
       const url = URL.createObjectURL(blob)
-      // Persist to Supabase so the segment survives draft resume. Without
-      // this, clicking Generate on every resume is required. Store the
-      // returned key in voiceover_settings.segments[].audioKey.
+      // Persist to Supabase so the segment survives draft resume.
       let audioKey = null
       if (jobId) {
         try {
+          console.log(`[segment TTS] uploading ${seg.id} to storage (job ${jobId})...`)
           const res = await api.saveVoiceoverSegment(r.audio_base64, jobId, seg.id, r.media_type || 'audio/mpeg')
-          if (res?.audio_key) audioKey = res.audio_key
+          if (res?.audio_key) {
+            audioKey = res.audio_key
+            console.log(`[segment TTS] ${seg.id} persisted as ${audioKey}`)
+          } else {
+            console.warn(`[segment TTS] ${seg.id} persist returned no audio_key:`, res)
+          }
         } catch (e) {
           console.warn('[segment TTS] persist failed (segment still works in memory):', e.message)
         }
+      } else {
+        console.warn(`[segment TTS] no jobId — segment ${seg.id} will not persist`)
       }
       return { blob, audioUrl: url, audioKey }
     } catch (err) {
@@ -1075,8 +1081,14 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             const missingAudio = segments.filter(s => s.text?.trim() && !s.blob).length
             if (missingAudio === 0) return null
             return (
-              <div className="text-[10px] bg-[#fff3cd] text-[#664d03] border border-[#ffe69c] rounded px-2 py-1">
-                ⚠ {missingAudio} segment{missingAudio > 1 ? 's' : ''} missing audio. Click <strong>Generate voices</strong> below to prepare {missingAudio > 1 ? 'them' : 'it'} for playback.
+              <div className="text-[11px] bg-[#fff3cd] text-[#664d03] border border-[#ffe69c] rounded px-2 py-2 flex items-center gap-2 flex-wrap">
+                <span>⚠ {missingAudio} segment{missingAudio > 1 ? 's have' : ' has'} no audio yet.</span>
+                <button
+                  type="button"
+                  onClick={generateAllSegments}
+                  disabled={generatingAll || ttsLoading}
+                  className="text-[10px] py-1 px-2.5 bg-[#664d03] text-white border-none rounded cursor-pointer disabled:opacity-50 ml-auto"
+                >{generatingAll || ttsLoading ? 'Preparing…' : 'Prepare audio now'}</button>
               </div>
             )
           })()}
