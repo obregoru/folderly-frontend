@@ -1304,7 +1304,11 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const mixAllVoiceoversOnto = async (url, apiMod) => {
     const primary = item._voiceoverBlob
     const extras = Array.isArray(item._voiceoverSegments) ? item._voiceoverSegments : []
-    if (!primary && extras.length === 0) return url
+    console.log(`[voiceover mix] check: primary=${!!primary} primaryStart=${Number(item._voiceoverPrimaryStart) || 0}s extras=${extras.length} extrasWithBlobs=${extras.filter(s => s.blob).length}`)
+    if (!primary && extras.length === 0) {
+      console.log('[voiceover mix] nothing to mix — returning unchanged URL')
+      return url
+    }
     try {
       const videoB64 = await blobToBase64Str(await (await fetch(url)).blob())
       const mode = item._voiceoverMode || 'mix'
@@ -1343,7 +1347,8 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
       URL.revokeObjectURL(url)
       return URL.createObjectURL(new Blob([bytes], { type: 'video/mp4' }))
     } catch (err) {
-      console.warn('[voiceover mix] failed, using video-only:', err.message)
+      console.error('[voiceover mix] FAILED — preview will have no voiceover:', err)
+      alert(`Voiceover mix failed: ${err.message}\n\nThe preview will have no voiceover. Check the console for details.`)
       return url
     }
   }
