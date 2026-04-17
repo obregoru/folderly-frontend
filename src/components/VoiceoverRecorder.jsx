@@ -209,16 +209,24 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   }, [voMixMode, voOrigVolume, videoFiles, primaryStartTime])
 
   // Sync item._voiceoverBlob with the primary text. If the user clears the
-  // primary textarea but the audio blob is still around (e.g. a draft saved
-  // with text + audio, then text was deleted but the stored audio key stuck),
-  // the preview/export would play phantom audio the user can't see or edit.
+  // primary textarea but the audio blob is still around, the preview/export
+  // would play phantom audio the user can't see or edit.
   // Rule: primary audio only applies when there's primary text.
+  // Only fire the change event when the actual values change — the
+  // videoFiles prop gets a new array identity on every parent render,
+  // which was dispatching the event constantly and resetting segment
+  // audio pools (breaking preview playback).
+  const lastPrimarySyncRef = useRef({ blob: null, text: '' })
   useEffect(() => {
     for (const vf of videoFiles) {
       if (audioBlob && ttsText.trim()) vf._voiceoverBlob = audioBlob
       else delete vf._voiceoverBlob
     }
-    try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    const prev = lastPrimarySyncRef.current
+    if (prev.blob !== audioBlob || prev.text !== ttsText) {
+      lastPrimarySyncRef.current = { blob: audioBlob, text: ttsText }
+      try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    }
   }, [audioBlob, ttsText, videoFiles])
 
   // --- Additional timed segments (multi-voiceover) ---
@@ -449,7 +457,12 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       console.error('[segment test]', err)
     }
   }
-  // Stash segment blobs on each video item for the preview/publish pipeline
+  // Stash segment blobs on each video item for the preview/publish pipeline.
+  // Dispatch the change event only when the READY-segments signature
+  // actually changes — not on every videoFiles reference bump (parent
+  // re-renders would otherwise spam the event, resetting the audio
+  // pools in the preview listener and breaking playback).
+  const lastSegSyncRef = useRef('')
   useEffect(() => {
     const ready = segments.filter(s => s.blob).map(s => ({
       blob: s.blob, startTime: Number(s.startTime) || 0, volume: 1,
@@ -458,7 +471,14 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       if (ready.length) vf._voiceoverSegments = ready
       else delete vf._voiceoverSegments
     }
-    try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    // Signature = ordered list of (id|startTime) for segments with audio.
+    // Blobs aren't directly stringifiable but identity changes =
+    // different blob URLs which our consumers already handle.
+    const sig = segments.map(s => `${s.id}:${s.blob ? 'Y' : 'N'}:${s.startTime}`).join('|')
+    if (sig !== lastSegSyncRef.current) {
+      lastSegSyncRef.current = sig
+      try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    }
   }, [segments, videoFiles])
 
   // Auto-save voiceover settings to job when they change
