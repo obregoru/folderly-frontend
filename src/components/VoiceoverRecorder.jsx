@@ -113,10 +113,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [ttsSimilarity, setTtsSimilarity] = useState(() => rvs.similarity ?? (Number(localStorage.getItem('posty_tts_similarity')) || 0.75))
   const [ttsStyle, setTtsStyle] = useState(() => rvs.style ?? (Number(localStorage.getItem('posty_tts_style')) || 0))
   const [ttsSpeakerBoost, setTtsSpeakerBoost] = useState(() => rvs.speakerBoost ?? (localStorage.getItem('posty_tts_boost') !== 'false'))
+  // Speech speed multiplier. 1.0 = natural pace. TikTok/Reels hooks often
+  // land harder at 1.05–1.15 because the first second is scroll-stop
+  // territory. ElevenLabs supports 0.7–1.2 on compatible voices.
+  const [ttsSpeed, setTtsSpeed] = useState(() => rvs.speed ?? (Number(localStorage.getItem('posty_tts_speed')) || 1.0))
   useEffect(() => { localStorage.setItem('posty_tts_stability', ttsStability) }, [ttsStability])
   useEffect(() => { localStorage.setItem('posty_tts_similarity', ttsSimilarity) }, [ttsSimilarity])
   useEffect(() => { localStorage.setItem('posty_tts_style', ttsStyle) }, [ttsStyle])
   useEffect(() => { localStorage.setItem('posty_tts_boost', ttsSpeakerBoost) }, [ttsSpeakerBoost])
+  useEffect(() => { localStorage.setItem('posty_tts_speed', String(ttsSpeed)) }, [ttsSpeed])
 
   // Track whether audio was restored (not newly generated) for dimming Generate button
   const [audioIsRestored, setAudioIsRestored] = useState(!!rv.audioBlob)
@@ -139,6 +144,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (s.similarity != null) setTtsSimilarity(s.similarity)
     if (s.style != null) setTtsStyle(s.style)
     if (s.speakerBoost != null) setTtsSpeakerBoost(s.speakerBoost)
+    if (s.speed != null) setTtsSpeed(Number(s.speed) || 1.0)
     if (s.mode) setVoMixMode(s.mode)
     if (s.originalVolume != null) setVoOrigVolume(s.originalVolume)
     // Older drafts (no primaryStartTime) default to 0 — unchanged behavior.
@@ -157,6 +163,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         similarity: seg.similarity,
         style: seg.style,
         speakerBoost: seg.speakerBoost,
+        speed: seg.speed != null ? Number(seg.speed) : 1.0,
         audioKey: seg.audioKey || null,
         blob: null, audioUrl: null, generating: false,
       }))
@@ -206,6 +213,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     id: `seg-${Date.now()}`, text: '', voiceId: selectedVoice || '',
     startTime: Math.max(1, Math.round((segs[segs.length - 1]?.startTime || 0) + 5)),
     stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+    speed: 1.0,
     blob: null, audioUrl: null, generating: false,
   }])
   const removeSegment = (id) => setSegments(segs => {
@@ -222,6 +230,10 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         similarity_boost: seg.similarity ?? ttsSimilarity,
         style: seg.style ?? ttsStyle,
         use_speaker_boost: seg.speakerBoost ?? ttsSpeakerBoost,
+        // Per-segment speed — independent of the primary voiceover speed.
+        // Defaults to 1.0 (natural) rather than ttsSpeed so a fast primary
+        // hook doesn't force subsequent segments to also be fast.
+        speed: seg.speed ?? 1.0,
       })
       if (r.error) throw new Error(r.error)
       const bc = atob(r.audio_base64)
@@ -278,6 +290,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             similarity_boost: ttsSimilarity,
             style: ttsStyle,
             use_speaker_boost: ttsSpeakerBoost,
+            speed: ttsSpeed,
           })
           if (r.error) throw new Error(r.error)
           const bc = atob(r.audio_base64)
@@ -421,17 +434,19 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         similarity: ttsSimilarity,
         style: ttsStyle,
         speakerBoost: ttsSpeakerBoost,
+        speed: ttsSpeed,
         primaryStartTime,
         // Persist segment metadata + audio key so blobs come back on resume
         segments: segments.map(s => ({
           id: s.id, text: s.text, voiceId: s.voiceId,
           startTime: s.startTime,
           stability: s.stability, similarity: s.similarity, style: s.style, speakerBoost: s.speakerBoost,
+          speed: s.speed != null ? s.speed : null,
           audioKey: s.audioKey || null,
         })),
       })
     }
-  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, segments, primaryStartTime])
+  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, ttsSpeed, segments, primaryStartTime])
 
   // Clear "restored" flag when TTS settings change so Generate button un-dims
   const ttsSettingsKeyRef = useRef(`${rvs.ttsText}|${rvs.voiceId}|${rvs.stability}|${rvs.similarity}|${rvs.style}|${rvs.speakerBoost}`)
@@ -643,6 +658,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         voiceId: selectedVoice,
         startTime: s.startTime,
         stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        speed: 1.0,
         blob: null, audioUrl: null, audioKey: null, generating: false,
       })))
     } else {
@@ -656,6 +672,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         voiceId: selectedVoice,
         startTime: s.startTime,
         stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        speed: 1.0,
         blob: null, audioUrl: null, audioKey: null, generating: false,
       })))
     }
@@ -663,11 +680,26 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     setPasteInput('')
   }
 
+  // Pull on-screen caption context off the first video item so exports
+  // and reviews know what's visible — helps the LLM write a voiceover
+  // that complements the captions rather than duplicating them.
+  const overlayCtx = () => {
+    const os = (monitorItem?._overlaySettings) || {}
+    return {
+      overlayOpening: os.openingText || null,
+      overlayMiddle: os.middleText || null,
+      overlayClosing: os.closingText || null,
+      middleStartTime: os.middleStartTime ?? null,
+      videoDuration: monitorDuration || null,
+    }
+  }
+
   const exportCurrentScript = async () => {
     const payload = exportVoiceoverScript({
       primaryText: ttsText,
       primaryStartTime,
       segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+      ...overlayCtx(),
     })
     if (!payload) { alert('Nothing to export — write something first.'); return }
     try {
@@ -680,10 +712,12 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   }
 
   const reviewCurrentScript = async () => {
+    const ctx = overlayCtx()
     const items = exportVoiceoverScript({
       primaryText: ttsText,
       primaryStartTime,
       segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+      ...ctx,
     })
     if (!items) { alert('Nothing to review — write something first.'); return }
     setReviewing(true)
@@ -695,6 +729,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         script,
         videoHint: settings?._lastHint || null,
         duration: monitorDuration || null,
+        overlayOpening: ctx.overlayOpening,
+        overlayMiddle: ctx.overlayMiddle,
+        overlayClosing: ctx.overlayClosing,
       })
       if (r.error) throw new Error(r.error)
       setReviewResult(r)
@@ -702,6 +739,50 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       setReviewResult({ error: e.message })
     }
     setReviewing(false)
+  }
+
+  // Apply the revised script that Claude proposed during review. Overwrites
+  // current primary + all segments, clearing audio blobs (user regenerates
+  // voices after reviewing the new text).
+  const applyRevisedScript = () => {
+    const revised = Array.isArray(reviewResult?.revised_script) ? reviewResult.revised_script : []
+    if (revised.length === 0) return
+    const first = revised[0]
+    if (first && (Number(first.startTime) || 0) <= 0.5) {
+      setTtsText(String(first.text || '').trim())
+      setPrimaryStartTime(0)
+      setAudioBlob(null)
+      if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
+      for (const vf of videoFiles) delete vf._voiceoverBlob
+      const rest = revised.slice(1)
+      setSegments(rest.map(s => ({
+        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        text: String(s.text || '').trim(),
+        voiceId: selectedVoice,
+        startTime: Number(s.startTime) || 0,
+        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        speed: 1.0,
+        blob: null, audioUrl: null, audioKey: null, generating: false,
+      })))
+    } else {
+      setTtsText('')
+      setPrimaryStartTime(0)
+      setAudioBlob(null)
+      if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
+      for (const vf of videoFiles) delete vf._voiceoverBlob
+      setSegments(revised.map(s => ({
+        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        text: String(s.text || '').trim(),
+        voiceId: selectedVoice,
+        startTime: Number(s.startTime) || 0,
+        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        speed: 1.0,
+        blob: null, audioUrl: null, audioKey: null, generating: false,
+      })))
+    }
+    try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    setScriptModalOpen(null)
+    setReviewResult(null)
   }
 
   const copyScriptPrompt = async () => {
@@ -736,6 +817,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           similarity_boost: ttsSimilarity,
           style: ttsStyle,
           use_speaker_boost: ttsSpeakerBoost,
+          speed: ttsSpeed,
         })
         if (r.error) throw new Error(r.error)
         const byteChars = atob(r.audio_base64)
@@ -1059,6 +1141,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               <input type="checkbox" checked={ttsSpeakerBoost} onChange={e => setTtsSpeakerBoost(e.target.checked)} className="accent-[#6C5CE7]" />
               <span className="text-muted">Speaker boost</span>
             </div>
+            <div className="flex items-center gap-1 col-span-2">
+              <label className="text-muted w-14" title="Speech speed. 1.0 = natural. Bump to 1.05–1.15 for punchier TikTok/Reels hooks (the first second matters).">Speed</label>
+              <input type="range" min={0.7} max={1.2} step={0.01} value={ttsSpeed} onChange={e => setTtsSpeed(Number(e.target.value))} className="flex-1 accent-[#6C5CE7]" />
+              <span className="text-muted w-10 text-right">{ttsSpeed.toFixed(2)}x</span>
+            </div>
           </div>
           {/* AI hook helper — generates options you can review & insert into the
               voiceover text. Nothing auto-fills, nothing auto-sends to ElevenLabs. */}
@@ -1247,9 +1334,34 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                         </ul>
                       </div>
                     )}
+                    {Array.isArray(reviewResult.revised_script) && reviewResult.revised_script.length > 0 && (
+                      <div className="border-t border-border pt-1.5 mt-1">
+                        <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">Proposed rewrite</div>
+                        <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 space-y-0.5 max-h-[180px] overflow-y-auto">
+                          {reviewResult.revised_script.map((s, i) => (
+                            <div key={i} className="text-[10px]">
+                              <span className="text-[#6C5CE7] font-mono mr-1">[{String(Math.floor((Number(s.startTime) || 0) / 60)).padStart(1, '0')}:{String(Math.floor((Number(s.startTime) || 0) % 60)).padStart(2, '0')}]</span>
+                              <span className="text-ink">{s.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-[9px] text-muted mt-1">
+                          Applying replaces your current primary + timed segments and clears audio. You'll need to regenerate voices after.
+                        </p>
+                      </div>
+                    )}
                   </>
                 )}
-                <div className="pt-1">
+                <div className="pt-1 flex items-center gap-2">
+                  {!reviewing && Array.isArray(reviewResult?.revised_script) && reviewResult.revised_script.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (!confirm('Replace your current script with Claude\'s rewrite?\n\nThis clears existing audio so you\'ll need to click Generate voices after.')) return
+                        applyRevisedScript()
+                      }}
+                      className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+                    >Apply rewrite</button>
+                  )}
                   <button onClick={() => setScriptModalOpen(null)} className="text-[10px] py-1 px-3 border border-border rounded bg-white cursor-pointer">Close</button>
                 </div>
               </div>
@@ -1459,6 +1571,24 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   placeholder="What should be spoken at this point?"
                   className="w-full text-[10px] border border-border rounded py-0.5 px-1 bg-white resize-y"
                 />
+                {/* Per-segment speech speed — independent of every other segment
+                    and of the primary voiceover. Changing speed clears the
+                    segment's blob so the next Generate reflects the new speed. */}
+                <div className="flex items-center gap-1 text-[9px]">
+                  <label className="text-muted" title="Speech speed for this segment (0.7x to 1.2x). 1.0 is natural.">Speed</label>
+                  <input
+                    type="range" min={0.7} max={1.2} step={0.01}
+                    value={seg.speed ?? 1.0}
+                    onChange={e => {
+                      const v = Number(e.target.value) || 1.0
+                      const prev = seg.audioUrl
+                      if (prev) { try { URL.revokeObjectURL(prev) } catch {} }
+                      updateSegment(seg.id, { speed: v, blob: null, audioUrl: null })
+                    }}
+                    className="flex-1 accent-[#6C5CE7]"
+                  />
+                  <span className="text-muted w-8 text-right">{(seg.speed ?? 1.0).toFixed(2)}x</span>
+                </div>
               </div>
             )
           })}

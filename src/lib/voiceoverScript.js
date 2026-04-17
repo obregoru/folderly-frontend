@@ -44,6 +44,8 @@ export function parseVoiceoverScript(raw) {
   let untimedOffset = 0
 
   for (const line of lines) {
+    // Skip header comments (our own # ON-SCREEN… lines, YAML-ish #, or "//")
+    if (/^(#|\/\/)/.test(line)) continue
     const m = line.match(TIME_RE)
     if (m && m[3]) {
       const secs = mmssToSeconds(m[1], m[2])
@@ -83,7 +85,15 @@ export function parseVoiceoverScript(raw) {
 
 // Serialize the current primary + segments back into the simple pasteable
 // format so users can round-trip through ChatGPT for refinement.
-export function exportVoiceoverScript({ primaryText, primaryStartTime = 0, segments = [] } = {}) {
+// Optional overlay context (opening / middle / closing text shown on screen)
+// is included as header comments so the LLM knows what's visible — helps
+// it write a voiceover that complements rather than duplicates the captions.
+export function exportVoiceoverScript({
+  primaryText, primaryStartTime = 0, segments = [],
+  overlayOpening = null, overlayMiddle = null, overlayClosing = null,
+  middleStartTime = null,
+  videoDuration = null,
+} = {}) {
   const items = []
   if (primaryText && primaryText.trim()) {
     items.push({ startTime: Number(primaryStartTime) || 0, text: primaryText.trim() })
@@ -98,7 +108,22 @@ export function exportVoiceoverScript({ primaryText, primaryStartTime = 0, segme
     const decimals = (t % 1 > 0.01) ? (t - Math.floor(t)).toFixed(1).slice(1) : ''
     return `${m}:${String(s).padStart(2, '0')}${decimals}`
   }
-  return items.map(i => `[${fmt(i.startTime)}] ${i.text}`).join('\n')
+  // Header with on-screen captions so the LLM has context when revising
+  const header = []
+  if (overlayOpening && overlayOpening.trim()) {
+    header.push(`# ON-SCREEN OPENING CAPTION: "${overlayOpening.trim().replace(/\n/g, ' ')}"`)
+  }
+  if (overlayMiddle && overlayMiddle.trim()) {
+    const when = middleStartTime != null ? ` (appears at ${fmt(Number(middleStartTime) || 0)})` : ''
+    header.push(`# ON-SCREEN MIDDLE CAPTION${when}: "${overlayMiddle.trim().replace(/\n/g, ' ')}"`)
+  }
+  if (overlayClosing && overlayClosing.trim()) {
+    header.push(`# ON-SCREEN CLOSING CAPTION: "${overlayClosing.trim().replace(/\n/g, ' ')}"`)
+  }
+  if (videoDuration) header.push(`# VIDEO DURATION: ~${Math.round(videoDuration)}s`)
+  if (header.length > 0) header.push('# (voiceover should complement, not repeat, what the viewer already reads on screen)', '')
+  const body = items.map(i => `[${fmt(i.startTime)}] ${i.text}`).join('\n')
+  return header.length > 0 ? `${header.join('\n')}\n${body}` : body
 }
 
 // A ready-to-paste prompt the user can drop into ChatGPT/Claude to produce

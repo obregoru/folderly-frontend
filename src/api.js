@@ -196,12 +196,19 @@ export const deleteSeoKeywordSet = (id) =>
   fetch(api(`/seo-keywords/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
 // Review a pasted voiceover script for hookworthiness — pure review, no state change
-export const reviewVoiceoverScript = ({ script, videoHint, duration } = {}) =>
+export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpening, overlayMiddle, overlayClosing } = {}) =>
   fetch(api('/generate/review-voiceover-script'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ script, videoHint: videoHint || null, duration: duration || null }),
+    body: JSON.stringify({
+      script,
+      videoHint: videoHint || null,
+      duration: duration || null,
+      overlay_opening: overlayOpening || null,
+      overlay_middle: overlayMiddle || null,
+      overlay_closing: overlayClosing || null,
+    }),
   }).then(r => r.json())
 
 // Generate spoken-style voiceover hook(s) for the ElevenLabs TTS field
