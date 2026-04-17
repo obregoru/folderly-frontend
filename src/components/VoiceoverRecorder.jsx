@@ -145,6 +145,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (s.style != null) setTtsStyle(s.style)
     if (s.speakerBoost != null) setTtsSpeakerBoost(s.speakerBoost)
     if (s.speed != null) setTtsSpeed(Number(s.speed) || 1.0)
+    if (s.lastReview && s.lastReview.result) setSavedReview(s.lastReview)
     if (s.mode) setVoMixMode(s.mode)
     if (s.originalVolume != null) setVoOrigVolume(s.originalVolume)
     // Older drafts (no primaryStartTime) default to 0 — unchanged behavior.
@@ -436,6 +437,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         speakerBoost: ttsSpeakerBoost,
         speed: ttsSpeed,
         primaryStartTime,
+        lastReview: savedReview,
         // Persist segment metadata + audio key so blobs come back on resume
         segments: segments.map(s => ({
           id: s.id, text: s.text, voiceId: s.voiceId,
@@ -446,7 +448,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         })),
       })
     }
-  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, ttsSpeed, segments, primaryStartTime])
+  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, ttsSpeed, segments, primaryStartTime, savedReview])
 
   // Clear "restored" flag when TTS settings change so Generate button un-dims
   const ttsSettingsKeyRef = useRef(`${rvs.ttsText}|${rvs.voiceId}|${rvs.stability}|${rvs.similarity}|${rvs.style}|${rvs.speakerBoost}`)
@@ -640,6 +642,12 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [pastePreview, setPastePreview] = useState([])
   const [reviewing, setReviewing] = useState(false)
   const [reviewResult, setReviewResult] = useState(null)
+  // Snapshot of the most recent review persisted with the job, so the
+  // user can reopen it without re-spending tokens. Shape: { result,
+  // reviewedAt, signature } where signature is the exported script text
+  // at review time. When it differs from the current exported script,
+  // the saved review is marked stale.
+  const [savedReview, setSavedReview] = useState(() => rvs.lastReview || null)
   // Re-parse on every keystroke so the user sees what'll actually be applied
   useEffect(() => { setPastePreview(parseVoiceoverScript(pasteInput)) }, [pasteInput])
 
@@ -735,10 +743,21 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       })
       if (r.error) throw new Error(r.error)
       setReviewResult(r)
+      // Persist so the user can reopen without re-spending tokens
+      const snap = { result: r, reviewedAt: new Date().toISOString(), signature: items }
+      setSavedReview(snap)
     } catch (e) {
       setReviewResult({ error: e.message })
     }
     setReviewing(false)
+  }
+
+  // Reopen the most recent saved review without hitting the API again.
+  // Flagged stale in the modal if the current script no longer matches.
+  const viewSavedReview = () => {
+    if (!savedReview?.result) return
+    setReviewResult(savedReview.result)
+    setScriptModalOpen('review')
   }
 
   // Apply the revised script that Claude proposed during review. Overwrites
@@ -1230,6 +1249,14 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               className="py-0.5 px-2 bg-white text-[#2D9A5E] border border-[#2D9A5E] rounded cursor-pointer hover:bg-[#f0faf4] disabled:opacity-50"
               title="Ask Claude if the current script is hookworthy. No changes made."
             >{reviewing ? 'Reviewing…' : '⚡ Review'}</button>
+            {savedReview?.result && (
+              <button
+                type="button"
+                onClick={viewSavedReview}
+                className="py-0.5 px-2 bg-white text-muted border border-border rounded cursor-pointer hover:bg-cream"
+                title={`Last reviewed ${savedReview.reviewedAt ? new Date(savedReview.reviewedAt).toLocaleString() : ''} — saved with the draft`}
+              >View last review ({savedReview.result.score ?? '–'})</button>
+            )}
             <button
               type="button"
               onClick={copyScriptPrompt}
@@ -1298,6 +1325,24 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   <h3 className="text-[13px] font-medium">⚡ Script review</h3>
                   <button onClick={() => setScriptModalOpen(null)} className="text-muted bg-transparent border-none cursor-pointer text-lg leading-none">×</button>
                 </div>
+                {/* Stale banner — shows when the viewed review was saved for
+                    a different script than the user currently has. */}
+                {!reviewing && savedReview && reviewResult === savedReview.result && (() => {
+                  const currentSig = exportVoiceoverScript({
+                    primaryText: ttsText,
+                    primaryStartTime,
+                    segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+                    ...overlayCtx(),
+                  })
+                  const isStale = savedReview.signature && currentSig !== savedReview.signature
+                  return (
+                    <div className={`text-[10px] rounded px-2 py-1.5 ${isStale ? 'bg-[#fff3cd] text-[#664d03] border border-[#ffe69c]' : 'bg-cream text-muted border border-border'}`}>
+                      {isStale
+                        ? `⚠ Saved review — the script has changed since. Click ⚡ Review to re-analyze.`
+                        : `Saved review${savedReview.reviewedAt ? ` · ${new Date(savedReview.reviewedAt).toLocaleString()}` : ''}`}
+                    </div>
+                  )
+                })()}
                 {reviewing && <p className="text-[11px] text-muted">Analyzing hookworthiness…</p>}
                 {!reviewing && reviewResult?.error && (
                   <p className="text-[11px] text-[#c0392b]">Error: {reviewResult.error}</p>
