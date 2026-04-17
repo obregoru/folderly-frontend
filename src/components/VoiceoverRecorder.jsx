@@ -20,6 +20,82 @@ const blobToBase64 = (blob) => new Promise((resolve, reject) => {
 })
 const fileToBase64 = blobToBase64
 
+// Format the Suggest-from-video result as plain text for chat review.
+// Includes scene_context, payoff_extracted, and every candidate with
+// rationale / scores / segments / overlays. Output is designed to be
+// pasted into ChatGPT/Claude for critique.
+function formatSuggestResultForChat(r) {
+  if (!r || typeof r !== 'object') return ''
+  const lines = []
+  const fmtTs = (t) => {
+    const secs = Number(t) || 0
+    const m = Math.floor(secs / 60)
+    const s = Math.floor(secs % 60)
+    return `${m}:${String(s).padStart(2, '0')}`
+  }
+  lines.push('# VOICEOVER SUGGESTION — FULL OUTPUT')
+  lines.push('')
+  if (r.scene_context && typeof r.scene_context === 'object') {
+    const sc = r.scene_context
+    lines.push('## SCENE CONTEXT')
+    if (sc.group_type) lines.push(`- Group type: ${sc.group_type}${sc.group_size_count != null ? ` (${sc.group_size_count} ${sc.group_size_count === 1 ? 'person' : 'people'})` : ''}`)
+    if (sc.age_range) lines.push(`- Age range: ${sc.age_range}`)
+    if (sc.energy) lines.push(`- Energy: ${sc.energy}`)
+    if (sc.audience) lines.push(`- Audience tone: ${sc.audience}${sc.audience_was_overridden ? ' (operator override)' : ''}`)
+    if (Array.isArray(sc.occasion_signals) && sc.occasion_signals.length > 0) {
+      lines.push(`- Occasion signals: ${sc.occasion_signals.join(', ')}`)
+    }
+    lines.push('')
+  }
+  const pe = r.payoff_extracted
+  if (pe && typeof pe === 'object') {
+    lines.push('## PAYOFF ANGLES CLAUDE EXTRACTED')
+    if (pe.emotional_payoff) lines.push(`- Emotional payoff: ${pe.emotional_payoff}`)
+    if (pe.unique_differentiator) lines.push(`- Differentiator: ${pe.unique_differentiator}`)
+    if (pe.surprising_claim) lines.push(`- Surprising claim: ${pe.surprising_claim}`)
+    if (pe.identity_angle) lines.push(`- Identity angle: ${pe.identity_angle}`)
+    lines.push('')
+  }
+  const cands = Array.isArray(r.candidates) && r.candidates.length > 0
+    ? r.candidates
+    : (Array.isArray(r.segments) && r.segments.length > 0
+      ? [{ variant: 'single', mode: r.mode, segments: r.segments, overlays: r.overlays, rationale: r.rationale, scores: null }]
+      : [])
+  const winnerIdx = Number.isInteger(r.winner_index) ? r.winner_index : 0
+  lines.push(`## CANDIDATES (${cands.length}) — winner: #${winnerIdx + 1} (${cands[winnerIdx]?.variant || '—'})`)
+  lines.push('')
+  cands.forEach((c, i) => {
+    const isWin = i === winnerIdx
+    lines.push(`### Candidate #${i + 1} — variant: ${c.variant || 'unknown'}${isWin ? ' ★ WINNER' : ''}`)
+    if (c.mode) lines.push(`- Mode: ${c.mode}`)
+    if (c.dominant_payoff) lines.push(`- Dominant payoff: ${c.dominant_payoff}`)
+    if (c.cta_mode) lines.push(`- CTA mode: ${c.cta_mode}`)
+    if (c.rationale) lines.push(`- Rationale: ${c.rationale}`)
+    if (c.scores && typeof c.scores === 'object') {
+      lines.push(`- Scores: hook ${c.scores.hook_strength}/25 · payoff ${c.scores.payoff_clarity}/20 · non-redundancy ${c.scores.non_redundancy}/15 · timing ${c.scores.timing_fit}/15 · tiktok-native ${c.scores.tiktok_native}/15 · tts-natural ${c.scores.tts_naturalness}/10 → TOTAL ${c.scores.total}/100`)
+    }
+    if (Array.isArray(c.segments) && c.segments.length > 0) {
+      lines.push('- Segments:')
+      for (const s of c.segments) {
+        lines.push(`    [${fmtTs(s.startTime)}] ${s.text}`)
+      }
+    }
+    if (c.overlays && typeof c.overlays === 'object') {
+      const o = c.overlays
+      const overlayBits = []
+      if (o.opening) overlayBits.push(`OPENING: "${o.opening}"`)
+      if (o.middle) overlayBits.push(`MIDDLE${o.middleStartTime != null ? ` @ ${fmtTs(o.middleStartTime)}` : ''}: "${o.middle}"`)
+      if (o.closing) overlayBits.push(`CLOSING: "${o.closing}"`)
+      if (overlayBits.length > 0) {
+        lines.push('- On-screen captions:')
+        overlayBits.forEach(b => lines.push(`    ${b}`))
+      }
+    }
+    lines.push('')
+  })
+  return lines.join('\n').trim()
+}
+
 // Small helper: elapsed-seconds timer, used in the Suggest modal so the
 // user sees time progressing while Claude is thinking. Resets when the
 // component remounts (via key prop).
@@ -2020,13 +2096,28 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   {!suggesting && (Array.isArray(suggestResult?.candidates)
                     ? suggestResult.candidates.length > 0
                     : Array.isArray(suggestResult?.segments) && suggestResult.segments.length > 0) && (
-                    <button
-                      onClick={() => {
-                        if (!confirm("Replace your current script with the selected candidate?\n\nClears existing audio — click Generate voices after.")) return
-                        applySuggestedSegments()
-                      }}
-                      className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
-                    >Apply selected variant</button>
+                    <>
+                      <button
+                        onClick={() => {
+                          if (!confirm("Replace your current script with the selected candidate?\n\nClears existing audio — click Generate voices after.")) return
+                          applySuggestedSegments()
+                        }}
+                        className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+                      >Apply selected variant</button>
+                      <button
+                        onClick={async () => {
+                          const text = formatSuggestResultForChat(suggestResult)
+                          try {
+                            await navigator.clipboard.writeText(text)
+                            alert(`Copied ${text.length.toLocaleString()} characters — paste into ChatGPT / Claude for review.`)
+                          } catch {
+                            window.prompt('Copy this for chat review:', text)
+                          }
+                        }}
+                        className="text-[11px] py-1.5 px-3 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
+                        title="Copy payoff angles + all 3 variants + scores + segments + overlays to clipboard so you can paste into ChatGPT/Claude for critique."
+                      >📋 Copy for chat review</button>
+                    </>
                   )}
                   <button onClick={() => setScriptModalOpen(null)} className="text-[10px] py-1 px-3 border border-border rounded bg-white cursor-pointer">Close</button>
                 </div>
