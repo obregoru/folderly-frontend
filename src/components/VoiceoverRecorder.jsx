@@ -1591,13 +1591,21 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                     for (const vf of videoFiles) delete vf._voiceoverBlob
                     try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
                     // Clear the storage link on the backend so the orphan
-                    // doesn't come back on the next draft resume. Flushes
-                    // any pending settings save afterwards.
-                    if (jobId) {
-                      try {
-                        await api.updateJob(jobId, { clear_voiceover_audio: true })
-                        if (onFlushSave) onFlushSave().catch(() => {})
-                      } catch (e) { console.warn('[discard] failed to clear on server:', e.message) }
+                    // doesn't come back on the next draft resume.
+                    console.log('[discard] jobId=', jobId)
+                    if (!jobId) {
+                      alert('This draft has no saved job id yet — save it first, then try Discard again.')
+                      return
+                    }
+                    try {
+                      const r = await api.updateJob(jobId, { clear_voiceover_audio: true })
+                      console.log('[discard] server response:', r)
+                      if (r && r.error) throw new Error(r.error)
+                      if (onFlushSave) await onFlushSave().catch(() => {})
+                      alert('Orphan audio discarded. Saved to the server.')
+                    } catch (e) {
+                      console.error('[discard] failed to clear on server:', e)
+                      alert('Discard saved locally but failed on server: ' + e.message + '\n\nIt may come back on reload.')
                     }
                   }}
                   className="text-[10px] py-1 px-2.5 bg-[#c0392b] text-white border-none rounded cursor-pointer"
