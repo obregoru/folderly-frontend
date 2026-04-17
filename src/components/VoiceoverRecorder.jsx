@@ -1783,6 +1783,32 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   const pe = suggestResult.payoff_extracted
                   return (
                     <>
+                      {/* Scene context — shows who Claude thinks is in the video so
+                          the user can catch mismatches (e.g. "two people" when it's
+                          a teen group of 5) BEFORE reading the scripts. */}
+                      {suggestResult.scene_context && typeof suggestResult.scene_context === 'object' && (
+                        <div className="border-t border-border pt-1.5">
+                          <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">Claude sees in the video</div>
+                          <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 text-[10px] text-ink">
+                            <div>
+                              <b>{suggestResult.scene_context.group_type || '—'}</b>
+                              {suggestResult.scene_context.group_size_count != null && (
+                                <> ({suggestResult.scene_context.group_size_count} {suggestResult.scene_context.group_size_count === 1 ? 'person' : 'people'})</>
+                              )}
+                              {suggestResult.scene_context.age_range && <> · {suggestResult.scene_context.age_range}</>}
+                              {suggestResult.scene_context.energy && <> · {suggestResult.scene_context.energy}</>}
+                            </div>
+                            {Array.isArray(suggestResult.scene_context.occasion_signals) && suggestResult.scene_context.occasion_signals.length > 0 && (
+                              <div className="text-muted mt-0.5">
+                                Occasion signals: {suggestResult.scene_context.occasion_signals.join(', ')}
+                              </div>
+                            )}
+                            <div className="text-[9px] text-muted mt-1 italic">
+                              If this is wrong, scripts will be wrong. Click Regenerate with a hint in the style field.
+                            </div>
+                          </div>
+                        </div>
+                      )}
                       {/* Payoff extraction — gives the user transparency into what
                           angles Claude pulled from the business insights */}
                       {pe && typeof pe === 'object' && (pe.emotional_payoff || pe.unique_differentiator || pe.surprising_claim || pe.identity_angle) && (
