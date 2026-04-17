@@ -44,6 +44,9 @@ export function parseVoiceoverScript(raw) {
   let untimedOffset = 0
 
   for (const line of lines) {
+    // Stop when the platform-captions section begins — those lines are
+    // post copy, not voiceover segments.
+    if (/^##\s/.test(line) || /^#\s*PLATFORM CAPTIONS\b/i.test(line)) break
     // Skip header comments (our own # ON-SCREEN… lines, YAML-ish #, or "//")
     if (/^(#|\/\/)/.test(line)) continue
     const m = line.match(TIME_RE)
@@ -93,6 +96,12 @@ export function exportVoiceoverScript({
   overlayOpening = null, overlayMiddle = null, overlayClosing = null,
   middleStartTime = null,
   videoDuration = null,
+  // Extended context so ChatGPT / Claude can review the full post end-to-end:
+  hookMode = null,                  // true | false | null
+  platforms = [],                    // ["tiktok", "instagram", ...] — active/enabled
+  platformCaptions = null,           // { tiktok: "caption...", instagram: "caption...", blog: {title, text}, youtube: {title, description, tags} }
+  postDestinations = null,           // { ig_reel: true, fb_reel: true, tiktok: true, ... }
+  businessType = null, location = null, brandName = null,
 } = {}) {
   const items = []
   if (primaryText && primaryText.trim()) {
@@ -108,8 +117,20 @@ export function exportVoiceoverScript({
     const decimals = (t % 1 > 0.01) ? (t - Math.floor(t)).toFixed(1).slice(1) : ''
     return `${m}:${String(s).padStart(2, '0')}${decimals}`
   }
-  // Header with on-screen captions so the LLM has context when revising
+  // Header with project metadata + on-screen captions so the LLM has
+  // full context when reviewing or rewriting.
   const header = []
+  if (brandName) header.push(`# BRAND: ${brandName}${businessType ? ` (${businessType})` : ''}${location ? ` · ${location}` : ''}`)
+  else if (businessType) header.push(`# BUSINESS: ${businessType}${location ? ` in ${location}` : ''}`)
+  if (hookMode === true) header.push('# MODE: HOOK (reel-only — TikTok / IG Reel / FB Reel / YT Shorts)')
+  else if (hookMode === false) header.push('# MODE: STANDARD (multi-platform fan-out)')
+  if (Array.isArray(platforms) && platforms.length > 0) {
+    header.push(`# PLATFORMS ENABLED: ${platforms.join(', ')}`)
+  }
+  if (postDestinations && typeof postDestinations === 'object') {
+    const on = Object.keys(postDestinations).filter(k => postDestinations[k])
+    if (on.length > 0) header.push(`# POST DESTINATIONS: ${on.join(', ')}`)
+  }
   if (overlayOpening && overlayOpening.trim()) {
     header.push(`# ON-SCREEN OPENING CAPTION: "${overlayOpening.trim().replace(/\n/g, ' ')}"`)
   }
@@ -121,9 +142,45 @@ export function exportVoiceoverScript({
     header.push(`# ON-SCREEN CLOSING CAPTION: "${overlayClosing.trim().replace(/\n/g, ' ')}"`)
   }
   if (videoDuration) header.push(`# VIDEO DURATION: ~${Math.round(videoDuration)}s`)
-  if (header.length > 0) header.push('# (voiceover should complement, not repeat, what the viewer already reads on screen)', '')
+  if (header.length > 0) header.push('# (voiceover should complement, not repeat, the on-screen captions)', '')
   const body = items.map(i => `[${fmt(i.startTime)}] ${i.text}`).join('\n')
-  return header.length > 0 ? `${header.join('\n')}\n${body}` : body
+
+  // Per-platform caption block — full text the user will be posting.
+  // Skipped when empty. Blog/youtube render as structured object inline.
+  const platformBlock = []
+  if (platformCaptions && typeof platformCaptions === 'object') {
+    const keys = Object.keys(platformCaptions).filter(k => {
+      const v = platformCaptions[k]
+      if (!v) return false
+      if (typeof v === 'string') return v.trim().length > 0
+      if (typeof v === 'object') return (v.text || v.description || '').trim().length > 0
+      return false
+    })
+    if (keys.length > 0) {
+      platformBlock.push('', '# PLATFORM CAPTIONS:')
+      for (const k of keys) {
+        const v = platformCaptions[k]
+        if (typeof v === 'string') {
+          platformBlock.push(`## ${k.toUpperCase()}`, v.trim(), '')
+        } else if (k === 'youtube' && v) {
+          if (v.title) platformBlock.push(`## YOUTUBE · title`, v.title.trim())
+          if (v.description) platformBlock.push(`## YOUTUBE · description`, v.description.trim())
+          if (Array.isArray(v.tags) && v.tags.length > 0) platformBlock.push(`## YOUTUBE · tags`, v.tags.join(', '))
+          platformBlock.push('')
+        } else if (k === 'blog' && v) {
+          if (v.title) platformBlock.push(`## BLOG · title`, v.title.trim())
+          if (v.text) platformBlock.push(`## BLOG · body`, v.text.trim())
+          platformBlock.push('')
+        } else if (v.text) {
+          platformBlock.push(`## ${k.toUpperCase()}`, v.text.trim(), '')
+        }
+      }
+    }
+  }
+
+  const headerStr = header.length > 0 ? `${header.join('\n')}\n` : ''
+  const voiceoverStr = body ? `# VOICEOVER SCRIPT\n${body}` : ''
+  return [headerStr + voiceoverStr, platformBlock.join('\n')].filter(Boolean).join('\n').trim()
 }
 
 // A ready-to-paste prompt the user can drop into ChatGPT/Claude to produce

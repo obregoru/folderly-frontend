@@ -29,7 +29,7 @@ const fileToBase64 = blobToBase64
  * (from uploads or the merged result) and clicks "Apply" to mix the
  * voiceover onto the video server-side.
  */
-export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange, onFlushSave, jobId, restoredVoiceover }) {
+export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, settings, onResult, onSettingsChange, onFlushSave, jobId, restoredVoiceover, hookMode = null, activePlatforms = [] }) {
   // restoredVoiceover = { settings: {...}, audioBlob, audioUrl } from job restore
   const rv = restoredVoiceover || {}
   const rvs = rv.settings || {}
@@ -689,14 +689,24 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // Pull on-screen caption context off the first video item so exports
   // and reviews know what's visible — helps the LLM write a voiceover
   // that complements the captions rather than duplicating them.
+  // Also includes project-level context: brand, business type, hook
+  // mode, enabled platforms, and the per-platform caption text the user
+  // is about to post. This is everything needed for a holistic review.
   const overlayCtx = () => {
     const os = (monitorItem?._overlaySettings) || {}
+    const captions = monitorItem?.captions && typeof monitorItem.captions === 'object' ? monitorItem.captions : null
     return {
       overlayOpening: os.openingText || null,
       overlayMiddle: os.middleText || null,
       overlayClosing: os.closingText || null,
       middleStartTime: os.middleStartTime ?? null,
       videoDuration: monitorDuration || null,
+      hookMode,
+      platforms: Array.isArray(activePlatforms) ? activePlatforms : [],
+      platformCaptions: captions,
+      brandName: settings?.name || null,
+      businessType: settings?.business_type || null,
+      location: settings?.location || null,
     }
   }
 
@@ -738,6 +748,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         overlayOpening: ctx.overlayOpening,
         overlayMiddle: ctx.overlayMiddle,
         overlayClosing: ctx.overlayClosing,
+        hookMode: ctx.hookMode,
+        platforms: ctx.platforms,
+        platformCaptions: ctx.platformCaptions,
       })
       if (r.error) throw new Error(r.error)
       setReviewResult(r)

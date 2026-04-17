@@ -857,6 +857,8 @@ export default function App() {
               mergedVideoBase64={window._postyMergedVideo?.base64 || null}
               settings={settings}
               jobId={jobSync.jobId}
+              hookMode={hookMode}
+              activePlatforms={getActivePlatforms()}
               restoredVoiceover={restoredVoiceover}
               onResult={({ blob, url, base64 }) => {
                 window._postyVoiceoverVideo = { blob, url, base64 }
