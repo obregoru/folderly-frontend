@@ -1907,15 +1907,26 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                           <div>TTS natural: <b className="text-ink">{chosen.scores.tts_naturalness}/10</b></div>
                         </div>
                       )}
-                      {chosen?.cta_mode && (
-                        <div className="text-[9px] text-muted">
-                          CTA mode: <b className="text-ink">{String(chosen.cta_mode).replace(/_/g, ' ')}</b>
-                          {chosen.cta_mode === 'creative_first' && <span className="ml-1">(URL/book-now goes in caption, not VO)</span>}
-                          {chosen.cta_mode === 'caption_carries_cta' && <span className="ml-1">(VO stays pure-creative; caption carries conversion)</span>}
-                          {chosen.cta_mode === 'soft_cta' && <span className="ml-1">(brand surfaces gently in VO)</span>}
-                          {chosen.cta_mode === 'hard_cta' && <span className="ml-1">(direct-response URL in VO)</span>}
-                        </div>
-                      )}
+                      <div className="flex gap-3 flex-wrap text-[9px] text-muted">
+                        {chosen?.dominant_payoff && (
+                          <div>
+                            Dominant payoff: <b className="text-ink">{chosen.dominant_payoff}</b>
+                            {chosen.dominant_payoff === 'longevity' && <span className="ml-1">(still using it after)</span>}
+                            {chosen.dominant_payoff === 'identity' && <span className="ml-1">(you made yours)</span>}
+                            {chosen.dominant_payoff === 'social' && <span className="ml-1">(group moment)</span>}
+                            {chosen.dominant_payoff === 'memory' && <span className="ml-1">(smell of the day)</span>}
+                          </div>
+                        )}
+                        {chosen?.cta_mode && (
+                          <div>
+                            CTA: <b className="text-ink">{String(chosen.cta_mode).replace(/_/g, ' ')}</b>
+                            {chosen.cta_mode === 'creative_first' && <span className="ml-1">(URL in caption, not VO)</span>}
+                            {chosen.cta_mode === 'caption_carries_cta' && <span className="ml-1">(caption carries URL)</span>}
+                            {chosen.cta_mode === 'soft_cta' && <span className="ml-1">(brand surfaces gently)</span>}
+                            {chosen.cta_mode === 'hard_cta' && <span className="ml-1">(direct URL in VO)</span>}
+                          </div>
+                        )}
+                      </div>
                       <div className="border-t border-border pt-1.5">
                         <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">
                           {chosen?.mode === 'continuous' || (chosen?.segments || []).length === 1
