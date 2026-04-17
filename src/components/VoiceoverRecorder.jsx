@@ -149,6 +149,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // Optional delay before the primary voiceover starts. Default 0 keeps
   // the old behavior (plays at t=0) so nothing regresses for existing jobs.
   const [primaryStartTime, setPrimaryStartTime] = useState(() => Number(rvs.primaryStartTime) || 0)
+  // Script tightness preset — guides AI suggestions / reviews.
+  // short = punchy TikTok (3-6 words), medium = natural phrase (6-12),
+  // long = full sentence (12-20). Declared here (not later) so the
+  // save-settings effect can include it in its deps without a TDZ error.
+  const [segmentLength, setSegmentLength] = useState(() => rvs.segmentLength || 'short')
   useEffect(() => { localStorage.setItem('posty_vo_mode', voMixMode) }, [voMixMode])
   useEffect(() => { localStorage.setItem('posty_vo_orig_vol', voOrigVolume) }, [voOrigVolume])
   // When restoredVoiceover changes (draft resume), update all state from it
@@ -167,6 +172,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (s.originalVolume != null) setVoOrigVolume(s.originalVolume)
     // Older drafts (no primaryStartTime) default to 0 — unchanged behavior.
     if (s.primaryStartTime != null) setPrimaryStartTime(Number(s.primaryStartTime) || 0)
+    if (s.segmentLength) setSegmentLength(s.segmentLength)
     if (Array.isArray(s.segments) && s.segments.length > 0) {
       // Rehydrate segment list with metadata. If a segment has a saved
       // audioKey + public URL (from Supabase), fetch the bytes and populate
@@ -947,11 +953,6 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [suggesting, setSuggesting] = useState(false)
   const [suggestResult, setSuggestResult] = useState(null)
   const [suggestStyle, setSuggestStyle] = useState('')
-  // Script tightness — guides AI word-count per segment.
-  // short = TikTok-style punchy (~3-6 words / line), medium = natural phrase
-  // (~6-12 words), long = fuller sentence (~12-20 words). Default short.
-  // Persisted per-job in voiceover_settings (NOT localStorage).
-  const [segmentLength, setSegmentLength] = useState(() => rvs.segmentLength || 'short')
   const suggestSegmentsFromVideo = async () => {
     setSuggesting(true)
     setSuggestResult(null)
