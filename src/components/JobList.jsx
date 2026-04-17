@@ -107,17 +107,30 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, savi
                   >Rename</button>
                 )}
                 {onDuplicate && !isRenaming && (
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation()
-                      if (duplicatingId) return
-                      setDuplicatingId(j.uuid)
-                      try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
-                    }}
-                    disabled={duplicatingId === j.uuid}
-                    className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
-                    title="Duplicate — copies all videos, audio, captions to a new job"
-                  >{duplicatingId === j.uuid ? 'Copying…' : 'Duplicate'}</button>
+                  <>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (duplicatingId) return
+                        setDuplicatingId(j.uuid)
+                        try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
+                      }}
+                      disabled={duplicatingId === j.uuid}
+                      className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
+                      title="Duplicate — copies all videos, audio, captions to a new job"
+                    >{duplicatingId === j.uuid ? 'Copying…' : 'Duplicate'}</button>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (duplicatingId) return
+                        setDuplicatingId(j.uuid + ':hook')
+                        try { await onDuplicate(j.uuid, { forceHookMode: true }) } finally { setDuplicatingId(null) }
+                      }}
+                      disabled={duplicatingId === j.uuid + ':hook'}
+                      className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
+                      title="Duplicate as hook — creates a reels-only copy (different captions, voiceover)"
+                    >{duplicatingId === j.uuid + ':hook' ? 'Copying…' : 'Dup as hook'}</button>
+                  </>
                 )}
                 {!isRenaming && (
                   <button

@@ -70,7 +70,13 @@ export const createJob = () => fetch(api('/jobs'), { method: 'POST', headers: h(
 export const getJob = (id) => fetch(api(`/jobs/${id}`), { credentials: 'include' }).then(r => r.json())
 export const updateJob = (id, data) => fetch(api(`/jobs/${id}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const deleteJob = (id) => fetch(api(`/jobs/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
-export const duplicateJob = (id) => fetch(api(`/jobs/${id}/duplicate`), { method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include', body: '{}' }).then(async r => { if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Duplicate failed') } return r.json() })
+export const duplicateJob = (id, opts = {}) => fetch(api(`/jobs/${id}/duplicate`), {
+  method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+  body: JSON.stringify(opts.forceHookMode != null ? { force_hook_mode: !!opts.forceHookMode } : {}),
+}).then(async r => {
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || 'Duplicate failed') }
+  return r.json()
+})
 export const addJobFile = (jobId, data) => fetch(api(`/jobs/${jobId}/files`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const updateJobFile = (jobId, fileId, data) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const deleteJobFile = (jobId, fileId) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())

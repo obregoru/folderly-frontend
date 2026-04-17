@@ -447,6 +447,17 @@ export default function App() {
   // between sessions.
   const [hookMode, setHookMode] = useState(() => localStorage.getItem('posty_hook_mode') === '1')
   useEffect(() => { localStorage.setItem('posty_hook_mode', hookMode ? '1' : '0') }, [hookMode])
+  // When the user toggles hook mode AND a job is active, persist the new
+  // value to that job so it sticks per-draft. The global localStorage
+  // value still acts as the default for new jobs / un-saved flows.
+  const prevHookModeRef = useRef(hookMode)
+  useEffect(() => {
+    if (prevHookModeRef.current === hookMode) return
+    prevHookModeRef.current = hookMode
+    const activeId = jobSync.jobId
+    if (!activeId) return
+    api.updateJob(activeId, { hook_mode: hookMode }).catch(e => console.warn('[hook mode] save failed:', e?.message))
+  }, [hookMode, jobSync.jobId])
 
   const getActivePlatforms = () => {
     const p = []
@@ -737,6 +748,11 @@ export default function App() {
               const job = await jobSync.loadJob(id)
               if (job) {
                 if (job.hint_text) setUserHint(job.hint_text)
+                // Apply per-job hook_mode if set. Null/undefined means
+                // "inherit the global toggle" (already in hookMode state).
+                if (job.hook_mode === true || job.hook_mode === false) {
+                  setHookMode(job.hook_mode)
+                }
                 // Restore merged video URL
                 if (window._postyMergedVideo?.url) {
                   setRestoredMergeUrl(window._postyMergedVideo.url)
@@ -758,9 +774,9 @@ export default function App() {
               await api.updateJob(id, { job_name: newName })
               await jobSync.refreshJobs()
             }}
-            onDuplicate={async (id) => {
+            onDuplicate={async (id, opts = {}) => {
               try {
-                const copy = await jobSync.duplicateJob(id)
+                const copy = await jobSync.duplicateJob(id, opts)
                 if (copy && copy.id) {
                   // Offer to open the new copy
                   if (confirm(`Duplicated. Open "${copy.job_name || 'copy'}" now?`)) {
@@ -769,6 +785,9 @@ export default function App() {
                     const job = await jobSync.loadJob(copy.id)
                     if (job) {
                       if (job.hint_text) setUserHint(job.hint_text)
+                      if (job.hook_mode === true || job.hook_mode === false) {
+                        setHookMode(job.hook_mode)
+                      }
                       if (window._postyMergedVideo?.url) setRestoredMergeUrl(window._postyMergedVideo.url)
                       const voAudio = window._postyVoiceoverAudio
                       if (job.voiceover_settings || voAudio) {
@@ -924,6 +943,7 @@ export default function App() {
             </label>
             <span className="text-[9px] text-muted">
               {hookMode ? 'Blog, Google, X skipped' : 'All platforms'}
+              {jobSync.jobId ? ' · per-job' : ' · default'}
             </span>
           </div>
 

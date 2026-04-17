@@ -423,9 +423,10 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
   }, [newJob])
 
   // Duplicate a job — server copies all files + storage objects to a new job.
-  // Returns the new job's uuid so the caller can resume it.
-  const duplicateJob = useCallback(async (id) => {
-    const r = await api.duplicateJob(id)
+  // Returns the new job's uuid so the caller can resume it. Pass
+  // opts.forceHookMode=true for "Duplicate as hook".
+  const duplicateJob = useCallback(async (id, opts = {}) => {
+    const r = await api.duplicateJob(id, opts)
     const jobs = await api.listJobs()
     if (Array.isArray(jobs)) setJobList(jobs)
     return r
