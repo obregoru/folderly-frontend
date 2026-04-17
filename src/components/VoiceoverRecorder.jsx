@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import * as api from '../api'
+import { parseVoiceoverScript, exportVoiceoverScript, buildScriptPrompt } from '../lib/voiceoverScript'
 
 // Read a Blob or File as base64
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
@@ -618,6 +619,106 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   }, [recording, previewing, monitorTrimEnd])
 
   // --- TTS ---
+  // --- Script import / export / review state ---
+  const [scriptModalOpen, setScriptModalOpen] = useState(null) // null | 'paste' | 'review'
+  const [pasteInput, setPasteInput] = useState('')
+  const [pastePreview, setPastePreview] = useState([])
+  const [reviewing, setReviewing] = useState(false)
+  const [reviewResult, setReviewResult] = useState(null)
+  // Re-parse on every keystroke so the user sees what'll actually be applied
+  useEffect(() => { setPastePreview(parseVoiceoverScript(pasteInput)) }, [pasteInput])
+
+  const applyPastedScript = () => {
+    const parsed = pastePreview
+    if (parsed.length === 0) return
+    // First line at t ≤ 0.5s becomes the primary; everything else becomes a segment.
+    const first = parsed[0]
+    if (first.startTime <= 0.5) {
+      setTtsText(first.text)
+      setPrimaryStartTime(0)
+      const rest = parsed.slice(1)
+      setSegments(rest.map(s => ({
+        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        text: s.text,
+        voiceId: selectedVoice,
+        startTime: s.startTime,
+        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        blob: null, audioUrl: null, audioKey: null, generating: false,
+      })))
+    } else {
+      // No primary — user pasted all timed segments. Set primary delay so
+      // the first one fires at the expected time.
+      setTtsText('')
+      setPrimaryStartTime(0)
+      setSegments(parsed.map(s => ({
+        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        text: s.text,
+        voiceId: selectedVoice,
+        startTime: s.startTime,
+        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        blob: null, audioUrl: null, audioKey: null, generating: false,
+      })))
+    }
+    setScriptModalOpen(null)
+    setPasteInput('')
+  }
+
+  const exportCurrentScript = async () => {
+    const payload = exportVoiceoverScript({
+      primaryText: ttsText,
+      primaryStartTime,
+      segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+    })
+    if (!payload) { alert('Nothing to export — write something first.'); return }
+    try {
+      await navigator.clipboard.writeText(payload)
+      alert('Script copied to clipboard.\n\nPaste it into ChatGPT / Claude / notes to save or revise.')
+    } catch {
+      // Fallback: show in a prompt the user can copy from
+      window.prompt('Copy this script:', payload)
+    }
+  }
+
+  const reviewCurrentScript = async () => {
+    const items = exportVoiceoverScript({
+      primaryText: ttsText,
+      primaryStartTime,
+      segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+    })
+    if (!items) { alert('Nothing to review — write something first.'); return }
+    setReviewing(true)
+    setReviewResult(null)
+    setScriptModalOpen('review')
+    try {
+      const script = parseVoiceoverScript(items) // canonical round-trip
+      const r = await api.reviewVoiceoverScript({
+        script,
+        videoHint: settings?._lastHint || null,
+        duration: monitorDuration || null,
+      })
+      if (r.error) throw new Error(r.error)
+      setReviewResult(r)
+    } catch (e) {
+      setReviewResult({ error: e.message })
+    }
+    setReviewing(false)
+  }
+
+  const copyScriptPrompt = async () => {
+    const prompt = buildScriptPrompt({
+      businessType: settings?.business_type || null,
+      location: settings?.location || null,
+      videoHint: settings?._lastHint || null,
+      duration: monitorDuration ? Math.ceil(monitorDuration) : null,
+    })
+    try {
+      await navigator.clipboard.writeText(prompt)
+      alert('Prompt copied. Paste it into ChatGPT / Claude, then paste the result back via "Paste script".')
+    } catch {
+      window.prompt('Copy this prompt:', prompt)
+    }
+  }
+
   const generateTTS = async () => {
     // Regenerates EVERY voice clip that has text — primary + each segment
     // with text. Meant as a one-click "make it all fresh" action. Matches
@@ -1021,6 +1122,34 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               </div>
             )}
           </div>
+          {/* Script import / export / review toolbar */}
+          <div className="flex items-center gap-1 flex-wrap text-[10px]">
+            <button
+              type="button"
+              onClick={() => { setPasteInput(''); setScriptModalOpen('paste') }}
+              className="py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer hover:bg-[#f3f0ff]"
+              title="Paste a timestamped script — auto-fills primary + timed segments"
+            >📋 Paste script</button>
+            <button
+              type="button"
+              onClick={exportCurrentScript}
+              className="py-0.5 px-2 bg-white text-muted border border-border rounded cursor-pointer hover:bg-cream"
+              title="Copy the current script (primary + all segments) to the clipboard"
+            >Export</button>
+            <button
+              type="button"
+              onClick={reviewCurrentScript}
+              disabled={reviewing}
+              className="py-0.5 px-2 bg-white text-[#2D9A5E] border border-[#2D9A5E] rounded cursor-pointer hover:bg-[#f0faf4] disabled:opacity-50"
+              title="Ask Claude if the current script is hookworthy. No changes made."
+            >{reviewing ? 'Reviewing…' : '⚡ Review'}</button>
+            <button
+              type="button"
+              onClick={copyScriptPrompt}
+              className="py-0.5 px-2 text-[#6C5CE7] hover:underline bg-transparent border-none cursor-pointer"
+              title="Copy a ready-to-paste prompt for ChatGPT/Claude that produces a compatible script"
+            >Get ChatGPT prompt</button>
+          </div>
           <textarea
             ref={ttsRef}
             rows={3}
@@ -1029,6 +1158,103 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             placeholder="Type what the voiceover should say... or insert an AI hook above. Edit freely — nothing is sent to ElevenLabs until you click Generate voice."
             className="w-full text-[11px] border border-border rounded py-1 px-2 bg-white resize-none"
           />
+          {/* Paste-script modal */}
+          {scriptModalOpen === 'paste' && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-3" onClick={() => setScriptModalOpen(null)}>
+              <div className="bg-white rounded-sm p-4 max-w-xl w-full max-h-[90vh] overflow-y-auto space-y-2" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[13px] font-medium">Paste voiceover script</h3>
+                  <button onClick={() => setScriptModalOpen(null)} className="text-muted bg-transparent border-none cursor-pointer text-lg leading-none">×</button>
+                </div>
+                <p className="text-[10px] text-muted">Accepts <code className="bg-cream px-1 rounded">[0:00] line</code>, <code className="bg-cream px-1 rounded">0:05 line</code>, JSON, or SRT. Timestamped from ChatGPT/Claude works directly.</p>
+                <textarea
+                  autoFocus
+                  rows={10}
+                  value={pasteInput}
+                  onChange={e => setPasteInput(e.target.value)}
+                  placeholder={`[0:00] Welcome to Poppy & Thyme\n[0:04] First, pick your signature scent\n[0:09] Then blend your own`}
+                  className="w-full text-[11px] border border-border rounded py-1.5 px-2 bg-white font-mono"
+                />
+                {pastePreview.length > 0 && (
+                  <div className="border border-border rounded p-2 bg-cream/40">
+                    <div className="text-[10px] font-medium text-ink mb-1">Preview — {pastePreview.length} line{pastePreview.length > 1 ? 's' : ''}</div>
+                    <ul className="space-y-0.5 text-[10px]">
+                      {pastePreview.map((p, i) => (
+                        <li key={i}>
+                          <span className="text-[#6C5CE7] font-mono mr-1">[{String(Math.floor(p.startTime / 60)).padStart(1, '0')}:{String(Math.floor(p.startTime % 60)).padStart(2, '0')}]</span>
+                          <span className="text-ink">{p.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-[9px] text-muted mt-1">
+                      First line @ ≤0.5s becomes the primary voiceover; rest become timed segments.
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={applyPastedScript}
+                    disabled={pastePreview.length === 0}
+                    className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                  >Apply {pastePreview.length > 0 ? `(${pastePreview.length})` : ''}</button>
+                  <button onClick={() => setScriptModalOpen(null)} className="text-[11px] py-1.5 px-3 border border-border rounded bg-white cursor-pointer">Cancel</button>
+                  <span className="text-[9px] text-muted">Replaces current primary + all segments. Regenerate voices after.</span>
+                </div>
+              </div>
+            </div>
+          )}
+          {/* Review-result modal */}
+          {scriptModalOpen === 'review' && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-3" onClick={() => setScriptModalOpen(null)}>
+              <div className="bg-white rounded-sm p-4 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-2" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[13px] font-medium">⚡ Script review</h3>
+                  <button onClick={() => setScriptModalOpen(null)} className="text-muted bg-transparent border-none cursor-pointer text-lg leading-none">×</button>
+                </div>
+                {reviewing && <p className="text-[11px] text-muted">Analyzing hookworthiness…</p>}
+                {!reviewing && reviewResult?.error && (
+                  <p className="text-[11px] text-[#c0392b]">Error: {reviewResult.error}</p>
+                )}
+                {!reviewing && reviewResult && !reviewResult.error && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[20px] font-bold ${reviewResult.score >= 80 ? 'text-[#2D9A5E]' : reviewResult.score >= 60 ? 'text-[#d97706]' : 'text-[#c0392b]'}`}>{reviewResult.score}</span>
+                      <span className="text-[10px] text-muted">/100 hookworthiness</span>
+                    </div>
+                    {reviewResult.verdict && <p className="text-[11px] text-ink italic">{reviewResult.verdict}</p>}
+                    {reviewResult.hook_strength && (
+                      <div className="text-[10px]"><span className="font-medium text-ink">Hook:</span> <span className="text-muted">{reviewResult.hook_strength}</span></div>
+                    )}
+                    {reviewResult.pacing && (
+                      <div className="text-[10px]"><span className="font-medium text-ink">Pacing:</span> <span className="text-muted">{reviewResult.pacing}</span></div>
+                    )}
+                    {reviewResult.payoff && (
+                      <div className="text-[10px]"><span className="font-medium text-ink">Payoff:</span> <span className="text-muted">{reviewResult.payoff}</span></div>
+                    )}
+                    {Array.isArray(reviewResult.issues) && reviewResult.issues.length > 0 && (
+                      <div className="border-t border-border pt-1.5">
+                        <div className="text-[10px] font-medium text-[#c0392b] mb-0.5">Issues</div>
+                        <ul className="text-[10px] text-ink list-disc pl-4 space-y-0.5">
+                          {reviewResult.issues.map((s, i) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {Array.isArray(reviewResult.suggestions) && reviewResult.suggestions.length > 0 && (
+                      <div className="border-t border-border pt-1.5">
+                        <div className="text-[10px] font-medium text-[#2D9A5E] mb-0.5">Suggestions</div>
+                        <ul className="text-[10px] text-ink list-disc pl-4 space-y-0.5">
+                          {reviewResult.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="pt-1">
+                  <button onClick={() => setScriptModalOpen(null)} className="text-[10px] py-1 px-3 border border-border rounded bg-white cursor-pointer">Close</button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Start-time for the primary voiceover. Defaults to 0 so existing
               drafts without this field keep playing at t=0 (no regression). */}
           <div className="flex items-center gap-2 text-[10px]">
