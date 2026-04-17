@@ -9,7 +9,9 @@
 // Lines with no timestamp keep the previous timestamp + a small offset;
 // first untimed line defaults to 0.
 
-const TIME_RE = /^[\s*>-]*[\[(]?\s*(\d{1,3}):(\d{2}(?:\.\d+)?)\s*[\])]?\s*[-:.,|]?\s*(.*)$/
+// Matches "[0:00] text", "[0:00 · 3.4s] text", "0:05 - text", etc.
+// The duration segment (· Xs) is optional and ignored when parsing.
+const TIME_RE = /^[\s*>-]*[\[(]?\s*(\d{1,3}):(\d{2}(?:\.\d+)?)(?:\s*[·•]\s*\d+(?:\.\d+)?s)?\s*[\])]?\s*[-:.,|]?\s*(.*)$/
 
 function mmssToSeconds(m, s) {
   return Number(m) * 60 + parseFloat(s)
@@ -92,7 +94,7 @@ export function parseVoiceoverScript(raw) {
 // is included as header comments so the LLM knows what's visible — helps
 // it write a voiceover that complements rather than duplicates the captions.
 export function exportVoiceoverScript({
-  primaryText, primaryStartTime = 0, segments = [],
+  primaryText, primaryStartTime = 0, primaryDuration = 0, segments = [],
   overlayOpening = null, overlayMiddle = null, overlayClosing = null,
   middleStartTime = null,
   videoDuration = null,
@@ -105,10 +107,18 @@ export function exportVoiceoverScript({
 } = {}) {
   const items = []
   if (primaryText && primaryText.trim()) {
-    items.push({ startTime: Number(primaryStartTime) || 0, text: primaryText.trim() })
+    items.push({
+      startTime: Number(primaryStartTime) || 0,
+      text: primaryText.trim(),
+      duration: Number(primaryDuration) || 0,
+    })
   }
   for (const s of segments) {
-    if (s.text && s.text.trim()) items.push({ startTime: Number(s.startTime) || 0, text: s.text.trim() })
+    if (s.text && s.text.trim()) items.push({
+      startTime: Number(s.startTime) || 0,
+      text: s.text.trim(),
+      duration: Number(s.duration) || 0,
+    })
   }
   items.sort((a, b) => a.startTime - b.startTime)
   const fmt = (t) => {
@@ -143,7 +153,12 @@ export function exportVoiceoverScript({
   }
   if (videoDuration) header.push(`# VIDEO DURATION: ~${Math.round(videoDuration)}s`)
   if (header.length > 0) header.push('# (voiceover should complement, not repeat, the on-screen captions)', '')
-  const body = items.map(i => `[${fmt(i.startTime)}] ${i.text}`).join('\n')
+  // Tag each line with its measured duration (e.g. "[0:02 · 3.4s]") so
+  // the LLM can detect overruns and suggest retimings. 0s = not yet measured.
+  const body = items.map(i => {
+    const durTag = i.duration > 0 ? ` · ${i.duration.toFixed(1)}s` : ''
+    return `[${fmt(i.startTime)}${durTag}] ${i.text}`
+  }).join('\n')
 
   // Per-platform caption block — full text the user will be posting.
   // Skipped when empty. Blog/youtube render as structured object inline.

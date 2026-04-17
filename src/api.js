@@ -216,7 +216,7 @@ export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpen
   }).then(r => r.json())
 
 // Propose voiceover segments from video frames (Claude vision)
-export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, platforms, overlayOpening, overlayMiddle, overlayClosing, style } = {}) =>
+export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, platforms, overlayOpening, overlayMiddle, overlayClosing, style, segmentLength } = {}) =>
   fetch(api('/generate/voiceover-from-video'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -231,6 +231,7 @@ export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, plat
       overlay_middle: overlayMiddle || null,
       overlay_closing: overlayClosing || null,
       style: style || null,
+      segment_length: segmentLength || 'short',
     }),
   }).then(r => r.json())
 

@@ -39,6 +39,18 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [recording, setRecording] = useState(false)
   const [audioUrl, setAudioUrl] = useState(rv.audioUrl || null)
   const [audioBlob, setAudioBlob] = useState(rv.audioBlob || null)
+  const [audioDuration, setAudioDuration] = useState(0)
+  // Auto-measure whenever the primary blob changes so we always have a
+  // real duration (not an estimate) for overlap detection + AI review.
+  useEffect(() => {
+    let cancelled = false
+    if (!audioBlob) { setAudioDuration(0); return }
+    ;(async () => {
+      const d = await measureAudioDuration(audioBlob)
+      if (!cancelled) setAudioDuration(d)
+    })()
+    return () => { cancelled = true }
+  }, [audioBlob])
   const mediaRecorderRef = useRef(null)
   const chunksRef = useRef([])
   // Video monitor — plays muted during recording so you can narrate to picture
@@ -248,6 +260,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     if (gone?.audioUrl) { try { URL.revokeObjectURL(gone.audioUrl) } catch {} }
     return segs.filter(s => s.id !== id)
   })
+  // Measure an audio blob's duration by loading it into an off-DOM
+  // Audio element. Returns seconds (0 on failure). Used to track real
+  // segment lengths so the AI can detect overruns and we can flag
+  // overlaps in the UI.
+  const measureAudioDuration = (blob) => new Promise((resolve) => {
+    if (!blob) return resolve(0)
+    const url = URL.createObjectURL(blob)
+    const a = new Audio()
+    const finish = (d) => { try { URL.revokeObjectURL(url) } catch {}; resolve(d) }
+    const timer = setTimeout(() => finish(0), 4000)
+    a.preload = 'metadata'
+    a.onloadedmetadata = () => { clearTimeout(timer); finish(Number(a.duration) || 0) }
+    a.onerror = () => { clearTimeout(timer); finish(0) }
+    a.src = url
+  })
+
   // Generate TTS for one segment (used by the bulk "Generate all" button below)
   const generateOneSegmentTTS = async (seg) => {
     if (!seg.text?.trim()) return null
@@ -286,7 +314,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       } else {
         console.warn(`[segment TTS] no jobId — segment ${seg.id} will not persist`)
       }
-      return { blob, audioUrl: url, audioKey }
+      const duration = await measureAudioDuration(blob)
+      return { blob, audioUrl: url, audioKey, duration }
     } catch (err) {
       console.error('[segment TTS]', err)
       throw err
@@ -305,7 +334,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     updateSegment(segId, { generating: true })
     try {
       const result = await generateOneSegmentTTS(seg)
-      if (result) updateSegment(segId, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, generating: false })
+      if (result) updateSegment(segId, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, duration: result.duration || 0, generating: false })
       else updateSegment(segId, { generating: false })
     } catch (err) {
       updateSegment(segId, { generating: false })
@@ -360,7 +389,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       for (const seg of pending) {
         try {
           const result = await generateOneSegmentTTS(seg)
-          if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, generating: false })
+          if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, duration: result.duration || 0, generating: false })
         } catch (err) {
           updateSegment(seg.id, { generating: false })
           alert(`Failed on segment at ${seg.startTime}s: ${err.message}`)
@@ -494,6 +523,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         style: ttsStyle,
         speakerBoost: ttsSpeakerBoost,
         speed: ttsSpeed,
+        duration: audioDuration || null,
         primaryStartTime,
         lastReview: savedReview,
         // Persist segment metadata + audio key so blobs come back on resume
@@ -502,6 +532,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           startTime: s.startTime,
           stability: s.stability, similarity: s.similarity, style: s.style, speakerBoost: s.speakerBoost,
           speed: s.speed != null ? s.speed : null,
+          duration: s.duration || null,
           audioKey: s.audioKey || null,
         })),
       })
@@ -755,7 +786,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     const payload = exportVoiceoverScript({
       primaryText: ttsText,
       primaryStartTime,
-      segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+      primaryDuration: audioDuration,
+      segments: segments.map(s => ({ text: s.text, startTime: s.startTime, duration: s.duration || 0 })),
       ...overlayCtx(),
     })
     if (!payload) { alert('Nothing to export — write something first.'); return }
@@ -773,7 +805,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     const items = exportVoiceoverScript({
       primaryText: ttsText,
       primaryStartTime,
-      segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+      primaryDuration: audioDuration,
+      segments: segments.map(s => ({ text: s.text, startTime: s.startTime, duration: s.duration || 0 })),
       ...ctx,
     })
     if (!items) { alert('Nothing to review — write something first.'); return }
@@ -913,6 +946,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [suggesting, setSuggesting] = useState(false)
   const [suggestResult, setSuggestResult] = useState(null)
   const [suggestStyle, setSuggestStyle] = useState('')
+  // Script tightness — guides AI word-count per segment.
+  // short = TikTok-style punchy (~3-6 words / line), medium = natural phrase
+  // (~6-12 words), long = fuller sentence (~12-20 words). Default short.
+  const [segmentLength, setSegmentLength] = useState(() => {
+    try { return localStorage.getItem('posty_vo_segment_length') || 'short' } catch { return 'short' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('posty_vo_segment_length', segmentLength) } catch {}
+  }, [segmentLength])
   const suggestSegmentsFromVideo = async () => {
     setSuggesting(true)
     setSuggestResult(null)
@@ -938,6 +980,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         overlayMiddle: ctx.overlayMiddle,
         overlayClosing: ctx.overlayClosing,
         style: suggestStyle || null,
+        segmentLength,
       })
       if (r.error) throw new Error(r.error)
       r._frames = frames
@@ -986,7 +1029,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       const script = exportVoiceoverScript({
         primaryText: ttsText,
         primaryStartTime,
-        segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+        primaryDuration: audioDuration,
+        segments: segments.map(s => ({ text: s.text, startTime: s.startTime, duration: s.duration || 0 })),
         ...ctx,
       })
       zip.file('script.txt', script || '# (empty)')
@@ -1093,7 +1137,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         for (const seg of segsToGen) {
           try {
             const result = await generateOneSegmentTTS(seg)
-            if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, generating: false })
+            if (result) updateSegment(seg.id, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, duration: result.duration || 0, generating: false })
           } catch (err) {
             updateSegment(seg.id, { generating: false })
             alert(`Segment at ${seg.startTime}s failed: ${err.message}`)
@@ -1178,14 +1222,17 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 // delay — play only when video reaches that time.
                 const outputT = Math.max(0, (v.currentTime || 0) - start)
                 const pStart = Number(primaryStartTime) || 0
+                // Reset fire state. The flag is only set true via the audio
+                // element's 'playing' event (wired below), so if play() is
+                // rejected (autoplay policy, codec not ready), onTimeUpdate
+                // will retry on the next tick instead of silently failing.
                 primaryFiredRef.current = false
                 if (audioUrl && audioPreviewRef.current) {
                   try { audioPreviewRef.current.pause(); audioPreviewRef.current.currentTime = 0 } catch {}
                   if (outputT >= pStart - 0.01) {
-                    // Already past the primary's start — play immediately
                     try { audioPreviewRef.current.currentTime = Math.max(0, outputT - pStart) } catch {}
-                    audioPreviewRef.current.play().catch(() => {})
-                    primaryFiredRef.current = true
+                    const p = audioPreviewRef.current.play()
+                    if (p && typeof p.catch === 'function') p.catch(() => {})
                   }
                 }
                 // Reset segment fired-state so they can trigger this playthrough.
@@ -1239,9 +1286,16 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   const outputT = Math.max(0, v.currentTime - start)
                   // Fire the primary voiceover when its start time arrives
                   const pStart = Number(primaryStartTime) || 0
-                  if (audioUrl && audioPreviewRef.current && !primaryFiredRef.current && outputT >= pStart) {
-                    primaryFiredRef.current = true
-                    try { audioPreviewRef.current.currentTime = 0; audioPreviewRef.current.play().catch(() => {}) } catch {}
+                  // Retry the primary audio every timeupdate tick until it
+                  // actually starts playing. Browsers can reject the first
+                  // play() attempt (autoplay heuristics, codec warmup) and
+                  // we need to recover, not silently stay silent.
+                  if (audioUrl && audioPreviewRef.current && outputT >= pStart && audioPreviewRef.current.paused) {
+                    try {
+                      audioPreviewRef.current.currentTime = Math.max(0, outputT - pStart)
+                      const p = audioPreviewRef.current.play()
+                      if (p && typeof p.catch === 'function') p.catch(() => {})
+                    } catch {}
                   }
                   // Fire any timed segments whose startTime has now arrived
                   maybeFireSegments(outputT)
@@ -1302,6 +1356,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               src={audioUrl}
               playsInline
               preload="auto"
+              onPlaying={() => { primaryFiredRef.current = true }}
+              onPause={() => { /* user or code pause — leave fired state alone */ }}
               onEnded={() => {
                 // Audio finished but video may still be playing — that's fine,
                 // the rest of the video plays with just original audio (muted
@@ -1652,7 +1708,11 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                       <p className="text-[11px] text-ink italic bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2">Hook angle: {suggestResult.rationale}</p>
                     )}
                     <div className="border-t border-border pt-1.5">
-                      <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">Proposed segments ({suggestResult.segments.length})</div>
+                      <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">
+                        {suggestResult.mode === 'continuous' || suggestResult.segments.length === 1
+                          ? 'Proposed voiceover (continuous — single track over full video)'
+                          : `Proposed segments (${suggestResult.segments.length}, timed)`}
+                      </div>
                       <div className="bg-cream border border-border rounded p-2 space-y-0.5 max-h-[220px] overflow-y-auto">
                         {suggestResult.segments.map((s, i) => (
                           <div key={i} className="text-[10px]">
@@ -1664,8 +1724,19 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                     </div>
                   </>
                 )}
-                {/* Style input for next run */}
+                {/* Style + length inputs for next run */}
                 <div className="pt-1 flex items-center gap-2 flex-wrap">
+                  <label className="text-[10px] text-muted">Length:</label>
+                  <select
+                    value={segmentLength}
+                    onChange={e => setSegmentLength(e.target.value)}
+                    className="text-[10px] border border-border rounded py-1 px-1.5 bg-white"
+                    title="Short = punchy TikTok lines. Medium = natural phrase. Long = fuller sentence."
+                  >
+                    <option value="short">Short (punchy)</option>
+                    <option value="medium">Medium</option>
+                    <option value="long">Long</option>
+                  </select>
                   <input
                     type="text"
                     value={suggestStyle}
@@ -1708,7 +1779,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   const currentSig = exportVoiceoverScript({
                     primaryText: ttsText,
                     primaryStartTime,
-                    segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+                    primaryDuration: audioDuration,
+                    segments: segments.map(s => ({ text: s.text, startTime: s.startTime, duration: s.duration || 0 })),
                     ...overlayCtx(),
                   })
                   const isStale = savedReview.signature && currentSig !== savedReview.signature
@@ -1865,8 +1937,17 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       {/* Discard + mix settings */}
       {audioUrl && (
         <div className="border-t border-border pt-2 space-y-1.5">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[#2D9A5E] font-medium">Voiceover ready</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] text-[#2D9A5E] font-medium whitespace-nowrap">
+              Primary voice {audioDuration > 0 ? `(${audioDuration.toFixed(1)}s)` : ''}
+            </span>
+            <audio
+              controls
+              src={audioUrl}
+              preload="metadata"
+              className="h-7 flex-1 min-w-[160px] max-w-[320px]"
+              style={{ maxHeight: 28 }}
+            />
             <button
               onClick={() => { setAudioBlob(null); if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(null); for (const vf of videoFiles) delete vf._voiceoverBlob; try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {} }}
               className="text-[10px] py-1 px-2.5 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer hover:bg-[#fdeaea] ml-auto"
@@ -1977,7 +2058,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   )}
                   {/* Status chip + Test + Remove */}
                   {hasAudio && !seg.generating && (
-                    <span className="text-[9px] text-[#2D9A5E]" title="Audio ready">● ready</span>
+                    <span className="text-[9px] text-[#2D9A5E]" title={seg.duration ? `Audio is ${seg.duration.toFixed(1)}s` : 'Audio ready'}>
+                      ● ready{seg.duration ? ` (${seg.duration.toFixed(1)}s)` : ''}
+                    </span>
                   )}
                   {seg.generating && (
                     <span className="text-[9px] text-[#6C5CE7]">generating…</span>
@@ -2040,18 +2123,47 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               </div>
             )
           })}
-          {segments.length > 1 && (() => {
-            // Warn if any segment overlaps with the next (approximate — we
-            // don't know exact durations without decoding, so check text length)
-            const sorted = [...segments].sort((a, b) => a.startTime - b.startTime)
+          {(() => {
+            // Overlap check — uses real measured durations when available,
+            // falls back to a text-length estimate for segments that haven't
+            // been generated yet. Also checks the primary voiceover against
+            // the first segment.
+            const estimate = (t) => Math.max(1, (t || '').length * 0.08)
+            const all = []
+            if (ttsText.trim()) {
+              all.push({
+                label: 'primary',
+                startTime: Number(primaryStartTime) || 0,
+                duration: audioDuration || estimate(ttsText),
+                estimated: !audioDuration,
+              })
+            }
+            for (const s of segments) {
+              if (!s.text?.trim()) continue
+              all.push({
+                label: `at ${Number(s.startTime || 0).toFixed(1)}s`,
+                startTime: Number(s.startTime) || 0,
+                duration: s.duration || estimate(s.text),
+                estimated: !s.duration,
+              })
+            }
+            const sorted = all.sort((a, b) => a.startTime - b.startTime)
             const overlaps = []
             for (let i = 0; i < sorted.length - 1; i++) {
-              // Rough: assume ~0.15s per character for TTS speech
-              const est = Math.max(1, (sorted[i].text || '').length * 0.15)
-              if (sorted[i].startTime + est > sorted[i + 1].startTime) overlaps.push(i)
+              const endA = sorted[i].startTime + sorted[i].duration
+              if (endA > sorted[i + 1].startTime + 0.05) {
+                const overlap = (endA - sorted[i + 1].startTime).toFixed(1)
+                overlaps.push(`${sorted[i].label} runs ${overlap}s into ${sorted[i + 1].label}`)
+              }
             }
             if (!overlaps.length) return null
-            return <p className="text-[9px] text-[#c0392b]">⚠ Some segments may overlap — consider spacing them further apart.</p>
+            const anyEstimated = sorted.some(x => x.estimated)
+            return (
+              <div className="text-[9px] text-[#c0392b] bg-[#fdeaea] border border-[#f5c6cb] rounded px-2 py-1">
+                ⚠ Overlap{overlaps.length > 1 ? 's' : ''}: {overlaps.join('; ')}.
+                {anyEstimated && <span className="text-muted"> (estimated from text length — generate voices to measure exactly)</span>}
+              </div>
+            )
           })()}
           {/* Single Generate-all action below the list — clearer than per-row buttons */}
           {segments.length > 0 && (() => {
