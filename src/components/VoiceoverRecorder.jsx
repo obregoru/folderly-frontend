@@ -1284,11 +1284,20 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   const outputT = Math.max(0, v.currentTime - start)
                   // Fire the primary voiceover when its start time arrives
                   const pStart = Number(primaryStartTime) || 0
-                  // Retry the primary audio every timeupdate tick until it
-                  // actually starts playing. Browsers can reject the first
-                  // play() attempt (autoplay heuristics, codec warmup) and
-                  // we need to recover, not silently stay silent.
-                  if (audioUrl && audioPreviewRef.current && outputT >= pStart && audioPreviewRef.current.paused) {
+                  // Retry the primary audio only if it hasn't fired yet this
+                  // playthrough. primaryFiredRef flips true on the audio's
+                  // 'playing' event (see onPlaying handler below), so once
+                  // playback really started we stop retrying — otherwise the
+                  // post-ended state (.paused=true, .ended=true) would loop
+                  // the voiceover for the rest of the video.
+                  if (
+                    audioUrl &&
+                    audioPreviewRef.current &&
+                    outputT >= pStart &&
+                    !primaryFiredRef.current &&
+                    audioPreviewRef.current.paused &&
+                    !audioPreviewRef.current.ended
+                  ) {
                     try {
                       audioPreviewRef.current.currentTime = Math.max(0, outputT - pStart)
                       const p = audioPreviewRef.current.play()
