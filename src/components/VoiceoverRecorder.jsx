@@ -20,6 +20,18 @@ const blobToBase64 = (blob) => new Promise((resolve, reject) => {
 })
 const fileToBase64 = blobToBase64
 
+// Small helper: elapsed-seconds timer, used in the Suggest modal so the
+// user sees time progressing while Claude is thinking. Resets when the
+// component remounts (via key prop).
+function SuggestElapsed() {
+  const [secs, setSecs] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setSecs(s => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [])
+  return <div className="text-[9px] text-[#6C5CE7] mt-0.5">Elapsed: {secs}s</div>
+}
+
 /**
  * Voiceover recorder + ElevenLabs TTS. Renders below the video trim/merge
  * section. Two modes:
@@ -1747,7 +1759,27 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   <h3 className="text-[13px] font-medium">🎬 Suggest segments from video</h3>
                   <button onClick={() => setScriptModalOpen(null)} className="text-muted bg-transparent border-none cursor-pointer text-lg leading-none">×</button>
                 </div>
-                {suggesting && <p className="text-[11px] text-muted">{suggestResult?.progress || 'Working…'}</p>}
+                {suggesting && (
+                  <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-3 flex items-start gap-2">
+                    {/* Spinner — visible motion so the user knows it's not frozen.
+                        Claude vision + 3 candidates can take 15-25s. */}
+                    <svg className="w-4 h-4 text-[#6C5CE7] flex-shrink-0 mt-0.5 animate-spin" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+                      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] text-ink font-medium">
+                        {suggestResult?.progress || 'Working…'}
+                      </div>
+                      <div className="text-[9px] text-muted mt-0.5">
+                        Reading video frames · extracting payoff · writing 3 candidate scripts. Usually 15–25 seconds.
+                      </div>
+                      {/* Elapsed timer so the user can tell time is passing even
+                          when the server is working quietly. */}
+                      <SuggestElapsed key={suggesting ? 'on' : 'off'} />
+                    </div>
+                  </div>
+                )}
                 {!suggesting && suggestResult?.error && (
                   <p className="text-[11px] text-[#c0392b]">Error: {suggestResult.error}</p>
                 )}
