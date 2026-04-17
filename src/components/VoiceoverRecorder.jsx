@@ -967,6 +967,10 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [suggesting, setSuggesting] = useState(false)
   const [suggestResult, setSuggestResult] = useState(null)
   const [suggestStyle, setSuggestStyle] = useState('')
+  // Operator audience override for the Suggest endpoint. "auto" = let
+  // Claude read the frames; any other value forces a specific tone
+  // register regardless of what the frames look like.
+  const [audienceOverride, setAudienceOverride] = useState('auto')
   // AI now returns 3 candidates (payoff / identity / proof) with scores;
   // the user picks which one to apply. Defaults to winner_index.
   const [selectedCandidateIdx, setSelectedCandidateIdx] = useState(0)
@@ -996,6 +1000,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         overlayClosing: ctx.overlayClosing,
         style: suggestStyle || null,
         segmentLength,
+        audienceOverride,
       })
       if (r.error) throw new Error(r.error)
       r._frames = frames
@@ -1830,13 +1835,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                               {suggestResult.scene_context.age_range && <> · {suggestResult.scene_context.age_range}</>}
                               {suggestResult.scene_context.energy && <> · {suggestResult.scene_context.energy}</>}
                             </div>
+                            {suggestResult.scene_context.audience && (
+                              <div className="mt-0.5">
+                                <span className="text-muted">Audience tone: </span>
+                                <b className="text-[#6C5CE7]">{suggestResult.scene_context.audience}</b>
+                                {suggestResult.scene_context.audience_was_overridden && (
+                                  <span className="text-muted italic"> · operator override</span>
+                                )}
+                              </div>
+                            )}
                             {Array.isArray(suggestResult.scene_context.occasion_signals) && suggestResult.scene_context.occasion_signals.length > 0 && (
                               <div className="text-muted mt-0.5">
                                 Occasion signals: {suggestResult.scene_context.occasion_signals.join(', ')}
                               </div>
                             )}
                             <div className="text-[9px] text-muted mt-1 italic">
-                              If this is wrong, scripts will be wrong. Click Regenerate with a hint in the style field.
+                              If this is wrong, pick an audience from the dropdown below and regenerate.
                             </div>
                           </div>
                         </div>
@@ -1893,6 +1907,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                           <div>TTS natural: <b className="text-ink">{chosen.scores.tts_naturalness}/10</b></div>
                         </div>
                       )}
+                      {chosen?.cta_mode && (
+                        <div className="text-[9px] text-muted">
+                          CTA mode: <b className="text-ink">{String(chosen.cta_mode).replace(/_/g, ' ')}</b>
+                          {chosen.cta_mode === 'creative_first' && <span className="ml-1">(URL/book-now goes in caption, not VO)</span>}
+                          {chosen.cta_mode === 'caption_carries_cta' && <span className="ml-1">(VO stays pure-creative; caption carries conversion)</span>}
+                          {chosen.cta_mode === 'soft_cta' && <span className="ml-1">(brand surfaces gently in VO)</span>}
+                          {chosen.cta_mode === 'hard_cta' && <span className="ml-1">(direct-response URL in VO)</span>}
+                        </div>
+                      )}
                       <div className="border-t border-border pt-1.5">
                         <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">
                           {chosen?.mode === 'continuous' || (chosen?.segments || []).length === 1
@@ -1938,8 +1961,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                     </>
                   )
                 })()}
-                {/* Style + length inputs for next run */}
+                {/* Style + length + audience inputs for next run. The audience
+                    override skips auto-detection and forces a tone register. */}
                 <div className="pt-1 flex items-center gap-2 flex-wrap">
+                  <label className="text-[10px] text-muted">Audience:</label>
+                  <select
+                    value={audienceOverride}
+                    onChange={e => setAudienceOverride(e.target.value)}
+                    className="text-[10px] border border-border rounded py-1 px-1.5 bg-white"
+                    title="Auto = let Claude read the frames. Any other value forces that audience's tone register regardless of frames."
+                  >
+                    <option value="auto">Auto-detect</option>
+                    <option value="teens">Teens / friend group</option>
+                    <option value="young_adults">Young adults (girls' night)</option>
+                    <option value="date_night">Date night</option>
+                    <option value="kids_birthday">Kids birthday</option>
+                    <option value="adults">Adults (creative outing)</option>
+                    <option value="solo">Solo / personal</option>
+                    <option value="mixed">Mixed / universal</option>
+                  </select>
                   <label className="text-[10px] text-muted">Length:</label>
                   <select
                     value={segmentLength}
