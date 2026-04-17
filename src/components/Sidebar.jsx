@@ -102,6 +102,8 @@ export default function Sidebar({ settings, onSave, hashtagSets, selectedHashtag
           <datalist id="biz-type-list">{BUSINESS_TYPES.map(t => <option key={t} value={t} />)}</datalist></div>
         <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Brand rules <HelpTip text="Custom instructions the AI must follow. E.g. 'Never mention competitors', 'Always call it a studio not a shop', 'Use emoji sparingly'. These override default behavior." /></label>
           <textarea rows={5} className="field-input resize-none" value={s.brand_rules || ''} onChange={e => save('brand_rules', e.target.value)} /></div>
+        <div className="mb-2"><label className="text-[11px] text-muted block mb-0.5">Key insights (payoffs, differentiators, identity angles) <HelpTip text="Durable insights about your business — what makes it special, not what it does. E.g. for a perfume studio: 'Guests still wear their perfume months later. Not a party favor — a real signature scent. Top use cases: birthdays, girls' night, date night.' Feeds every AI voiceover Suggest call so scripts lead with payoff, not process." /></label>
+          <textarea rows={6} className="field-input resize-none" value={s.key_insights || ''} onChange={e => save('key_insights', e.target.value)} placeholder={"Emotional payoffs, unique differentiators, identity angles, top use cases — bullet or prose.\n\nExample:\n- Guests still wear their perfume months later.\n- Not a party favor. Your actual signature scent.\n- Top use cases: birthdays, girls' night, date night."} /></div>
 
         {/* Vocabulary — per-tenant word/phrase substitutions */}
         <div className="mb-2">

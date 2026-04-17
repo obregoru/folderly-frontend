@@ -955,6 +955,9 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [suggesting, setSuggesting] = useState(false)
   const [suggestResult, setSuggestResult] = useState(null)
   const [suggestStyle, setSuggestStyle] = useState('')
+  // AI now returns 3 candidates (payoff / identity / proof) with scores;
+  // the user picks which one to apply. Defaults to winner_index.
+  const [selectedCandidateIdx, setSelectedCandidateIdx] = useState(0)
   const suggestSegmentsFromVideo = async () => {
     setSuggesting(true)
     setSuggestResult(null)
@@ -985,13 +988,24 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       if (r.error) throw new Error(r.error)
       r._frames = frames
       setSuggestResult(r)
+      // Default selection to the winner the backend ranked highest
+      if (Array.isArray(r.candidates) && r.candidates.length > 0) {
+        const w = Number.isInteger(r.winner_index) ? r.winner_index : 0
+        setSelectedCandidateIdx(Math.max(0, Math.min(r.candidates.length - 1, w)))
+      } else {
+        setSelectedCandidateIdx(0)
+      }
     } catch (e) {
       setSuggestResult({ error: e.message })
     }
     setSuggesting(false)
   }
   const applySuggestedSegments = () => {
-    const arr = Array.isArray(suggestResult?.segments) ? suggestResult.segments : []
+    // When candidates[] exists, use the user-selected candidate; else fall
+    // back to legacy top-level segments.
+    const cands = Array.isArray(suggestResult?.candidates) ? suggestResult.candidates : null
+    const chosen = cands && cands[selectedCandidateIdx] ? cands[selectedCandidateIdx] : suggestResult
+    const arr = Array.isArray(chosen?.segments) ? chosen.segments : []
     if (arr.length === 0) return
     // ALWAYS promote the first line to primary — preview playback relies
     // on a primary voiceover to drive audio sync. primaryStartTime keeps
@@ -1016,7 +1030,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     // Apply proposed on-screen captions (opening/middle/closing) to the
     // monitorItem + notify ResultCard so its textareas pick them up. These
     // are the burned-in scroll-stoppers — different from the spoken voiceover.
-    const o = suggestResult?.overlays
+    const o = chosen?.overlays
     if (o && monitorItem) {
       monitorItem._overlaySettings = {
         ...(monitorItem._overlaySettings || {}),
@@ -1751,57 +1765,121 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                     </div>
                   </div>
                 )}
-                {!suggesting && Array.isArray(suggestResult?.segments) && suggestResult.segments.length > 0 && (
-                  <>
-                    {suggestResult.rationale && (
-                      <p className="text-[11px] text-ink italic bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2">Hook angle: {suggestResult.rationale}</p>
-                    )}
-                    <div className="border-t border-border pt-1.5">
-                      <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">
-                        {suggestResult.mode === 'continuous' || suggestResult.segments.length === 1
-                          ? 'Proposed voiceover (continuous — single track over full video)'
-                          : `Proposed segments (${suggestResult.segments.length}, timed)`}
-                      </div>
-                      <div className="bg-cream border border-border rounded p-2 space-y-0.5 max-h-[220px] overflow-y-auto">
-                        {suggestResult.segments.map((s, i) => (
-                          <div key={i} className="text-[10px]">
-                            <span className="text-[#6C5CE7] font-mono mr-1">[{String(Math.floor((Number(s.startTime) || 0) / 60)).padStart(1, '0')}:{String(Math.floor((Number(s.startTime) || 0) % 60)).padStart(2, '0')}]</span>
-                            <span className="text-ink">{s.text}</span>
+                {!suggesting && suggestResult && (Array.isArray(suggestResult.candidates) ? suggestResult.candidates.length > 0 : Array.isArray(suggestResult.segments) && suggestResult.segments.length > 0) && (() => {
+                  // Prefer the ranked candidates list, fall back to legacy shape.
+                  const cands = Array.isArray(suggestResult.candidates) && suggestResult.candidates.length > 0
+                    ? suggestResult.candidates
+                    : [{
+                        variant: 'single',
+                        mode: suggestResult.mode,
+                        segments: suggestResult.segments,
+                        overlays: suggestResult.overlays,
+                        rationale: suggestResult.rationale,
+                        scores: null,
+                      }]
+                  const safeIdx = Math.min(cands.length - 1, Math.max(0, selectedCandidateIdx))
+                  const chosen = cands[safeIdx]
+                  const winnerIdx = Number.isInteger(suggestResult.winner_index) ? suggestResult.winner_index : 0
+                  const pe = suggestResult.payoff_extracted
+                  return (
+                    <>
+                      {/* Payoff extraction — gives the user transparency into what
+                          angles Claude pulled from the business insights */}
+                      {pe && typeof pe === 'object' && (pe.emotional_payoff || pe.unique_differentiator || pe.surprising_claim || pe.identity_angle) && (
+                        <div className="border-t border-border pt-1.5">
+                          <div className="text-[10px] font-medium text-[#2D9A5E] mb-1">Payoff angles Claude extracted</div>
+                          <div className="bg-[#f0fdf4] border border-[#2D9A5E]/30 rounded p-2 space-y-0.5 text-[10px]">
+                            {pe.emotional_payoff && <div><span className="text-[#2D9A5E] font-medium">Emotional payoff:</span> {pe.emotional_payoff}</div>}
+                            {pe.unique_differentiator && <div><span className="text-[#2D9A5E] font-medium">Differentiator:</span> {pe.unique_differentiator}</div>}
+                            {pe.surprising_claim && <div><span className="text-[#2D9A5E] font-medium">Surprising claim:</span> {pe.surprising_claim}</div>}
+                            {pe.identity_angle && <div><span className="text-[#2D9A5E] font-medium">Identity angle:</span> {pe.identity_angle}</div>}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                    {/* On-screen captions proposed by AI — these are READ (burned-in
-                        text), not heard. They complement the voiceover. */}
-                    {suggestResult.overlays && (suggestResult.overlays.opening || suggestResult.overlays.middle || suggestResult.overlays.closing) && (
+                        </div>
+                      )}
+                      {/* Candidate tabs — click to preview each variant */}
+                      {cands.length > 1 && (
+                        <div className="border-t border-border pt-1.5">
+                          <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">Pick a variant ({cands.length} candidates, ranked)</div>
+                          <div className="flex gap-1 flex-wrap">
+                            {cands.map((c, i) => {
+                              const active = i === safeIdx
+                              const isWinner = i === winnerIdx
+                              return (
+                                <button
+                                  key={i}
+                                  type="button"
+                                  onClick={() => setSelectedCandidateIdx(i)}
+                                  className={`text-[10px] py-1 px-2 rounded border ${active ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]' : 'bg-white text-ink border-border'} cursor-pointer`}
+                                  title={c.rationale || ''}
+                                >
+                                  <span className="uppercase tracking-wide">{c.variant || `#${i + 1}`}</span>
+                                  {c.scores?.total != null && <span className="ml-1 font-mono">{c.scores.total}/100</span>}
+                                  {isWinner && <span className="ml-1">★</span>}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {chosen?.rationale && (
+                        <p className="text-[11px] text-ink italic bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2">Hook angle: {chosen.rationale}</p>
+                      )}
+                      {/* Rubric scores for the selected candidate */}
+                      {chosen?.scores && typeof chosen.scores === 'object' && (
+                        <div className="border-t border-border pt-1 grid grid-cols-3 gap-x-2 gap-y-0.5 text-[9px] text-muted">
+                          <div>Hook: <b className="text-ink">{chosen.scores.hook_strength}/25</b></div>
+                          <div>Payoff: <b className="text-ink">{chosen.scores.payoff_clarity}/20</b></div>
+                          <div>Non-redundant: <b className="text-ink">{chosen.scores.non_redundancy}/15</b></div>
+                          <div>Timing: <b className="text-ink">{chosen.scores.timing_fit}/15</b></div>
+                          <div>TikTok-native: <b className="text-ink">{chosen.scores.tiktok_native}/15</b></div>
+                          <div>TTS natural: <b className="text-ink">{chosen.scores.tts_naturalness}/10</b></div>
+                        </div>
+                      )}
                       <div className="border-t border-border pt-1.5">
-                        <div className="text-[10px] font-medium text-[#d97706] mb-1">On-screen captions (scroll-stoppers)</div>
-                        <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-2 space-y-1">
-                          {suggestResult.overlays.opening && (
-                            <div className="text-[10px]">
-                              <span className="text-[#92400e] font-medium mr-1">OPENING:</span>
-                              <span className="text-ink font-bold">{suggestResult.overlays.opening}</span>
+                        <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">
+                          {chosen?.mode === 'continuous' || (chosen?.segments || []).length === 1
+                            ? 'Proposed voiceover (continuous — single track over full video)'
+                            : `Proposed segments (${(chosen?.segments || []).length}, timed)`}
+                        </div>
+                        <div className="bg-cream border border-border rounded p-2 space-y-0.5 max-h-[200px] overflow-y-auto">
+                          {(chosen?.segments || []).map((s, i) => (
+                            <div key={i} className="text-[10px]">
+                              <span className="text-[#6C5CE7] font-mono mr-1">[{String(Math.floor((Number(s.startTime) || 0) / 60)).padStart(1, '0')}:{String(Math.floor((Number(s.startTime) || 0) % 60)).padStart(2, '0')}]</span>
+                              <span className="text-ink">{s.text}</span>
                             </div>
-                          )}
-                          {suggestResult.overlays.middle && (
-                            <div className="text-[10px]">
-                              <span className="text-[#92400e] font-medium mr-1">
-                                MIDDLE{suggestResult.overlays.middleStartTime != null ? ` @ ${Number(suggestResult.overlays.middleStartTime).toFixed(1)}s` : ''}:
-                              </span>
-                              <span className="text-ink font-bold">{suggestResult.overlays.middle}</span>
-                            </div>
-                          )}
-                          {suggestResult.overlays.closing && (
-                            <div className="text-[10px]">
-                              <span className="text-[#92400e] font-medium mr-1">CLOSING:</span>
-                              <span className="text-ink font-bold">{suggestResult.overlays.closing}</span>
-                            </div>
-                          )}
+                          ))}
                         </div>
                       </div>
-                    )}
-                  </>
-                )}
+                      {chosen?.overlays && (chosen.overlays.opening || chosen.overlays.middle || chosen.overlays.closing) && (
+                        <div className="border-t border-border pt-1.5">
+                          <div className="text-[10px] font-medium text-[#d97706] mb-1">On-screen captions (scroll-stoppers)</div>
+                          <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-2 space-y-1">
+                            {chosen.overlays.opening && (
+                              <div className="text-[10px]">
+                                <span className="text-[#92400e] font-medium mr-1">OPENING:</span>
+                                <span className="text-ink font-bold">{chosen.overlays.opening}</span>
+                              </div>
+                            )}
+                            {chosen.overlays.middle && (
+                              <div className="text-[10px]">
+                                <span className="text-[#92400e] font-medium mr-1">
+                                  MIDDLE{chosen.overlays.middleStartTime != null ? ` @ ${Number(chosen.overlays.middleStartTime).toFixed(1)}s` : ''}:
+                                </span>
+                                <span className="text-ink font-bold">{chosen.overlays.middle}</span>
+                              </div>
+                            )}
+                            {chosen.overlays.closing && (
+                              <div className="text-[10px]">
+                                <span className="text-[#92400e] font-medium mr-1">CLOSING:</span>
+                                <span className="text-ink font-bold">{chosen.overlays.closing}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
                 {/* Style + length inputs for next run */}
                 <div className="pt-1 flex items-center gap-2 flex-wrap">
                   <label className="text-[10px] text-muted">Length:</label>
@@ -1830,14 +1908,16 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                   >Regenerate</button>
                 </div>
                 <div className="pt-1 flex items-center gap-2">
-                  {!suggesting && Array.isArray(suggestResult?.segments) && suggestResult.segments.length > 0 && (
+                  {!suggesting && (Array.isArray(suggestResult?.candidates)
+                    ? suggestResult.candidates.length > 0
+                    : Array.isArray(suggestResult?.segments) && suggestResult.segments.length > 0) && (
                     <button
                       onClick={() => {
-                        if (!confirm("Replace your current script with Claude's suggestion?\n\nClears existing audio — click Generate voices after.")) return
+                        if (!confirm("Replace your current script with the selected candidate?\n\nClears existing audio — click Generate voices after.")) return
                         applySuggestedSegments()
                       }}
                       className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
-                    >Apply suggestion</button>
+                    >Apply selected variant</button>
                   )}
                   <button onClick={() => setScriptModalOpen(null)} className="text-[10px] py-1 px-3 border border-border rounded bg-white cursor-pointer">Close</button>
                 </div>
