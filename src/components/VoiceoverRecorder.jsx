@@ -1548,19 +1548,32 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               sync effect already suppresses it from preview/export, but the
               user needs a way to either recover or permanently discard it. */}
           {!ttsText.trim() && audioUrl && (
-            <div className="text-[10px] bg-[#fff3cd] text-[#664d03] border border-[#ffe69c] rounded px-2 py-1.5 flex items-center gap-2 flex-wrap">
-              <span>⚠ A primary voiceover audio exists but the text is empty. It won't play. Discard to remove it for good, or type text and Regenerate.</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setAudioBlob(null)
-                  if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {} }
-                  setAudioUrl(null)
-                  for (const vf of videoFiles) delete vf._voiceoverBlob
-                  try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
-                }}
-                className="text-[10px] py-1 px-2.5 bg-[#c0392b] text-white border-none rounded cursor-pointer ml-auto"
-              >Discard orphaned audio</button>
+            <div className="text-[10px] bg-[#fff3cd] text-[#664d03] border border-[#ffe69c] rounded px-2 py-1.5 space-y-1.5">
+              <p>⚠ A primary voiceover audio exists but the text isn't saved with the draft. Play it to hear what it says, then either retype the text and Regenerate, or discard it.</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      const a = new Audio(audioUrl)
+                      a.play().catch(err => alert('Playback blocked: ' + err.message))
+                    } catch (e) { alert('Play failed: ' + e.message) }
+                  }}
+                  className="text-[10px] py-1 px-2.5 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
+                >▶ Play orphaned audio</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!confirm('Permanently discard this primary voiceover audio?')) return
+                    setAudioBlob(null)
+                    if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {} }
+                    setAudioUrl(null)
+                    for (const vf of videoFiles) delete vf._voiceoverBlob
+                    try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+                  }}
+                  className="text-[10px] py-1 px-2.5 bg-[#c0392b] text-white border-none rounded cursor-pointer"
+                >Discard</button>
+              </div>
             </div>
           )}
           {/* Paste-script modal */}
