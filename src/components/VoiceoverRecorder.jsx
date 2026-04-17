@@ -706,36 +706,23 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const applyPastedScript = () => {
     const parsed = pastePreview
     if (parsed.length === 0) return
-    // First line at t ≤ 0.5s becomes the primary; everything else becomes a segment.
+    // ALWAYS promote the first line to primary (regardless of its startTime).
+    // Reason: the in-panel preview relies on the primary voiceover to
+    // drive playback; segment-only drafts don't play cleanly yet.
+    // primaryStartTime preserves whatever delay the first line had.
     const first = parsed[0]
-    if (first.startTime <= 0.5) {
-      setTtsText(first.text)
-      setPrimaryStartTime(0)
-      const rest = parsed.slice(1)
-      setSegments(rest.map(s => ({
-        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        text: s.text,
-        voiceId: selectedVoice,
-        startTime: s.startTime,
-        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
-        speed: 1.0,
-        blob: null, audioUrl: null, audioKey: null, generating: false,
-      })))
-    } else {
-      // No primary — user pasted all timed segments. Set primary delay so
-      // the first one fires at the expected time.
-      setTtsText('')
-      setPrimaryStartTime(0)
-      setSegments(parsed.map(s => ({
-        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        text: s.text,
-        voiceId: selectedVoice,
-        startTime: s.startTime,
-        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
-        speed: 1.0,
-        blob: null, audioUrl: null, audioKey: null, generating: false,
-      })))
-    }
+    setTtsText(first.text)
+    setPrimaryStartTime(Number(first.startTime) || 0)
+    const rest = parsed.slice(1)
+    setSegments(rest.map(s => ({
+      id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      text: s.text,
+      voiceId: selectedVoice,
+      startTime: s.startTime,
+      stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+      speed: 1.0,
+      blob: null, audioUrl: null, audioKey: null, generating: false,
+    })))
     setScriptModalOpen(null)
     setPasteInput('')
   }
@@ -879,39 +866,24 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const applyRevisedScript = () => {
     const revised = Array.isArray(reviewResult?.revised_script) ? reviewResult.revised_script : []
     if (revised.length === 0) return
+    // ALWAYS promote the first line to primary so the in-panel preview
+    // plays correctly. primaryStartTime preserves the AI's intended delay.
     const first = revised[0]
-    if (first && (Number(first.startTime) || 0) <= 0.5) {
-      setTtsText(String(first.text || '').trim())
-      setPrimaryStartTime(0)
-      setAudioBlob(null)
-      if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
-      for (const vf of videoFiles) delete vf._voiceoverBlob
-      const rest = revised.slice(1)
-      setSegments(rest.map(s => ({
-        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        text: String(s.text || '').trim(),
-        voiceId: selectedVoice,
-        startTime: Number(s.startTime) || 0,
-        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
-        speed: 1.0,
-        blob: null, audioUrl: null, audioKey: null, generating: false,
-      })))
-    } else {
-      setTtsText('')
-      setPrimaryStartTime(0)
-      setAudioBlob(null)
-      if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
-      for (const vf of videoFiles) delete vf._voiceoverBlob
-      setSegments(revised.map(s => ({
-        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        text: String(s.text || '').trim(),
-        voiceId: selectedVoice,
-        startTime: Number(s.startTime) || 0,
-        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
-        speed: 1.0,
-        blob: null, audioUrl: null, audioKey: null, generating: false,
-      })))
-    }
+    setTtsText(String(first.text || '').trim())
+    setPrimaryStartTime(Number(first.startTime) || 0)
+    setAudioBlob(null)
+    if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
+    for (const vf of videoFiles) delete vf._voiceoverBlob
+    const rest = revised.slice(1)
+    setSegments(rest.map(s => ({
+      id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      text: String(s.text || '').trim(),
+      voiceId: selectedVoice,
+      startTime: Number(s.startTime) || 0,
+      stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+      speed: 1.0,
+      blob: null, audioUrl: null, audioKey: null, generating: false,
+    })))
     try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
     setScriptModalOpen(null)
     setReviewResult(null)
@@ -978,36 +950,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const applySuggestedSegments = () => {
     const arr = Array.isArray(suggestResult?.segments) ? suggestResult.segments : []
     if (arr.length === 0) return
+    // ALWAYS promote the first line to primary — preview playback relies
+    // on a primary voiceover to drive audio sync. primaryStartTime keeps
+    // the AI's intended delay.
     const first = arr[0]
-    if (first && (Number(first.startTime) || 0) <= 0.5) {
-      setTtsText(String(first.text || '').trim())
-      setPrimaryStartTime(0)
-      setAudioBlob(null)
-      if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
-      for (const vf of videoFiles) delete vf._voiceoverBlob
-      const rest = arr.slice(1)
-      setSegments(rest.map(s => ({
-        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        text: String(s.text || '').trim(),
-        voiceId: selectedVoice,
-        startTime: Number(s.startTime) || 0,
-        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
-        speed: 1.0,
-        blob: null, audioUrl: null, audioKey: null, generating: false,
-      })))
-    } else {
-      setTtsText('')
-      setPrimaryStartTime(0)
-      setSegments(arr.map(s => ({
-        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        text: String(s.text || '').trim(),
-        voiceId: selectedVoice,
-        startTime: Number(s.startTime) || 0,
-        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
-        speed: 1.0,
-        blob: null, audioUrl: null, audioKey: null, generating: false,
-      })))
-    }
+    setTtsText(String(first.text || '').trim())
+    setPrimaryStartTime(Number(first.startTime) || 0)
+    setAudioBlob(null)
+    if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
+    for (const vf of videoFiles) delete vf._voiceoverBlob
+    const rest = arr.slice(1)
+    setSegments(rest.map(s => ({
+      id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      text: String(s.text || '').trim(),
+      voiceId: selectedVoice,
+      startTime: Number(s.startTime) || 0,
+      stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+      speed: 1.0,
+      blob: null, audioUrl: null, audioKey: null, generating: false,
+    })))
     try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
     setScriptModalOpen(null)
     setSuggestResult(null)
