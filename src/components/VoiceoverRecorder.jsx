@@ -129,6 +129,10 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // Audio mix mode — restored from job first, then localStorage
   const [voMixMode, setVoMixMode] = useState(() => rvs.mode || localStorage.getItem('posty_vo_mode') || 'mix')
   const [voOrigVolume, setVoOrigVolume] = useState(() => rvs.originalVolume ?? (Number(localStorage.getItem('posty_vo_orig_vol')) || 0.3))
+  // Snapshot of the most recent Review result persisted with the job
+  // (voiceover_settings.lastReview). Declared up here so the save-settings
+  // effect below can include it in its deps without hitting a TDZ error.
+  const [savedReview, setSavedReview] = useState(() => rvs.lastReview || null)
   // Optional delay before the primary voiceover starts. Default 0 keeps
   // the old behavior (plays at t=0) so nothing regresses for existing jobs.
   const [primaryStartTime, setPrimaryStartTime] = useState(() => Number(rvs.primaryStartTime) || 0)
@@ -642,12 +646,6 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const [pastePreview, setPastePreview] = useState([])
   const [reviewing, setReviewing] = useState(false)
   const [reviewResult, setReviewResult] = useState(null)
-  // Snapshot of the most recent review persisted with the job, so the
-  // user can reopen it without re-spending tokens. Shape: { result,
-  // reviewedAt, signature } where signature is the exported script text
-  // at review time. When it differs from the current exported script,
-  // the saved review is marked stale.
-  const [savedReview, setSavedReview] = useState(() => rvs.lastReview || null)
   // Re-parse on every keystroke so the user sees what'll actually be applied
   useEffect(() => { setPastePreview(parseVoiceoverScript(pasteInput)) }, [pasteInput])
 
