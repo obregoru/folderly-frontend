@@ -440,14 +440,23 @@ export default function App() {
     return typeof t === 'string' ? t : 'warm'
   }
 
+  // Hook mode: when ON, restricts the flow to reel-capable platforms only
+  // (TikTok + Instagram + Facebook reels). Non-reel destinations (blog,
+  // GBP, Twitter, YouTube long-form) are skipped during generate + hidden
+  // in the caption tabs. Persisted in localStorage so the toggle sticks
+  // between sessions.
+  const [hookMode, setHookMode] = useState(() => localStorage.getItem('posty_hook_mode') === '1')
+  useEffect(() => { localStorage.setItem('posty_hook_mode', hookMode ? '1' : '0') }, [hookMode])
+
   const getActivePlatforms = () => {
     const p = []
     if (settings.platform_tiktok !== false) p.push('tiktok')
     if (settings.platform_instagram !== false) p.push('instagram')
     if (settings.platform_facebook !== false) p.push('facebook')
-    if (settings.platform_twitter === true) p.push('twitter')
-    if (settings.platform_google === true) p.push('google')
-    if (settings.platform_blog === true) p.push('blog')
+    if (!hookMode && settings.platform_twitter === true) p.push('twitter')
+    if (!hookMode && settings.platform_google === true) p.push('google')
+    if (!hookMode && settings.platform_blog === true) p.push('blog')
+    // YouTube Shorts IS a reel-style destination; keep it in hook mode.
     if (settings.platform_youtube === true) p.push('youtube')
     return p
   }
@@ -897,6 +906,27 @@ export default function App() {
 
           <p className="text-[11px] text-muted text-center">Content is generated for each photo — copy, edit, and post to your platforms.</p>
 
+          {/* Hook mode toggle — switches the flow to reel-only. Generates
+              only for reel-capable platforms (TikTok, Instagram, Facebook,
+              YouTube Shorts), hides the other platform tabs, and pre-checks
+              only reel destinations in each card's post selector. */}
+          <div className="flex items-center justify-center gap-2 text-[11px]">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={hookMode}
+                onChange={e => setHookMode(e.target.checked)}
+                className="accent-[#6C5CE7]"
+              />
+              <span className={hookMode ? 'text-[#6C5CE7] font-medium' : 'text-muted'}>
+                Hook mode — reels + shorts only {hookMode ? '(on)' : ''}
+              </span>
+            </label>
+            <span className="text-[9px] text-muted">
+              {hookMode ? 'Blog, Google, X skipped' : 'All platforms'}
+            </span>
+          </div>
+
           {files.length > 0 && (
             <div className="flex items-center gap-2.5">
               <button
@@ -904,7 +934,7 @@ export default function App() {
                 disabled={generating}
                 className="flex-1 py-2.5 px-4 text-[13px] font-medium font-sans bg-ink text-white border-none rounded-sm cursor-pointer hover:bg-[#333] disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {generating ? 'Generating...' : 'Generate content ↗'}
+                {generating ? 'Generating...' : hookMode ? 'Generate hooks ↗' : 'Generate content ↗'}
               </button>
               <button onClick={clearAll} className="text-[11px] py-2 px-3 border border-border rounded-sm bg-white cursor-pointer font-sans hover:bg-cream">Clear all</button>
               <span className="text-xs text-muted whitespace-nowrap">{files.length} file{files.length !== 1 ? 's' : ''}</span>
@@ -949,6 +979,7 @@ export default function App() {
                   apiUrl={apiUrl}
                   settings={settings}
                   targetWeek={targetWeek}
+                  hookMode={hookMode}
                   onOverlayChange={(overlaySettings) => jobSync.saveOverlaySettings(overlaySettings)}
                 />
               </ErrorBoundary>

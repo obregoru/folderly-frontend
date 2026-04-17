@@ -134,10 +134,13 @@ async function saveVideo(sourceBlobOrUrl, filename, onAfter) {
   }
 }
 
-export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings, targetWeek, onOverlayChange }) {
-  // Find which platforms have captions
+export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, onRefine, apiUrl, settings, targetWeek, hookMode = false, onOverlayChange }) {
+  // Find which platforms have captions. In Hook mode, hide blog/google/
+  // twitter/pinterest tabs even if captions were previously generated for
+  // them — they don't belong in a reels-first workflow.
+  const REEL_FOCUS_KEYS = new Set(['tiktok', 'instagram', 'facebook', 'youtube'])
   const available = item.captions
-    ? PLATFORMS.filter(p => item.captions[p.key])
+    ? PLATFORMS.filter(p => item.captions[p.key] && (!hookMode || REEL_FOCUS_KEYS.has(p.key)))
     : []
 
   const [tab, setTab] = useState('')
@@ -289,6 +292,7 @@ export default function ResultCard({ item, folderCtx, onRegen, onUpdateCaption, 
                   item={item}
                   settings={settings}
                   apiUrl={apiUrl}
+                  hookMode={hookMode}
                   onSave={(newText) => onUpdateCaption(p.key, newText, getId(cap))}
                   onRegen={onRegen}
                   onRefine={(val) => onRefine(val, p.key, getId(cap))}
@@ -1009,7 +1013,7 @@ function PostAllBar({ item, available, settings, apiUrl, targetWeek }) {
   )
 }
 
-function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, item, settings, apiUrl, onSave, onRegen, onRefine, onOverlayChange }) {
+function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, item, settings, apiUrl, hookMode = false, onSave, onRegen, onRefine, onOverlayChange }) {
   const [value, setValue] = useState(text)
   const [title, setTitle] = useState(blogTitle || '')
   const [tags, setTags] = useState(ytTags || [])
@@ -1087,20 +1091,25 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
     }
   }
   const [generatingPreview, setGeneratingPreview] = useState(false)
+  // In Hook mode the post-destination defaults are reel-only: IG Reel,
+  // FB Reel, TikTok, YT Shorts. Long-form posts and non-reel platforms
+  // (blog, Google, Twitter, Pinterest, FB/IG posts) are left unchecked
+  // so the user can't accidentally cross-post a punchy hook as a plain
+  // timeline post. Stories stay opt-in via settings.fb_stories_default.
   const [postDests, setPostDests] = useState({
-    ig_post: platform === 'instagram' && !item.file?.type?.startsWith('video/'),
-    ig_reel: platform === 'instagram' && item.file?.type?.startsWith('video/'),
+    ig_post: !hookMode && platform === 'instagram' && !item.file?.type?.startsWith('video/'),
+    ig_reel: platform === 'instagram' && (hookMode || item.file?.type?.startsWith('video/')),
     ig_story: platform === 'instagram' && settings?.fb_stories_default === true,
-    fb_post: platform === 'facebook',
-    fb_reel: false,
+    fb_post: !hookMode && platform === 'facebook',
+    fb_reel: hookMode && platform === 'facebook',
     fb_story: platform === 'facebook' && settings?.fb_stories_default === true,
     yt_shorts: platform === 'youtube',
     yt_video: false,
-    twitter: platform === 'twitter',
+    twitter: !hookMode && platform === 'twitter',
     tiktok: platform === 'tiktok',
-    google: platform === 'google',
-    pinterest: platform === 'pinterest',
-    blog: platform === 'blog',
+    google: !hookMode && platform === 'google',
+    pinterest: !hookMode && platform === 'pinterest',
+    blog: !hookMode && platform === 'blog',
   })
   const storyEnabled = postDests.ig_story || postDests.fb_story
   // Plain blob URL. We do NOT append a Media Fragments URI (#t=start,end)
