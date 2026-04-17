@@ -1583,13 +1583,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 >▶ Play orphaned audio</button>
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
                     if (!confirm('Permanently discard this primary voiceover audio?')) return
                     setAudioBlob(null)
                     if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {} }
                     setAudioUrl(null)
                     for (const vf of videoFiles) delete vf._voiceoverBlob
                     try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+                    // Clear the storage link on the backend so the orphan
+                    // doesn't come back on the next draft resume. Flushes
+                    // any pending settings save afterwards.
+                    if (jobId) {
+                      try {
+                        await api.updateJob(jobId, { clear_voiceover_audio: true })
+                        if (onFlushSave) onFlushSave().catch(() => {})
+                      } catch (e) { console.warn('[discard] failed to clear on server:', e.message) }
+                    }
                   }}
                   className="text-[10px] py-1 px-2.5 bg-[#c0392b] text-white border-none rounded cursor-pointer"
                 >Discard</button>
