@@ -807,7 +807,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     }
   }
 
-  const reviewCurrentScript = async () => {
+  const reviewCurrentScript = async (opts = {}) => {
     const ctx = overlayCtx()
     const items = exportVoiceoverScript({
       primaryText: ttsText,
@@ -879,6 +879,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           label: f.label || null,
           image_base64: dataUrlToBase64(f.dataUrl),
         })),
+        segmentLength,
+        shortenToFit: !!opts.shortenToFit,
       })
       if (r.error) throw new Error(r.error)
       r._frames = frames // keep locally for thumbnail display
@@ -1956,6 +1958,62 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
           </div>
         </div>
       )}
+
+      {/* Audio-over-video warning: shows when total voiceover end exceeds
+          video duration so the user can fix before the audio gets cut. */}
+      {(() => {
+        if (!monitorDuration || monitorDuration < 1) return null
+        const pEnd = audioBlob && audioDuration > 0 ? (Number(primaryStartTime) || 0) + audioDuration : 0
+        const segEnd = segments.reduce((m, s) => {
+          if (!s.blob || !s.duration) return m
+          const end = (Number(s.startTime) || 0) + s.duration
+          return end > m ? end : m
+        }, 0)
+        const audioEnd = Math.max(pEnd, segEnd)
+        const overrun = audioEnd - monitorDuration
+        if (overrun < 0.25) return null
+        const fitSpeedRaw = audioEnd / monitorDuration
+        const fitSpeed = Math.min(1.2, Math.max(1.05, Number(fitSpeedRaw.toFixed(2))))
+        const canFitBySpeed = fitSpeedRaw <= 1.2
+        return (
+          <div className="border-t border-border pt-2">
+            <div className="border border-[#d97706] bg-[#fef3c7] rounded p-2 space-y-1.5">
+              <div className="text-[11px] text-[#92400e] font-medium">
+                Voiceover is {audioEnd.toFixed(1)}s — video is {monitorDuration.toFixed(1)}s.
+                Audio will cut off by {overrun.toFixed(1)}s.
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  disabled={ttsLoading || !canFitBySpeed}
+                  title={canFitBySpeed
+                    ? `Sets TTS speed to ${fitSpeed}x and regenerates — keeps every word, just talks faster.`
+                    : `Can't fit with speed alone — would need ${fitSpeedRaw.toFixed(2)}x (max is 1.2x). Use Shorten instead.`}
+                  onClick={async () => {
+                    if (!confirm(`Speed up voice to ${fitSpeed}x to fit video? This regenerates the primary voice${segments.some(s => s.blob) ? ' and all segments' : ''}.`)) return
+                    setTtsSpeed(fitSpeed)
+                    setSegments(segs => segs.map(s => ({ ...s, speed: fitSpeed, blob: null, audioUrl: null })))
+                    setAudioIsRestored(false)
+                    // Defer generateTTS by one tick so setTtsSpeed has taken effect
+                    setTimeout(() => generateTTS(), 0)
+                  }}
+                  className="text-[10px] py-1 px-2.5 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-40"
+                >Speed up to {canFitBySpeed ? `${fitSpeed}x` : `${fitSpeedRaw.toFixed(2)}x (too fast)`} to fit</button>
+                <button
+                  type="button"
+                  disabled={reviewing}
+                  title="Asks Claude to rewrite the script tighter to fit within the video duration. You'll review the proposed rewrite before applying."
+                  onClick={() => { setSegmentLength('short'); reviewCurrentScript({ shortenToFit: true }) }}
+                  className="text-[10px] py-1 px-2.5 bg-white text-[#d97706] border border-[#d97706] rounded cursor-pointer disabled:opacity-40"
+                >Shorten script with AI</button>
+                <span className="text-[9px] text-[#92400e] ml-auto">
+                  Or extend video with a freeze frame at render time (automatic).
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Discard + mix settings */}
       {audioUrl && (
