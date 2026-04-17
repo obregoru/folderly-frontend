@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import * as api from '../api'
 import { parseVoiceoverScript, exportVoiceoverScript, buildScriptPrompt } from '../lib/voiceoverScript'
+import { captureVideoFrames, dataUrlToBase64 } from '../lib/videoFrames'
 
 // Read a Blob or File as base64
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
@@ -741,6 +742,47 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     setScriptModalOpen('review')
     try {
       const script = parseVoiceoverScript(items) // canonical round-trip
+      // Capture frames from the merged video. For each segment we grab:
+      //   - startTime   (what the viewer sees the instant the voice begins — often
+      //                  a transition)
+      //   - startTime + ~1.2s (past the transition — usually the subject)
+      // Plus two overall bookends: t=0 (opening) and t=duration-0.5 (closing).
+      // Gives Claude a narrative arc rather than just transition frames.
+      const videoSrc = (typeof window !== 'undefined' && window._postyMergedVideo?.url) || monitorSrc || null
+      let frames = []
+      if (videoSrc && script.length > 0) {
+        try {
+          setReviewResult({ progress: 'Capturing video frames…' })
+          const dur = monitorDuration || null
+          // Build timestamp list with labels. Cap at 10 frames total to
+          // keep Claude vision cost predictable (~16K tokens of images).
+          const spec = []
+          spec.push({ label: 'opening', at: 0 })
+          for (const s of script) {
+            const t = Number(s.startTime) || 0
+            spec.push({ label: `seg ${t.toFixed(1)}s · start`, at: t })
+            // Offset by ~1.2s for a "past the transition" mid-shot, but only if
+            // there's room before the next segment (or video end).
+            const nextT = script
+              .map(x => Number(x.startTime) || 0)
+              .filter(x => x > t)
+              .sort((a, b) => a - b)[0]
+            const cap = nextT != null ? Math.min(nextT - 0.2, t + 1.5) : (dur ? dur - 0.3 : t + 1.5)
+            const midT = t + 1.2
+            if (cap > t + 0.4) spec.push({ label: `seg ${t.toFixed(1)}s · mid`, at: Math.min(midT, cap) })
+          }
+          if (dur && dur > 1) spec.push({ label: 'closing', at: Math.max(0, dur - 0.5) })
+          // Dedupe (within 0.3s) and cap total
+          const dedup = []
+          for (const s of spec) {
+            if (!dedup.some(d => Math.abs(d.at - s.at) < 0.3)) dedup.push(s)
+          }
+          const picks = dedup.slice(0, 10)
+          const shots = await captureVideoFrames(videoSrc, picks.map(p => p.at), { width: 480, quality: 0.72 })
+          frames = shots.map((s, i) => ({ startTime: s.startTime, dataUrl: s.dataUrl, label: picks[i].label }))
+        } catch (e) { console.warn('[review] frame capture failed:', e.message) }
+      }
+      setReviewResult({ progress: 'Sending to Claude…' })
       const r = await api.reviewVoiceoverScript({
         script,
         videoHint: settings?._lastHint || null,
@@ -751,8 +793,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         hookMode: ctx.hookMode,
         platforms: ctx.platforms,
         platformCaptions: ctx.platformCaptions,
+        // Strip data: prefix before sending; keep dataUrls in frames[] for UI
+        frames: frames.filter(f => f.dataUrl).map(f => ({
+          startTime: f.startTime,
+          label: f.label || null,
+          image_base64: dataUrlToBase64(f.dataUrl),
+        })),
       })
       if (r.error) throw new Error(r.error)
+      r._frames = frames // keep locally for thumbnail display
       setReviewResult(r)
       // Persist so the user can reopen without re-spending tokens
       const snap = { result: r, reviewedAt: new Date().toISOString(), signature: items }
@@ -1354,9 +1403,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                     </div>
                   )
                 })()}
-                {reviewing && <p className="text-[11px] text-muted">Analyzing hookworthiness…</p>}
+                {reviewing && <p className="text-[11px] text-muted">{reviewResult?.progress || 'Analyzing hookworthiness…'}</p>}
                 {!reviewing && reviewResult?.error && (
                   <p className="text-[11px] text-[#c0392b]">Error: {reviewResult.error}</p>
+                )}
+                {/* Captured frames — shown whenever available, so the user can
+                    see what Claude was looking at. Useful for spot-checking
+                    whether the timing pulled a transition frame vs the subject. */}
+                {!reviewing && Array.isArray(reviewResult?._frames) && reviewResult._frames.some(f => f.dataUrl) && (
+                  <div className="border-t border-border pt-1.5">
+                    <div className="text-[10px] font-medium text-ink mb-1">Frames Claude saw</div>
+                    <div className="flex gap-1.5 overflow-x-auto pb-1">
+                      {reviewResult._frames.map((f, i) => f.dataUrl ? (
+                        <div key={i} className="flex-shrink-0 text-center">
+                          <img src={f.dataUrl} alt={f.label || `frame ${i}`} className="w-[70px] h-[110px] object-cover rounded border border-border" />
+                          <div className="text-[8px] text-muted mt-0.5 w-[70px] truncate" title={f.label || ''}>{f.label || `${f.startTime?.toFixed(1)}s`}</div>
+                        </div>
+                      ) : null)}
+                    </div>
+                  </div>
                 )}
                 {!reviewing && reviewResult && !reviewResult.error && (
                   <>

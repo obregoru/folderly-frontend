@@ -196,7 +196,7 @@ export const deleteSeoKeywordSet = (id) =>
   fetch(api(`/seo-keywords/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' })
 
 // Review a pasted voiceover script for hookworthiness — pure review, no state change
-export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpening, overlayMiddle, overlayClosing, hookMode, platforms, platformCaptions } = {}) =>
+export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpening, overlayMiddle, overlayClosing, hookMode, platforms, platformCaptions, frames } = {}) =>
   fetch(api('/generate/review-voiceover-script'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -211,6 +211,7 @@ export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpen
       hook_mode: hookMode,
       platforms: Array.isArray(platforms) ? platforms : null,
       platform_captions: platformCaptions || null,
+      frames: Array.isArray(frames) ? frames : null,
     }),
   }).then(r => r.json())
 
