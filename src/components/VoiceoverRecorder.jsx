@@ -208,6 +208,19 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     }
   }, [voMixMode, voOrigVolume, videoFiles, primaryStartTime])
 
+  // Sync item._voiceoverBlob with the primary text. If the user clears the
+  // primary textarea but the audio blob is still around (e.g. a draft saved
+  // with text + audio, then text was deleted but the stored audio key stuck),
+  // the preview/export would play phantom audio the user can't see or edit.
+  // Rule: primary audio only applies when there's primary text.
+  useEffect(() => {
+    for (const vf of videoFiles) {
+      if (audioBlob && ttsText.trim()) vf._voiceoverBlob = audioBlob
+      else delete vf._voiceoverBlob
+    }
+    try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+  }, [audioBlob, ttsText, videoFiles])
+
   // --- Additional timed segments (multi-voiceover) ---
   // Each segment is an optional TTS clip placed at a specific startTime on top
   // of the primary recording/TTS. Blobs live in-memory during the session;
@@ -1531,6 +1544,25 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             placeholder="Type what the voiceover should say... or insert an AI hook above. Edit freely — nothing is sent to ElevenLabs until you click Generate voice."
             className="w-full text-[11px] border border-border rounded py-1 px-2 bg-white resize-none"
           />
+          {/* Phantom-audio warning: audio exists but text is empty. The new
+              sync effect already suppresses it from preview/export, but the
+              user needs a way to either recover or permanently discard it. */}
+          {!ttsText.trim() && audioUrl && (
+            <div className="text-[10px] bg-[#fff3cd] text-[#664d03] border border-[#ffe69c] rounded px-2 py-1.5 flex items-center gap-2 flex-wrap">
+              <span>⚠ A primary voiceover audio exists but the text is empty. It won't play. Discard to remove it for good, or type text and Regenerate.</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAudioBlob(null)
+                  if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {} }
+                  setAudioUrl(null)
+                  for (const vf of videoFiles) delete vf._voiceoverBlob
+                  try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+                }}
+                className="text-[10px] py-1 px-2.5 bg-[#c0392b] text-white border-none rounded cursor-pointer ml-auto"
+              >Discard orphaned audio</button>
+            </div>
+          )}
           {/* Paste-script modal */}
           {scriptModalOpen === 'paste' && (
             <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-3" onClick={() => setScriptModalOpen(null)}>
