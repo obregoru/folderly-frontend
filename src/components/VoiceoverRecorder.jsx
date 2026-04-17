@@ -525,6 +525,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         speed: ttsSpeed,
         duration: audioDuration || null,
         primaryStartTime,
+        segmentLength,
         lastReview: savedReview,
         // Persist segment metadata + audio key so blobs come back on resume
         segments: segments.map(s => ({
@@ -537,7 +538,7 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
         })),
       })
     }
-  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, ttsSpeed, segments, primaryStartTime, savedReview])
+  }, [voMixMode, voOrigVolume, ttsText, selectedVoice, ttsStability, ttsSimilarity, ttsStyle, ttsSpeakerBoost, ttsSpeed, segments, primaryStartTime, savedReview, segmentLength])
 
   // Clear "restored" flag when TTS settings change so Generate button un-dims
   const ttsSettingsKeyRef = useRef(`${rvs.ttsText}|${rvs.voiceId}|${rvs.stability}|${rvs.similarity}|${rvs.style}|${rvs.speakerBoost}`)
@@ -949,12 +950,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // Script tightness — guides AI word-count per segment.
   // short = TikTok-style punchy (~3-6 words / line), medium = natural phrase
   // (~6-12 words), long = fuller sentence (~12-20 words). Default short.
-  const [segmentLength, setSegmentLength] = useState(() => {
-    try { return localStorage.getItem('posty_vo_segment_length') || 'short' } catch { return 'short' }
-  })
-  useEffect(() => {
-    try { localStorage.setItem('posty_vo_segment_length', segmentLength) } catch {}
-  }, [segmentLength])
+  // Persisted per-job in voiceover_settings (NOT localStorage).
+  const [segmentLength, setSegmentLength] = useState(() => rvs.segmentLength || 'short')
   const suggestSegmentsFromVideo = async () => {
     setSuggesting(true)
     setSuggestResult(null)
@@ -1432,6 +1429,22 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                 >Preview</button>
               )
             })()}
+          </div>
+          {/* Script length preset — guides AI Suggest/Review so TikTok-style
+              punchy lines are the default, not wordy blog narration. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-[10px] text-muted">Length:</label>
+            <select
+              value={segmentLength}
+              onChange={e => setSegmentLength(e.target.value)}
+              className="text-[10px] border border-border rounded py-1 px-1.5 bg-white"
+              title="Guides AI Suggest/Review: Short = punchy TikTok (3-6 words). Medium = natural phrase. Long = full sentence."
+            >
+              <option value="short">Short (punchy, 3-6 words)</option>
+              <option value="medium">Medium (6-12 words)</option>
+              <option value="long">Long (12-20 words)</option>
+            </select>
+            <span className="text-[9px] text-muted">used by AI Suggest / Review</span>
           </div>
           {/* Voice settings — matches ElevenLabs GUI sliders */}
           <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
