@@ -274,6 +274,26 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   // Single "Generate all voices" action: loops through segments that don't
   // already have audio (or whose text changed) and runs TTS for each.
   const [generatingAll, setGeneratingAll] = useState(false)
+  // Regenerate a single segment's TTS without touching any others. Useful
+  // when the user only tweaked one segment's text, voice, or speed and
+  // doesn't want to burn ElevenLabs calls on segments that are already
+  // fine. Marks just this segment as generating while running.
+  const regenerateOneSegment = async (segId) => {
+    const seg = segments.find(s => s.id === segId)
+    if (!seg || !seg.text?.trim()) return
+    updateSegment(segId, { generating: true })
+    try {
+      const result = await generateOneSegmentTTS(seg)
+      if (result) updateSegment(segId, { blob: result.blob, audioUrl: result.audioUrl, audioKey: result.audioKey || null, generating: false })
+      else updateSegment(segId, { generating: false })
+    } catch (err) {
+      updateSegment(segId, { generating: false })
+      alert(`Segment regenerate failed: ${err.message}`)
+    }
+    // Flush the new audioKey so a refresh doesn't lose it
+    if (onFlushSave) setTimeout(() => { onFlushSave().catch(() => {}) }, 50)
+  }
+
   const generateAllSegments = async () => {
     // Regenerates every clip with text — primary + all segments.
     const pending = segments.filter(s => s.text?.trim())
@@ -1242,12 +1262,15 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               </div>
             )}
             {/* "Has audio" badge when previewing */}
-            {!recording && audioUrl && (
+            {!recording && (audioUrl || segments.some(s => s.blob)) && (
               <div className="absolute top-2 left-2 text-[9px] text-white bg-[#2D9A5E]/80 rounded-full px-2 py-0.5">
                 With voiceover
               </div>
             )}
-            {!recording && !audioUrl && (
+            {/* "Press record" hint — only shows on the mic-recording tab when
+                no primary audio exists yet. Irrelevant on the AI voice tab or
+                once any voiceover (primary or a segment) has been generated. */}
+            {!recording && !audioUrl && tab === 'record' && !segments.some(s => s.blob) && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/30">
                 <span className="text-white text-[11px] bg-black/60 rounded-full px-3 py-1">Press record — video will play muted while you narrate</span>
               </div>
@@ -1923,6 +1946,16 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                       className="text-[10px] py-0 px-1.5 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
                       title="Play just this segment"
                     >▶</button>
+                  )}
+                  {/* Per-row regenerate — re-runs just this segment's TTS
+                      without re-sending every other segment to ElevenLabs. */}
+                  {seg.text?.trim() && !seg.generating && (
+                    <button
+                      type="button"
+                      onClick={() => regenerateOneSegment(seg.id)}
+                      className="text-[10px] py-0 px-1.5 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer"
+                      title={hasAudio ? 'Regenerate just this segment' : 'Generate just this segment'}
+                    >↻</button>
                   )}
                   <button
                     type="button"
