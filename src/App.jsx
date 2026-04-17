@@ -745,6 +745,10 @@ export default function App() {
             }}
             onNew={() => { if (confirm('Start a new job? Current work is auto-saved.')) clearAll() }}
             onArchive={(id) => { if (confirm('Archive this draft?')) jobSync.archiveJob(id) }}
+            onRename={async (id, newName) => {
+              await api.updateJob(id, { job_name: newName })
+              await jobSync.refreshJobs()
+            }}
             onDuplicate={async (id) => {
               try {
                 const copy = await jobSync.duplicateJob(id)

@@ -14,11 +14,25 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString()
 }
 
-export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, saving = false, onResume, onNew, onSave, onArchive, onDuplicate }) {
+export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, saving = false, onResume, onNew, onSave, onArchive, onDuplicate, onRename }) {
   const [expanded, setExpanded] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
   const [duplicatingId, setDuplicatingId] = useState(null)
+  const [renamingId, setRenamingId] = useState(null)
+  const [renameDraft, setRenameDraft] = useState('')
   const drafts = jobs.filter(j => j.status === 'draft' && (j.file_count > 0 || j.hint_text || j.job_name))
+
+  const startRename = (j) => {
+    setRenamingId(j.uuid)
+    setRenameDraft(j.job_name || '')
+  }
+  const commitRename = async (j) => {
+    const next = renameDraft.trim()
+    setRenamingId(null)
+    if (!next || next === (j.job_name || '') || !onRename) return
+    try { await onRename(j.uuid, next) } catch (e) { alert('Rename failed: ' + e.message) }
+  }
+  const cancelRename = () => { setRenamingId(null); setRenameDraft('') }
 
   return (
     <div className="bg-white border border-border rounded-sm p-2">
@@ -50,42 +64,71 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, savi
           {drafts.length === 0 && (
             <p className="text-[10px] text-muted">No saved drafts. Your work will be auto-saved as you go.</p>
           )}
-          {drafts.map(j => (
-            <div
-              key={j.uuid}
-              className={`flex items-center gap-2 py-1.5 px-2 rounded text-[10px] cursor-pointer hover:bg-cream ${j.uuid === activeJobId ? 'bg-[#f0faf4] border border-[#2D9A5E]/30' : 'bg-[#f8f9fa]'}`}
-              onClick={() => onResume(j.uuid)}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-ink truncate">
-                  {j.job_name || j.hint_text?.slice(0, 40) || 'Untitled draft'}
+          {drafts.map(j => {
+            const isRenaming = renamingId === j.uuid
+            return (
+              <div
+                key={j.uuid}
+                className={`flex items-center gap-2 py-1.5 px-2 rounded text-[10px] ${isRenaming ? '' : 'cursor-pointer hover:bg-cream'} ${j.uuid === activeJobId ? 'bg-[#f0faf4] border border-[#2D9A5E]/30' : 'bg-[#f8f9fa]'}`}
+                onClick={() => { if (!isRenaming) onResume(j.uuid) }}
+              >
+                <div className="flex-1 min-w-0">
+                  {isRenaming ? (
+                    <input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={e => setRenameDraft(e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); commitRename(j) }
+                        else if (e.key === 'Escape') { e.preventDefault(); cancelRename() }
+                      }}
+                      onBlur={() => commitRename(j)}
+                      className="w-full text-[11px] font-medium text-ink border border-[#6C5CE7] rounded px-1 py-0.5 bg-white"
+                    />
+                  ) : (
+                    <div
+                      className="font-medium text-ink truncate"
+                      onDoubleClick={e => { e.stopPropagation(); startRename(j) }}
+                      title="Double-click to rename"
+                    >{j.job_name || j.hint_text?.slice(0, 40) || 'Untitled draft'}</div>
+                  )}
+                  <div className="text-[9px] text-muted">
+                    {j.file_count || 0} file{j.file_count !== 1 ? 's' : ''} · {timeAgo(j.updated_at)}
+                    <span className="ml-1 font-mono opacity-60" title={j.uuid}>#{j.uuid?.slice(0, 8)}</span>
+                    {j.uuid === activeJobId && <span className="text-[#2D9A5E] ml-1">(current)</span>}
+                  </div>
                 </div>
-                <div className="text-[9px] text-muted">
-                  {j.file_count || 0} file{j.file_count !== 1 ? 's' : ''} · {timeAgo(j.updated_at)}
-                  <span className="ml-1 font-mono opacity-60" title={j.uuid}>#{j.uuid?.slice(0, 8)}</span>
-                  {j.uuid === activeJobId && <span className="text-[#2D9A5E] ml-1">(current)</span>}
-                </div>
+                {onRename && !isRenaming && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); startRename(j) }}
+                    className="text-[10px] text-muted hover:bg-cream bg-white border border-border rounded cursor-pointer py-0.5 px-2"
+                    title="Rename this draft"
+                  >Rename</button>
+                )}
+                {onDuplicate && !isRenaming && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      if (duplicatingId) return
+                      setDuplicatingId(j.uuid)
+                      try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
+                    }}
+                    disabled={duplicatingId === j.uuid}
+                    className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
+                    title="Duplicate — copies all videos, audio, captions to a new job"
+                  >{duplicatingId === j.uuid ? 'Copying…' : 'Duplicate'}</button>
+                )}
+                {!isRenaming && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onArchive(j.uuid) }}
+                    className="text-[10px] text-[#c0392b] hover:bg-[#fdeaea] bg-white border border-[#c0392b] rounded cursor-pointer py-0.5 px-2"
+                    title="Archive this draft"
+                  >Archive</button>
+                )}
               </div>
-              {onDuplicate && (
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    if (duplicatingId) return
-                    setDuplicatingId(j.uuid)
-                    try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
-                  }}
-                  disabled={duplicatingId === j.uuid}
-                  className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
-                  title="Duplicate — copies all videos, audio, captions to a new job"
-                >{duplicatingId === j.uuid ? 'Copying…' : 'Duplicate'}</button>
-              )}
-              <button
-                onClick={(e) => { e.stopPropagation(); onArchive(j.uuid) }}
-                className="text-[10px] text-[#c0392b] hover:bg-[#fdeaea] bg-white border border-[#c0392b] rounded cursor-pointer py-0.5 px-2"
-                title="Archive this draft"
-              >Archive</button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

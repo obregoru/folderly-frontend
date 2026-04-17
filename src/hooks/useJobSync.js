@@ -439,9 +439,19 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     } catch {}
   }, [])
 
+  // Public helper so consumers (e.g. rename in JobList) can request a
+  // fresh jobs list after a server-side mutation.
+  const refreshJobs = useCallback(async () => {
+    try {
+      const jobs = await api.listJobs()
+      if (Array.isArray(jobs)) setJobList(jobs)
+    } catch (e) { console.warn('[useJobSync] refreshJobs failed:', e?.message) }
+  }, [])
+
   return {
     jobId,
     jobList,
+    refreshJobs,
     loadingJob,
     savingJob,
     ensureJob,
