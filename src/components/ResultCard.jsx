@@ -1073,6 +1073,22 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
   const [middleStartTime, setMiddleStartTime] = useState(_os.middleStartTime ?? 4)
   const [middleDuration, setMiddleDuration] = useState(_os.middleDuration ?? 3)
   const [closingDuration, setClosingDuration] = useState(_os.closingDuration ?? 3)
+  // Listen for AI-proposed captions fired by VoiceoverRecorder's Apply
+  // suggestion flow. VoiceoverRecorder mutates item._overlaySettings but
+  // that doesn't trigger React state — this event syncs our local state
+  // so the textareas + preview actually show the new captions.
+  useEffect(() => {
+    const onOverlaysSuggested = (e) => {
+      const d = e?.detail
+      if (!d || (d.itemId && d.itemId !== item.id)) return
+      if (d.opening) setOpeningText(d.opening)
+      if (d.middle) setMiddleText(d.middle)
+      if (d.middleStartTime != null) setMiddleStartTime(Number(d.middleStartTime) || 0)
+      if (d.closing) setClosingText(d.closing)
+    }
+    window.addEventListener('posty-overlays-suggested', onOverlaysSuggested)
+    return () => window.removeEventListener('posty-overlays-suggested', onOverlaysSuggested)
+  }, [item.id])
   // Preview URL scoping: customized tabs get their own preview URL at
   // item._tabPreviewUrls[platform]. Non-customized tabs share item._sharedPreviewUrl.
   item._tabPreviewUrls = item._tabPreviewUrls || {}

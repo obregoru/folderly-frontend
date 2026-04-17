@@ -1013,6 +1013,30 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       blob: null, audioUrl: null, audioKey: null, generating: false,
     })))
     try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    // Apply proposed on-screen captions (opening/middle/closing) to the
+    // monitorItem + notify ResultCard so its textareas pick them up. These
+    // are the burned-in scroll-stoppers — different from the spoken voiceover.
+    const o = suggestResult?.overlays
+    if (o && monitorItem) {
+      monitorItem._overlaySettings = {
+        ...(monitorItem._overlaySettings || {}),
+        ...(o.opening ? { openingText: o.opening } : {}),
+        ...(o.middle ? { middleText: o.middle } : {}),
+        ...(o.middleStartTime != null ? { middleStartTime: Number(o.middleStartTime) || 0 } : {}),
+        ...(o.closing ? { closingText: o.closing } : {}),
+      }
+      try {
+        window.dispatchEvent(new CustomEvent('posty-overlays-suggested', {
+          detail: {
+            itemId: monitorItem.id,
+            opening: o.opening || null,
+            middle: o.middle || null,
+            middleStartTime: o.middleStartTime != null ? Number(o.middleStartTime) || 0 : null,
+            closing: o.closing || null,
+          },
+        }))
+      } catch {}
+    }
     setScriptModalOpen(null)
     setSuggestResult(null)
   }
@@ -1747,6 +1771,35 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
                         ))}
                       </div>
                     </div>
+                    {/* On-screen captions proposed by AI — these are READ (burned-in
+                        text), not heard. They complement the voiceover. */}
+                    {suggestResult.overlays && (suggestResult.overlays.opening || suggestResult.overlays.middle || suggestResult.overlays.closing) && (
+                      <div className="border-t border-border pt-1.5">
+                        <div className="text-[10px] font-medium text-[#d97706] mb-1">On-screen captions (scroll-stoppers)</div>
+                        <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-2 space-y-1">
+                          {suggestResult.overlays.opening && (
+                            <div className="text-[10px]">
+                              <span className="text-[#92400e] font-medium mr-1">OPENING:</span>
+                              <span className="text-ink font-bold">{suggestResult.overlays.opening}</span>
+                            </div>
+                          )}
+                          {suggestResult.overlays.middle && (
+                            <div className="text-[10px]">
+                              <span className="text-[#92400e] font-medium mr-1">
+                                MIDDLE{suggestResult.overlays.middleStartTime != null ? ` @ ${Number(suggestResult.overlays.middleStartTime).toFixed(1)}s` : ''}:
+                              </span>
+                              <span className="text-ink font-bold">{suggestResult.overlays.middle}</span>
+                            </div>
+                          )}
+                          {suggestResult.overlays.closing && (
+                            <div className="text-[10px]">
+                              <span className="text-[#92400e] font-medium mr-1">CLOSING:</span>
+                              <span className="text-ink font-bold">{suggestResult.overlays.closing}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
                 {/* Style + length inputs for next run */}
