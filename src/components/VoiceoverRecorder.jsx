@@ -864,6 +864,168 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
     setReviewResult(null)
   }
 
+  // Capture a chronological set of frames covering the full video so
+  // Claude can "see" the clip from start to end. Used by Suggest
+  // segments and Download bundle. Even distribution (every ~2s), capped
+  // at 10 frames, offset from exact cut boundaries to avoid transitions.
+  const captureCoverageFrames = async () => {
+    const videoSrc = (typeof window !== 'undefined' && window._postyMergedVideo?.url) || monitorSrc || null
+    if (!videoSrc) return []
+    const dur = monitorDuration || 15
+    const count = Math.max(5, Math.min(10, Math.ceil(dur / 2)))
+    const step = dur / count
+    const picks = []
+    for (let i = 0; i < count; i++) {
+      const t = Math.min(dur - 0.3, Math.max(0.3, i * step + step / 2))
+      const label = i === 0 ? 'opening' : (i === count - 1 ? 'closing' : `mid ${t.toFixed(1)}s`)
+      picks.push({ at: t, label })
+    }
+    const shots = await captureVideoFrames(videoSrc, picks.map(p => p.at), { width: 480, quality: 0.72 })
+    return shots.map((s, i) => ({ startTime: s.startTime, label: picks[i].label, dataUrl: s.dataUrl }))
+  }
+
+  // --- Suggest segments from video (vision-based) ---
+  const [suggesting, setSuggesting] = useState(false)
+  const [suggestResult, setSuggestResult] = useState(null)
+  const [suggestStyle, setSuggestStyle] = useState('')
+  const suggestSegmentsFromVideo = async () => {
+    setSuggesting(true)
+    setSuggestResult(null)
+    setScriptModalOpen('suggest')
+    try {
+      const ctx = overlayCtx()
+      setSuggestResult({ progress: 'Capturing video frames…' })
+      const frames = await captureCoverageFrames()
+      if (!frames.length || !frames.some(f => f.dataUrl)) {
+        throw new Error('No video frames captured. Try generating/merging a video first.')
+      }
+      setSuggestResult({ progress: 'Asking Claude to write segments from the visuals…', _frames: frames })
+      const r = await api.voiceoverFromVideo({
+        frames: frames.filter(f => f.dataUrl).map(f => ({
+          startTime: f.startTime, label: f.label,
+          image_base64: dataUrlToBase64(f.dataUrl),
+        })),
+        videoHint: settings?._lastHint || null,
+        duration: ctx.videoDuration,
+        hookMode: ctx.hookMode,
+        platforms: ctx.platforms,
+        overlayOpening: ctx.overlayOpening,
+        overlayMiddle: ctx.overlayMiddle,
+        overlayClosing: ctx.overlayClosing,
+        style: suggestStyle || null,
+      })
+      if (r.error) throw new Error(r.error)
+      r._frames = frames
+      setSuggestResult(r)
+    } catch (e) {
+      setSuggestResult({ error: e.message })
+    }
+    setSuggesting(false)
+  }
+  const applySuggestedSegments = () => {
+    const arr = Array.isArray(suggestResult?.segments) ? suggestResult.segments : []
+    if (arr.length === 0) return
+    const first = arr[0]
+    if (first && (Number(first.startTime) || 0) <= 0.5) {
+      setTtsText(String(first.text || '').trim())
+      setPrimaryStartTime(0)
+      setAudioBlob(null)
+      if (audioUrl) { try { URL.revokeObjectURL(audioUrl) } catch {}; setAudioUrl(null) }
+      for (const vf of videoFiles) delete vf._voiceoverBlob
+      const rest = arr.slice(1)
+      setSegments(rest.map(s => ({
+        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        text: String(s.text || '').trim(),
+        voiceId: selectedVoice,
+        startTime: Number(s.startTime) || 0,
+        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        speed: 1.0,
+        blob: null, audioUrl: null, audioKey: null, generating: false,
+      })))
+    } else {
+      setTtsText('')
+      setPrimaryStartTime(0)
+      setSegments(arr.map(s => ({
+        id: `seg-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        text: String(s.text || '').trim(),
+        voiceId: selectedVoice,
+        startTime: Number(s.startTime) || 0,
+        stability: ttsStability, similarity: ttsSimilarity, style: ttsStyle, speakerBoost: ttsSpeakerBoost,
+        speed: 1.0,
+        blob: null, audioUrl: null, audioKey: null, generating: false,
+      })))
+    }
+    try { window.dispatchEvent(new CustomEvent('posty-voiceover-change')) } catch {}
+    setScriptModalOpen(null)
+    setSuggestResult(null)
+  }
+
+  // --- Download review bundle (script + frames + prompt for other AI) ---
+  const [bundling, setBundling] = useState(false)
+  const downloadReviewBundle = async () => {
+    setBundling(true)
+    try {
+      const JSZipMod = (await import('jszip')).default
+      const zip = new JSZipMod()
+      const ctx = overlayCtx()
+      // 1) script.txt — full export w/ header, voiceover, platform captions
+      const script = exportVoiceoverScript({
+        primaryText: ttsText,
+        primaryStartTime,
+        segments: segments.map(s => ({ text: s.text, startTime: s.startTime })),
+        ...ctx,
+      })
+      zip.file('script.txt', script || '# (empty)')
+      // 2) prompt.txt — ready-to-paste instructions for ChatGPT / Gemini
+      zip.file('prompt.txt', [
+        'Below is a short-form video voiceover project. Please review end-to-end and suggest improvements.',
+        '',
+        'What to evaluate:',
+        '1. Does the voiceover script land a scroll-stopping hook in the first 1-2 seconds?',
+        '2. Do the segment timings match what is happening in the video frames (see frames/ folder)?',
+        '3. Does the voiceover complement the on-screen captions (do not repeat them)?',
+        '4. Do the per-platform captions (below in script.txt) feel native to each platform (TikTok vs Reels vs Blog)?',
+        '5. Suggest 3-6 revised voiceover segments in the same [m:ss] text format as script.txt, anchored to the frames.',
+        '',
+        'Format your response:',
+        '- Score (0-100)',
+        '- Verdict (one sentence)',
+        '- Issues (bullet list)',
+        '- Revised voiceover script (timestamped lines)',
+      ].join('\n'))
+      // 3) frames/ — JPEGs at segment times for the vision model
+      setSuggestResult({ progress: 'Capturing frames for bundle…' })
+      // Prefer captured frames from the last review/suggest if available, else recapture coverage set
+      let frames = (reviewResult?._frames || suggestResult?._frames || null)
+      if (!frames || frames.length === 0) frames = await captureCoverageFrames()
+      const framesFolder = zip.folder('frames')
+      frames.forEach((f, i) => {
+        if (!f.dataUrl) return
+        const b64 = dataUrlToBase64(f.dataUrl)
+        if (!b64) return
+        const tsStr = String(Number(f.startTime || 0).toFixed(1)).replace('.', 's')
+        const safe = String(f.label || `frame-${i}`).replace(/[^\w-]+/g, '-').slice(0, 24)
+        framesFolder.file(`${String(i).padStart(2, '0')}_${tsStr}_${safe}.jpg`, b64, { base64: true })
+      })
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const brandSlug = (settings?.name || 'posty').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24) || 'posty'
+      a.download = `${brandSlug}-voiceover-bundle.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    } catch (e) {
+      alert('Download failed: ' + (e?.message || e))
+    } finally {
+      setBundling(false)
+      // clear the transient progress if we stomped it
+      setSuggestResult(prev => (prev && prev.progress && !prev.segments) ? null : prev)
+    }
+  }
+
   const copyScriptPrompt = async () => {
     const prompt = buildScriptPrompt({
       businessType: settings?.business_type || null,
@@ -1323,6 +1485,20 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
               className="py-0.5 px-2 text-[#6C5CE7] hover:underline bg-transparent border-none cursor-pointer"
               title="Copy a ready-to-paste prompt for ChatGPT/Claude that produces a compatible script"
             >Get ChatGPT prompt</button>
+            <button
+              type="button"
+              onClick={suggestSegmentsFromVideo}
+              disabled={suggesting}
+              className="py-0.5 px-2 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer hover:bg-[#f3f0ff] disabled:opacity-50"
+              title="Claude looks at the video frames and writes segments anchored to what's on screen"
+            >{suggesting ? '…' : '🎬 Suggest from video'}</button>
+            <button
+              type="button"
+              onClick={downloadReviewBundle}
+              disabled={bundling}
+              className="py-0.5 px-2 bg-white text-muted border border-border rounded cursor-pointer hover:bg-cream disabled:opacity-50"
+              title="Download a .zip with script.txt + frames/ + prompt.txt for ChatGPT/Gemini"
+            >{bundling ? 'Zipping…' : '📦 Bundle for other AI'}</button>
           </div>
           <textarea
             ref={ttsRef}
@@ -1378,6 +1554,81 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
             </div>
           )}
           {/* Review-result modal */}
+          {/* Suggest-segments-from-video modal */}
+          {scriptModalOpen === 'suggest' && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-3" onClick={() => setScriptModalOpen(null)}>
+              <div className="bg-white rounded-sm p-4 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-2" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[13px] font-medium">🎬 Suggest segments from video</h3>
+                  <button onClick={() => setScriptModalOpen(null)} className="text-muted bg-transparent border-none cursor-pointer text-lg leading-none">×</button>
+                </div>
+                {suggesting && <p className="text-[11px] text-muted">{suggestResult?.progress || 'Working…'}</p>}
+                {!suggesting && suggestResult?.error && (
+                  <p className="text-[11px] text-[#c0392b]">Error: {suggestResult.error}</p>
+                )}
+                {/* Captured frames thumbnails */}
+                {Array.isArray(suggestResult?._frames) && suggestResult._frames.some(f => f.dataUrl) && (
+                  <div className="border-t border-border pt-1.5">
+                    <div className="text-[10px] font-medium text-ink mb-1">Frames Claude saw</div>
+                    <div className="flex gap-1.5 overflow-x-auto pb-1">
+                      {suggestResult._frames.map((f, i) => f.dataUrl ? (
+                        <div key={i} className="flex-shrink-0 text-center">
+                          <img src={f.dataUrl} alt={f.label || `frame ${i}`} className="w-[70px] h-[110px] object-cover rounded border border-border" />
+                          <div className="text-[8px] text-muted mt-0.5 w-[70px] truncate" title={f.label || ''}>{f.label || `${f.startTime?.toFixed(1)}s`}</div>
+                        </div>
+                      ) : null)}
+                    </div>
+                  </div>
+                )}
+                {!suggesting && Array.isArray(suggestResult?.segments) && suggestResult.segments.length > 0 && (
+                  <>
+                    {suggestResult.rationale && (
+                      <p className="text-[11px] text-ink italic bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2">Hook angle: {suggestResult.rationale}</p>
+                    )}
+                    <div className="border-t border-border pt-1.5">
+                      <div className="text-[10px] font-medium text-[#6C5CE7] mb-1">Proposed segments ({suggestResult.segments.length})</div>
+                      <div className="bg-cream border border-border rounded p-2 space-y-0.5 max-h-[220px] overflow-y-auto">
+                        {suggestResult.segments.map((s, i) => (
+                          <div key={i} className="text-[10px]">
+                            <span className="text-[#6C5CE7] font-mono mr-1">[{String(Math.floor((Number(s.startTime) || 0) / 60)).padStart(1, '0')}:{String(Math.floor((Number(s.startTime) || 0) % 60)).padStart(2, '0')}]</span>
+                            <span className="text-ink">{s.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+                {/* Style input for next run */}
+                <div className="pt-1 flex items-center gap-2 flex-wrap">
+                  <input
+                    type="text"
+                    value={suggestStyle}
+                    onChange={e => setSuggestStyle(e.target.value)}
+                    placeholder="Optional style: playful, dramatic, educational…"
+                    className="flex-1 min-w-[140px] text-[10px] border border-border rounded py-1 px-1.5 bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={suggestSegmentsFromVideo}
+                    disabled={suggesting}
+                    className="text-[10px] py-1 px-2.5 bg-white text-[#6C5CE7] border border-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+                  >Regenerate</button>
+                </div>
+                <div className="pt-1 flex items-center gap-2">
+                  {!suggesting && Array.isArray(suggestResult?.segments) && suggestResult.segments.length > 0 && (
+                    <button
+                      onClick={() => {
+                        if (!confirm("Replace your current script with Claude's suggestion?\n\nClears existing audio — click Generate voices after.")) return
+                        applySuggestedSegments()
+                      }}
+                      className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+                    >Apply suggestion</button>
+                  )}
+                  <button onClick={() => setScriptModalOpen(null)} className="text-[10px] py-1 px-3 border border-border rounded bg-white cursor-pointer">Close</button>
+                </div>
+              </div>
+            </div>
+          )}
           {scriptModalOpen === 'review' && (
             <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-3" onClick={() => setScriptModalOpen(null)}>
               <div className="bg-white rounded-sm p-4 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-2" onClick={e => e.stopPropagation()}>

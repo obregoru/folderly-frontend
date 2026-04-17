@@ -215,6 +215,25 @@ export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpen
     }),
   }).then(r => r.json())
 
+// Propose voiceover segments from video frames (Claude vision)
+export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, platforms, overlayOpening, overlayMiddle, overlayClosing, style } = {}) =>
+  fetch(api('/generate/voiceover-from-video'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      frames: Array.isArray(frames) ? frames : [],
+      videoHint: videoHint || null,
+      duration: duration || null,
+      hook_mode: hookMode,
+      platforms: Array.isArray(platforms) ? platforms : null,
+      overlay_opening: overlayOpening || null,
+      overlay_middle: overlayMiddle || null,
+      overlay_closing: overlayClosing || null,
+      style: style || null,
+    }),
+  }).then(r => r.json())
+
 // Generate spoken-style voiceover hook(s) for the ElevenLabs TTS field
 export const generateVoiceoverHook = ({ hint, category, includeBody, count } = {}) =>
   fetch(api('/generate/voiceover-hook'), {
