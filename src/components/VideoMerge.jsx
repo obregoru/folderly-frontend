@@ -144,6 +144,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
           upload_key: uploadKey,
           trim_start: item._trimStart || 0,
           trim_end: item._trimEnd ?? null,
+          speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
         })
       }
       setProgress(`Merging ${clips.length} clips on server...`)
@@ -213,12 +214,19 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
       {/* Clip order */}
       <div className="space-y-1">
         {(() => {
-          const clipDurations = videoFiles.map(item => {
+          // Trim length on the ORIGINAL timeline.
+          const clipTrimLengths = videoFiles.map(item => {
             const dur = item?._videoDuration || 0
             if (!dur) return 0
             const ts = item._trimStart || 0
             const te = item._trimEnd ?? dur
             return Math.max(0, te - ts)
+          })
+          // Output length after per-clip speed is applied.
+          const clipDurations = videoFiles.map((item, i) => {
+            const trimLen = clipTrimLengths[i]
+            const speed = Number(item?._speed) > 0 ? Number(item._speed) : 1.0
+            return trimLen / speed
           })
           const totalKept = clipDurations.reduce((a, b) => a + b, 0)
           const transOverhead = transition !== 'none' && videoFiles.length > 1
@@ -231,17 +239,56 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                 if (!item) return null
                 const ts = item._trimStart || 0
                 const te = item._trimEnd
-                const kept = clipDurations[pos]
+                const trimLen = clipTrimLengths[pos]
+                const outLen = clipDurations[pos]
+                const speed = Number(item._speed) > 0 ? Number(item._speed) : 1.0
                 return (
                   <div key={item.id} className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]">
                     <span className="text-muted font-medium w-4">{pos + 1}.</span>
                     <span className="flex-1 truncate" title={item.file?.name || item._filename || 'Untitled'}>{item.file?.name || item._filename || 'Untitled'}</span>
-                    {kept > 0 && (
-                      <span className="text-[9px] text-muted whitespace-nowrap" title="Time kept after trim">{kept.toFixed(1)}s</span>
+                    {outLen > 0 && (
+                      speed !== 1.0 ? (
+                        <span className="text-[9px] text-muted whitespace-nowrap" title={`Trim: ${trimLen.toFixed(1)}s · Output at ${speed}×: ${outLen.toFixed(1)}s`}>
+                          {trimLen.toFixed(1)}s → <b className="text-ink">{outLen.toFixed(1)}s</b>
+                        </span>
+                      ) : (
+                        <span className="text-[9px] text-muted whitespace-nowrap" title="Output length">{outLen.toFixed(1)}s</span>
+                      )
                     )}
                     {(ts > 0 || te != null) && (
                       <span className="text-[9px] text-[#d97706]">trimmed</span>
                     )}
+                    {/* Speed dropdown — native <select> for one-tap mobile. */}
+                    <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
+                      <span className="text-[9px] text-muted">Speed:</span>
+                      <select
+                        value={String(speed)}
+                        onChange={e => {
+                          const newSpeed = Number(e.target.value)
+                          if (!(newSpeed > 0)) return
+                          item._speed = newSpeed
+                          try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
+                          // Invalidate the current merged preview — it was rendered at the old speed.
+                          if (mergedUrl) {
+                            try { URL.revokeObjectURL(mergedUrl) } catch {}
+                            setMergedUrl(null)
+                            mergedBlobRef.current = null
+                            window._postyMergedVideo = null
+                          }
+                        }}
+                        className="text-[9px] border border-border rounded py-0 px-0.5 bg-white"
+                      >
+                        <option value="0.25">0.25×</option>
+                        <option value="0.5">0.5×</option>
+                        <option value="0.75">0.75×</option>
+                        <option value="1">1×</option>
+                        <option value="1.25">1.25×</option>
+                        <option value="1.5">1.5×</option>
+                        <option value="2">2×</option>
+                        <option value="3">3×</option>
+                        <option value="4">4×</option>
+                      </select>
+                    </label>
                     <div className="flex gap-0.5">
                       <button
                         onClick={() => moveUp(pos)}

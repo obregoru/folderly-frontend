@@ -91,13 +91,19 @@ export default function App() {
       const item = files.find(f => f.id === e.detail?.itemId)
       if (item && e.detail?.thumbs) jobSync.saveFileTrimThumbs(item, e.detail.thumbs)
     }
+    const onSpeedChange = (e) => {
+      const item = files.find(f => f.id === e.detail?.itemId)
+      if (item) jobSync.saveFileSpeed(item)
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
+    window.addEventListener('posty-speed-change', onSpeedChange)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
+      window.removeEventListener('posty-speed-change', onSpeedChange)
     }
-  }, [files, jobSync.saveFileTrim])
+  }, [files, jobSync.saveFileTrim, jobSync.saveFileSpeed])
 
   // Check if already logged in
   useEffect(() => {

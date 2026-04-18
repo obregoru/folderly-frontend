@@ -161,6 +161,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Save per-clip speed multiplier (1.0 = original, 0.5 = slow-mo, 2.0 = 2x).
+  // Trim is on the original timeline; speed affects only the output length.
+  const saveFileSpeed = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        speed: Number(file._speed) > 0 ? Number(file._speed) : 1.0,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save speed failed:', e.message)
+    }
+  }, [])
+
   // Save captions for a file
   const saveFileCaptions = useCallback(async (file) => {
     const id = jobIdRef.current
@@ -320,6 +335,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             uploadResult: { original_temp_path: f.upload_key },
             _trimStart: f.trim_start || 0,
             _trimEnd: f.trim_end ?? null,
+            _speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
@@ -464,6 +480,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveAll,
     saveFileToJob,
     saveFileTrim,
+    saveFileSpeed,
     saveFileTrimThumbs,
     saveFileCaptions,
     deleteFileFromJob,
