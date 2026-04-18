@@ -384,6 +384,9 @@ export default function App() {
           try { videoThumb = await captureVideoFrame(item.file) } catch {}
         }
         const activeJobId = await jobSync.ensureJob()
+        if (!activeJobId) {
+          console.warn('[eager upload] ensureJob returned null — upload will go to temp/ and may not persist')
+        }
         const uploadResult = await api.uploadFile(
           item.file, folderCtx?.name, null, item.parsed, videoThumb, activeJobId
         )
@@ -484,6 +487,9 @@ export default function App() {
       }
       // Ensure job exists so files go into permanent jobs/ storage
       const activeJobId = await jobSync.ensureJob()
+      if (!activeJobId) {
+        console.warn('[upload] ensureJob returned null — upload will go to temp/ and may not persist')
+      }
       const uploadResult = await api.uploadFile(
         item.file,
         folderCtx?.name,
