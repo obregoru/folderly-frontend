@@ -2513,14 +2513,19 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                           <label className="flex items-center gap-1 text-[10px] text-muted">
                             <span>Outline width:</span>
                             <input
-                              type="number"
-                              min={1}
-                              max={20}
-                              step={1}
+                              type="text"
+                              inputMode="numeric"
                               value={storyFontOutlineWidth}
-                              onChange={e => setStoryFontOutlineWidth(Math.max(1, Math.min(20, Number(e.target.value) || 3)))}
-                              className="w-10 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
-                              title="Outline thickness in pixels (1–20)"
+                              onChange={e => {
+                                const raw = e.target.value.replace(/[^0-9]/g, '')
+                                setStoryFontOutlineWidth(raw === '' ? '' : Number(raw))
+                              }}
+                              onBlur={e => {
+                                const n = Number(e.target.value)
+                                setStoryFontOutlineWidth(isFinite(n) && n > 0 ? n : 3)
+                              }}
+                              className="w-12 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                              title="Outline thickness in pixels"
                             />
                             <span className="text-[9px] text-muted">px</span>
                           </label>
@@ -2528,27 +2533,37 @@ function CaptionEditor({ text, blogTitle, ytTags, captionId, score, platform, it
                         <label className="flex items-center gap-1 text-[10px] text-muted">
                           <span>Line height:</span>
                           <input
-                            type="number"
-                            min={0.8}
-                            max={2.5}
-                            step={0.1}
+                            type="text"
+                            inputMode="decimal"
                             value={storyLineHeight}
-                            onChange={e => setStoryLineHeight(Math.max(0.8, Math.min(2.5, Number(e.target.value) || 1.3)))}
-                            className="w-12 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
-                            title="Space between lines as a multiplier of font size (0.8–2.5)"
+                            onChange={e => {
+                              const raw = e.target.value.replace(/[^0-9.]/g, '')
+                              setStoryLineHeight(raw)
+                            }}
+                            onBlur={e => {
+                              const n = parseFloat(e.target.value)
+                              setStoryLineHeight(isFinite(n) && n > 0 ? n : 1.3)
+                            }}
+                            className="w-14 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                            title="Space between lines as a multiplier of font size (e.g. 1.3)"
                           />
                         </label>
                         <label className="flex items-center gap-1 text-[10px] text-muted">
                           <span>Letter spacing:</span>
                           <input
-                            type="number"
-                            min={0}
-                            max={5}
-                            step={1}
+                            type="text"
+                            inputMode="decimal"
                             value={storyLetterSpacing}
-                            onChange={e => setStoryLetterSpacing(Math.max(0, Math.min(5, Number(e.target.value) || 0)))}
-                            className="w-10 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
-                            title="Character spacing (0=normal, 5=widest)"
+                            onChange={e => {
+                              const raw = e.target.value.replace(/[^0-9.-]/g, '')
+                              setStoryLetterSpacing(raw)
+                            }}
+                            onBlur={e => {
+                              const n = parseFloat(e.target.value)
+                              setStoryLetterSpacing(isFinite(n) ? n : 0)
+                            }}
+                            className="w-14 text-[10px] border border-border rounded py-0.5 px-1 bg-white"
+                            title="Character spacing (0 = normal, positive = wider)"
                           />
                         </label>
                       </div>
