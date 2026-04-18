@@ -66,13 +66,21 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, savi
           )}
           {drafts.map(j => {
             const isRenaming = renamingId === j.uuid
+            const isActive = j.uuid === activeJobId
             return (
               <div
                 key={j.uuid}
-                className={`flex items-center gap-2 py-1.5 px-2 rounded text-[10px] ${isRenaming ? '' : 'cursor-pointer hover:bg-cream'} ${j.uuid === activeJobId ? 'bg-[#f0faf4] border border-[#2D9A5E]/30' : 'bg-[#f8f9fa]'}`}
-                onClick={() => { if (!isRenaming) onResume(j.uuid) }}
+                className={`rounded text-[10px] ${isActive ? 'bg-[#f0faf4] border border-[#2D9A5E]/30' : 'bg-[#f8f9fa]'} ${isRenaming ? '' : 'cursor-pointer hover:bg-cream'}`}
+                onClick={() => {
+                  if (isRenaming) return
+                  onResume(j.uuid)
+                  // Auto-collapse the draft list after selecting — user
+                  // requested rolled-up behavior once a draft is active.
+                  setExpanded(false)
+                }}
               >
-                <div className="flex-1 min-w-0">
+                {/* Row 1: job name — primary, large, truncates cleanly */}
+                <div className="px-2 pt-1.5">
                   {isRenaming ? (
                     <input
                       autoFocus
@@ -88,56 +96,66 @@ export default function JobList({ jobs, activeJobId, uploadsInProgress = 0, savi
                     />
                   ) : (
                     <div
-                      className="font-medium text-ink truncate"
+                      className="font-medium text-ink truncate text-[11px]"
                       onDoubleClick={e => { e.stopPropagation(); startRename(j) }}
                       title="Double-click to rename"
-                    >{j.job_name || j.hint_text?.slice(0, 40) || 'Untitled draft'}</div>
+                    >
+                      {j.job_name || j.hint_text?.slice(0, 40) || 'Untitled draft'}
+                      {isActive && <span className="text-[#2D9A5E] ml-1 text-[9px]">(current)</span>}
+                    </div>
                   )}
-                  <div className="text-[9px] text-muted">
-                    {j.file_count || 0} file{j.file_count !== 1 ? 's' : ''} · {timeAgo(j.updated_at)}
-                    <span className="ml-1 font-mono opacity-60" title={j.uuid}>#{j.uuid?.slice(0, 8)}</span>
-                    {j.uuid === activeJobId && <span className="text-[#2D9A5E] ml-1">(current)</span>}
-                  </div>
                 </div>
-                {onRename && !isRenaming && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); startRename(j) }}
-                    className="text-[10px] text-muted hover:bg-cream bg-white border border-border rounded cursor-pointer py-0.5 px-2"
-                    title="Rename this draft"
-                  >Rename</button>
-                )}
-                {onDuplicate && !isRenaming && (
-                  <>
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        if (duplicatingId) return
-                        setDuplicatingId(j.uuid)
-                        try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
-                      }}
-                      disabled={duplicatingId === j.uuid}
-                      className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
-                      title="Duplicate — copies all videos, audio, captions to a new job"
-                    >{duplicatingId === j.uuid ? 'Copying…' : 'Duplicate'}</button>
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        if (duplicatingId) return
-                        setDuplicatingId(j.uuid + ':hook')
-                        try { await onDuplicate(j.uuid, { forceHookMode: true }) } finally { setDuplicatingId(null) }
-                      }}
-                      disabled={duplicatingId === j.uuid + ':hook'}
-                      className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
-                      title="Duplicate as hook — creates a reels-only copy (different captions, voiceover)"
-                    >{duplicatingId === j.uuid + ':hook' ? 'Copying…' : 'Dup as hook'}</button>
-                  </>
-                )}
+                {/* Row 2: time + file count + ID subtitle — horizontal, dimmer */}
                 {!isRenaming && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onArchive(j.uuid) }}
-                    className="text-[10px] text-[#c0392b] hover:bg-[#fdeaea] bg-white border border-[#c0392b] rounded cursor-pointer py-0.5 px-2"
-                    title="Archive this draft"
-                  >Archive</button>
+                  <div className="px-2 pb-1 text-[9px] text-muted flex items-center gap-1 flex-wrap">
+                    <span>{j.file_count || 0} file{j.file_count !== 1 ? 's' : ''}</span>
+                    <span>·</span>
+                    <span>{timeAgo(j.updated_at)}</span>
+                    <span className="font-mono opacity-60 ml-auto" title={j.uuid}>#{j.uuid?.slice(0, 8)}</span>
+                  </div>
+                )}
+                {/* Row 3: actions — horizontal row below, wraps when needed */}
+                {!isRenaming && (
+                  <div className="px-2 pb-1.5 flex items-center gap-1 flex-wrap">
+                    {onRename && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); startRename(j) }}
+                        className="text-[10px] text-muted hover:bg-cream bg-white border border-border rounded cursor-pointer py-0.5 px-2"
+                        title="Rename this draft"
+                      >Rename</button>
+                    )}
+                    {onDuplicate && (
+                      <>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (duplicatingId) return
+                            setDuplicatingId(j.uuid)
+                            try { await onDuplicate(j.uuid) } finally { setDuplicatingId(null) }
+                          }}
+                          disabled={duplicatingId === j.uuid}
+                          className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
+                          title="Duplicate — copies all videos, audio, captions to a new job"
+                        >{duplicatingId === j.uuid ? 'Copying…' : 'Duplicate'}</button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (duplicatingId) return
+                            setDuplicatingId(j.uuid + ':hook')
+                            try { await onDuplicate(j.uuid, { forceHookMode: true }) } finally { setDuplicatingId(null) }
+                          }}
+                          disabled={duplicatingId === j.uuid + ':hook'}
+                          className="text-[10px] text-[#6C5CE7] hover:bg-[#f3f0ff] bg-white border border-[#6C5CE7] rounded cursor-pointer py-0.5 px-2 disabled:opacity-50"
+                          title="Duplicate as hook — creates a reels-only copy (different captions, voiceover)"
+                        >{duplicatingId === j.uuid + ':hook' ? 'Copying…' : 'Dup as hook'}</button>
+                      </>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onArchive(j.uuid) }}
+                      className="text-[10px] text-[#c0392b] hover:bg-[#fdeaea] bg-white border border-[#c0392b] rounded cursor-pointer py-0.5 px-2 ml-auto"
+                      title="Archive this draft"
+                    >Archive</button>
+                  </div>
                 )}
               </div>
             )

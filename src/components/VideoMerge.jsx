@@ -1,5 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { buildDownloadName } from '../lib/filename'
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor,
+  useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates,
+  useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 // Read file as base64 (same helper as ResultCard)
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -24,6 +33,20 @@ const TRANSITIONS = [
   { value: 'wipe_left', label: 'Wipe left' },
   { value: 'slide_left', label: 'Slide left' },
 ]
+
+// Sortable clip row. Wraps the row's children in a useSortable context so
+// dnd-kit can drag it. `handleListeners` is exposed so we can attach drag
+// listeners ONLY to the drag handle — the rest of the row keeps normal
+// click/tap behavior (speed select, up/down arrows, etc).
+function SortableClipRow({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return children({ setNodeRef, style, attributes, handleListeners: listeners, isDragging })
+}
 
 /**
  * Merge UI — shown below individual video trimmers when 2+ videos are uploaded.
@@ -110,6 +133,32 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     if (idx >= videoFiles.length - 1) return
     if (onReorder) onReorder(idx, idx + 1)
   }
+
+  // DnD sensors — PointerSensor (desktop mouse) + TouchSensor (iOS/Android)
+  // + KeyboardSensor (accessibility). Delay 150ms on touch so a tap-to-scroll
+  // gesture doesn't accidentally start a drag.
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const handleDragEnd = (event) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const fromIdx = videoFiles.findIndex(f => f.id === active.id)
+    const toIdx = videoFiles.findIndex(f => f.id === over.id)
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return
+    if (onReorder) onReorder(fromIdx, toIdx)
+  }
+
+  // Clip list collapse state — auto-collapsed once a merge exists so the
+  // user can focus on the final video. Manual toggle to re-open.
+  const [clipsCollapsed, setClipsCollapsed] = useState(false)
+  useEffect(() => {
+    // Auto-fold once we have a working merge.
+    if (mergedUrl && !clipsCollapsed) setClipsCollapsed(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergedUrl])
 
   const handleMerge = async () => {
     setMerging(true)
@@ -209,10 +258,22 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
 
   return (
     <div className="bg-white border border-[#6C5CE7]/30 rounded-sm p-3 space-y-2">
-      <div className="text-[11px] font-medium text-ink">Merge videos</div>
+      <div className="flex items-center gap-2">
+        <div className="text-[11px] font-medium text-ink flex-1">Merge videos</div>
+        {/* Collapse toggle — appears only once a merge exists so users
+            can focus on the final video. */}
+        {mergedUrl && (
+          <button
+            type="button"
+            onClick={() => setClipsCollapsed(c => !c)}
+            className="text-[10px] text-muted hover:text-ink bg-transparent border-none cursor-pointer"
+          >{clipsCollapsed ? `Show ${videoFiles.length} clip${videoFiles.length === 1 ? '' : 's'} ▼` : 'Hide clips ▲'}</button>
+        )}
+      </div>
 
-      {/* Clip order */}
-      <div className="space-y-1">
+      {/* Clip order — hidden when collapsed after a merge, always visible
+          before merge exists. */}
+      {!clipsCollapsed && <div className="space-y-1">
         {(() => {
           // Trim length on the ORIGINAL timeline.
           const clipTrimLengths = videoFiles.map(item => {
@@ -252,8 +313,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             ? (videoFiles.length - 1) * transDuration
             : 0
           const finalTotal = Math.max(0, totalKept - transOverhead)
+          const sortableIds = videoFiles.map(f => f.id)
           return (
             <>
+              <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
               {videoFiles.map((item, pos) => {
                 if (!item) return null
                 const ts = item._trimStart || 0
@@ -271,7 +335,22 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                 const size = item.file?.size
                 const sizeLabel = size ? `${(size / (1024 * 1024)).toFixed(1)}M` : null
                 return (
-                  <div key={item.id} className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]">
+                  <SortableClipRow key={item.id} id={item.id}>
+                    {({ setNodeRef, style, attributes, handleListeners }) => (
+                  <div
+                    ref={setNodeRef}
+                    style={style}
+                    {...attributes}
+                    className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]"
+                  >
+                    {/* Drag handle — the ONLY element with drag listeners,
+                        so taps on the rest of the row still work normally. */}
+                    <span
+                      {...handleListeners}
+                      className="text-muted hover:text-ink cursor-grab active:cursor-grabbing select-none text-[14px] leading-none px-0.5"
+                      style={{ touchAction: 'none' }}
+                      title="Drag to reorder"
+                    >⋮⋮</span>
                     <span className="text-muted font-medium w-4">{pos + 1}.</span>
                     {thumb ? (
                       <img
@@ -343,8 +422,12 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                       >&#9660;</button>
                     </div>
                   </div>
+                    )}
+                  </SortableClipRow>
                 )
               })}
+                </SortableContext>
+              </DndContext>
               {totalKept > 0 && (
                 <div className="flex items-center gap-2 px-2 py-1 text-[10px] border-t border-border/50 mt-1 pt-1.5">
                   <span className="text-muted flex-1">Total merged length</span>
@@ -357,7 +440,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             </>
           )
         })()}
-      </div>
+      </div>}
 
       {/* Transition picker */}
       <div className="flex items-center gap-2 flex-wrap">
