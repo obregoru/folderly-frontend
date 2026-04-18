@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import * as api from '../api'
 import { parseVoiceoverScript, exportVoiceoverScript, buildScriptPrompt } from '../lib/voiceoverScript'
 import { captureVideoFrames, dataUrlToBase64 } from '../lib/videoFrames'
+import { describeAllUploads, buildJobVisualContext } from '../lib/visualContext'
 
 // Read a Blob or File as base64
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
@@ -186,29 +187,38 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const generateHook = async () => {
     setHookLoading(true)
     try {
-      // Capture a small frame set from the current video so the hook
-      // generator can see the scene and apply the same rules as
-      // Suggest-from-video. Silently fall back to text-only if capture fails
-      // (e.g. no video loaded) — the endpoint still works without frames.
+      // Prefer the cached visual-context flow: describe each upload once,
+      // reuse the TEXT summary across every AI call. Only falls back to
+      // raw frames when describe fails for every item.
+      let visualContext = null
       let frames = null
       try {
-        const captured = await captureCoverageFrames()
-        const withData = (Array.isArray(captured) ? captured : []).filter(f => f && f.dataUrl)
-        if (withData.length > 0) {
-          frames = withData.slice(0, 6).map(f => ({
-            startTime: f.startTime,
-            label: f.label,
-            image_base64: dataUrlToBase64(f.dataUrl),
-          }))
-        }
+        await describeAllUploads(videoFiles)
+        visualContext = buildJobVisualContext(videoFiles) || null
       } catch (e) {
-        console.warn('[generateHook] frame capture skipped:', e.message)
+        console.warn('[generateHook] describe failed, falling back to raw frames:', e.message)
+      }
+      if (!visualContext) {
+        try {
+          const captured = await captureCoverageFrames()
+          const withData = (Array.isArray(captured) ? captured : []).filter(f => f && f.dataUrl)
+          if (withData.length > 0) {
+            frames = withData.slice(0, 6).map(f => ({
+              startTime: f.startTime,
+              label: f.label,
+              image_base64: dataUrlToBase64(f.dataUrl),
+            }))
+          }
+        } catch (e) {
+          console.warn('[generateHook] frame capture skipped:', e.message)
+        }
       }
       const r = await api.generateVoiceoverHook({
         hint: hookHint.trim() || null,
         category: hookCategoryName || null,
         includeBody: hookIncludeBody,
         count: 4,
+        visualContext,
         frames,
         audienceOverride,
       })
@@ -216,7 +226,8 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
       if (!opts.length) { alert('No hooks generated — try a different hint.'); setHookLoading(false); return }
       setHookOptions(opts)
       setHookIdx(0)
-      if (r?.used_vision) console.log(`[generateHook] vision mode (${r.frames_count} frames)`)
+      if (r?.used_cached_context) console.log('[generateHook] cached-context mode (free, fast)')
+      else if (r?.used_vision) console.log(`[generateHook] vision mode (${r.frames_count} frames)`)
     } catch (err) {
       alert('Hook generation failed: ' + err.message)
     }

@@ -217,6 +217,32 @@ export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpen
     }),
   }).then(r => r.json())
 
+// One-shot media description — call ONCE per upload. Server returns a
+// structured description that gets cached on the upload row and then
+// reused as TEXT across every downstream AI call (captions, hooks,
+// voiceover, overlays). Raw images never leave the client a second time.
+export const describeMedia = ({ frames, mediaType, hint } = {}) =>
+  fetch(api('/generate/describe-media'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      frames: Array.isArray(frames) ? frames : [],
+      media_type: mediaType || 'photo',
+      hint: hint || null,
+    }),
+  }).then(r => r.json())
+
+// Persist the cached visual description on the upload row so future
+// sessions skip the describe call entirely.
+export const saveUploadVisualDescription = (uploadUuid, visualDescription) =>
+  fetch(api(`/upload/${encodeURIComponent(uploadUuid)}/visual-description`), {
+    method: 'PUT',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ visual_description: visualDescription }),
+  }).then(r => r.json())
+
 // Propose voiceover segments from video frames (Claude vision)
 export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, platforms, overlayOpening, overlayMiddle, overlayClosing, style, segmentLength, audienceOverride } = {}) =>
   fetch(api('/generate/voiceover-from-video'), {
@@ -239,7 +265,7 @@ export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, plat
   }).then(r => r.json())
 
 // Generate spoken-style voiceover hook(s) for the ElevenLabs TTS field
-export const generateVoiceoverHook = ({ hint, category, includeBody, count, frames, audienceOverride } = {}) =>
+export const generateVoiceoverHook = ({ hint, category, includeBody, count, frames, audienceOverride, visualContext } = {}) =>
   fetch(api('/generate/voiceover-hook'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -251,6 +277,7 @@ export const generateVoiceoverHook = ({ hint, category, includeBody, count, fram
       count: count || 4,
       frames: Array.isArray(frames) ? frames : null,
       audience_override: audienceOverride || 'auto',
+      visual_context: visualContext || null,
     }),
   }).then(r => r.json())
 
