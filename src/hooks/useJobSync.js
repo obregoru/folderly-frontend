@@ -328,6 +328,10 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _filename: f.filename,
             _mediaType: f.media_type,
             _overlaySettings: job.overlay_settings || {},
+            // Cached AI description joined from the uploads row by the
+            // backend (GET /jobs/:id LEFT JOINs uploads on file_hash).
+            // When present, describeUpload sees it and skips capture.
+            visual_description: f.visual_description || null,
           }
         })
         setFiles(restoredFiles)
