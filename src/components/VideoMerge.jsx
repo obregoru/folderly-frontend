@@ -229,6 +229,25 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             return trimLen / speed
           })
           const totalKept = clipDurations.reduce((a, b) => a + b, 0)
+          // Detect filename collisions (iPhone recycles IMG_####.mov numbers
+          // when the Photos counter rolls over — two different clips can
+          // share the same filename, making the merge list ambiguous).
+          // Build a map of basename → positional index so we can append
+          // "(1)" / "(2)" / etc. to disambiguate in the display.
+          const nameCounts = {}
+          videoFiles.forEach(item => {
+            const n = item?.file?.name || item?._filename || 'Untitled'
+            nameCounts[n] = (nameCounts[n] || 0) + 1
+          })
+          const seenCount = {}
+          const disambiguatedNames = videoFiles.map(item => {
+            const n = item?.file?.name || item?._filename || 'Untitled'
+            if (nameCounts[n] > 1) {
+              seenCount[n] = (seenCount[n] || 0) + 1
+              return `${n} (${seenCount[n]})`
+            }
+            return n
+          })
           const transOverhead = transition !== 'none' && videoFiles.length > 1
             ? (videoFiles.length - 1) * transDuration
             : 0
@@ -242,10 +261,32 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                 const trimLen = clipTrimLengths[pos]
                 const outLen = clipDurations[pos]
                 const speed = Number(item._speed) > 0 ? Number(item._speed) : 1.0
+                const displayName = disambiguatedNames[pos]
+                // First frame thumbnail for visual disambiguation (when two
+                // different iPhone clips share the same filename). Falls back
+                // to no thumb when trim_thumbs aren't yet generated.
+                const thumb = Array.isArray(item._trimThumbs) && item._trimThumbs[0] ? item._trimThumbs[0] : null
+                // File size — only available right after upload (item.file is
+                // the Blob), lost after job restore. Shows "X.XM" when known.
+                const size = item.file?.size
+                const sizeLabel = size ? `${(size / (1024 * 1024)).toFixed(1)}M` : null
                 return (
                   <div key={item.id} className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]">
                     <span className="text-muted font-medium w-4">{pos + 1}.</span>
-                    <span className="flex-1 truncate" title={item.file?.name || item._filename || 'Untitled'}>{item.file?.name || item._filename || 'Untitled'}</span>
+                    {thumb ? (
+                      <img
+                        src={thumb}
+                        alt=""
+                        className="w-7 h-10 object-cover rounded flex-shrink-0 border border-border"
+                        style={{ objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div className="w-7 h-10 bg-[#e5e5e5] rounded flex-shrink-0 flex items-center justify-center text-[8px] text-muted" title="Thumbnail appears after video loads">—</div>
+                    )}
+                    <span className="flex-1 truncate" title={displayName}>
+                      {displayName}
+                      {sizeLabel && <span className="text-muted ml-1">· {sizeLabel}</span>}
+                    </span>
                     {outLen > 0 && (
                       speed !== 1.0 ? (
                         <span className="text-[9px] text-muted whitespace-nowrap" title={`Trim: ${trimLen.toFixed(1)}s · Output at ${speed}×: ${outLen.toFixed(1)}s`}>
