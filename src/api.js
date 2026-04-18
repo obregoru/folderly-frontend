@@ -86,7 +86,35 @@ export const analyzeVoice = (examples) =>
   fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())
 
 // Uploads
-export const uploadFile = (file, folderName, batchId, parsedKeywords, videoThumb, jobId) => {
+// iOS silent-recovery: compute SHA-256 so we can check whether a "Load
+// failed" upload actually reached the server before retrying. Safari
+// frequently drops long POST responses mid-flight (backgrounded tab,
+// connection flapping) even when the server already stored the file.
+async function computeSHA256(file) {
+  if (!file || !(file instanceof Blob)) return null
+  if (!(globalThis.crypto && crypto.subtle && crypto.subtle.digest)) return null
+  const buf = await file.arrayBuffer()
+  const digest = await crypto.subtle.digest('SHA-256', buf)
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// "Load failed" / "Failed to fetch" / connection-drop style errors that
+// indicate the request MAY have reached the server even though the
+// response never came back.
+function looksLikeNetworkError(err) {
+  if (!err) return false
+  const msg = String(err.message || err).toLowerCase()
+  return (
+    msg.includes('load failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('network connection was lost') ||
+    msg.includes('networkerror') ||
+    err.name === 'TypeError' ||
+    err.name === 'AbortError'
+  )
+}
+
+export const uploadFile = async (file, folderName, batchId, parsedKeywords, videoThumb, jobId) => {
   const fd = new FormData()
   fd.append('file', file)
   if (folderName) fd.append('folder_name', folderName)
@@ -94,10 +122,39 @@ export const uploadFile = (file, folderName, batchId, parsedKeywords, videoThumb
   if (jobId) fd.append('job_id', jobId)
   fd.append('parsed_keywords', JSON.stringify(parsedKeywords))
   if (videoThumb) fd.append('video_thumbnail', videoThumb, 'thumb.jpg')
-  return fetch(api('/upload'), { method: 'POST', headers: csrf(), credentials: 'include', body: fd }).then(r => {
-    if (!r.ok) return r.json().then(e => { throw new Error(e.error || 'Upload failed') })
-    return r.json()
-  })
+
+  try {
+    const r = await fetch(api('/upload'), { method: 'POST', headers: csrf(), credentials: 'include', body: fd })
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || 'Upload failed')
+    }
+    return await r.json()
+  } catch (err) {
+    // iOS silent-recovery: if fetch threw with a network-style error, the
+    // server may have received the file anyway. Compute the file hash and
+    // look it up before giving up.
+    if (looksLikeNetworkError(err)) {
+      try {
+        const hash = await computeSHA256(file)
+        if (hash) {
+          const lookup = await fetch(api(`/upload/by-hash/${hash}`), {
+            method: 'GET',
+            credentials: 'include',
+            headers: csrf(),
+          })
+          if (lookup.ok) {
+            const record = await lookup.json()
+            console.warn('[upload] network error recovered via hash lookup — file was already on server:', hash.slice(0, 8))
+            return record
+          }
+        }
+      } catch (e2) {
+        console.warn('[upload] hash-lookup recovery failed:', e2.message)
+      }
+    }
+    throw err
+  }
 }
 
 export const createBatch = (folderName, fileCount) =>
