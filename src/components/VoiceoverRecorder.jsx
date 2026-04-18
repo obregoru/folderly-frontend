@@ -186,17 +186,37 @@ export default function VoiceoverRecorder({ videoFiles, mergedVideoBase64, setti
   const generateHook = async () => {
     setHookLoading(true)
     try {
+      // Capture a small frame set from the current video so the hook
+      // generator can see the scene and apply the same rules as
+      // Suggest-from-video. Silently fall back to text-only if capture fails
+      // (e.g. no video loaded) — the endpoint still works without frames.
+      let frames = null
+      try {
+        const captured = await captureCoverageFrames()
+        const withData = (Array.isArray(captured) ? captured : []).filter(f => f && f.dataUrl)
+        if (withData.length > 0) {
+          frames = withData.slice(0, 6).map(f => ({
+            startTime: f.startTime,
+            label: f.label,
+            image_base64: dataUrlToBase64(f.dataUrl),
+          }))
+        }
+      } catch (e) {
+        console.warn('[generateHook] frame capture skipped:', e.message)
+      }
       const r = await api.generateVoiceoverHook({
         hint: hookHint.trim() || null,
         category: hookCategoryName || null,
         includeBody: hookIncludeBody,
         count: 4,
+        frames,
+        audienceOverride,
       })
       const opts = Array.isArray(r?.options) ? r.options : []
       if (!opts.length) { alert('No hooks generated — try a different hint.'); setHookLoading(false); return }
       setHookOptions(opts)
       setHookIdx(0)
-      // Just store options — user clicks "Insert" to put one in the textarea
+      if (r?.used_vision) console.log(`[generateHook] vision mode (${r.frames_count} frames)`)
     } catch (err) {
       alert('Hook generation failed: ' + err.message)
     }

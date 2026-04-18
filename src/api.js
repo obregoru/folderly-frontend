@@ -239,12 +239,19 @@ export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, plat
   }).then(r => r.json())
 
 // Generate spoken-style voiceover hook(s) for the ElevenLabs TTS field
-export const generateVoiceoverHook = ({ hint, category, includeBody, count } = {}) =>
+export const generateVoiceoverHook = ({ hint, category, includeBody, count, frames, audienceOverride } = {}) =>
   fetch(api('/generate/voiceover-hook'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ hint: hint || null, category: category || null, includeBody: !!includeBody, count: count || 4 }),
+    body: JSON.stringify({
+      hint: hint || null,
+      category: category || null,
+      includeBody: !!includeBody,
+      count: count || 4,
+      frames: Array.isArray(frames) ? frames : null,
+      audience_override: audienceOverride || 'auto',
+    }),
   }).then(r => r.json())
 
 // Generate per-platform video overlay texts (opening + closing) from a single hint
