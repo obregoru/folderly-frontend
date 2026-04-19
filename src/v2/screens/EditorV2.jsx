@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import FileGrid from '../../components/FileGrid'
 import VideoTrimmer from '../../components/VideoTrimmer'
 import VideoMerge from '../../components/VideoMerge'
 import Dropzone from '../../components/Dropzone'
 import FinalPreviewV2 from '../components/FinalPreviewV2'
 import ToolMenuV2 from '../components/ToolMenuV2'
+import VoiceoverPanelV2 from '../components/VoiceoverPanelV2'
 
 /**
  * EditorV2 — the new mockup-style editor, real data.
@@ -22,6 +23,9 @@ export default function EditorV2({
   draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles,
 }) {
   const [activeTool, setActiveTool] = useState('clips')
+  // Shared ref to the FinalPreview <video>. Every tool that wants to
+  // drive the preview (voiceover, overlays) grabs it via previewRef.
+  const previewRef = useRef(null)
 
   const videoFiles = (files || []).filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))
   const photoFiles = (files || []).filter(f => f.file?.type?.startsWith('image/') || f._mediaType?.startsWith('image/'))
@@ -39,7 +43,7 @@ export default function EditorV2({
 
   return (
     <div className="p-3 space-y-3">
-      <FinalPreviewV2 files={files} />
+      <FinalPreviewV2 ref={previewRef} files={files} />
 
       <ToolMenuV2
         active={safeActiveTool}
@@ -60,7 +64,7 @@ export default function EditorV2({
           />
         )}
         {safeActiveTool === 'hints' && <PlaceholderPanel label="Hints" />}
-        {safeActiveTool === 'voiceover' && <PlaceholderPanel label="Voice" note="Replaces VoiceoverRecorder with a zero-player design in Phase 3." />}
+        {safeActiveTool === 'voiceover' && <VoiceoverPanelV2 previewRef={previewRef} settings={settings} />}
         {safeActiveTool === 'overlays' && <PlaceholderPanel label="Overlays" />}
         {safeActiveTool === 'captions' && <PlaceholderPanel label="Post text" />}
         {safeActiveTool === 'channels' && <PlaceholderPanel label="Channels" />}

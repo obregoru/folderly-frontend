@@ -140,6 +140,7 @@ export default function AppV2() {
             addFiles={addFiles}
             removeFile={removeFile}
             reorderFiles={reorderFiles}
+            user={user}
           />
         )}
         {mode === 'drafts' && !activeDraftId && (
