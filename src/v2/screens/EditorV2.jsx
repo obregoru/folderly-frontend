@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import FileGrid from '../../components/FileGrid'
 import VideoTrimmer from '../../components/VideoTrimmer'
 import VideoMerge from '../../components/VideoMerge'
@@ -27,6 +27,20 @@ export default function EditorV2({
   draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles,
 }) {
   const [activeTool, setActiveTool] = useState('clips')
+  // Once the user has at least one file on a fresh draft, auto-advance
+  // them to the Content tab — that's the primary work surface. They can
+  // always tap back to Media. Only auto-advances ONCE per draft mount so
+  // manual navigation isn't fought. Triggered off files.length so it fires
+  // for both brand-new uploads and restored drafts.
+  const hasAutoAdvancedRef = useRef(false)
+  useEffect(() => {
+    if (hasAutoAdvancedRef.current) return
+    if (files.length === 0) return
+    if (activeTool !== 'clips') { hasAutoAdvancedRef.current = true; return }
+    hasAutoAdvancedRef.current = true
+    setActiveTool('captions')
+  }, [files.length, activeTool])
+
   // Shared ref to the FinalPreview <video>. Every tool that wants to
   // drive the preview (voiceover, overlays) grabs it via previewRef.
   const previewRef = useRef(null)

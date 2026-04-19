@@ -161,7 +161,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
           layered in later. --- */}
       <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded-lg p-3 space-y-2">
         <div className="flex items-center gap-2">
-          <div className="text-[12px] font-medium flex-1">Generate post text</div>
+          <div className="text-[12px] font-medium flex-1">Generate content</div>
           {hint && <span className="text-[9px] text-muted">using Hints</span>}
           {saving && <span className="text-[9px] text-muted">Saving…</span>}
         </div>
