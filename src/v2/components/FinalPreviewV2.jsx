@@ -32,6 +32,10 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     if (typeof window !== 'undefined' && window._postyTeleprompter) return window._postyTeleprompter
     return null
   })
+  const [captions, setCaptions] = useState(() => {
+    if (typeof window !== 'undefined' && Array.isArray(window._postyCaptions)) return window._postyCaptions
+    return []
+  })
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
 
@@ -58,6 +62,29 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     window.addEventListener('posty-teleprompter-change', sync)
     return () => window.removeEventListener('posty-teleprompter-change', sync)
   }, [])
+
+  // Captions (closed-caption timeline) — separate from overlay blocks and
+  // from teleprompter. Written by the Script tab's "Apply as closed
+  // captions" action, rendered as subtitle-style text at the bottom.
+  useEffect(() => {
+    const sync = (e) => {
+      const list = e?.detail ?? window._postyCaptions ?? null
+      setCaptions(Array.isArray(list) ? list : [])
+    }
+    window.addEventListener('posty-captions-change', sync)
+    return () => window.removeEventListener('posty-captions-change', sync)
+  }, [])
+
+  // Seed captions from the restored job's overlay_settings.caption_timeline
+  // (same JSONB that overlays live in, different key).
+  useEffect(() => {
+    if (captions.length > 0) return
+    const restored = files?.[0]?._overlaySettings?.caption_timeline
+    if (Array.isArray(restored) && restored.length > 0) {
+      setCaptions(restored)
+      try { if (typeof window !== 'undefined') window._postyCaptions = restored } catch {}
+    }
+  }, [files, captions.length])
 
   // Seed overlays from the restored file's _overlaySettings when we don't
   // already have a window-level value (i.e. user hasn't opened Overlays yet
@@ -109,6 +136,16 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     return null
   }, [overlays, currentTime, duration])
 
+  // Captions: active cue is the one whose [startTime, endTime) contains
+  // currentTime. Uses the explicit endTime so a script line disappears
+  // before the next begins (standard subtitle behavior).
+  const activeCaptionText = useMemo(() => {
+    if (!captions || captions.length === 0) return null
+    const t = currentTime
+    const cue = captions.find(c => (Number(c.startTime) || 0) <= t && t < (Number(c.endTime) || 0))
+    return cue?.text || null
+  }, [captions, currentTime])
+
   // Teleprompter: pick the active script line based on currentTime vs
   // segment startTimes. Primary shows from 0 until the first segment.
   const activeTeleprompterText = useMemo(() => {
@@ -157,6 +194,9 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           {activeOverlayText && (
             <OverlayText text={activeOverlayText} style={overlays} />
           )}
+          {activeCaptionText && !teleprompter && (
+            <CaptionText text={activeCaptionText} />
+          )}
           {activeTeleprompterText && (
             <TeleprompterText text={activeTeleprompterText} />
           )}
@@ -167,6 +207,33 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     </div>
   )
 })
+
+// Closed-caption text — YouTube-style subtitle band at the very bottom.
+// Distinct from OverlayText (three-block story text in the middle) and
+// from TeleprompterText (high-contrast recording aid).
+function CaptionText({ text }) {
+  return (
+    <div className="absolute inset-x-0 bottom-3 flex items-end justify-center pointer-events-none px-4">
+      <div
+        style={{
+          background: 'rgba(0, 0, 0, 0.72)',
+          color: '#ffffff',
+          padding: '4px 10px',
+          borderRadius: 4,
+          fontSize: 16,
+          lineHeight: 1.2,
+          fontWeight: 500,
+          maxWidth: '92%',
+          textAlign: 'center',
+          whiteSpace: 'pre-wrap',
+          textShadow: '0 1px 2px rgba(0,0,0,0.6)',
+        }}
+      >
+        {text}
+      </div>
+    </div>
+  )
+}
 
 // Teleprompter text — overlaid at the bottom of the video while the user
 // records. Visually distinct from OverlayText so it's clear this is a
@@ -206,10 +273,19 @@ function OverlayText({ text, style }) {
       }).join(', ')
     : 'none'
 
+  // Map the 0–100 overlayYPct into the platform-safe band. Mirrors what the
+  // burn-in pipeline does: skip the top status/UI area (~12%) and the
+  // bottom caption/UI area (~22%); the remaining middle is where overlay
+  // text is guaranteed not to collide with IG / TikTok chrome.
+  const SAFE_TOP = 12   // %
+  const SAFE_BOT = 22   // %
+  const pct = Math.max(0, Math.min(100, Number(style?.overlayYPct ?? 50)))
+  const topPct = SAFE_TOP + (100 - SAFE_TOP - SAFE_BOT) * (pct / 100)
+
   return (
     <div
       className="absolute inset-x-0 flex items-center justify-center pointer-events-none px-4 text-center"
-      style={{ top: '50%', transform: 'translateY(-50%)' }}
+      style={{ top: `${topPct}%`, transform: 'translateY(-50%)' }}
     >
       <div
         style={{

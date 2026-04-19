@@ -332,53 +332,43 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     }
   }
 
-  // Map a parsed script into the overlay_settings shape the existing burn-in
-  // pipeline understands: opening / middle / closing. If the script has more
-  // than 3 timed segments we pick first / median / last.
-  const applyScriptAsOverlays = (raw) => {
+  // Build a closed-captions timeline from a script and attach it to the
+  // job as overlay_settings.caption_timeline. Each script line becomes one
+  // timed caption cue (start/end = next line's start or +3s), rendered as
+  // subtitle-style text in FinalPreviewV2. Separate concept from the
+  // three-block opening/middle/closing overlay text, which is unchanged.
+  const applyScriptAsCaptions = (raw) => {
     const parsed = parseScript(raw)
     const all = [
       ...(parsed.primary ? [{ startTime: 0, text: parsed.primary }] : []),
       ...parsed.segments,
-    ].sort((a, b) => a.startTime - b.startTime)
+    ]
+      .filter(x => x.text && x.text.trim())
+      .sort((a, b) => a.startTime - b.startTime)
     if (all.length === 0) { alert('Nothing to apply — parse a script first.'); return }
 
-    const first = all[0]
-    const last  = all[all.length - 1]
-    const mid   = all.length >= 3 ? all[Math.floor(all.length / 2)] : null
-
-    // Duration heuristic: each caption stays until the next one starts (or 3s for last)
     const video = previewRef?.current?.getVideo?.()
     const videoDur = Number(video?.duration) || 0
-    const nextAfter = (t) => {
-      const n = all.find(x => x.startTime > t)
-      return n ? n.startTime : (videoDur || t + 3)
-    }
+    const timeline = all.map((cue, i) => {
+      const next = all[i + 1]
+      const end = next ? next.startTime : (videoDur > cue.startTime ? videoDur : cue.startTime + 3)
+      return { startTime: Number(cue.startTime) || 0, endTime: end, text: cue.text }
+    })
 
-    const payload = {
-      openingText: first?.text || '',
-      openingDuration: Math.max(1, (nextAfter(first.startTime) - first.startTime)),
-      middleText: mid ? mid.text : '',
-      middleStartTime: mid ? mid.startTime : 0,
-      middleDuration: mid ? Math.max(1, (nextAfter(mid.startTime) - mid.startTime)) : 0,
-      closingText: last && last !== first ? last.text : '',
-      closingDuration: last && last !== first
-        ? Math.max(1, (videoDur ? Math.min(3, videoDur - last.startTime) : 3))
-        : 0,
-      storyFontSize: 48,
-      storyFontFamily: 'sans-serif',
-      storyFontColor: '#ffffff',
-      storyFontOutline: true,
-      storyFontOutlineWidth: 3,
-    }
-    jobSync?.saveOverlaySettings?.(payload)
+    // Merge into the job's existing overlay_settings so we don't clobber
+    // the three-block overlay text. Read current, mutate caption_timeline.
+    const existing = (typeof window !== 'undefined' && window._postyOverlays) || {}
+    const next = { ...existing, caption_timeline: timeline }
+    jobSync?.saveOverlaySettings?.(next)
     try {
       if (typeof window !== 'undefined') {
-        window._postyOverlays = payload
-        window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: payload }))
+        window._postyOverlays = next
+        window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: next }))
+        window._postyCaptions = timeline
+        window.dispatchEvent(new CustomEvent('posty-captions-change', { detail: timeline }))
       }
     } catch {}
-    alert(`Applied ${all.length} script line${all.length === 1 ? '' : 's'} to video captions (opening${mid ? ' + middle' : ''}${last !== first ? ' + closing' : ''}).`)
+    alert(`Applied ${timeline.length} closed-caption line${timeline.length === 1 ? '' : 's'} to the video.`)
   }
 
   // Parse a pasted script into primary + timed segments, then generate all
@@ -560,7 +550,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             // user can see the teleprompter overlay before it begins.
             setTimeout(() => startTeleprompterRecording(), 400)
           }}
-          onApplyAsOverlays={() => applyScriptAsOverlays(text)}
+          onApplyAsCaptions={() => applyScriptAsCaptions(text)}
         />
       )}
 
@@ -691,7 +681,7 @@ function base64ToBytes(b64) {
 // --- Script tab -----------------------------------------------------------
 // One pasted script drives three outputs: AI voice (primary + segments),
 // human recording with teleprompter, and on-screen captions (overlays).
-function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGenerateAll, onRecordWithTeleprompter, onApplyAsOverlays }) {
+function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGenerateAll, onRecordWithTeleprompter, onApplyAsCaptions }) {
   const parsed = parseScript(text)
   const lineCount = (parsed.primary ? 1 : 0) + parsed.segments.length
   const hasParsed = lineCount > 0
@@ -735,14 +725,14 @@ function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGen
         >● Record with teleprompter</button>
 
         <button
-          onClick={onApplyAsOverlays}
+          onClick={onApplyAsCaptions}
           disabled={!hasParsed || runningScript}
           className="w-full py-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] text-[11px] font-medium rounded cursor-pointer disabled:opacity-50"
-        >📝 Apply as video captions</button>
+        >📝 Apply as closed captions</button>
       </div>
 
       <div className="text-[9px] text-muted italic pt-1">
-        AI voice generates each line at its timestamp. Teleprompter mode plays the video muted and shows each line on screen for you to read into the mic. Captions burn a text overlay (opening / middle / closing) onto the final video.
+        One script, three independent outputs. AI voice generates each line's audio. Teleprompter shows lines on screen to read while you record your own audio. Closed captions render subtitle-style text timed to each line — separate from the opening/middle/closing overlay blocks.
       </div>
     </div>
   )

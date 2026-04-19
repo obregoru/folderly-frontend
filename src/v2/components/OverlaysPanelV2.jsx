@@ -24,6 +24,10 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
   const [fontColor, setFontColor] = useState('#ffffff')
   const [fontOutline, setFontOutline] = useState(true)
   const [outlineWidth, setOutlineWidth] = useState(3)
+  // Y position 0-100% within the platform-safe center band (same scale
+  // as ResultCard's overlayYPct). 70 is a common default — near-bottom
+  // but clear of the platform's reserved caption/UI zone.
+  const [overlayYPct, setOverlayYPct] = useState(70)
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
@@ -45,6 +49,7 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
         if (o.storyFontColor) setFontColor(o.storyFontColor)
         if (o.storyFontOutline != null) setFontOutline(o.storyFontOutline)
         if (o.storyFontOutlineWidth) setOutlineWidth(o.storyFontOutlineWidth)
+        if (o.overlayYPct != null) setOverlayYPct(Number(o.overlayYPct))
         setLoaded(true)
       }).catch(() => setLoaded(true))
     })
@@ -61,6 +66,7 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
       storyFontColor: fontColor,
       storyFontOutline: fontOutline,
       storyFontOutlineWidth: Number(outlineWidth) || 3,
+      overlayYPct: Number(overlayYPct),
     }
     jobSync.saveOverlaySettings?.(payload)
     // Broadcast to FinalPreviewV2 so the overlay preview updates live.
@@ -74,7 +80,7 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, loaded])
+  }, [openingText, middleText, closingText, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, overlayYPct, loaded])
 
   return (
     <div className="space-y-3">
@@ -207,10 +213,31 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
             </>
           )}
         </div>
+
+        <div className="pt-1">
+          <label className="text-[10px] text-muted flex items-center gap-2">
+            <span>Y position (within platform safe zone)</span>
+            <span className="font-mono text-ink ml-auto">{overlayYPct}%</span>
+          </label>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={overlayYPct}
+            onChange={e => setOverlayYPct(Number(e.target.value))}
+            className="w-full"
+          />
+          <div className="flex items-center justify-between text-[8px] text-muted">
+            <span>top</span>
+            <span className="opacity-60">clears TikTok/IG UI chrome</span>
+            <span>bottom</span>
+          </div>
+        </div>
       </div>
 
       <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">
-        Live overlay preview on the video above, AI-suggested captions, and per-channel overrides port in a later sub-phase.
+        Preview shown live on the video above. Y position avoids the platform's reserved zones (top status bar / bottom caption & UI bar).
       </div>
     </div>
   )
