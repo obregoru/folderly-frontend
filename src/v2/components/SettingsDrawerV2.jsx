@@ -83,8 +83,44 @@ export default function SettingsDrawerV2({ open, onClose, settings: settingsProp
             <KeysForm settings={settings} onSaved={refresh} />
           </SectionCard>
 
-          <PlaceholderRow icon="📤" label="Platforms" desc="OAuth for TikTok / IG / FB / YT / GBP / Pinterest" />
-          <PlaceholderRow icon="⚙️" label="Posting defaults" desc="Hashtags, watermark, SEO, humanize, AI detection" />
+          <SectionCard
+            icon="📤" label="Platforms"
+            open={expanded === 'platforms'}
+            onToggle={() => toggle('platforms')}
+            desc="Which platforms this tenant publishes to (affects which channels the editor shows)"
+          >
+            <PlatformsForm settings={settings} onSaved={refresh} />
+          </SectionCard>
+
+          <SectionCard
+            icon="#️⃣" label="Hashtags"
+            open={expanded === 'hashtags'}
+            onToggle={() => toggle('hashtags')}
+            desc="Default hashtags appended per platform"
+          >
+            <HashtagsForm settings={settings} onSaved={refresh} />
+          </SectionCard>
+
+          <SectionCard
+            icon="🎣" label="Hook categories"
+            open={expanded === 'hooks'}
+            onToggle={() => toggle('hooks')}
+            desc="Categories used to seed AI hook / overlay generation"
+          >
+            <HookCategoriesForm settings={settings} onSaved={refresh} />
+          </SectionCard>
+
+          <SectionCard
+            icon="⚙️" label="Posting defaults"
+            open={expanded === 'defaults'}
+            onToggle={() => toggle('defaults')}
+            desc="Caption length, availability, SEO, anonymize"
+          >
+            <PostingDefaultsForm settings={settings} onSaved={refresh} />
+          </SectionCard>
+
+          <PlaceholderRow icon="🔗" label="Platform connections" desc="OAuth for TikTok / IG / FB / YT / GBP / Pinterest" />
+          <PlaceholderRow icon="🖼️" label="Watermark" desc="Upload + toggle watermark burned into finals" />
           <PlaceholderRow icon="📅" label="Notifications" desc="Email for scheduled-post reminders" />
         </div>
 
@@ -338,6 +374,237 @@ function SaveRow({ saving, msg, err, onSave }) {
       >{saving ? 'Saving…' : 'Save'}</button>
       {msg && <div className="text-[10px] text-[#2D9A5E] mt-1">{msg}</div>}
       {err && <div className="text-[10px] text-[#c0392b] mt-1">{err}</div>}
+    </div>
+  )
+}
+
+async function putSettings(payload) {
+  const r = await api.saveSettings(payload)
+  if (r && !r.ok) {
+    const j = await r.json().catch(() => ({}))
+    if (j?.error) throw new Error(j.error)
+  }
+}
+
+// --- Platforms -----------------------------------------------------------
+
+const PLATFORM_TOGGLES = [
+  { key: 'platform_instagram', label: 'Instagram' },
+  { key: 'platform_facebook',  label: 'Facebook' },
+  { key: 'platform_tiktok',    label: 'TikTok' },
+  { key: 'platform_youtube',   label: 'YouTube' },
+  { key: 'platform_google',    label: 'Google Business' },
+  { key: 'platform_blog',      label: 'Blog / WordPress' },
+  { key: 'platform_twitter',   label: 'X / Twitter' },
+  { key: 'platform_pinterest', label: 'Pinterest' },
+]
+
+function PlatformsForm({ settings, onSaved }) {
+  const [form, setForm] = useState(() => {
+    const out = {}
+    for (const { key } of PLATFORM_TOGGLES) out[key] = !!settings[key]
+    return out
+  })
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [err, setErr] = useState(null)
+  const save = async () => {
+    setSaving(true); setMsg(null); setErr(null)
+    try { await putSettings(form); setMsg('Saved.'); onSaved?.() }
+    catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  const toggle = (k) => setForm(p => ({ ...p, [k]: !p[k] }))
+
+  return (
+    <div className="space-y-1.5">
+      {PLATFORM_TOGGLES.map(p => (
+        <label key={p.key} className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+          <input type="checkbox" checked={!!form[p.key]} onChange={() => toggle(p.key)} />
+          <span className="text-[11px] flex-1">{p.label}</span>
+        </label>
+      ))}
+      <SaveRow saving={saving} msg={msg} err={err} onSave={save} />
+    </div>
+  )
+}
+
+// --- Hashtags ------------------------------------------------------------
+
+const HASHTAG_FIELDS = [
+  { key: 'default_hashtags_all',       label: 'All platforms (fallback)' },
+  { key: 'default_hashtags_instagram', label: 'Instagram' },
+  { key: 'default_hashtags_facebook',  label: 'Facebook' },
+  { key: 'default_hashtags_twitter',   label: 'X / Twitter' },
+  { key: 'default_hashtags_youtube',   label: 'YouTube' },
+  { key: 'tiktok_default_hashtags',    label: 'TikTok' },
+]
+
+function HashtagsForm({ settings, onSaved }) {
+  const [form, setForm] = useState(() => {
+    const out = {}
+    for (const { key } of HASHTAG_FIELDS) out[key] = settings[key] || ''
+    return out
+  })
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [err, setErr] = useState(null)
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+  const save = async () => {
+    setSaving(true); setMsg(null); setErr(null)
+    try { await putSettings(form); setMsg('Saved.'); onSaved?.() }
+    catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  return (
+    <div className="space-y-2">
+      {HASHTAG_FIELDS.map(f => (
+        <Field key={f.key} label={f.label}>
+          <textarea
+            value={form[f.key]}
+            onChange={e => set(f.key, e.target.value)}
+            placeholder="#hashtag1 #hashtag2 #hashtag3"
+            rows={2}
+            className={`${inp} resize-y`}
+          />
+        </Field>
+      ))}
+      <SaveRow saving={saving} msg={msg} err={err} onSave={save} />
+    </div>
+  )
+}
+
+// --- Hook categories -----------------------------------------------------
+
+function HookCategoriesForm({ settings, onSaved }) {
+  const [list, setList] = useState(() => {
+    const raw = Array.isArray(settings.hook_categories) ? settings.hook_categories : []
+    return raw.map(c => ({ name: c?.name || '', prompt_context: c?.prompt_context || '' }))
+  })
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [err, setErr] = useState(null)
+
+  const update = (i, patch) => setList(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c))
+  const remove = (i) => setList(prev => prev.filter((_, idx) => idx !== i))
+  const add = () => setList(prev => [...prev, { name: '', prompt_context: '' }])
+
+  const save = async () => {
+    setSaving(true); setMsg(null); setErr(null)
+    try {
+      const clean = list.map(c => ({ name: (c.name || '').trim(), prompt_context: (c.prompt_context || '').trim() }))
+        .filter(c => c.name)
+      await putSettings({ hook_categories: clean })
+      setMsg(`Saved ${clean.length} categor${clean.length === 1 ? 'y' : 'ies'}.`)
+      onSaved?.()
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] text-muted italic">
+        Each category is a framing the AI can reach for when generating hooks / overlays. Keep the name short and the prompt context specific.
+      </div>
+      {list.map((c, i) => (
+        <div key={i} className="border border-[#e5e5e5] rounded p-2 space-y-1.5 bg-[#fafafa]">
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={c.name}
+              onChange={e => update(i, { name: e.target.value })}
+              placeholder="Category name"
+              className={`${inp} flex-1`}
+            />
+            <button
+              onClick={() => remove(i)}
+              className="text-[10px] py-0.5 px-2 border border-[#c0392b]/30 text-[#c0392b] bg-white rounded cursor-pointer"
+              title="Remove category"
+            >✕</button>
+          </div>
+          <textarea
+            value={c.prompt_context}
+            onChange={e => update(i, { prompt_context: e.target.value })}
+            placeholder="What framing / tone should the AI use for this category?"
+            rows={2}
+            className={`${inp} resize-y`}
+          />
+        </div>
+      ))}
+      <button
+        onClick={add}
+        className="w-full text-[10px] py-1.5 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer"
+      >+ Add category</button>
+      <SaveRow saving={saving} msg={msg} err={err} onSave={save} />
+    </div>
+  )
+}
+
+// --- Posting defaults ----------------------------------------------------
+
+const CAPTION_LENGTHS = ['short', 'medium', 'long']
+
+function PostingDefaultsForm({ settings, onSaved }) {
+  const [form, setForm] = useState(() => ({
+    caption_length:   settings.caption_length || 'medium',
+    availability_on:  !!settings.availability_on,
+    availability_text: settings.availability_text || '',
+    occasion_override: settings.occasion_override || '',
+    keep_anonymous:   !!settings.keep_anonymous,
+    seo_prepend_brand: !!settings.seo_prepend_brand,
+    seo_keywords:     settings.seo_keywords || '',
+    engagement_hooks: !!settings.engagement_hooks,
+  }))
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [err, setErr] = useState(null)
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+  const save = async () => {
+    setSaving(true); setMsg(null); setErr(null)
+    try { await putSettings(form); setMsg('Saved.'); onSaved?.() }
+    catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  return (
+    <div className="space-y-2">
+      <Field label="Caption length">
+        <select value={form.caption_length} onChange={e => set('caption_length', e.target.value)} className={inp}>
+          {CAPTION_LENGTHS.map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+      </Field>
+
+      <label className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+        <input type="checkbox" checked={form.availability_on} onChange={e => set('availability_on', e.target.checked)} />
+        <span className="text-[11px] flex-1">Include availability line</span>
+      </label>
+      {form.availability_on && (
+        <Field label="Availability text" hint="Short line appended to posts, e.g. 'Book at poppythyme.com'">
+          <input type="text" value={form.availability_text} onChange={e => set('availability_text', e.target.value)} className={inp} />
+        </Field>
+      )}
+
+      <Field label="Occasion override" hint="If set, every generation treats media as this occasion (e.g. 'birthday', 'date night')">
+        <input type="text" value={form.occasion_override} onChange={e => set('occasion_override', e.target.value)} className={inp} />
+      </Field>
+
+      <label className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+        <input type="checkbox" checked={form.engagement_hooks} onChange={e => set('engagement_hooks', e.target.checked)} />
+        <span className="text-[11px] flex-1">Enable engagement hooks (CTA questions in captions)</span>
+      </label>
+      <label className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+        <input type="checkbox" checked={form.keep_anonymous} onChange={e => set('keep_anonymous', e.target.checked)} />
+        <span className="text-[11px] flex-1">Keep filenames / folder names anonymous to AI</span>
+      </label>
+      <label className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+        <input type="checkbox" checked={form.seo_prepend_brand} onChange={e => set('seo_prepend_brand', e.target.checked)} />
+        <span className="text-[11px] flex-1">Prepend brand name to SEO keywords</span>
+      </label>
+
+      <Field label="Default SEO keywords" hint="Comma-separated, used on YouTube + Blog posts">
+        <textarea value={form.seo_keywords} onChange={e => set('seo_keywords', e.target.value)} rows={2} className={`${inp} resize-y`} />
+      </Field>
+
+      <SaveRow saving={saving} msg={msg} err={err} onSave={save} />
     </div>
   )
 }
