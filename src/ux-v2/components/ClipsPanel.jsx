@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { sampleClips } from '../mockData'
 
 const SPEED_OPTIONS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+
+// Generate a random picsum thumbnail for newly uploaded mock clips.
+const randThumb = () => `https://picsum.photos/seed/${Math.random().toString(36).slice(2, 8)}/80/140`
 
 /**
  * Clips panel — upload / reorder / trim / speed / merge. Once merged,
@@ -11,6 +14,26 @@ export default function ClipsPanel({ hasMerge, onMerge, onUnmerge }) {
   const [clips, setClips] = useState(sampleClips)
   const [collapsed, setCollapsed] = useState(hasMerge)
   const [dragIdx, setDragIdx] = useState(null)
+  const fileInputRef = useRef(null)
+
+  // Mock upload — reads the actual File's name/size so you see real
+  // metadata, generates a fake duration + random thumbnail so the clip
+  // card looks populated. No upload happens; no backend hit.
+  const handleFiles = (fileList) => {
+    const picked = Array.from(fileList || [])
+    if (picked.length === 0) return
+    const newClips = picked.map((f, i) => ({
+      id: `c-${Date.now()}-${i}`,
+      name: f.name,
+      size: `${(f.size / (1024 * 1024)).toFixed(1)} MB`,
+      duration: 5 + Math.random() * 8,
+      trimStart: 0,
+      trimEnd: null,
+      speed: 1.0,
+      thumb: randThumb(),
+    }))
+    setClips(prev => [...prev, ...newClips])
+  }
 
   const total = clips.reduce((sum, c) => {
     const trimLen = Math.max(0, (c.trimEnd ?? c.duration) - (c.trimStart ?? 0))
@@ -54,7 +77,18 @@ export default function ClipsPanel({ hasMerge, onMerge, onUnmerge }) {
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <div className="text-[12px] font-medium flex-1">Clips ({clips.length})</div>
-        <button className="text-[10px] py-1 px-2.5 border border-[#6C5CE7] text-[#6C5CE7] rounded bg-white cursor-pointer">+ Upload</button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*,image/*"
+          multiple
+          onChange={e => { handleFiles(e.target.files); e.target.value = '' }}
+          className="hidden"
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="text-[10px] py-1 px-2.5 border border-[#6C5CE7] text-[#6C5CE7] rounded bg-white cursor-pointer"
+        >+ Upload</button>
         {hasMerge && (
           <button
             onClick={() => setCollapsed(true)}
