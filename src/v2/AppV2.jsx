@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as api from '../api'
 import useJobSync from '../hooks/useJobSync'
 import DraftsV2 from './screens/DraftsV2'
