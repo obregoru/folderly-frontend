@@ -234,11 +234,16 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
         .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
         .map(c => `[${fmtTs(Number(c.startTime) || 0)}]${c.text.trim()}`)
 
+      // Per-job voice overrides beat tenant defaults when set.
+      const jobVoice = job?.generation_rules?.voice || {}
+
       const body = {
         filename: f0?.file?.name || f0?._filename || firstSvr?.filename || 'file',
         folder_name: '',
         occasion: '',
-        tone: settings?.default_tone || 'warm',
+        tone: jobVoice.tone || settings?.default_tone || 'warm',
+        pov: jobVoice.pov || undefined,
+        marketing_intensity: jobVoice.marketing_intensity || undefined,
         availability: '',
         platforms: [ch.captionKey],
         upload_id: uploadUuid,

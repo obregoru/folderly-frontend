@@ -18,13 +18,42 @@ import * as api from '../../api'
  * the job uses on regen (opening overlay text is read by the render,
  * and the hint itself tunes caption generation).
  */
-export default function HintsPanelV2({ jobSync, draftId }) {
+const TONE_OPTIONS = [
+  { v: '',             label: '— use tenant default —' },
+  { v: 'warm',         label: 'Warm' },
+  { v: 'playful',      label: 'Playful' },
+  { v: 'professional', label: 'Professional' },
+  { v: 'edgy',         label: 'Edgy' },
+  { v: 'inspirational', label: 'Inspirational' },
+  { v: 'minimalist',   label: 'Minimalist' },
+]
+const POV_OPTIONS = [
+  { v: '',                label: '— use tenant default —' },
+  { v: 'first_person',    label: 'First person (I / we)' },
+  { v: 'second_person',   label: 'Second person (you)' },
+  { v: 'third_person',    label: 'Third person (they)' },
+  { v: 'brand_voice',     label: 'Brand voice' },
+]
+const MARKETING_OPTIONS = [
+  { v: '',          label: '— use tenant default —' },
+  { v: 'subtle',    label: 'Subtle' },
+  { v: 'balanced',  label: 'Balanced' },
+  { v: 'high',      label: 'High-pressure' },
+]
+
+export default function HintsPanelV2({ jobSync, draftId, settings }) {
   const [description, setDescription] = useState('')
   const [angles, setAngles] = useState('')
   const [saved, setSaved] = useState(false)
   const [secondOpinion, setSecondOpinion] = useState('')
   const [soSaving, setSoSaving] = useState(false)
   const [soSaved, setSoSaved] = useState(false)
+  // Per-job voice overrides (stored under job.generation_rules JSONB)
+  const [jobTone, setJobTone] = useState('')
+  const [jobPov, setJobPov] = useState('')
+  const [jobMarketing, setJobMarketing] = useState('')
+  const [voiceSaving, setVoiceSaving] = useState(false)
+  const [voiceSaved, setVoiceSaved] = useState(false)
 
   // Hook generator state
   const [hookOn, setHookOn] = useState(false)
@@ -47,6 +76,10 @@ export default function HintsPanelV2({ jobSync, draftId }) {
         setAngles(rest.join('\n---\n') || '')
       }
       if (typeof job?.second_opinion === 'string') setSecondOpinion(job.second_opinion)
+      const voice = job?.generation_rules?.voice || {}
+      setJobTone(voice.tone || '')
+      setJobPov(voice.pov || '')
+      setJobMarketing(voice.marketing_intensity || '')
       // If an opening hook is already on the overlay, show it as "applied"
       if (job?.overlay_settings?.openingText) {
         setHookAppliedTo({ text: job.overlay_settings.openingText, from: 'existing' })
@@ -85,6 +118,24 @@ export default function HintsPanelV2({ jobSync, draftId }) {
   const clearSecondOpinion = async () => {
     setSecondOpinion('')
     try { await api.updateJob(draftId, { second_opinion: '' }) } catch {}
+  }
+
+  const saveVoice = async () => {
+    setVoiceSaving(true)
+    try {
+      const voice = {}
+      if (jobTone)      voice.tone = jobTone
+      if (jobPov)       voice.pov = jobPov
+      if (jobMarketing) voice.marketing_intensity = jobMarketing
+      const next = { voice }
+      await api.updateJob(draftId, { generation_rules: next })
+      setVoiceSaved(true)
+      setTimeout(() => setVoiceSaved(false), 2000)
+    } catch (e) {
+      alert('Save failed: ' + e.message)
+    } finally {
+      setVoiceSaving(false)
+    }
   }
 
   const generateHooks = async () => {
@@ -169,6 +220,29 @@ export default function HintsPanelV2({ jobSync, draftId }) {
         onClick={saveHints}
         className={`w-full py-2 text-[11px] font-medium border-none rounded cursor-pointer ${saved ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
       >{saved ? '✓ Saved' : 'Save hints'}</button>
+
+      {/* --- Voice & tone (this draft only) --- */}
+      <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[12px] font-medium flex-1">Voice & tone for this draft</div>
+          {(jobTone || jobPov || jobMarketing) && (
+            <span className="text-[9px] bg-[#6C5CE7]/10 text-[#6C5CE7] border border-[#6C5CE7]/30 rounded-full px-2 py-0.5">override on</span>
+          )}
+        </div>
+        <div className="text-[10px] text-muted">
+          Overrides the tenant defaults (<span className="font-mono">{settings?.default_tone || 'warm'}</span> · <span className="font-mono">{settings?.default_pov || 'first_person'}</span> · <span className="font-mono">{settings?.marketing_intensity || 'balanced'}</span>) for this draft only. Leave a field on "tenant default" to inherit.
+        </div>
+        <div className="grid grid-cols-1 gap-2">
+          <VoiceField label="Tone" value={jobTone} onChange={setJobTone} options={TONE_OPTIONS} />
+          <VoiceField label="Point of view" value={jobPov} onChange={setJobPov} options={POV_OPTIONS} />
+          <VoiceField label="Marketing intensity" value={jobMarketing} onChange={setJobMarketing} options={MARKETING_OPTIONS} />
+        </div>
+        <button
+          onClick={saveVoice}
+          disabled={voiceSaving}
+          className={`w-full py-1.5 text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50 ${voiceSaved ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+        >{voiceSaving ? 'Saving…' : (voiceSaved ? '✓ Saved' : 'Save voice for this draft')}</button>
+      </div>
 
       {/* --- Second opinion (pasted critique from another AI) --- */}
       <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
@@ -304,6 +378,21 @@ function HookOptionRow({ opt, onApply }) {
           className="ml-auto text-[9px] py-0.5 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer"
         >Use as opening</button>
       </div>
+    </div>
+  )
+}
+
+function VoiceField({ label, value, onChange, options }) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="text-[10px] text-muted w-[90px] flex-shrink-0">{label}</label>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="flex-1 text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white"
+      >
+        {options.map(o => <option key={o.v} value={o.v}>{o.label}</option>)}
+      </select>
     </div>
   )
 }

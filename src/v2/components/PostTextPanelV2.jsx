@@ -95,11 +95,16 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
         .map(c => `[${fmtTs(Number(c.startTime) || 0)}]${c.text.trim()}`)
 
+      // Per-job voice overrides beat tenant defaults when set.
+      const jobVoice = job?.generation_rules?.voice || {}
+
       const body = {
         filename: f0Live?.file?.name || f0Live?._filename || firstFile?.filename || 'file',
         folder_name: '',
         occasion: '',
-        tone: settings?.default_tone || 'warm',
+        tone: jobVoice.tone || settings?.default_tone || 'warm',
+        pov: jobVoice.pov || undefined,
+        marketing_intensity: jobVoice.marketing_intensity || undefined,
         availability: '',
         platforms,
         upload_id: uploadUuid,
