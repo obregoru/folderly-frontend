@@ -28,12 +28,18 @@ export default function AppV2() {
   const [activeDraftId, setActiveDraftId] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // Check auth + load tenant settings on mount (mirrors App.jsx)
+  // Check auth + load tenant settings on mount (mirrors App.jsx).
+  // On Vercel preview domains localStorage is empty even when the session
+  // cookie is valid, so we must get the tenant slug from /me and set it
+  // explicitly before any api call uses it.
   useEffect(() => {
     api.getMe().then(u => {
       if (u && u.id) {
         setUser(u)
         if (u.csrf_token) api.setCsrfToken(u.csrf_token)
+        if (u.tenant_slug && !api.tenantSlug()) {
+          api.setTenantSlug(u.tenant_slug)
+        }
         api.getSettings().then(s => setSettings(s || {})).catch(() => {})
       }
       setAuthChecked(true)
