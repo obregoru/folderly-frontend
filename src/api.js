@@ -68,7 +68,13 @@ export const uploadWatermark = (file) => {
 export const listJobs = () => fetch(api('/jobs'), { credentials: 'include' }).then(r => r.json())
 export const createJob = () => fetch(api('/jobs'), { method: 'POST', headers: h(), credentials: 'include', body: '{}' }).then(r => r.json())
 export const getJob = (id) => fetch(api(`/jobs/${id}`), { credentials: 'include' }).then(r => r.json())
-export const updateJob = (id, data) => fetch(api(`/jobs/${id}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
+export const updateJob = (id, data) =>
+  fetch(api(`/jobs/${id}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) })
+    .then(async r => {
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok || body?.error) throw new Error(body?.error || `updateJob failed (${r.status})`)
+      return body
+    })
 export const autoNameJob = (id) => fetch(api(`/jobs/${id}/auto-name`), { method: 'POST', headers: h(), credentials: 'include' }).then(r => r.json())
 export const deleteJob = (id) => fetch(api(`/jobs/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const duplicateJob = (id, opts = {}) => fetch(api(`/jobs/${id}/duplicate`), {

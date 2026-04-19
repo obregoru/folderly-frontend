@@ -13,6 +13,16 @@ export default function AiLogRow({ row, showJob = false }) {
   const dur = row.duration_ms != null ? `${Math.round(row.duration_ms)}ms` : ''
   const tokens = (row.tokens_in || row.tokens_out) ? `${row.tokens_in || 0}→${row.tokens_out || 0}` : ''
   const copy = (text) => { try { navigator.clipboard.writeText(text || '') } catch {} }
+  // Pull out flags the user cares about at a glance — these come from
+  // per-endpoint metadata (critique_chars, has_voiceover_script, etc.)
+  const md = row.metadata || {}
+  const critiqueChars = Number(md.critique_chars) || 0
+  const badges = [
+    critiqueChars > 0 ? { label: `🎯 critique (${critiqueChars})`, bg: '#fef3c7', fg: '#92400e', border: '#d97706' } : null,
+    md.has_voiceover_script ? { label: 'VO ctx', bg: '#f3f0ff', fg: '#6C5CE7', border: '#6C5CE7' } : null,
+    md.has_captions_script ? { label: 'CC ctx', bg: '#f0faf4', fg: '#2D9A5E', border: '#2D9A5E' } : null,
+    md.off_topic ? { label: 'off-topic', bg: '#fdeaea', fg: '#c0392b', border: '#c0392b' } : null,
+  ].filter(Boolean)
 
   return (
     <div className={`border rounded bg-white ${row.error ? 'border-[#c0392b]/30' : 'border-[#e5e5e5]'}`}>
@@ -29,6 +39,17 @@ export default function AiLogRow({ row, showJob = false }) {
         </div>
         {showJob && row.job_name && (
           <div className="text-[9px] text-[#6C5CE7] mt-0.5 truncate">→ {row.job_name}</div>
+        )}
+        {badges.length > 0 && (
+          <div className="flex items-center gap-1 mt-1 flex-wrap">
+            {badges.map((b, i) => (
+              <span
+                key={i}
+                className="text-[9px] rounded-full px-1.5 py-0.5 border"
+                style={{ background: b.bg, color: b.fg, borderColor: b.border + '66' }}
+              >{b.label}</span>
+            ))}
+          </div>
         )}
         <div className="text-[9px] text-muted mt-0.5 line-clamp-1 font-mono">
           {row.error ? `ERR: ${row.error.slice(0, 140)}` : preview}

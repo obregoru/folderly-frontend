@@ -74,6 +74,16 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
     try {
       const platforms = scope === 'current' ? [active] : PLATFORMS.map(p => p.key)
       const useCritique = scope === 'critique'
+      // Always pull fresh job state right before a critique run so the
+      // critique text the user just saved in Hints is guaranteed to be
+      // included. Cheap fetch; avoids "I saved it but regen didn't see it."
+      let fresh = job
+      if (useCritique) {
+        try {
+          fresh = await api.getJob(draftId)
+          setJob(fresh)
+        } catch (e) { console.warn('[PostTextV2] refresh before critique failed:', e.message) }
+      }
       const isImg = (f0Live?.file?.type || f0Live?._mediaType || firstFile?.media_type || '').startsWith('image/')
       const uploadUuid = f0Live?.uploadResult?.uuid || f0Live?.uploadResult?.id || firstFile?.upload_uuid || null
 
@@ -95,9 +105,11 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
         .map(c => `[${fmtTs(Number(c.startTime) || 0)}]${c.text.trim()}`)
 
-      // Per-job voice overrides beat tenant defaults when set.
-      const jobVoice = job?.generation_rules?.voice || {}
-      const jobOffTopic = !!job?.generation_rules?.off_topic
+      // Per-job voice overrides beat tenant defaults when set. Use `fresh`
+      // (just-refreshed for critique runs) so the latest tuning applies.
+      const ctxJob = fresh || job
+      const jobVoice = ctxJob?.generation_rules?.voice || {}
+      const jobOffTopic = !!ctxJob?.generation_rules?.off_topic
 
       const body = {
         filename: f0Live?.file?.name || f0Live?._filename || firstFile?.filename || 'file',
@@ -115,7 +127,11 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         user_hint: hint || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,
-        second_opinion: useCritique ? (job?.second_opinion || '') : undefined,
+        second_opinion: useCritique ? (ctxJob?.second_opinion || '') : undefined,
+      }
+      if (useCritique && !body.second_opinion) {
+        setGenErr('No critique saved on this draft — paste one in Hints → Second opinion first.')
+        setGenerating(null); return
       }
       if (isImg && f0Live?.file) {
         body.base64 = await toBase64(f0Live.file)
