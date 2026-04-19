@@ -169,6 +169,7 @@ function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, j
             try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
           }}
           onSaveTrim={item => jobSync.saveFileTrim?.(item)}
+          onSaveMotion={item => jobSync.saveFilePhotoMotion?.(item)}
         />
       )}
     </div>

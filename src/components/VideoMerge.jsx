@@ -54,7 +54,7 @@ function SortableClipRow({ id, children }) {
  * Lets users reorder clips, pick a transition, and merge into a single MP4.
  * The merged result becomes a virtual file item that the post flow can use.
  */
-export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl, onSaveTrim }) {
+export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl, onSaveTrim, onSaveMotion }) {
   // The merge list now uses the natural order of videoFiles so reordering here
   // flows back to the file grid + voiceover preview. onReorder(fromIdx, toIdx)
   // is implemented by App.jsx and persists the new order to the server.
@@ -500,20 +500,34 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                     </div>
                       </div>
                       {/* Line 3 (photo rows only): full-width duration
-                          slider so the trim control is unmistakable. */}
+                          slider + Ken Burns motion picker. */}
                       {itemIsPhoto && (
-                        <PhotoDurationControl
-                          item={item}
-                          onInvalidateMerge={() => {
-                            if (mergedUrl) {
-                              try { URL.revokeObjectURL(mergedUrl) } catch {}
-                              setMergedUrl(null)
-                              mergedBlobRef.current = null
-                              window._postyMergedVideo = null
-                            }
-                          }}
-                          onSaveTrim={onSaveTrim}
-                        />
+                        <div className="space-y-1 mt-0.5">
+                          <PhotoDurationControl
+                            item={item}
+                            onInvalidateMerge={() => {
+                              if (mergedUrl) {
+                                try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                setMergedUrl(null)
+                                mergedBlobRef.current = null
+                                window._postyMergedVideo = null
+                              }
+                            }}
+                            onSaveTrim={onSaveTrim}
+                          />
+                          <PhotoMotionControl
+                            item={item}
+                            onInvalidateMerge={() => {
+                              if (mergedUrl) {
+                                try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                setMergedUrl(null)
+                                mergedBlobRef.current = null
+                                window._postyMergedVideo = null
+                              }
+                            }}
+                            onSaveMotion={onSaveMotion}
+                          />
+                        </div>
                       )}
                     </div>
                   </div>
@@ -677,6 +691,52 @@ function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
         className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-12 text-right px-1 py-0.5"
       />
       <span className="text-[10px] text-[#6C5CE7] font-medium">s</span>
+    </label>
+  )
+}
+
+/**
+ * Ken Burns motion picker for a still photo. Available modes match what
+ * the backend's photoToVideo helper accepts:
+ *   static, zoom-in, zoom-out, pan-lr, pan-rl,
+ *   pan-lr-zoom-in, pan-lr-zoom-out, pan-rl-zoom-in, pan-rl-zoom-out
+ *
+ * Default 'zoom-in' — most-used mode, same as the backend default when
+ * photo_to_video_motion is unset. Writes to item._photoMotion and
+ * persists via onSaveMotion → job_files.photo_to_video_motion.
+ */
+const MOTION_OPTIONS = [
+  { v: 'zoom-in',          label: '🔍 Zoom in' },
+  { v: 'zoom-out',         label: '🔍 Zoom out' },
+  { v: 'pan-lr',           label: '← → Pan L→R' },
+  { v: 'pan-rl',           label: '← → Pan R→L' },
+  { v: 'pan-lr-zoom-in',   label: '← → Pan + zoom in (L→R)' },
+  { v: 'pan-lr-zoom-out',  label: '← → Pan + zoom out (L→R)' },
+  { v: 'pan-rl-zoom-in',   label: '← → Pan + zoom in (R→L)' },
+  { v: 'pan-rl-zoom-out',  label: '← → Pan + zoom out (R→L)' },
+  { v: 'static',           label: '⏸ Still (no motion)' },
+]
+
+function PhotoMotionControl({ item, onInvalidateMerge, onSaveMotion }) {
+  const current = item._photoMotion || 'zoom-in'
+  return (
+    <label
+      className="flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1"
+      title="How the photo moves during its time on screen (Ken Burns effect). Only applies when the photo is part of a video merge."
+    >
+      <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap">Motion</span>
+      <select
+        value={current}
+        onChange={e => {
+          const next = e.target.value
+          item._photoMotion = next
+          onInvalidateMerge?.()
+          onSaveMotion?.(item)
+        }}
+        className="flex-1 min-w-0 text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white px-1 py-0.5"
+      >
+        {MOTION_OPTIONS.map(m => <option key={m.v} value={m.v}>{m.label}</option>)}
+      </select>
     </label>
   )
 }

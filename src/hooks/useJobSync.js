@@ -176,6 +176,24 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Save Ken Burns motion for a still photo. Used when the photo is part
+  // of a video merge (photo-to-video-segment). Column already exists on
+  // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
+  const saveFilePhotoMotion = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        photo_to_video: true,
+        photo_to_video_motion: file._photoMotion || 'zoom-in',
+        photo_to_video_duration: Number(file._trimEnd) > 0 ? Number(file._trimEnd) : 5,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save photo motion failed:', e.message)
+    }
+  }, [])
+
   // Save captions for a file
   const saveFileCaptions = useCallback(async (file) => {
     const id = jobIdRef.current
@@ -336,6 +354,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _trimStart: f.trim_start || 0,
             _trimEnd: f.trim_end ?? null,
             _speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
+            _photoMotion: f.photo_to_video_motion || null,
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
@@ -481,6 +500,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileToJob,
     saveFileTrim,
     saveFileSpeed,
+    saveFilePhotoMotion,
     saveFileTrimThumbs,
     saveFileCaptions,
     deleteFileFromJob,
