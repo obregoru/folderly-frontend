@@ -99,8 +99,17 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       setOvPostingStyle(ov.posting_style || '')
       setOvSeoKeywords(ov.seo_keywords || '')
       setOvHashtagsAll(ov.default_hashtags_all || '')
-      // If an opening hook is already on the overlay, show it as "applied"
-      if (job?.overlay_settings?.openingText) {
+      // Hydrate saved hook-section state (toggle, picker values, generated
+      // options, which one was applied) so everything comes back on reload.
+      const hk = job?.generation_rules?.hooks || {}
+      setHookOn(!!hk.enabled)
+      if (hk.category) setHookCategory(hk.category)
+      if (hk.count) setHookCount(Number(hk.count) || 4)
+      if (typeof hk.hint === 'string') setHookHint(hk.hint)
+      if (Array.isArray(hk.options) && hk.options.length > 0) setHookOptions(hk.options)
+      if (hk.selected && (hk.selected.text || typeof hk.selected === 'string')) {
+        setHookAppliedTo({ text: hk.selected.text || hk.selected, from: 'saved' })
+      } else if (job?.overlay_settings?.openingText) {
         setHookAppliedTo({ text: job.overlay_settings.openingText, from: 'existing' })
       }
     }).catch(() => {})
@@ -140,12 +149,27 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
   }
 
   // Merge-preserving save of the whole generation_rules blob so voice,
-  // off_topic, and overrides don't clobber each other.
+  // off_topic, overrides, and hooks don't clobber each other.
   const saveGenerationRules = async (patch) => {
+    if (!draftId) return
     const existingJob = await api.getJob(draftId)
     const existing = existingJob?.generation_rules || {}
     const next = { ...existing, ...patch }
     await api.updateJob(draftId, { generation_rules: next })
+  }
+
+  // Save just the hooks sub-object, preserving other keys on it.
+  const saveHooks = async (partial) => {
+    if (!draftId) return
+    try {
+      const existingJob = await api.getJob(draftId)
+      const existing = existingJob?.generation_rules || {}
+      const currentHooks = existing.hooks || {}
+      const nextHooks = { ...currentHooks, ...partial }
+      await api.updateJob(draftId, { generation_rules: { ...existing, hooks: nextHooks } })
+    } catch (e) {
+      console.warn('[HintsPanelV2] saveHooks failed:', e.message)
+    }
   }
 
   const saveVoice = async () => {
@@ -197,7 +221,16 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       if (r?.error) throw new Error(r.error)
       // Endpoint shape varies; normalize to [{text, family?, reason?}]
       const opts = Array.isArray(r?.options) ? r.options : Array.isArray(r) ? r : []
-      setHookOptions(opts.map(o => typeof o === 'string' ? { text: o } : o))
+      const normalized = opts.map(o => typeof o === 'string' ? { text: o } : o)
+      setHookOptions(normalized)
+      // Persist the generated options so a reload brings them back.
+      saveHooks({
+        enabled: true,
+        category: hookCategory || null,
+        count: Number(hookCount) || 4,
+        hint: hookHint || '',
+        options: normalized,
+      })
     } catch (e) {
       setHookErr(e.message || String(e))
     } finally {
@@ -228,9 +261,30 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
         }
       } catch {}
       setHookAppliedTo({ text, from: 'just-applied' })
+      // Persist which option was selected so reload shows "applied as opening".
+      saveHooks({ selected: typeof opt === 'string' ? { text: opt } : opt })
     } catch (e) {
       alert('Apply failed: ' + e.message)
     }
+  }
+
+  // Persist the toggle + picker state whenever it changes. No debounce —
+  // these are single taps / selects, and updateJob is a cheap PUT.
+  const toggleHookOn = (on) => {
+    setHookOn(on)
+    saveHooks({ enabled: on })
+  }
+  const changeHookCategory = (cat) => {
+    setHookCategory(cat)
+    saveHooks({ category: cat || null })
+  }
+  const changeHookCount = (n) => {
+    setHookCount(n)
+    saveHooks({ count: n })
+  }
+  const commitHookHint = () => {
+    // Called on blur — avoid per-keystroke saves for a text field.
+    saveHooks({ hint: hookHint || '' })
   }
 
   return (
@@ -410,7 +464,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       {/* --- Hook generator ------------------------------------------------ */}
       <div className="border-t border-[#e5e5e5] pt-3">
         <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={hookOn} onChange={e => setHookOn(e.target.checked)} />
+          <input type="checkbox" checked={hookOn} onChange={e => toggleHookOn(e.target.checked)} />
           <span className="text-[12px] font-medium">This video needs a scroll-stopping hook</span>
         </label>
         <div className="text-[10px] text-muted mt-1 ml-6">
@@ -425,7 +479,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
               <label className="text-[10px] text-muted">Category</label>
               <select
                 value={hookCategory}
-                onChange={e => setHookCategory(e.target.value)}
+                onChange={e => changeHookCategory(e.target.value)}
                 className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white"
               >
                 <option value="">— auto (let AI decide) —</option>
@@ -438,7 +492,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
               <label className="text-[10px] text-muted">Options</label>
               <select
                 value={hookCount}
-                onChange={e => setHookCount(Number(e.target.value))}
+                onChange={e => changeHookCount(Number(e.target.value))}
                 className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white"
               >
                 <option value={3}>3 options</option>
@@ -454,6 +508,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
               type="text"
               value={hookHint}
               onChange={e => setHookHint(e.target.value)}
+              onBlur={commitHookHint}
               placeholder="e.g. curiosity gap, POV-style, contrarian claim…"
               className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white"
             />
