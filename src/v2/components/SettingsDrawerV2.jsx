@@ -119,7 +119,15 @@ export default function SettingsDrawerV2({ open, onClose, settings: settingsProp
             <PostingDefaultsForm settings={settings} onSaved={refresh} />
           </SectionCard>
 
-          <PlaceholderRow icon="🔗" label="Platform connections" desc="OAuth for TikTok / IG / FB / YT / GBP / Pinterest" />
+          <SectionCard
+            icon="🔗" label="Platform connections"
+            open={expanded === 'connections'}
+            onToggle={() => toggle('connections')}
+            desc="OAuth + credentials for FB/IG, TikTok, YouTube, GBP, Pinterest, X, WordPress"
+          >
+            <ConnectionsForm settings={settings} onRefresh={refresh} />
+          </SectionCard>
+
           <PlaceholderRow icon="🖼️" label="Watermark" desc="Upload + toggle watermark burned into finals" />
           <PlaceholderRow icon="📅" label="Notifications" desc="Email for scheduled-post reminders" />
         </div>
@@ -605,6 +613,340 @@ function PostingDefaultsForm({ settings, onSaved }) {
       </Field>
 
       <SaveRow saving={saving} msg={msg} err={err} onSave={save} />
+    </div>
+  )
+}
+
+// --- Platform connections ------------------------------------------------
+
+function ConnectionsForm({ settings, onRefresh }) {
+  return (
+    <div className="space-y-2">
+      <FacebookConnectRow settings={settings} onRefresh={onRefresh} />
+      <GoogleConnectRow settings={settings} onRefresh={onRefresh} />
+      <YouTubeConnectRow settings={settings} onRefresh={onRefresh} />
+      <PinterestConnectRow settings={settings} onRefresh={onRefresh} />
+      <TikTokConnectRow settings={settings} onRefresh={onRefresh} />
+      <TwitterConnectRow settings={settings} onRefresh={onRefresh} />
+      <WordPressConnectRow settings={settings} onRefresh={onRefresh} />
+    </div>
+  )
+}
+
+function ConnectCard({ icon, label, connected, connectedAs, connectedAt, appMissing, appMissingNote, children, onConnect, onDisconnect, busy }) {
+  return (
+    <div className={`border rounded p-2 space-y-1.5 ${connected ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded bg-[#6C5CE7]/10 flex items-center justify-center text-[12px] font-bold text-[#6C5CE7] flex-shrink-0">{icon}</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] font-medium truncate">{label}</div>
+          <div className="text-[9px] text-muted truncate">
+            {connected
+              ? (connectedAs || 'connected') + (connectedAt ? ` · ${new Date(connectedAt).toLocaleDateString()}` : '')
+              : (appMissing ? (appMissingNote || 'Admin must set up app credentials first.') : 'not connected')}
+          </div>
+        </div>
+        {connected ? (
+          <button
+            onClick={onDisconnect}
+            disabled={busy}
+            className="text-[9px] py-0.5 px-2 border border-[#c0392b]/40 text-[#c0392b] bg-white rounded cursor-pointer disabled:opacity-50"
+          >{busy ? '…' : 'Disconnect'}</button>
+        ) : onConnect ? (
+          <button
+            onClick={onConnect}
+            disabled={busy || appMissing}
+            className="text-[9px] py-0.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          >{busy ? '…' : 'Connect'}</button>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function useConnectHandlers({ start, disconnect, onRefresh }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+  const handleConnect = async () => {
+    setBusy(true); setErr(null)
+    try {
+      const r = await start()
+      if (r?.error) throw new Error(r.error)
+      if (r?.url) { window.location.href = r.url; return }
+      throw new Error('No redirect URL returned.')
+    } catch (e) { setErr(e.message || String(e)); setBusy(false) }
+  }
+  const handleDisconnect = async () => {
+    if (!confirm('Disconnect this account?')) return
+    setBusy(true); setErr(null)
+    try {
+      await disconnect()
+      onRefresh?.()
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setBusy(false) }
+  }
+  return { busy, err, handleConnect, handleDisconnect }
+}
+
+function FacebookConnectRow({ settings, onRefresh }) {
+  const { busy, err, handleConnect, handleDisconnect } = useConnectHandlers({
+    start: api.startFbConnect, disconnect: api.disconnectFb, onRefresh,
+  })
+  const fbLabel = [settings.fb_page_name, settings.ig_username && `+ IG @${settings.ig_username}`].filter(Boolean).join(' ')
+  return (
+    <>
+      <ConnectCard
+        icon="FB" label="Facebook + Instagram"
+        connected={!!settings.fb_connected}
+        connectedAs={fbLabel}
+        connectedAt={settings.fb_connected_at}
+        appMissing={!settings.fb_app_configured}
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        busy={busy}
+      />
+      {err && <div className="text-[10px] text-[#c0392b] px-1">{err}</div>}
+    </>
+  )
+}
+
+function GoogleConnectRow({ settings, onRefresh }) {
+  const { busy, err, handleConnect, handleDisconnect } = useConnectHandlers({
+    start: api.startGoogleConnect, disconnect: api.disconnectGoogle, onRefresh,
+  })
+  return (
+    <>
+      <ConnectCard
+        icon="GBP" label="Google Business Profile"
+        connected={!!settings.google_connected}
+        connectedAs={settings.google_location_name}
+        connectedAt={settings.google_connected_at}
+        appMissing={!settings.google_app_configured}
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        busy={busy}
+      />
+      {err && <div className="text-[10px] text-[#c0392b] px-1">{err}</div>}
+    </>
+  )
+}
+
+function YouTubeConnectRow({ settings, onRefresh }) {
+  const { busy, err, handleConnect, handleDisconnect } = useConnectHandlers({
+    start: api.startYoutubeConnect, disconnect: api.disconnectYoutube, onRefresh,
+  })
+  return (
+    <>
+      <ConnectCard
+        icon="YT" label="YouTube"
+        connected={!!settings.youtube_connected}
+        connectedAs={settings.youtube_channel_name}
+        connectedAt={settings.youtube_connected_at}
+        appMissing={!settings.youtube_app_configured}
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        busy={busy}
+      />
+      {err && <div className="text-[10px] text-[#c0392b] px-1">{err}</div>}
+    </>
+  )
+}
+
+function PinterestConnectRow({ settings, onRefresh }) {
+  const { busy, err, handleConnect, handleDisconnect } = useConnectHandlers({
+    start: api.startPinterestConnect, disconnect: api.disconnectPinterest, onRefresh,
+  })
+  return (
+    <>
+      <ConnectCard
+        icon="Pin" label="Pinterest"
+        connected={!!settings.pinterest_connected}
+        connectedAs={settings.pinterest_username ? `@${settings.pinterest_username}` : settings.pinterest_board_name}
+        connectedAt={settings.pinterest_connected_at}
+        appMissing={!settings.pinterest_app_configured}
+        onConnect={handleConnect}
+        onDisconnect={handleDisconnect}
+        busy={busy}
+      />
+      {err && <div className="text-[10px] text-[#c0392b] px-1">{err}</div>}
+    </>
+  )
+}
+
+function TikTokConnectRow({ settings, onRefresh }) {
+  const { busy, err, handleConnect, handleDisconnect } = useConnectHandlers({
+    start: api.startTiktokConnect, disconnect: api.disconnectTiktok, onRefresh,
+  })
+  const [showCreds, setShowCreds] = useState(false)
+  return (
+    <>
+      <ConnectCard
+        icon="TT" label="TikTok"
+        connected={!!settings.tiktok_connected}
+        connectedAs={settings.tiktok_username ? `@${settings.tiktok_username}` : null}
+        connectedAt={settings.tiktok_connected_at}
+        appMissing={!settings.tiktok_app_configured}
+        appMissingNote="Add TikTok app credentials below, then Connect."
+        onConnect={settings.tiktok_app_configured ? handleConnect : null}
+        onDisconnect={handleDisconnect}
+        busy={busy}
+      >
+        {!settings.tiktok_connected && (
+          <button
+            onClick={() => setShowCreds(v => !v)}
+            className="text-[9px] text-[#6C5CE7] bg-transparent border-none cursor-pointer px-0"
+          >{showCreds ? 'Hide' : (settings.tiktok_app_configured ? 'Update app credentials' : '+ Add app credentials')}</button>
+        )}
+        {showCreds && <TikTokCredsForm onSaved={() => { setShowCreds(false); onRefresh?.() }} />}
+      </ConnectCard>
+      {err && <div className="text-[10px] text-[#c0392b] px-1">{err}</div>}
+    </>
+  )
+}
+
+function TikTokCredsForm({ onSaved }) {
+  const [clientKey, setClientKey] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+  const save = async () => {
+    if (!clientKey.trim() || !clientSecret.trim()) return
+    setSaving(true); setErr(null)
+    try {
+      const r = await api.saveTiktokCredentials(clientKey.trim(), clientSecret.trim())
+      if (r?.error) throw new Error(r.error)
+      onSaved?.()
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  return (
+    <div className="space-y-1.5 pt-1.5 mt-1.5 border-t border-[#e5e5e5]">
+      <input type="text" value={clientKey} onChange={e => setClientKey(e.target.value)} placeholder="TikTok client key" className={inp} />
+      <input type="password" value={clientSecret} onChange={e => setClientSecret(e.target.value)} placeholder="TikTok client secret" className={inp} />
+      <button onClick={save} disabled={saving} className="w-full text-[10px] py-1 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save credentials'}
+      </button>
+      {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
+    </div>
+  )
+}
+
+function TwitterConnectRow({ settings, onRefresh }) {
+  const { busy, err, handleConnect, handleDisconnect } = useConnectHandlers({
+    start: api.startTwitterConnect, disconnect: api.disconnectTwitter, onRefresh,
+  })
+  const [showCreds, setShowCreds] = useState(false)
+  return (
+    <>
+      <ConnectCard
+        icon="X" label="X / Twitter"
+        connected={!!settings.twitter_connected}
+        connectedAs={settings.twitter_username ? `@${settings.twitter_username}` : null}
+        connectedAt={settings.twitter_connected_at}
+        appMissing={!settings.twitter_app_configured}
+        appMissingNote="Add Twitter API credentials below, then Connect."
+        onConnect={settings.twitter_app_configured ? handleConnect : null}
+        onDisconnect={handleDisconnect}
+        busy={busy}
+      >
+        {!settings.twitter_connected && (
+          <button
+            onClick={() => setShowCreds(v => !v)}
+            className="text-[9px] text-[#6C5CE7] bg-transparent border-none cursor-pointer px-0"
+          >{showCreds ? 'Hide' : (settings.twitter_app_configured ? 'Update app credentials' : '+ Add app credentials')}</button>
+        )}
+        {showCreds && <TwitterCredsForm onSaved={() => { setShowCreds(false); onRefresh?.() }} />}
+      </ConnectCard>
+      {err && <div className="text-[10px] text-[#c0392b] px-1">{err}</div>}
+    </>
+  )
+}
+
+function TwitterCredsForm({ onSaved }) {
+  const [apiKey, setApiKey] = useState('')
+  const [apiSecret, setApiSecret] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+  const save = async () => {
+    if (!apiKey.trim() || !apiSecret.trim()) return
+    setSaving(true); setErr(null)
+    try {
+      const r = await api.saveTwitterCredentials(apiKey.trim(), apiSecret.trim())
+      if (r?.error) throw new Error(r.error)
+      onSaved?.()
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  return (
+    <div className="space-y-1.5 pt-1.5 mt-1.5 border-t border-[#e5e5e5]">
+      <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Twitter API key" className={inp} />
+      <input type="password" value={apiSecret} onChange={e => setApiSecret(e.target.value)} placeholder="Twitter API secret" className={inp} />
+      <button onClick={save} disabled={saving} className="w-full text-[10px] py-1 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save credentials'}
+      </button>
+      {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
+    </div>
+  )
+}
+
+function WordPressConnectRow({ settings, onRefresh }) {
+  const [siteUrl, setSiteUrl] = useState('')
+  const [username, setUsername] = useState('')
+  const [appPassword, setAppPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const connect = async () => {
+    if (!siteUrl.trim() || !username.trim() || !appPassword.trim()) return
+    setSaving(true); setErr(null)
+    try {
+      const r = await api.saveWpCredentials(siteUrl.trim(), username.trim(), appPassword.trim())
+      if (r?.error) throw new Error(r.error)
+      setSiteUrl(''); setUsername(''); setAppPassword('')
+      onRefresh?.()
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  const disconnect = async () => {
+    if (!confirm('Disconnect WordPress?')) return
+    setBusy(true)
+    try { await api.disconnectWp(); onRefresh?.() }
+    finally { setBusy(false) }
+  }
+  return (
+    <div className={`border rounded p-2 space-y-1.5 ${settings.wp_connected ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded bg-[#6C5CE7]/10 flex items-center justify-center text-[10px] font-bold text-[#6C5CE7] flex-shrink-0">WP</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] font-medium truncate">WordPress</div>
+          <div className="text-[9px] text-muted truncate">
+            {settings.wp_connected
+              ? `${settings.wp_username || 'connected'} · ${settings.wp_site_url || ''}`
+              : 'Uses site URL + username + Application Password (not regular password)'}
+          </div>
+        </div>
+        {settings.wp_connected && (
+          <button
+            onClick={disconnect}
+            disabled={busy}
+            className="text-[9px] py-0.5 px-2 border border-[#c0392b]/40 text-[#c0392b] bg-white rounded cursor-pointer disabled:opacity-50"
+          >{busy ? '…' : 'Disconnect'}</button>
+        )}
+      </div>
+      {!settings.wp_connected && (
+        <div className="space-y-1.5 pt-1 border-t border-[#e5e5e5]">
+          <input type="url" value={siteUrl} onChange={e => setSiteUrl(e.target.value)} placeholder="https://yoursite.com" className={inp} />
+          <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="WordPress username" className={inp} />
+          <input type="password" value={appPassword} onChange={e => setAppPassword(e.target.value)} placeholder="Application Password (not your login password)" className={inp} />
+          <button
+            onClick={connect}
+            disabled={saving || !siteUrl.trim() || !username.trim() || !appPassword.trim()}
+            className="w-full text-[10px] py-1 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          >{saving ? 'Saving…' : 'Connect'}</button>
+          {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
+        </div>
+      )}
     </div>
   )
 }
