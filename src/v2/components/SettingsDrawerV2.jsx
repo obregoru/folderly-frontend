@@ -128,8 +128,23 @@ export default function SettingsDrawerV2({ open, onClose, settings: settingsProp
             <ConnectionsForm settings={settings} onRefresh={refresh} />
           </SectionCard>
 
-          <PlaceholderRow icon="🖼️" label="Watermark" desc="Upload + toggle watermark burned into finals" />
-          <PlaceholderRow icon="📅" label="Notifications" desc="Email for scheduled-post reminders" />
+          <SectionCard
+            icon="🖼️" label="Watermark"
+            open={expanded === 'watermark'}
+            onToggle={() => toggle('watermark')}
+            desc="Upload + toggle watermark burned into finals"
+          >
+            <WatermarkForm settings={settings} onSaved={refresh} />
+          </SectionCard>
+
+          <SectionCard
+            icon="📅" label="Notifications"
+            open={expanded === 'notifications'}
+            onToggle={() => toggle('notifications')}
+            desc="Email reminders before scheduled posts fire"
+          >
+            <NotificationsForm settings={settings} onSaved={refresh} />
+          </SectionCard>
         </div>
 
         <div>
@@ -947,6 +962,213 @@ function WordPressConnectRow({ settings, onRefresh }) {
           {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
         </div>
       )}
+    </div>
+  )
+}
+
+// --- Watermark -----------------------------------------------------------
+
+function WatermarkForm({ settings, onSaved }) {
+  const [enabled, setEnabled] = useState(!!settings.watermark_enabled)
+  const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [err, setErr] = useState(null)
+
+  useEffect(() => { setEnabled(!!settings.watermark_enabled) }, [settings.watermark_enabled])
+
+  const onFilePick = (f) => {
+    if (!f) { setFile(null); setPreview(null); return }
+    setFile(f); setPreview(URL.createObjectURL(f))
+  }
+  const saveToggle = async () => {
+    setSaving(true); setMsg(null); setErr(null)
+    try { await putSettings({ watermark_enabled: enabled }); setMsg('Saved.'); onSaved?.() }
+    catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  const upload = async () => {
+    if (!file) return
+    setUploading(true); setMsg(null); setErr(null)
+    try {
+      const r = await api.uploadWatermark(file)
+      if (r?.error) throw new Error(r.error)
+      setMsg('Uploaded. New watermark is active.')
+      setFile(null); if (preview) { try { URL.revokeObjectURL(preview) } catch {}; setPreview(null) }
+      onSaved?.()
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setUploading(false) }
+  }
+
+  const existing = settings.watermark_path
+  const existingUrl = existing
+    ? (existing.startsWith('http') ? existing : `/uploads/${existing}`)
+    : null
+
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+        <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
+        <span className="text-[11px] flex-1">Watermark enabled on final renders</span>
+      </label>
+      <SaveRow saving={saving} msg={msg} err={err} onSave={saveToggle} />
+
+      <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
+        <div className="text-[11px] font-medium">Watermark image</div>
+        {existingUrl && !preview && (
+          <div className="flex items-center gap-2 bg-[#fafafa] border border-[#e5e5e5] rounded p-2">
+            <img src={existingUrl} alt="current watermark" className="w-16 h-16 object-contain bg-white border border-[#e5e5e5] rounded" />
+            <div className="text-[10px] text-muted">Current watermark on file. Upload a new one below to replace.</div>
+          </div>
+        )}
+        {preview && (
+          <div className="flex items-center gap-2 bg-[#fafafa] border border-[#e5e5e5] rounded p-2">
+            <img src={preview} alt="new watermark preview" className="w-16 h-16 object-contain bg-white border border-[#e5e5e5] rounded" />
+            <div className="text-[10px] text-muted">Preview — click Upload to save.</div>
+          </div>
+        )}
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          onChange={e => onFilePick(e.target.files?.[0] || null)}
+          className="w-full text-[10px]"
+        />
+        <button
+          onClick={upload}
+          disabled={!file || uploading}
+          className="w-full text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+        >{uploading ? 'Uploading…' : 'Upload watermark'}</button>
+      </div>
+    </div>
+  )
+}
+
+// --- Notifications -------------------------------------------------------
+
+const EMAIL_PROVIDERS = ['smtp', 'sendgrid', 'resend']
+
+function NotificationsForm({ settings, onSaved }) {
+  const [form, setForm] = useState(() => ({
+    notify_enabled:        !!settings.notify_enabled,
+    notify_email:          settings.notify_email || '',
+    notify_minutes_before: Number(settings.notify_minutes_before) || 15,
+    email_provider:        settings.email_provider || 'resend',
+    smtp_host:             settings.smtp_host || '',
+    smtp_port:             settings.smtp_port || 587,
+    smtp_username:         settings.smtp_username || '',
+    smtp_password:         '',
+    smtp_from_email:       settings.smtp_from_email || '',
+    sendgrid_api_key:      '',
+    resend_api_key:        '',
+  }))
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [err, setErr] = useState(null)
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  const save = async () => {
+    setSaving(true); setMsg(null); setErr(null)
+    // Only send secret fields if user actually entered something — blank
+    // fields would wipe stored values.
+    const payload = { ...form }
+    if (!payload.smtp_password)    delete payload.smtp_password
+    if (!payload.sendgrid_api_key) delete payload.sendgrid_api_key
+    if (!payload.resend_api_key)   delete payload.resend_api_key
+    try {
+      await api.saveNotificationSettings(payload)
+      setMsg('Saved.')
+      onSaved?.()
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setSaving(false) }
+  }
+  const sendTest = async () => {
+    setTesting(true); setMsg(null); setErr(null)
+    try {
+      const r = await api.testNotificationEmail()
+      setMsg(r?.message || 'Test email sent.')
+    } catch (e) { setErr(e.message || String(e)) }
+    finally { setTesting(false) }
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+        <input type="checkbox" checked={form.notify_enabled} onChange={e => set('notify_enabled', e.target.checked)} />
+        <span className="text-[11px] flex-1">Email me before scheduled posts fire</span>
+      </label>
+
+      {form.notify_enabled && (
+        <>
+          <Field label="Notify this email">
+            <input type="email" value={form.notify_email} onChange={e => set('notify_email', e.target.value)} className={inp} />
+          </Field>
+          <Field label="Send how many minutes before">
+            <input type="number" min={0} max={1440} value={form.notify_minutes_before} onChange={e => set('notify_minutes_before', Number(e.target.value) || 0)} className={inp} />
+          </Field>
+
+          <Field label="Email provider">
+            <select value={form.email_provider} onChange={e => set('email_provider', e.target.value)} className={inp}>
+              {EMAIL_PROVIDERS.map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+            </select>
+          </Field>
+
+          {form.email_provider === 'smtp' && (
+            <div className="space-y-1.5 bg-[#fafafa] border border-[#e5e5e5] rounded p-2">
+              <div className="grid grid-cols-3 gap-1.5">
+                <div className="col-span-2">
+                  <Field label="SMTP host">
+                    <input type="text" value={form.smtp_host} onChange={e => set('smtp_host', e.target.value)} placeholder="smtp.example.com" className={inp} />
+                  </Field>
+                </div>
+                <Field label="Port">
+                  <input type="number" value={form.smtp_port} onChange={e => set('smtp_port', Number(e.target.value) || 0)} className={inp} />
+                </Field>
+              </div>
+              <Field label="Username">
+                <input type="text" value={form.smtp_username} onChange={e => set('smtp_username', e.target.value)} className={inp} />
+              </Field>
+              <Field label="Password" hint="Leave blank to keep current">
+                <input type="password" value={form.smtp_password} onChange={e => set('smtp_password', e.target.value)} placeholder="••••" className={inp} />
+              </Field>
+              <Field label="From email">
+                <input type="email" value={form.smtp_from_email} onChange={e => set('smtp_from_email', e.target.value)} placeholder="you@yourdomain.com" className={inp} />
+              </Field>
+            </div>
+          )}
+
+          {form.email_provider === 'sendgrid' && (
+            <Field label="SendGrid API key" hint="Leave blank to keep current">
+              <input type="password" value={form.sendgrid_api_key} onChange={e => set('sendgrid_api_key', e.target.value)} placeholder="••••" className={inp} />
+            </Field>
+          )}
+
+          {form.email_provider === 'resend' && (
+            <Field label="Resend API key" hint={settings.email_configured ? 'Leave blank to keep current' : 'Needed for notifications to actually send'}>
+              <input type="password" value={form.resend_api_key} onChange={e => set('resend_api_key', e.target.value)} placeholder="••••" className={inp} />
+            </Field>
+          )}
+        </>
+      )}
+
+      <div className="flex gap-1.5">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex-1 text-[11px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+        >{saving ? 'Saving…' : 'Save'}</button>
+        {settings.email_configured && form.notify_enabled && (
+          <button
+            onClick={sendTest}
+            disabled={testing}
+            className="flex-1 text-[11px] py-1.5 border border-[#2D9A5E] text-[#2D9A5E] bg-white rounded cursor-pointer disabled:opacity-50"
+          >{testing ? 'Sending…' : 'Send test email'}</button>
+        )}
+      </div>
+      {msg && <div className="text-[10px] text-[#2D9A5E]">{msg}</div>}
+      {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
     </div>
   )
 }
