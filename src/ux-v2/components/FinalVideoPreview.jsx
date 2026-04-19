@@ -5,7 +5,7 @@
  */
 export default function FinalVideoPreview({ hasMerge }) {
   return (
-    <div className="bg-black rounded-lg overflow-hidden relative aspect-[9/16] max-h-[70vh]">
+    <div className="bg-black rounded-lg overflow-hidden relative aspect-[9/16] max-h-[56vh] w-[80%] mx-auto">
       {hasMerge ? (
         <>
           {/* Simulated video poster */}
