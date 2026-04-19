@@ -25,6 +25,11 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
 
   // Timed segments: rehydrated from job.voiceover_settings.segments
   const [segments, setSegments] = useState([])
+  // Write-from-content flow state
+  const [scriptMode, setScriptMode] = useState('complement')
+  const [scriptLen, setScriptLen] = useState('medium')
+  const [writingScript, setWritingScript] = useState(false)
+  const [scriptErr, setScriptErr] = useState(null)
   const [segLoaded, setSegLoaded] = useState(false)
 
   const audioElRef = useRef(null)
@@ -288,6 +293,37 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       alert(`Segment generate failed: ${e.message}`)
     }
   }
+  // Write a VO script from the draft's hints + generated captions + visuals.
+  // Populates the primary text + replaces any existing timed segments with
+  // the AI's new ones. The user then edits freely + hits "Generate primary
+  // voice" / "Generate all missing" to produce audio.
+  const writeScriptFromContent = async () => {
+    if (!draftId) { setScriptErr('Open a draft first.'); return }
+    setScriptErr(null); setWritingScript(true)
+    try {
+      const r = await api.generateVoiceoverScript({
+        jobUuid: draftId,
+        mode: scriptMode,
+        segmentLength: scriptLen,
+      })
+      if (r?.error) throw new Error(r.error)
+      if (typeof r?.primary !== 'string') throw new Error('AI returned no primary')
+      setText(r.primary)
+      const segs = Array.isArray(r.segments) ? r.segments : []
+      setSegments(segs.map(s => ({
+        id: nextSegId(),
+        text: s.text || '',
+        startTime: Number(s.startTime) || 0,
+        voiceId: voiceId || '',
+        audioKey: null, audioUrl: null, generating: false,
+      })))
+    } catch (e) {
+      setScriptErr(e.message || String(e))
+    } finally {
+      setWritingScript(false)
+    }
+  }
+
   const generateAllMissing = async () => {
     const pending = segments.filter(s => s.text?.trim() && !s.audioUrl)
     for (const s of pending) await generateSegment(s)
@@ -497,10 +533,39 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
               ))}
             </select>
           </div>
+
+          {/* Write-from-content helper: pulls hints + generated captions +
+              visuals and writes a VO script you can edit. */}
+          <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 space-y-1.5">
+            <div className="text-[11px] font-medium">Write script from content</div>
+            <div className="text-[10px] text-muted">
+              AI uses this draft's hints + already-generated captions + video visuals to write a voiceover script you can edit or record over. Type your own below if you'd rather start from scratch.
+            </div>
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <label className="text-muted">Angle:</label>
+              <select value={scriptMode} onChange={e => setScriptMode(e.target.value)} className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white">
+                <option value="complement">Complement captions</option>
+                <option value="contrarian">Different angle</option>
+              </select>
+              <label className="text-muted ml-1">Length:</label>
+              <select value={scriptLen} onChange={e => setScriptLen(e.target.value)} className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white">
+                <option value="short">Short</option>
+                <option value="medium">Medium</option>
+                <option value="long">Long</option>
+              </select>
+            </div>
+            <button
+              onClick={writeScriptFromContent}
+              disabled={writingScript}
+              className="w-full py-1.5 bg-[#6C5CE7] text-white text-[10px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
+            >{writingScript ? 'Writing…' : '✨ Write VO script from content'}</button>
+            {scriptErr && <div className="text-[10px] text-[#c0392b]">{scriptErr}</div>}
+          </div>
+
           <textarea
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder="Type what the voiceover should say (plays from t=0)…"
+            placeholder="Type what the voiceover should say (plays from t=0), or click Write script from content above."
             rows={5}
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[100px]"
           />
@@ -508,7 +573,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             onClick={generate}
             disabled={generating || !text.trim() || !voiceId}
             className="w-full py-2 bg-[#6C5CE7] text-white text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
-          >{generating ? 'Generating…' : 'Generate primary voice'}</button>
+          >{generating ? 'Generating…' : 'Generate primary voice (TTS)'}</button>
         </div>
       )}
 
