@@ -18,7 +18,10 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
     if (jobSync.refreshJobList) jobSync.refreshJobList()
   }, [])
 
-  const drafts = (jobSync.jobList || []).filter(j => j.status === 'draft' && (j.file_count > 0 || j.hint_text || j.job_name))
+  // Show every draft-status job, even brand-new/empty ones, so the user
+  // can see a draft the moment it's created (and so orphaned empties
+  // don't silently accumulate — they're visible and removable).
+  const drafts = (jobSync.jobList || []).filter(j => j.status === 'draft')
 
   const startRename = (j) => {
     setRenamingId(j.uuid)

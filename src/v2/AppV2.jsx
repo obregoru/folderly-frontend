@@ -69,7 +69,7 @@ export default function AppV2() {
   }, [activeDraftId, jobSync?.jobList])
 
   // File-list operations (defined after jobSync so they can reference it).
-  const addFiles = (fileList) => {
+  const addFiles = async (fileList) => {
     const picked = Array.from(fileList || [])
     if (picked.length === 0) return
     const entries = picked.map(f => ({
@@ -77,14 +77,42 @@ export default function AppV2() {
       file: f,
       isImg: f.type?.startsWith('image/'),
       parsed: { occasions: [], products: [], moments: [] },
-      status: null,
+      status: 'loading',
       captions: null,
       _previewUrl: URL.createObjectURL(f),
     }))
     setFiles(prev => [...prev, ...entries])
-    // TODO Phase 2+: eager upload + saveFileToJob to persist drafts
-    // before merge. For now the existing VideoMerge handles upload on
-    // the merge click.
+
+    // Eager upload — persist each file to the server immediately so draft
+    // survives tab close / refresh / crash. Uploads happen serially to
+    // avoid iOS memory pressure with large clips; parallelism can come
+    // later. Each upload creates/updates the job on the server, so the
+    // draft shows up in the list the moment anything is in flight.
+    const activeJobId = await jobSync.ensureJob()
+    if (!activeJobId) {
+      console.warn('[addFiles] ensureJob returned null — files will stay local-only')
+      // Mark them as errored so the user sees something's wrong
+      setFiles(prev => prev.map(f => entries.find(e => e.id === f.id) ? { ...f, status: 'error' } : f))
+      return
+    }
+
+    for (const item of entries) {
+      try {
+        const uploadResult = await api.uploadFile(item.file, '', null, item.parsed, null, activeJobId)
+        item.uploadResult = uploadResult
+        setFiles(prev => prev.map(f => f.id === item.id ? { ...f, uploadResult, status: 'done' } : f))
+        await jobSync.saveFileToJob({ ...item, uploadResult })
+      } catch (e) {
+        console.error('[addFiles] upload failed:', e.message)
+        setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'error' } : f))
+      }
+    }
+
+    // Refresh the jobs list so DraftsV2 + the editor header show the
+    // updated file_count / status for the active draft.
+    if (jobSync.refreshJobList) {
+      try { await jobSync.refreshJobList() } catch {}
+    }
   }
   const removeFile = (id) => {
     setFiles(prev => prev.filter(f => f.id !== id))
@@ -187,7 +215,12 @@ export default function AppV2() {
         {!inEditor && <div className="flex-1" />}
         {inEditor && (
           <>
-            {nameSaving && <span className="text-[9px] text-muted">saving…</span>}
+            <SaveStatus
+              jobSync={jobSync}
+              files={files}
+              nameSaving={nameSaving}
+              draftId={activeDraftId}
+            />
             {!nameDraft && (
               <button
                 onClick={runAutoName}
@@ -281,5 +314,44 @@ export default function AppV2() {
         onClose={() => setAiLogOpen(false)}
       />
     </div>
+  )
+}
+
+// Save status pill in the editor header. Shows "Uploading N…" while
+// files are in-flight, "Saving…" when the job itself is flushing, or
+// "✓ Saved". Click to force-flush pending saves + refresh the list so
+// the user never feels like something's in limbo.
+function SaveStatus({ jobSync, files, nameSaving, draftId }) {
+  const uploading = (files || []).filter(f => f.status === 'loading').length
+  const erroredUploads = (files || []).filter(f => f.status === 'error').length
+  const busy = uploading > 0 || !!jobSync?.savingJob || !!nameSaving
+  const [flushing, setFlushing] = useState(false)
+
+  const save = async () => {
+    if (!draftId || flushing) return
+    setFlushing(true)
+    try {
+      await jobSync?.flushPendingSave?.()
+      await jobSync?.refreshJobList?.()
+    } catch (e) {
+      console.warn('[SaveStatus] flush failed:', e.message)
+    } finally {
+      setFlushing(false)
+    }
+  }
+
+  let label = '✓ Saved'
+  let cls = 'text-[#2D9A5E] border-[#2D9A5E]/50 bg-white'
+  if (uploading > 0) { label = `Uploading ${uploading}…`; cls = 'text-[#d97706] border-[#d97706]/50 bg-[#fef3c7]' }
+  else if (busy || flushing) { label = 'Saving…'; cls = 'text-[#6C5CE7] border-[#6C5CE7]/50 bg-white' }
+  else if (erroredUploads > 0) { label = `${erroredUploads} failed`; cls = 'text-[#c0392b] border-[#c0392b]/50 bg-white' }
+
+  return (
+    <button
+      onClick={save}
+      disabled={flushing}
+      className={`text-[9px] border rounded py-0.5 px-2 cursor-pointer disabled:opacity-60 ${cls}`}
+      title={`${label} — click to force-save + refresh`}
+    >{label}</button>
   )
 }
