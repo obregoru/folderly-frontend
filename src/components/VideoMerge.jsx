@@ -341,43 +341,48 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                     ref={setNodeRef}
                     style={style}
                     {...attributes}
-                    className="flex items-center gap-2 bg-cream rounded px-2 py-1.5 text-[10px]"
+                    className="flex gap-2 bg-cream rounded px-2 py-1.5 text-[10px]"
                   >
                     {/* Drag handle — the ONLY element with drag listeners,
                         so taps on the rest of the row still work normally. */}
                     <span
                       {...handleListeners}
-                      className="text-muted hover:text-ink cursor-grab active:cursor-grabbing select-none text-[14px] leading-none px-0.5"
+                      className="text-muted hover:text-ink cursor-grab active:cursor-grabbing select-none text-[14px] leading-none px-0.5 flex items-center"
                       style={{ touchAction: 'none' }}
                       title="Drag to reorder"
                     >⋮⋮</span>
-                    <span className="text-muted font-medium w-4">{pos + 1}.</span>
                     {thumb ? (
                       <img
                         src={thumb}
                         alt=""
-                        className="w-7 h-10 object-cover rounded flex-shrink-0 border border-border"
+                        className="w-7 h-10 object-cover rounded flex-shrink-0 border border-border self-start"
                         style={{ objectFit: 'cover' }}
                       />
                     ) : (
-                      <div className="w-7 h-10 bg-[#e5e5e5] rounded flex-shrink-0 flex items-center justify-center text-[8px] text-muted" title="Thumbnail appears after video loads">—</div>
+                      <div className="w-7 h-10 bg-[#e5e5e5] rounded flex-shrink-0 flex items-center justify-center text-[8px] text-muted self-start" title="Thumbnail appears after video loads">—</div>
                     )}
-                    <span className="flex-1 truncate" title={displayName}>
-                      {displayName}
-                      {sizeLabel && <span className="text-muted ml-1">· {sizeLabel}</span>}
-                    </span>
-                    {outLen > 0 && (
-                      speed !== 1.0 ? (
-                        <span className="text-[9px] text-muted whitespace-nowrap" title={`Trim: ${trimLen.toFixed(1)}s · Output at ${speed}×: ${outLen.toFixed(1)}s`}>
-                          {trimLen.toFixed(1)}s → <b className="text-ink">{outLen.toFixed(1)}s</b>
-                        </span>
-                      ) : (
-                        <span className="text-[9px] text-muted whitespace-nowrap" title="Output length">{outLen.toFixed(1)}s</span>
-                      )
-                    )}
-                    {(ts > 0 || te != null) && (
-                      <span className="text-[9px] text-[#d97706]">trimmed</span>
-                    )}
+                    <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                      {/* Line 1 — always visible filename with position prefix */}
+                      <div className="text-[11px] font-medium text-ink truncate" title={displayName}>
+                        <span className="text-muted mr-1">{pos + 1}.</span>
+                        {displayName}
+                      </div>
+                      {/* Line 2 — meta + controls */}
+                      <div className="flex items-center gap-1.5 flex-wrap text-[9px] text-muted">
+                        {outLen > 0 && (
+                          speed !== 1.0 ? (
+                            <span className="whitespace-nowrap" title={`Trim: ${trimLen.toFixed(1)}s · Output at ${speed}×: ${outLen.toFixed(1)}s`}>
+                              {trimLen.toFixed(1)}s → <b className="text-ink">{outLen.toFixed(1)}s</b>
+                            </span>
+                          ) : (
+                            <span className="whitespace-nowrap" title="Output length">{outLen.toFixed(1)}s</span>
+                          )
+                        )}
+                        {sizeLabel && <span className="text-muted">· {sizeLabel}</span>}
+                        {(ts > 0 || te != null) && (
+                          <span className="text-[#d97706]">trimmed</span>
+                        )}
+                        <div className="flex-1" />
                     {/* Speed dropdown — native <select> for one-tap mobile. */}
                     <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
                       <span className="text-[9px] text-muted">Speed:</span>
@@ -420,6 +425,8 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                         disabled={pos === videoFiles.length - 1}
                         className="text-[10px] text-muted hover:text-ink disabled:opacity-30 bg-transparent border-none cursor-pointer px-1"
                       >&#9660;</button>
+                    </div>
+                      </div>
                     </div>
                   </div>
                     )}

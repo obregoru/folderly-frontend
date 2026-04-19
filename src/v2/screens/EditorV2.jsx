@@ -99,7 +99,7 @@ function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, j
       <Dropzone onFiles={(fileList) => addFiles(fileList)} />
 
       {files.length > 0 && (
-        <FileGrid files={files} onRemove={removeFile} VideoTrimmer={VideoTrimmer} />
+        <FileGrid files={files} onRemove={removeFile} onReorder={reorderFiles} VideoTrimmer={VideoTrimmer} />
       )}
 
       {videoFiles.length >= 2 && (

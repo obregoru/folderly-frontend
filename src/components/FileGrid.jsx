@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
+import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { sortableKeyboardCoordinates, SortableContext, arrayMove, useSortable, rectSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 function MediaLightbox({ item, onClose }) {
   const file = item.file
@@ -243,53 +246,127 @@ function ImageThumb({ file, onClick }) {
   )
 }
 
-export default function FileGrid({ files, onRemove, VideoTrimmer }) {
+// Each grid tile is a Sortable so user can drag-reorder photos. Order
+// matters for photo-carousel posts and photo-sourced Reels/Shorts where
+// the sequence becomes the video timeline. Videos don't need reorder
+// here — VideoMerge has its own sortable list for that — but the photo
+// case was missing entirely.
+function SortableTile({ item, children, enabled }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: !enabled })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : 0,
+    opacity: isDragging ? 0.7 : 1,
+  }
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      {typeof children === 'function' ? children({ dragHandle: listeners }) : children}
+    </div>
+  )
+}
+
+export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer }) {
   const [previewItem, setPreviewItem] = useState(null)
+
+  // Only put the sensors together when we actually have more than one
+  // orderable item; avoids pointer-sensor overhead for single-file drafts.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   if (!files.length) return null
 
   const hasVideos = files.some(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))
+  // Reorder for photo grids only. Videos already reorder in VideoMerge —
+  // adding it here would compete with trim-bar touches and break iOS.
+  const reorderEnabled = !!onReorder && !hasVideos && files.length > 1
+
+  const handleDragEnd = (e) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const from = files.findIndex(f => f.id === active.id)
+    const to   = files.findIndex(f => f.id === over.id)
+    if (from < 0 || to < 0) return
+    onReorder(from, to)
+  }
+
+  const sortableIds = files.map(f => f.id)
+
+  const grid = (
+    <div className={hasVideos ? "flex flex-col gap-2" : "grid gap-2"} style={hasVideos ? undefined : { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+      {files.map((item, i) => {
+        const isVideo = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
+        const isImg = item.isImg || item._mediaType?.startsWith('image/')
+        const fileName = item.file?.name || item._filename || 'Untitled'
+        const tile = ({ dragHandle } = {}) => (
+          <>
+            <div className="border border-border rounded-sm overflow-hidden bg-white relative">
+              {reorderEnabled && (
+                <span
+                  {...(dragHandle || {})}
+                  className="absolute top-1 left-1 z-[5] text-white bg-black/55 rounded text-[10px] leading-none px-1.5 py-1 cursor-grab active:cursor-grabbing select-none"
+                  style={{ touchAction: 'none' }}
+                  title="Drag to reorder"
+                >⋮⋮</span>
+              )}
+              {reorderEnabled && (
+                <span className="absolute bottom-6 left-1 z-[5] text-white bg-[#6C5CE7]/90 rounded-full text-[9px] font-bold w-[18px] h-[18px] flex items-center justify-center leading-none pointer-events-none">{i + 1}</span>
+              )}
+              {isImg && item.file ? (
+                <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
+              ) : isVideo && item.file ? (
+                <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
+              ) : item._restored && (item._publicUrl || item._uploadKey) ? (
+                <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} />
+              ) : (
+                <div
+                  onClick={() => setPreviewItem(item)}
+                  className="w-full h-[120px] bg-ink flex items-center justify-center text-white text-[22px] cursor-pointer hover:bg-[#333]"
+                >▶</div>
+              )}
+              <div className="text-[9px] text-muted py-1 px-1.5 whitespace-nowrap overflow-hidden text-ellipsis" title={fileName}>{fileName}</div>
+              <button
+                onClick={() => onRemove(item.id)}
+                className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-xs flex items-center justify-center cursor-pointer border-none z-[5]"
+              >&times;</button>
+              {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
+              {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
+              {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}
+            </div>
+            {/* Trim bar right under its video */}
+            {isVideo && VideoTrimmer && <VideoTrimmer item={item} />}
+          </>
+        )
+        return (
+          <SortableTile key={item.id} item={item} enabled={reorderEnabled}>
+            {reorderEnabled ? tile : tile()}
+          </SortableTile>
+        )
+      })}
+    </div>
+  )
 
   return (
     <>
       {previewItem && (
         <MediaLightbox item={previewItem} onClose={() => setPreviewItem(null)} />
       )}
-      <div className={hasVideos ? "flex flex-col gap-2" : "grid gap-2"} style={hasVideos ? undefined : { gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
-        {files.map(item => {
-          const isVideo = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
-          const isImg = item.isImg || item._mediaType?.startsWith('image/')
-          const fileName = item.file?.name || item._filename || 'Untitled'
-          return (
-          <div key={item.id}>
-          <div className="border border-border rounded-sm overflow-hidden bg-white relative">
-            {isImg && item.file ? (
-              <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
-            ) : isVideo && item.file ? (
-              <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
-            ) : item._restored && (item._publicUrl || item._uploadKey) ? (
-              <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} />
-            ) : (
-              <div
-                onClick={() => setPreviewItem(item)}
-                className="w-full h-[120px] bg-ink flex items-center justify-center text-white text-[22px] cursor-pointer hover:bg-[#333]"
-              >▶</div>
-            )}
-            <div className="text-[9px] text-muted py-1 px-1.5 whitespace-nowrap overflow-hidden text-ellipsis">{fileName}</div>
-            <button
-              onClick={() => onRemove(item.id)}
-              className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-xs flex items-center justify-center cursor-pointer border-none"
-            >&times;</button>
-            {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
-            {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
-            {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}
-          </div>
-          {/* Trim bar right under its video */}
-          {isVideo && VideoTrimmer && <VideoTrimmer item={item} />}
-          </div>
-          )
-        })}
-      </div>
+      {reorderEnabled && (
+        <div className="text-[10px] text-muted mb-1 flex items-center gap-1.5">
+          <span className="font-mono">⋮⋮</span>
+          <span>Drag tiles to reorder — this is the sequence for carousels and photo-to-video reels.</span>
+        </div>
+      )}
+      {reorderEnabled ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
+            {grid}
+          </SortableContext>
+        </DndContext>
+      ) : grid}
     </>
   )
 }
