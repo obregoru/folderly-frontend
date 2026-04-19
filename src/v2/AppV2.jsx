@@ -23,6 +23,7 @@ export default function AppV2() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
 
+
   // Mockup-style nav state
   const [mode, setMode] = useState('drafts')
   const [activeDraftId, setActiveDraftId] = useState(null)
@@ -48,6 +49,39 @@ export default function AppV2() {
 
   // Job persistence wiring — same hook the real app uses.
   const jobSync = useJobSync({ files, setFiles, userHint, setUserHint, settings })
+
+  // File-list operations (defined after jobSync so they can reference it).
+  const addFiles = (fileList) => {
+    const picked = Array.from(fileList || [])
+    if (picked.length === 0) return
+    const entries = picked.map(f => ({
+      id: Math.random().toString(36).slice(2),
+      file: f,
+      isImg: f.type?.startsWith('image/'),
+      parsed: { occasions: [], products: [], moments: [] },
+      status: null,
+      captions: null,
+      _previewUrl: URL.createObjectURL(f),
+    }))
+    setFiles(prev => [...prev, ...entries])
+    // TODO Phase 2+: eager upload + saveFileToJob to persist drafts
+    // before merge. For now the existing VideoMerge handles upload on
+    // the merge click.
+  }
+  const removeFile = (id) => {
+    setFiles(prev => prev.filter(f => f.id !== id))
+    jobSync.deleteFileFromJob?.(id)
+  }
+  const reorderFiles = (fromIdx, toIdx) => {
+    setFiles(prev => {
+      if (fromIdx < 0 || fromIdx >= prev.length || toIdx < 0 || toIdx >= prev.length || fromIdx === toIdx) return prev
+      const next = prev.slice()
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      jobSync.saveFileOrder?.(next)
+      return next
+    })
+  }
 
   if (!authChecked) {
     return (
@@ -101,7 +135,11 @@ export default function AppV2() {
             draftId={activeDraftId}
             jobSync={jobSync}
             files={files}
+            setFiles={setFiles}
             settings={settings}
+            addFiles={addFiles}
+            removeFile={removeFile}
+            reorderFiles={reorderFiles}
           />
         )}
         {mode === 'drafts' && !activeDraftId && (
