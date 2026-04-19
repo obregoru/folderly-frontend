@@ -63,6 +63,13 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
       storyFontOutlineWidth: Number(outlineWidth) || 3,
     }
     jobSync.saveOverlaySettings?.(payload)
+    // Broadcast to FinalPreviewV2 so the overlay preview updates live.
+    try {
+      if (typeof window !== 'undefined') {
+        window._postyOverlays = payload
+        window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: payload }))
+      }
+    } catch {}
     setSaved(true)
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
