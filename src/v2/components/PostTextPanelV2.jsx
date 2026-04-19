@@ -146,21 +146,82 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
   const isGenAll = generating === 'all'
   const anyGen = !!generating
 
+  const hasAnyCaption = Object.values(captions).some(v =>
+    typeof v === 'string' ? v.trim() : (v?.text || v?.description || v?.title)
+  )
+  const primaryLabel = hasAnyCaption
+    ? (isGenAll ? 'Regenerating everything…' : 'Regenerate everything (all 6)')
+    : (isGenAll ? 'Generating everything…' : 'Generate everything (all 6 platforms)')
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <div className="text-[12px] font-medium flex-1">Post text (per platform)</div>
-        {saving && <span className="text-[9px] text-muted">Saving…</span>}
+      {/* --- Primary action: generate. At the top because this is what the
+          user reaches for first on a new draft. Only filenames + visuals +
+          hints are required; voiceover and captions are optional context
+          layered in later. --- */}
+      <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded-lg p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[12px] font-medium flex-1">Generate post text</div>
+          {hint && <span className="text-[9px] text-muted">using Hints</span>}
+          {saving && <span className="text-[9px] text-muted">Saving…</span>}
+        </div>
+        <input
+          type="text"
+          value={hint}
+          onChange={e => setHint(e.target.value)}
+          onBlur={async () => {
+            if (!draftId) return
+            try { await api.updateJob(draftId, { hint_text: hint }) } catch (e) { console.warn('[PostTextV2] hint save failed:', e.message) }
+          }}
+          placeholder="Extra context for this generation (optional) — product, occasion, angle…"
+          className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white"
+        />
+        <button
+          onClick={() => generate('all')}
+          disabled={anyGen}
+          className="w-full text-[12px] py-2.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+        >
+          {primaryLabel}
+        </button>
+        <button
+          onClick={() => generate('current')}
+          disabled={anyGen}
+          className="w-full text-[10px] py-1.5 px-2 bg-transparent border border-[#6C5CE7]/40 text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+        >
+          {isGenCurrent ? 'Generating…' : `Just ${PLATFORMS.find(p => p.key === active)?.label}`}
+        </button>
+        {job?.second_opinion && (
+          <button
+            onClick={() => generate('critique')}
+            disabled={anyGen}
+            className="w-full text-[11px] py-2 px-2 bg-[#fef3c7] border border-[#d97706]/40 text-[#92400e] rounded cursor-pointer disabled:opacity-50 font-medium"
+            title={job.second_opinion.slice(0, 500)}
+          >
+            {generating === 'critique' ? 'Regenerating with critique…' : '🎯 Regenerate with critique from Hints'}
+          </button>
+        )}
+        <div className="text-[9px] text-muted italic">
+          AI sees: filename, cached visuals from your video/photos, the hint above, plus any voiceover / captions you've timed in. Voiceover and captions are optional — add them after a first pass if you want to tune the voice further.
+        </div>
+        {genErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">{genErr}</div>}
       </div>
 
+      {/* --- Per-platform editor below. --- */}
       <div className="flex items-center gap-1 overflow-x-auto border-b border-[#e5e5e5]">
-        {PLATFORMS.map(p => (
-          <button
-            key={p.key}
-            onClick={() => setActive(p.key)}
-            className={`text-[10px] py-1.5 px-2.5 border-none cursor-pointer whitespace-nowrap border-b-2 ${active === p.key ? 'border-[#6C5CE7] text-[#6C5CE7] font-medium' : 'border-transparent text-muted bg-transparent'}`}
-          >{p.label}</button>
-        ))}
+        {PLATFORMS.map(p => {
+          const has = captions[p.key]
+          const dot = has && (typeof has === 'string' ? has.trim() : (has?.text || has?.description))
+          return (
+            <button
+              key={p.key}
+              onClick={() => setActive(p.key)}
+              className={`text-[10px] py-1.5 px-2.5 border-none cursor-pointer whitespace-nowrap border-b-2 flex items-center gap-1 ${active === p.key ? 'border-[#6C5CE7] text-[#6C5CE7] font-medium' : 'border-transparent text-muted bg-transparent'}`}
+            >
+              {p.label}
+              {dot && <span className="w-1 h-1 rounded-full bg-[#2D9A5E]" />}
+            </button>
+          )
+        })}
       </div>
 
       <div className="space-y-2">
@@ -186,7 +247,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
             }
           }}
           onBlur={persistOnBlur}
-          placeholder={`${PLATFORMS.find(p => p.key === active)?.label} caption…`}
+          placeholder={`${PLATFORMS.find(p => p.key === active)?.label} caption — type here or use Generate above`}
           rows={8}
           className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[140px]"
         />
@@ -196,51 +257,6 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
           {active === 'tiktok' && <span className="ml-auto">TikTok cap: 2,200</span>}
           {active === 'instagram' && <span className="ml-auto">Instagram cap: 2,200</span>}
         </div>
-      </div>
-
-      <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
-        <div className="flex items-center gap-2">
-          <div className="text-[11px] font-medium flex-1">Generate with AI</div>
-          {hint && <span className="text-[9px] text-muted">using Hints</span>}
-        </div>
-        <input
-          type="text"
-          value={hint}
-          onChange={e => setHint(e.target.value)}
-          onBlur={async () => {
-            if (!draftId) return
-            try { await api.updateJob(draftId, { hint_text: hint }) } catch (e) { console.warn('[PostTextV2] hint save failed:', e.message) }
-          }}
-          placeholder="Extra context for this generation (optional) — product, occasion, angle…"
-          className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white"
-        />
-        <div className="flex gap-1.5">
-          <button
-            onClick={() => generate('current')}
-            disabled={anyGen}
-            className="flex-1 text-[10px] py-1.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-          >
-            {isGenCurrent ? 'Generating…' : `Generate ${PLATFORMS.find(p => p.key === active)?.label}`}
-          </button>
-          <button
-            onClick={() => generate('all')}
-            disabled={anyGen}
-            className="flex-1 text-[10px] py-1.5 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
-          >
-            {isGenAll ? 'Generating everything…' : 'Generate everything (all 6 platforms)'}
-          </button>
-        </div>
-        {job?.second_opinion && (
-          <button
-            onClick={() => generate('critique')}
-            disabled={anyGen}
-            className="w-full text-[11px] py-2 px-2 bg-[#fef3c7] border border-[#d97706]/40 text-[#92400e] rounded cursor-pointer disabled:opacity-50 font-medium"
-            title={job.second_opinion.slice(0, 500)}
-          >
-            {generating === 'critique' ? 'Regenerating with critique…' : '🎯 Regenerate everything with critique from Hints'}
-          </button>
-        )}
-        {genErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">{genErr}</div>}
       </div>
     </div>
   )
