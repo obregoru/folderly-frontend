@@ -56,6 +56,17 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voiceSaved, setVoiceSaved] = useState(false)
 
+  // Override tenant defaults (this draft only). All optional — blank
+  // means inherit. Stored under job.generation_rules.overrides.
+  const [ovOpen, setOvOpen] = useState(false)
+  const [ovKeyInsights, setOvKeyInsights] = useState('')
+  const [ovAudienceNotes, setOvAudienceNotes] = useState('')
+  const [ovPostingStyle, setOvPostingStyle] = useState('')
+  const [ovSeoKeywords, setOvSeoKeywords] = useState('')
+  const [ovHashtagsAll, setOvHashtagsAll] = useState('')
+  const [ovSaving, setOvSaving] = useState(false)
+  const [ovSaved, setOvSaved] = useState(false)
+
   // Hook generator state
   const [hookOn, setHookOn] = useState(false)
   const [hookCategories, setHookCategories] = useState([])
@@ -82,6 +93,12 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       setJobPov(voice.pov || '')
       setJobMarketing(voice.marketing_intensity || '')
       setJobOffTopic(!!job?.generation_rules?.off_topic)
+      const ov = job?.generation_rules?.overrides || {}
+      setOvKeyInsights(ov.key_insights || '')
+      setOvAudienceNotes(ov.audience_notes || '')
+      setOvPostingStyle(ov.posting_style || '')
+      setOvSeoKeywords(ov.seo_keywords || '')
+      setOvHashtagsAll(ov.default_hashtags_all || '')
       // If an opening hook is already on the overlay, show it as "applied"
       if (job?.overlay_settings?.openingText) {
         setHookAppliedTo({ text: job.overlay_settings.openingText, from: 'existing' })
@@ -122,6 +139,15 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
     try { await api.updateJob(draftId, { second_opinion: '' }) } catch {}
   }
 
+  // Merge-preserving save of the whole generation_rules blob so voice,
+  // off_topic, and overrides don't clobber each other.
+  const saveGenerationRules = async (patch) => {
+    const existingJob = await api.getJob(draftId)
+    const existing = existingJob?.generation_rules || {}
+    const next = { ...existing, ...patch }
+    await api.updateJob(draftId, { generation_rules: next })
+  }
+
   const saveVoice = async () => {
     setVoiceSaving(true)
     try {
@@ -129,14 +155,32 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       if (jobTone)      voice.tone = jobTone
       if (jobPov)       voice.pov = jobPov
       if (jobMarketing) voice.marketing_intensity = jobMarketing
-      const next = { voice, off_topic: !!jobOffTopic }
-      await api.updateJob(draftId, { generation_rules: next })
+      await saveGenerationRules({ voice, off_topic: !!jobOffTopic })
       setVoiceSaved(true)
       setTimeout(() => setVoiceSaved(false), 2000)
     } catch (e) {
       alert('Save failed: ' + e.message)
     } finally {
       setVoiceSaving(false)
+    }
+  }
+
+  const saveOverrides = async () => {
+    setOvSaving(true)
+    try {
+      const overrides = {}
+      if (ovKeyInsights.trim())   overrides.key_insights = ovKeyInsights
+      if (ovAudienceNotes.trim()) overrides.audience_notes = ovAudienceNotes
+      if (ovPostingStyle.trim())  overrides.posting_style = ovPostingStyle
+      if (ovSeoKeywords.trim())   overrides.seo_keywords = ovSeoKeywords
+      if (ovHashtagsAll.trim())   overrides.default_hashtags_all = ovHashtagsAll
+      await saveGenerationRules({ overrides })
+      setOvSaved(true)
+      setTimeout(() => setOvSaved(false), 2000)
+    } catch (e) {
+      alert('Save failed: ' + e.message)
+    } finally {
+      setOvSaving(false)
     }
   }
 
@@ -255,6 +299,76 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
           disabled={voiceSaving}
           className={`w-full py-1.5 text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50 ${voiceSaved ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
         >{voiceSaving ? 'Saving…' : (voiceSaved ? '✓ Saved' : 'Save voice for this draft')}</button>
+      </div>
+
+      {/* --- Override tenant defaults for this draft --- */}
+      <div className="border-t border-[#e5e5e5] pt-3">
+        <button
+          onClick={() => setOvOpen(v => !v)}
+          className="w-full flex items-center gap-2 bg-transparent border-none cursor-pointer p-0 text-left"
+        >
+          <div className="text-[12px] font-medium flex-1">Override defaults (this draft)</div>
+          {(ovKeyInsights || ovAudienceNotes || ovPostingStyle || ovSeoKeywords || ovHashtagsAll) && (
+            <span className="text-[9px] bg-[#6C5CE7]/10 text-[#6C5CE7] border border-[#6C5CE7]/30 rounded-full px-2 py-0.5">override on</span>
+          )}
+          <span className="text-[12px] text-muted">{ovOpen ? '▾' : '▸'}</span>
+        </button>
+        <div className="text-[10px] text-muted mt-1">
+          Tune tenant-level fields just for this draft. Blank = inherit from tenant settings.
+        </div>
+
+        {ovOpen && (
+          <div className="space-y-2 mt-2">
+            <OverrideField
+              label="Key insights"
+              value={ovKeyInsights}
+              onChange={setOvKeyInsights}
+              tenantValue={settings?.key_insights}
+              placeholder="What's the most important thing the AI should know about this specific draft?"
+              rows={3}
+            />
+            <OverrideField
+              label="Audience notes"
+              value={ovAudienceNotes}
+              onChange={setOvAudienceNotes}
+              tenantValue={settings?.audience_notes}
+              placeholder="Who specifically is this draft for?"
+              rows={3}
+            />
+            <OverrideField
+              label="Posting style"
+              value={ovPostingStyle}
+              onChange={setOvPostingStyle}
+              tenantValue={settings?.posting_style}
+              placeholder="Style guide — sentence length, punctuation, emoji usage, etc."
+              rows={3}
+            />
+            <OverrideField
+              label="SEO keywords"
+              value={ovSeoKeywords}
+              onChange={setOvSeoKeywords}
+              tenantValue={settings?.seo_keywords}
+              placeholder="Comma-separated keywords for this draft"
+              rows={2}
+            />
+            <OverrideField
+              label="Default hashtags (all platforms)"
+              value={ovHashtagsAll}
+              onChange={setOvHashtagsAll}
+              tenantValue={settings?.default_hashtags_all}
+              placeholder="#hashtag1 #hashtag2 #hashtag3"
+              rows={2}
+            />
+            <button
+              onClick={saveOverrides}
+              disabled={ovSaving}
+              className={`w-full py-1.5 text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50 ${ovSaved ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+            >{ovSaving ? 'Saving…' : (ovSaved ? '✓ Saved' : 'Save overrides for this draft')}</button>
+            <div className="text-[9px] text-muted italic">
+              Hashtag sets, SEO keyword sets, and hook categories are picker-style (tenant-level) — per-job picker ports in a follow-up.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* --- Second opinion (pasted critique from another AI) --- */}
@@ -391,6 +505,28 @@ function HookOptionRow({ opt, onApply }) {
           className="ml-auto text-[9px] py-0.5 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer"
         >Use as opening</button>
       </div>
+    </div>
+  )
+}
+
+function OverrideField({ label, value, onChange, tenantValue, placeholder, rows = 3 }) {
+  const overriding = value.trim().length > 0
+  const tenantPreview = (tenantValue || '').trim()
+  return (
+    <div>
+      <div className="flex items-center gap-2 text-[10px] text-muted">
+        <label className="font-medium">{label}</label>
+        {overriding
+          ? <span className="text-[9px] bg-[#6C5CE7]/10 text-[#6C5CE7] rounded-full px-1.5 py-0">overriding</span>
+          : <span className="text-[9px] text-muted italic">inheriting tenant default</span>}
+      </div>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={tenantPreview ? `tenant default: ${tenantPreview.slice(0, 200)}${tenantPreview.length > 200 ? '…' : ''}` : placeholder}
+        rows={rows}
+        className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y mt-1"
+      />
     </div>
   )
 }

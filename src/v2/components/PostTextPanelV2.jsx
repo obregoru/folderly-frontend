@@ -124,6 +124,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         job_uuid: draftId || null,
         rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
         off_topic: jobOffTopic || undefined,
+        overrides: ctxJob?.generation_rules?.overrides || undefined,
         user_hint: hint || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,

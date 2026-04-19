@@ -251,6 +251,7 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
         job_uuid: draftId || null,
         rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
         off_topic: jobOffTopic || undefined,
+        overrides: job?.generation_rules?.overrides || undefined,
         user_hint: (job?.hint_text) || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,

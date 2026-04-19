@@ -22,6 +22,7 @@ export default function AiLogRow({ row, showJob = false }) {
     md.has_voiceover_script ? { label: 'VO ctx', bg: '#f3f0ff', fg: '#6C5CE7', border: '#6C5CE7' } : null,
     md.has_captions_script ? { label: 'CC ctx', bg: '#f0faf4', fg: '#2D9A5E', border: '#2D9A5E' } : null,
     md.off_topic ? { label: 'off-topic', bg: '#fdeaea', fg: '#c0392b', border: '#c0392b' } : null,
+    md.overrides_active ? { label: 'overrides', bg: '#f3f0ff', fg: '#6C5CE7', border: '#6C5CE7' } : null,
   ].filter(Boolean)
 
   return (
