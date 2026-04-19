@@ -20,29 +20,30 @@ export default function AppV2() {
   const [files, setFiles] = useState([])
   const [userHint, setUserHint] = useState(() => sessionStorage.getItem('posty_hint') || '')
   const [settings, setSettings] = useState({})
-  const [loggedIn, setLoggedIn] = useState(null)
+  const [user, setUser] = useState(null)
+  const [authChecked, setAuthChecked] = useState(false)
 
   // Mockup-style nav state
   const [mode, setMode] = useState('drafts')
   const [activeDraftId, setActiveDraftId] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // Check auth + load tenant settings on mount
+  // Check auth + load tenant settings on mount (mirrors App.jsx)
   useEffect(() => {
-    api.checkAuth()
-      .then(r => {
-        setLoggedIn(!!r?.logged_in)
-        if (r?.logged_in) {
-          api.getSettings().then(s => setSettings(s || {})).catch(() => {})
-        }
-      })
-      .catch(() => setLoggedIn(false))
+    api.getMe().then(u => {
+      if (u && u.id) {
+        setUser(u)
+        if (u.csrf_token) api.setCsrfToken(u.csrf_token)
+        api.getSettings().then(s => setSettings(s || {})).catch(() => {})
+      }
+      setAuthChecked(true)
+    }).catch(() => setAuthChecked(true))
   }, [])
 
   // Job persistence wiring — same hook the real app uses.
   const jobSync = useJobSync({ files, setFiles, userHint, setUserHint, settings })
 
-  if (loggedIn === null) {
+  if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center text-muted text-[12px]">
         Loading…
@@ -50,12 +51,12 @@ export default function AppV2() {
     )
   }
 
-  if (!loggedIn) {
+  if (!user) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 p-6 text-center">
         <div className="text-[14px] font-medium">Not signed in</div>
         <div className="text-[11px] text-muted">This is the v2 preview. Sign in on the main app first, then come back.</div>
-        <a href="/" className="text-[11px] py-2 px-4 bg-[#6C5CE7] text-white rounded no-underline">Go to main app</a>
+        <a href="/?real=1" className="text-[11px] py-2 px-4 bg-[#6C5CE7] text-white rounded no-underline">Go to main app</a>
       </div>
     )
   }
