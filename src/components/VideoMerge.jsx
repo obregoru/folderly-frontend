@@ -160,6 +160,50 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergedUrl])
 
+  // Sequential-playback preview — no server round-trip, no ffmpeg. Plays
+  // each clip in order, respecting trim_start / trim_end / speed. Hard
+  // cuts (no crossfades), no voiceover mix, no overlay burn-in. Fast
+  // iteration tool; the real Merge button still produces the final file.
+  const handlePreviewMerge = () => {
+    const playlist = videoFiles.map(item => {
+      let url = null
+      if (item.file instanceof Blob || item.file instanceof File) {
+        // Cache the object URL so repeated preview runs don't leak a new one.
+        if (!item._previewBlobUrl) item._previewBlobUrl = URL.createObjectURL(item.file)
+        url = item._previewBlobUrl
+      } else if (item._publicUrl) {
+        url = item._publicUrl
+      } else if (item._uploadKey && item._tenantSlug) {
+        url = `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
+      }
+      return {
+        url,
+        trimStart: Number(item._trimStart) || 0,
+        trimEnd: item._trimEnd != null ? Number(item._trimEnd) : null,
+        speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
+      }
+    }).filter(c => c.url)
+    if (playlist.length === 0) return
+    // Tell FinalPreviewV2 to enter playlist mode
+    try {
+      if (typeof window !== 'undefined') {
+        window._postyPreviewPlaylist = playlist
+        window.dispatchEvent(new CustomEvent('posty-preview-playlist-change', { detail: playlist }))
+        // If there's a stale merged video cached, keep it — merged still
+        // wins visually. Users hit Re-merge when they want the real thing.
+      }
+    } catch {}
+  }
+
+  const clearPreviewMerge = () => {
+    try {
+      if (typeof window !== 'undefined') {
+        window._postyPreviewPlaylist = null
+        window.dispatchEvent(new CustomEvent('posty-preview-playlist-change', { detail: null }))
+      }
+    } catch {}
+  }
+
   const handleMerge = async () => {
     setMerging(true)
     setError(null)
@@ -215,6 +259,9 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
       setError(err.message)
       setProgress('')
     }
+    // Real merge takes over — drop the preview playlist so the preview
+    // badge disappears and the authoritative "Merged" render shows.
+    clearPreviewMerge()
     setMerging(false)
   }
 
@@ -478,14 +525,27 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         )}
       </div>
 
-      {/* Merge button */}
-      <button
-        onClick={handleMerge}
-        disabled={merging}
-        className="w-full text-[11px] py-2 border border-[#6C5CE7] rounded bg-[#6C5CE7] text-white cursor-pointer font-sans font-medium hover:bg-[#5a4bd6] disabled:opacity-50"
-      >
-        {merging ? (progress || 'Merging...') : mergedUrl ? 'Re-merge' : `Merge ${videoFiles.length} clips`}
-      </button>
+      {/* Merge buttons — fast preview vs authoritative render */}
+      <div className="flex gap-1.5">
+        <button
+          onClick={handlePreviewMerge}
+          disabled={merging}
+          className="flex-1 text-[11px] py-2 border border-[#d97706] rounded bg-white text-[#d97706] cursor-pointer font-sans font-medium hover:bg-[#fef3c7] disabled:opacity-50"
+          title="Play clips in order using current trims + speed. No server call, no ffmpeg, no overlays / voiceover. Good for checking pacing before committing to a real merge."
+        >
+          ▶ Preview (fast)
+        </button>
+        <button
+          onClick={handleMerge}
+          disabled={merging}
+          className="flex-1 text-[11px] py-2 border border-[#6C5CE7] rounded bg-[#6C5CE7] text-white cursor-pointer font-sans font-medium hover:bg-[#5a4bd6] disabled:opacity-50"
+        >
+          {merging ? (progress || 'Merging...') : mergedUrl ? 'Re-merge' : `Merge ${videoFiles.length} clips`}
+        </button>
+      </div>
+      <div className="text-[9px] text-muted italic">
+        Preview = hard-cut playthrough (no transitions, no voiceover). Merge = authoritative render that gets posted.
+      </div>
 
       {error && (
         <p className="text-[10px] text-[#c0392b]">{error}</p>

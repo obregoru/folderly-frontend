@@ -39,6 +39,18 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
 
+  // Sequential-playback preview mode. Array of { url, trimStart, trimEnd,
+  // speed } — when set (and no real merged url exists), the video element
+  // walks the list clip-by-clip, respecting trims + speed. Instant, no
+  // server round-trip; hard cuts (no crossfades), no voiceover mix, no
+  // overlay burn-in. The real Merge button still produces the final
+  // file that actually gets posted.
+  const [previewPlaylist, setPreviewPlaylist] = useState(() => {
+    if (typeof window !== 'undefined' && Array.isArray(window._postyPreviewPlaylist)) return window._postyPreviewPlaylist
+    return null
+  })
+  const playlistIdxRef = useRef(0)
+
   useImperativeHandle(ref, () => ({ getVideo: () => videoRef.current }), [])
 
   // Merge-change subscription
@@ -46,6 +58,17 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     const sync = () => setMergedUrl(window._postyMergedVideo?.url || null)
     window.addEventListener('posty-merge-change', sync)
     return () => window.removeEventListener('posty-merge-change', sync)
+  }, [])
+
+  // Preview-playlist subscription
+  useEffect(() => {
+    const sync = (e) => {
+      const list = e?.detail ?? window._postyPreviewPlaylist ?? null
+      setPreviewPlaylist(Array.isArray(list) && list.length > 0 ? list : null)
+      playlistIdxRef.current = 0
+    }
+    window.addEventListener('posty-preview-playlist-change', sync)
+    return () => window.removeEventListener('posty-preview-playlist-change', sync)
   }, [])
 
   // Overlay-change subscription
@@ -120,8 +143,71 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
 
   let source = null
   if (mergedUrl) source = { type: 'video', url: mergedUrl }
+  else if (previewPlaylist && previewPlaylist[0]?.url) source = { type: 'playlist', url: previewPlaylist[0].url }
   else if (videoFiles.length === 1 && videoFiles[0]._previewUrl) source = { type: 'video', url: videoFiles[0]._previewUrl }
   else if (onlyPhotos) source = { type: 'photo', urls: photoFiles.map(f => f._previewUrl).filter(Boolean) }
+
+  // Sequential playback driver for the preview playlist. Respects each
+  // clip's trim_start / trim_end / speed, advances on end-of-segment,
+  // stops cleanly at the last clip.
+  useEffect(() => {
+    if (!previewPlaylist || !previewPlaylist.length) return
+    const v = videoRef.current
+    if (!v) return
+
+    const playClip = (i) => {
+      const clip = previewPlaylist[i]
+      if (!clip) return
+      playlistIdxRef.current = i
+      if (v.src !== clip.url) {
+        try { v.src = clip.url } catch {}
+        try { v.load() } catch {}
+      }
+      const speed = Number(clip.speed) > 0 ? Number(clip.speed) : 1.0
+      try { v.playbackRate = speed } catch {}
+      const startAt = Number(clip.trimStart) || 0
+      const onReady = () => {
+        try { v.currentTime = startAt } catch {}
+        try { const p = v.play(); if (p && p.catch) p.catch(() => {}) } catch {}
+        v.removeEventListener('loadedmetadata', onReady)
+        v.removeEventListener('canplay', onReady)
+      }
+      if (v.readyState >= 1 && v.src === clip.url) onReady()
+      else {
+        v.addEventListener('loadedmetadata', onReady, { once: true })
+        v.addEventListener('canplay', onReady, { once: true })
+      }
+    }
+
+    const advance = () => {
+      const next = playlistIdxRef.current + 1
+      if (next >= previewPlaylist.length) { try { v.pause() } catch {}; return }
+      playClip(next)
+    }
+
+    const onTimeUpdate = () => {
+      const clip = previewPlaylist[playlistIdxRef.current]
+      if (!clip) return
+      const end = (clip.trimEnd != null && clip.trimEnd > 0)
+        ? Number(clip.trimEnd)
+        : (Number.isFinite(v.duration) ? v.duration : Infinity)
+      if (v.currentTime >= end - 0.05) advance()
+    }
+    const onEnded = () => advance()
+
+    v.addEventListener('timeupdate', onTimeUpdate)
+    v.addEventListener('ended', onEnded)
+
+    // Kick off from the first clip when the playlist is first applied
+    if (playlistIdxRef.current === 0 && (!v.src || v.src !== previewPlaylist[0].url)) {
+      playClip(0)
+    }
+
+    return () => {
+      v.removeEventListener('timeupdate', onTimeUpdate)
+      v.removeEventListener('ended', onEnded)
+    }
+  }, [previewPlaylist])
 
   const activeOverlayText = useMemo(() => {
     if (!overlays) return null
@@ -177,11 +263,11 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
               : 'Upload photos or videos in the Clips tab below.'}
           </div>
         </div>
-      ) : source.type === 'video' ? (
+      ) : source.type === 'video' || source.type === 'playlist' ? (
         <>
           <video
             ref={videoRef}
-            src={source.url}
+            src={source.type === 'playlist' ? undefined : source.url}
             controls
             playsInline
             className="w-full h-full object-contain bg-black"
@@ -189,6 +275,11 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           {mergedUrl && (
             <div className="absolute top-2 left-2 text-[10px] text-white bg-[#2D9A5E]/80 rounded-full px-2 py-0.5 pointer-events-none">
               Merged
+            </div>
+          )}
+          {source.type === 'playlist' && !mergedUrl && (
+            <div className="absolute top-2 left-2 text-[10px] text-white bg-[#d97706]/85 rounded-full px-2 py-0.5 pointer-events-none">
+              Preview · {(playlistIdxRef.current + 1)}/{previewPlaylist.length}
             </div>
           )}
           {activeOverlayText && (
