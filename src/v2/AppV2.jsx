@@ -68,6 +68,39 @@ export default function AppV2() {
     if (j) setNameDraft(j.job_name || '')
   }, [activeDraftId, jobSync?.jobList])
 
+  // Persist per-clip trim / speed / thumbs / photo-motion when the inner
+  // controls (VideoTrimmer, speed picker, photo duration/motion pickers)
+  // fire their window events. Same mechanism App.jsx uses. Without this
+  // listener in v2, trims just mutated in-memory and were lost on reload.
+  useEffect(() => {
+    const onTrimChange = (e) => {
+      const item = files.find(f => f.id === e.detail?.itemId)
+      if (item) jobSync.saveFileTrim?.(item)
+    }
+    const onTrimThumbs = (e) => {
+      const item = files.find(f => f.id === e.detail?.itemId)
+      if (item && e.detail?.thumbs) jobSync.saveFileTrimThumbs?.(item, e.detail.thumbs)
+    }
+    const onSpeedChange = (e) => {
+      const item = files.find(f => f.id === e.detail?.itemId)
+      if (!item) return
+      if (item.isImg || item.file?.type?.startsWith('image/') || item._mediaType?.startsWith('image/')) {
+        // Photo rows reuse this event for duration + motion changes
+        jobSync.saveFilePhotoMotion?.(item)
+      } else {
+        jobSync.saveFileSpeed?.(item)
+      }
+    }
+    window.addEventListener('posty-trim-change', onTrimChange)
+    window.addEventListener('posty-trim-thumbs', onTrimThumbs)
+    window.addEventListener('posty-speed-change', onSpeedChange)
+    return () => {
+      window.removeEventListener('posty-trim-change', onTrimChange)
+      window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
+      window.removeEventListener('posty-speed-change', onSpeedChange)
+    }
+  }, [files, jobSync])
+
   // File-list operations (defined after jobSync so they can reference it).
   const addFiles = async (fileList) => {
     const picked = Array.from(fileList || [])
