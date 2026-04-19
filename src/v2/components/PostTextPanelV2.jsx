@@ -177,6 +177,10 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
           type="text"
           value={hint}
           onChange={e => setHint(e.target.value)}
+          onBlur={async () => {
+            if (!draftId) return
+            try { await api.updateJob(draftId, { hint_text: hint }) } catch (e) { console.warn('[PostTextV2] hint save failed:', e.message) }
+          }}
           placeholder="Extra context for this generation (optional) — product, occasion, angle…"
           className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white"
         />
