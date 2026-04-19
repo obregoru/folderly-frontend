@@ -16,7 +16,10 @@ import CaptionsPanel from '../components/CaptionsPanel'
 export default function EditorScreen({ draftId }) {
   // Simulated merge status — toggling "Merge" in the clips panel flips this.
   const [hasMerge, setHasMerge] = useState(false)
-  const [activeTool, setActiveTool] = useState('hints')
+  // Clips is the default first action. Hints is there for folks who like
+  // to brief AI before generating, and as context downstream tools read
+  // from when producing captions / voiceover / overlays.
+  const [activeTool, setActiveTool] = useState('clips')
 
   // Before merge: setup tools (Clips + Hints) are navigable; downstream
   // tools (Voice/Overlays/Captions/Channels) are dimmed since they can't
