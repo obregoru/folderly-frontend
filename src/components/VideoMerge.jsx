@@ -218,24 +218,18 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     }
     try {
       const api = await import('../api')
-      // Filter to videos only for the server merge — backend photo-to-video
-      // segment support lands in a follow-up. Photos still appear in the
-      // Preview lightbox with their display duration; the merged MP4
-      // posted to social is video-only for now.
       const isPhotoItem = (i) => i?.isImg || i?.file?.type?.startsWith('image/') || i?._mediaType?.startsWith('image/')
-      const videoOnly = videoFiles.filter(i => !isPhotoItem(i))
-      const photoCount = videoFiles.length - videoOnly.length
-      if (videoOnly.length < 2) {
-        throw new Error(photoCount > 0
-          ? 'Merge needs at least 2 videos — photo-to-video-segment merge coming in a follow-up. Use Preview to confirm the photo sequencing.'
-          : 'Need at least 2 videos to merge.')
+      if (videoFiles.length < 2) {
+        throw new Error('Need at least 2 clips (photos or videos) to merge.')
       }
       const clips = []
-      for (let i = 0; i < videoOnly.length; i++) {
-        const item = videoOnly[i]
+      for (let i = 0; i < videoFiles.length; i++) {
+        const item = videoFiles[i]
+        const photo = isPhotoItem(item)
+        const niceName = item.file?.name || item._filename || 'Untitled'
         let uploadKey = item.uploadResult?.original_temp_path || null
         if (!uploadKey) {
-          setProgress(`Uploading clip ${i + 1}/${videoOnly.length} (${item.file?.name || item._filename || 'Untitled'})...`)
+          setProgress(`Uploading clip ${i + 1}/${videoFiles.length} (${niceName})...`)
           try {
             const result = await api.uploadFile(item.file, null, null, {}, null, jobId)
             item.uploadResult = result
@@ -244,17 +238,26 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             throw new Error(`Upload clip ${i + 1} failed: ${e.message}`)
           }
         } else {
-          setProgress(`Preparing clip ${i + 1}/${videoOnly.length} (${item.file?.name || item._filename || 'Untitled'})...`)
+          setProgress(`Preparing clip ${i + 1}/${videoFiles.length} (${niceName})...`)
         }
-        clips.push({
-          upload_key: uploadKey,
-          trim_start: item._trimStart || 0,
-          trim_end: item._trimEnd ?? null,
-          speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
-        })
-      }
-      if (photoCount > 0) {
-        console.warn(`[merge] ${photoCount} photo(s) excluded from server merge (video-only for now)`)
+        if (photo) {
+          // Photo clip — trim_end is the display duration; motion
+          // drives the Ken Burns effect the backend applies.
+          clips.push({
+            upload_key: uploadKey,
+            media_type: item.file?.type || item._mediaType || 'image/jpeg',
+            trim_end: Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5,
+            photo_to_video_motion: item._photoMotion || 'zoom-in',
+          })
+        } else {
+          clips.push({
+            upload_key: uploadKey,
+            media_type: item.file?.type || item._mediaType || 'video/mp4',
+            trim_start: item._trimStart || 0,
+            trim_end: item._trimEnd ?? null,
+            speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
+          })
+        }
       }
       setProgress(`Merging ${clips.length} clips on server...`)
       // mergeVideos now returns a blob URL directly (binary response, not JSON)
