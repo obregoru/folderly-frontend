@@ -1,15 +1,20 @@
 import { useState } from 'react'
 
 /**
- * Settings drawer — slides in from the right (or full-screen on mobile).
- * Groups all the existing real-app Sidebar settings into categories so
- * the editor stays focused on the current draft's creative flow.
+ * Settings drawer. Splits settings into two scopes:
+ *   - This business (tenant): brand voice, AI, platform connections,
+ *     posting defaults, scheduling — per-business configuration. Lives
+ *     with the tenant and moves with it when you switch.
+ *   - Your account (user): profile, tenant switcher, sign out, admin.
+ *     Global to you.
  *
- * Each category opens a settings panel. For the mockup we just show the
- * categories + a preview of typical fields, not full interactive forms.
+ * Some of these MIGHT live on a dedicated Tenant Settings page rather
+ * than a drawer — the drawer surfaces them so they're discoverable, but
+ * during the real rebuild we'll decide which deserve a full page vs a
+ * modal vs a panel within the editor.
  */
 
-const CATEGORIES = [
+const TENANT_SECTIONS = [
   {
     key: 'brand', icon: '🏷️', label: 'Brand',
     desc: 'Business info, brand rules, insights, audience notes, vocabulary, tone',
@@ -66,32 +71,55 @@ const CATEGORIES = [
     key: 'scheduling', icon: '📅', label: 'Scheduling',
     desc: 'Best-time analytics, calendar defaults',
     fields: [
-      'Best-time suggestions per channel (from imported analytics)',
+      'Best-time suggestions per channel (imported analytics)',
       'Calendar defaults (default scope, reminders)',
       'Reminder / retry policy for failed posts',
     ],
   },
+]
+
+const ACCOUNT_SECTIONS = [
   {
-    key: 'account', icon: '👤', label: 'Account',
-    desc: 'Profile, tenants, sign out, admin',
+    key: 'profile', icon: '👤', label: 'Profile',
+    desc: 'Name, email, timezone, notification prefs',
     fields: [
-      'User profile (name, email, timezone)',
-      'Active tenant + switch tenant',
-      'Sign out',
-      'Admin panel (if allowed)',
+      'Full name',
+      'Email + password',
+      'Timezone',
+      'Email / push notifications',
+      'Default language',
+    ],
+  },
+  {
+    key: 'tenants', icon: '🔀', label: 'Switch tenant',
+    desc: 'Manage which businesses you have access to',
+    fields: [
+      'Currently active: Poppy & Thyme',
+      'Make & Take',
+      '+ Request access to a new tenant',
+    ],
+  },
+  {
+    key: 'admin', icon: '🛠', label: 'Admin',
+    desc: 'Superuser tools (only visible when allowed)',
+    fields: [
+      'Tenant management',
+      'User management',
+      'Platform tokens / env',
+      'Feature flags',
     ],
   },
 ]
 
 export default function SettingsDrawer({ open, onClose }) {
   const [selectedKey, setSelectedKey] = useState(null)
-  const selected = CATEGORIES.find(c => c.key === selectedKey)
+  const all = [...TENANT_SECTIONS, ...ACCOUNT_SECTIONS]
+  const selected = all.find(c => c.key === selectedKey)
 
   if (!open) return null
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-white">
-      {/* Drawer top bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[#e5e5e5]">
         {selected ? (
           <>
@@ -110,26 +138,37 @@ export default function SettingsDrawer({ open, onClose }) {
         >✕</button>
       </div>
 
-      {/* Drawer body */}
       <div className="flex-1 overflow-y-auto">
         {!selected ? (
-          <div className="p-2 space-y-1">
-            {CATEGORIES.map(c => (
-              <button
-                key={c.key}
-                onClick={() => setSelectedKey(c.key)}
-                className="w-full flex items-start gap-3 bg-white border border-[#e5e5e5] rounded-lg p-3 text-left cursor-pointer hover:bg-[#f8f7f3]"
-              >
-                <div className="w-10 h-10 rounded bg-[#6C5CE7]/10 flex items-center justify-center text-[20px] flex-shrink-0">
-                  {c.icon}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-medium">{c.label}</div>
-                  <div className="text-[10px] text-muted mt-0.5">{c.desc}</div>
-                </div>
-                <div className="text-muted text-[14px] leading-none self-center">›</div>
+          <div className="p-2 space-y-3">
+            {/* Tenant scope — per-business settings */}
+            <div>
+              <div className="flex items-center gap-2 px-1 pb-1 pt-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted font-medium">This business</div>
+                <div className="text-[11px] font-medium text-ink">Poppy &amp; Thyme</div>
+              </div>
+              <div className="space-y-1">
+                {TENANT_SECTIONS.map(c => (
+                  <SettingsRow key={c.key} section={c} onClick={() => setSelectedKey(c.key)} />
+                ))}
+              </div>
+            </div>
+
+            {/* Account scope — user-level settings */}
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted font-medium px-1 pb-1 pt-2">Your account</div>
+              <div className="space-y-1">
+                {ACCOUNT_SECTIONS.map(c => (
+                  <SettingsRow key={c.key} section={c} onClick={() => setSelectedKey(c.key)} />
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2 px-1">
+              <button className="w-full text-[11px] py-2 text-[#c0392b] bg-white border border-[#c0392b] rounded cursor-pointer">
+                Sign out
               </button>
-            ))}
+            </div>
           </div>
         ) : (
           <div className="p-3 space-y-2">
@@ -147,5 +186,23 @@ export default function SettingsDrawer({ open, onClose }) {
         )}
       </div>
     </div>
+  )
+}
+
+function SettingsRow({ section, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-start gap-3 bg-white border border-[#e5e5e5] rounded-lg p-3 text-left cursor-pointer hover:bg-[#f8f7f3]"
+    >
+      <div className="w-10 h-10 rounded bg-[#6C5CE7]/10 flex items-center justify-center text-[20px] flex-shrink-0">
+        {section.icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[12px] font-medium">{section.label}</div>
+        <div className="text-[10px] text-muted mt-0.5">{section.desc}</div>
+      </div>
+      <div className="text-muted text-[14px] leading-none self-center">›</div>
+    </button>
   )
 }
