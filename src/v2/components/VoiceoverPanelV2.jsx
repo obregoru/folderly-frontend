@@ -236,6 +236,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     }
     if (video) try { video.pause(); video.muted = false } catch {}
     setRecording(false)
+    setTeleprompterOn(false)
   }
   const discard = () => {
     if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
@@ -290,6 +291,142 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   const generateAllMissing = async () => {
     const pending = segments.filter(s => s.text?.trim() && !s.audioUrl)
     for (const s of pending) await generateSegment(s)
+  }
+
+  // ---- Teleprompter + script-driven record -----------------------------
+  // Lifted here so the Script tab and the Record tab share one parsed script.
+  const [teleprompterOn, setTeleprompterOn] = useState(false)
+  const [teleprompterScript, setTeleprompterScript] = useState(null) // { primary, segments }
+
+  // Broadcast to FinalPreviewV2 so it renders teleprompter text over video.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const payload = teleprompterOn && teleprompterScript ? teleprompterScript : null
+    window._postyTeleprompter = payload
+    try { window.dispatchEvent(new CustomEvent('posty-teleprompter-change', { detail: payload })) } catch {}
+  }, [teleprompterOn, teleprompterScript])
+
+  const startTeleprompterRecording = async () => {
+    const video = previewRef?.current?.getVideo?.()
+    if (!video) { alert('No video to narrate over — merge or upload first.'); return }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      recordedChunksRef.current = []
+      mr.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
+      mr.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
+        if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
+        setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
+        stream.getTracks().forEach(t => t.stop())
+        primaryFiredRef.current = false
+        setTeleprompterOn(false) // auto-dismiss
+      }
+      mediaRecorderRef.current = mr
+      mr.start()
+      setRecording(true)
+      setTeleprompterOn(true)
+      try { video.currentTime = 0; video.muted = true; video.play() } catch {}
+    } catch (e) {
+      alert('Mic access denied or unavailable: ' + e.message)
+    }
+  }
+
+  // Map a parsed script into the overlay_settings shape the existing burn-in
+  // pipeline understands: opening / middle / closing. If the script has more
+  // than 3 timed segments we pick first / median / last.
+  const applyScriptAsOverlays = (raw) => {
+    const parsed = parseScript(raw)
+    const all = [
+      ...(parsed.primary ? [{ startTime: 0, text: parsed.primary }] : []),
+      ...parsed.segments,
+    ].sort((a, b) => a.startTime - b.startTime)
+    if (all.length === 0) { alert('Nothing to apply — parse a script first.'); return }
+
+    const first = all[0]
+    const last  = all[all.length - 1]
+    const mid   = all.length >= 3 ? all[Math.floor(all.length / 2)] : null
+
+    // Duration heuristic: each caption stays until the next one starts (or 3s for last)
+    const video = previewRef?.current?.getVideo?.()
+    const videoDur = Number(video?.duration) || 0
+    const nextAfter = (t) => {
+      const n = all.find(x => x.startTime > t)
+      return n ? n.startTime : (videoDur || t + 3)
+    }
+
+    const payload = {
+      openingText: first?.text || '',
+      openingDuration: Math.max(1, (nextAfter(first.startTime) - first.startTime)),
+      middleText: mid ? mid.text : '',
+      middleStartTime: mid ? mid.startTime : 0,
+      middleDuration: mid ? Math.max(1, (nextAfter(mid.startTime) - mid.startTime)) : 0,
+      closingText: last && last !== first ? last.text : '',
+      closingDuration: last && last !== first
+        ? Math.max(1, (videoDur ? Math.min(3, videoDur - last.startTime) : 3))
+        : 0,
+      storyFontSize: 48,
+      storyFontFamily: 'sans-serif',
+      storyFontColor: '#ffffff',
+      storyFontOutline: true,
+      storyFontOutlineWidth: 3,
+    }
+    jobSync?.saveOverlaySettings?.(payload)
+    try {
+      if (typeof window !== 'undefined') {
+        window._postyOverlays = payload
+        window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: payload }))
+      }
+    } catch {}
+    alert(`Applied ${all.length} script line${all.length === 1 ? '' : 's'} to video captions (opening${mid ? ' + middle' : ''}${last !== first ? ' + closing' : ''}).`)
+  }
+
+  // Parse a pasted script into primary + timed segments, then generate all
+  // the audio end-to-end. Replaces any existing segments so the script is
+  // the single source of truth.
+  const [runningScript, setRunningScript] = useState(false)
+  const generateFromScript = async () => {
+    const parsed = parseScript(text)
+    if (!parsed.primary && parsed.segments.length === 0) {
+      alert('Nothing parseable — expected lines like [0:00]Your text here.')
+      return
+    }
+    if (!voiceId) { alert('Pick a voice first.'); return }
+    setRunningScript(true)
+    try {
+      // 1. Primary: update the AI tab text + generate audio
+      if (parsed.primary) {
+        setText(parsed.primary)
+        const r = await api.textToSpeech(parsed.primary, voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1.0 })
+        if (r?.error) throw new Error(r.error)
+        const bytes = base64ToBytes(r.audio_base64)
+        const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
+        if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
+        setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
+        primaryFiredRef.current = false
+      }
+
+      // 2. Replace segments with the parsed list
+      const newSegs = parsed.segments.map(p => ({
+        id: nextSegId(),
+        text: p.text,
+        startTime: p.startTime,
+        voiceId,
+        audioKey: null, audioUrl: null, generating: false,
+      }))
+      setSegments(newSegs)
+
+      // 3. Generate audio for every new segment (updateSegment reads from
+      // current state via functional setter, so freshly added segs are found)
+      for (const s of newSegs) await generateSegment(s)
+
+      // Show the primary voice UI if it was the paste tab
+      setTab('ai')
+    } catch (e) {
+      alert('Generate from script failed: ' + e.message)
+    } finally {
+      setRunningScript(false)
+    }
   }
 
   const playSegment = (seg) => {
@@ -366,30 +503,65 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       )}
 
       {tab === 'record' && (
-        <div className="space-y-2 text-center py-3">
-          <div className="text-[36px]">🎤</div>
-          <div className="text-[11px] text-muted">
-            {recording ? 'Recording… video above plays muted.' : 'Tap to start. Video above plays muted while you narrate.'}
+        <div className="space-y-2 py-3">
+          <div className="text-[36px] text-center">🎤</div>
+          <div className="text-[11px] text-muted text-center">
+            {recording
+              ? (teleprompterOn ? 'Recording… read the teleprompter above.' : 'Recording… video above plays muted.')
+              : 'Tap to start. Video above plays muted while you narrate.'}
           </div>
-          {!recording ? (
-            <button onClick={startRecording} className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer">● Start recording</button>
-          ) : (
-            <button onClick={stopRecording} className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer animate-pulse">■ Stop recording</button>
+
+          {teleprompterScript && !recording && (
+            <label className="flex items-center justify-center gap-2 text-[10px] bg-white border border-[#e5e5e5] rounded p-2 cursor-pointer">
+              <input type="checkbox" checked={teleprompterOn} onChange={e => setTeleprompterOn(e.target.checked)} />
+              <span>Show teleprompter from parsed script ({(teleprompterScript.segments?.length || 0) + (teleprompterScript.primary ? 1 : 0)} lines)</span>
+            </label>
           )}
+
+          <div className="flex flex-col items-center gap-1.5">
+            {!recording ? (
+              <>
+                <button
+                  onClick={startRecording}
+                  className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer"
+                >● Start recording</button>
+                {teleprompterScript && (
+                  <button
+                    onClick={startTeleprompterRecording}
+                    className="py-1.5 px-4 bg-[#6C5CE7] text-white text-[10px] font-medium border-none rounded cursor-pointer"
+                  >▶ Record with teleprompter</button>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={stopRecording}
+                className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer animate-pulse"
+              >■ Stop recording</button>
+            )}
+          </div>
         </div>
       )}
 
       {tab === 'paste' && (
-        <div className="space-y-2">
-          <textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            placeholder="Paste your script here. Switch to AI tab to generate."
-            rows={6}
-            className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[140px] font-mono"
-          />
-          <button onClick={() => setTab('ai')} className="w-full py-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] text-[11px] font-medium rounded cursor-pointer">Use in AI tab →</button>
-        </div>
+        <ScriptTab
+          text={text} setText={setText}
+          voiceId={voiceId} hasElevenLabs={hasElevenLabs}
+          runningScript={runningScript}
+          onGenerateAll={generateFromScript}
+          onRecordWithTeleprompter={() => {
+            const parsed = parseScript(text)
+            if (!parsed.primary && parsed.segments.length === 0) {
+              alert('Parse the script first — expected lines like [0:00]Your text.')
+              return
+            }
+            setTeleprompterScript({ primary: parsed.primary, segments: parsed.segments })
+            setTab('record')
+            // Auto-start a teleprompter recording after a short delay so the
+            // user can see the teleprompter overlay before it begins.
+            setTimeout(() => startTeleprompterRecording(), 400)
+          }}
+          onApplyAsOverlays={() => applyScriptAsOverlays(text)}
+        />
       )}
 
       {audioUrl && (
@@ -514,4 +686,112 @@ function base64ToBytes(b64) {
   const bytes = new Uint8Array(byteChars.length)
   for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
   return bytes
+}
+
+// --- Script tab -----------------------------------------------------------
+// One pasted script drives three outputs: AI voice (primary + segments),
+// human recording with teleprompter, and on-screen captions (overlays).
+function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGenerateAll, onRecordWithTeleprompter, onApplyAsOverlays }) {
+  const parsed = parseScript(text)
+  const lineCount = (parsed.primary ? 1 : 0) + parsed.segments.length
+  const hasParsed = lineCount > 0
+  const canAi = hasElevenLabs && !!voiceId
+
+  return (
+    <div className="space-y-2">
+      <textarea
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder={`One script, three outputs. Example:\n\n[0:00]Everyone else bought theirs. You made yours.\n[0:02]Your whole crew was there for it.\n[0:04]That's what sticks.`}
+        rows={6}
+        className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[140px] font-mono"
+      />
+
+      <div className="flex items-center gap-2 text-[10px] text-muted">
+        {hasParsed ? (
+          <span>
+            Detected <span className="text-ink font-medium">{lineCount}</span> line{lineCount === 1 ? '' : 's'}
+            {parsed.primary ? ' (1 primary' : ''}
+            {parsed.segments.length > 0 ? `${parsed.primary ? ' + ' : ' ('}${parsed.segments.length} timed segment${parsed.segments.length === 1 ? '' : 's'}` : (parsed.primary ? '' : '')}
+            {parsed.primary || parsed.segments.length ? ')' : ''}
+          </span>
+        ) : (
+          <span>No timestamps detected yet — use <code>[m:ss]</code> format.</span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-1.5">
+        <button
+          onClick={onGenerateAll}
+          disabled={!canAi || !hasParsed || runningScript}
+          className="w-full py-2 bg-[#6C5CE7] text-white text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
+          title={!canAi ? 'Pick a voice in the AI tab first' : ''}
+        >{runningScript ? 'Generating audio…' : `Generate AI voice from script${hasParsed ? ` (${lineCount} clip${lineCount === 1 ? '' : 's'})` : ''}`}</button>
+
+        <button
+          onClick={onRecordWithTeleprompter}
+          disabled={!hasParsed || runningScript}
+          className="w-full py-2 bg-white border border-[#c0392b] text-[#c0392b] text-[11px] font-medium rounded cursor-pointer disabled:opacity-50"
+        >● Record with teleprompter</button>
+
+        <button
+          onClick={onApplyAsOverlays}
+          disabled={!hasParsed || runningScript}
+          className="w-full py-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] text-[11px] font-medium rounded cursor-pointer disabled:opacity-50"
+        >📝 Apply as video captions</button>
+      </div>
+
+      <div className="text-[9px] text-muted italic pt-1">
+        AI voice generates each line at its timestamp. Teleprompter mode plays the video muted and shows each line on screen for you to read into the mic. Captions burn a text overlay (opening / middle / closing) onto the final video.
+      </div>
+    </div>
+  )
+}
+
+// Parse a timestamped script like:
+//   [0:00]First line
+//   [0:02]Second line
+// Returns { primary, segments } — the [0:00] block (or text before the first
+// timestamp) is the primary voice; every other timestamp becomes a segment.
+// If there are no timestamps at all, the entire input is treated as primary.
+export function parseScript(raw) {
+  const text = String(raw || '')
+  if (!text.trim()) return { primary: '', segments: [] }
+  const re = /\[(\d{1,2}):(\d{2})\]\s*/g
+  const hits = []
+  let m
+  while ((m = re.exec(text)) !== null) {
+    hits.push({
+      index: m.index,
+      end: m.index + m[0].length,
+      time: parseInt(m[1], 10) * 60 + parseInt(m[2], 10),
+    })
+  }
+  if (hits.length === 0) return { primary: text.trim(), segments: [] }
+
+  // Text before the first timestamp (if any) is implicit primary
+  const implicitPrimary = text.slice(0, hits[0].index).trim()
+
+  const blocks = hits.map((h, i) => {
+    const textEnd = i + 1 < hits.length ? hits[i + 1].index : text.length
+    return { startTime: h.time, text: text.slice(h.end, textEnd).trim() }
+  }).filter(b => b.text)
+
+  // If there's a [0:00] block, it's primary. Else the pre-timestamp text is.
+  const zeroIdx = blocks.findIndex(b => b.startTime === 0)
+  let primary = implicitPrimary
+  let segBlocks = [...blocks]
+  if (zeroIdx >= 0) {
+    primary = blocks[zeroIdx].text
+    segBlocks = blocks.filter((_, i) => i !== zeroIdx)
+  }
+  // Anything still at startTime 0 after removing the primary collapses into
+  // the primary so we don't schedule duplicate audio at t=0.
+  const zeros = segBlocks.filter(b => b.startTime === 0)
+  if (zeros.length > 0) {
+    primary = [primary, ...zeros.map(z => z.text)].filter(Boolean).join(' ')
+    segBlocks = segBlocks.filter(b => b.startTime > 0)
+  }
+
+  return { primary, segments: segBlocks }
 }

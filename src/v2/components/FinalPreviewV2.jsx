@@ -28,6 +28,10 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     if (typeof window !== 'undefined' && window._postyOverlays) return window._postyOverlays
     return null
   })
+  const [teleprompter, setTeleprompter] = useState(() => {
+    if (typeof window !== 'undefined' && window._postyTeleprompter) return window._postyTeleprompter
+    return null
+  })
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
 
@@ -45,6 +49,14 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     const sync = (e) => setOverlays(e?.detail || window._postyOverlays || null)
     window.addEventListener('posty-overlay-change', sync)
     return () => window.removeEventListener('posty-overlay-change', sync)
+  }, [])
+
+  // Teleprompter-change subscription (active only while user is recording
+  // with the teleprompter — not persisted to the burned-in video).
+  useEffect(() => {
+    const sync = (e) => setTeleprompter(e?.detail ?? window._postyTeleprompter ?? null)
+    window.addEventListener('posty-teleprompter-change', sync)
+    return () => window.removeEventListener('posty-teleprompter-change', sync)
   }, [])
 
   // Seed overlays from the restored file's _overlaySettings when we don't
@@ -97,6 +109,23 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     return null
   }, [overlays, currentTime, duration])
 
+  // Teleprompter: pick the active script line based on currentTime vs
+  // segment startTimes. Primary shows from 0 until the first segment.
+  const activeTeleprompterText = useMemo(() => {
+    if (!teleprompter) return null
+    const t = currentTime
+    const segs = Array.isArray(teleprompter.segments) ? teleprompter.segments : []
+    const sorted = [...segs].sort((a, b) => (a.startTime || 0) - (b.startTime || 0))
+    const firstSegStart = sorted[0]?.startTime ?? Infinity
+    if (t < firstSegStart && teleprompter.primary) return teleprompter.primary
+    let active = null
+    for (const s of sorted) {
+      if ((s.startTime || 0) <= t) active = s
+      else break
+    }
+    return active?.text || teleprompter.primary || null
+  }, [teleprompter, currentTime])
+
   return (
     <div className="bg-black rounded-lg overflow-hidden relative aspect-[9/16] max-h-[56vh] w-[80%] mx-auto">
       {!source ? (
@@ -128,6 +157,9 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           {activeOverlayText && (
             <OverlayText text={activeOverlayText} style={overlays} />
           )}
+          {activeTeleprompterText && (
+            <TeleprompterText text={activeTeleprompterText} />
+          )}
         </>
       ) : (
         <PhotoCarousel urls={source.urls} />
@@ -135,6 +167,31 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     </div>
   )
 })
+
+// Teleprompter text — overlaid at the bottom of the video while the user
+// records. Visually distinct from OverlayText so it's clear this is a
+// recording aid, not something that gets burned into the final video.
+function TeleprompterText({ text }) {
+  return (
+    <div className="absolute inset-x-0 bottom-14 flex items-end justify-center pointer-events-none px-4">
+      <div
+        className="bg-black/75 rounded-lg px-4 py-3 text-center"
+        style={{
+          fontSize: '24px',
+          color: '#ffffff',
+          fontWeight: 600,
+          lineHeight: 1.25,
+          maxWidth: '95%',
+          textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        {text}
+      </div>
+      <div className="absolute top-1 right-2 text-[9px] text-[#ff6b6b] bg-black/60 rounded px-1.5 py-0.5 font-mono uppercase tracking-wide">Teleprompter</div>
+    </div>
+  )
+}
 
 function OverlayText({ text, style }) {
   const fontSize = Math.max(10, Math.round((Number(style?.storyFontSize) || 48) * 0.45))
