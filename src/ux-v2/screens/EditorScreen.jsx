@@ -2,6 +2,7 @@ import { useState } from 'react'
 import FinalVideoPreview from '../components/FinalVideoPreview'
 import ToolMenu from '../components/ToolMenu'
 import ClipsPanel from '../components/ClipsPanel'
+import HintsPanel from '../components/HintsPanel'
 import VoiceoverPanel from '../components/VoiceoverPanel'
 import OverlaysPanel from '../components/OverlaysPanel'
 import ChannelsPanel from '../components/ChannelsPanel'
@@ -15,29 +16,40 @@ import CaptionsPanel from '../components/CaptionsPanel'
 export default function EditorScreen({ draftId }) {
   // Simulated merge status — toggling "Merge" in the clips panel flips this.
   const [hasMerge, setHasMerge] = useState(false)
-  const [activeTool, setActiveTool] = useState('voiceover')
+  const [activeTool, setActiveTool] = useState('hints')
 
-  // Before merge: Clips panel is the primary surface (upload / sort / merge).
-  // Player shows empty state below. Tool menu is dimmed — voiceover /
-  // overlays / captions aren't meaningful without a video yet.
+  // Before merge: setup tools (Clips + Hints) are navigable; downstream
+  // tools (Voice/Overlays/Captions/Channels) are dimmed since they can't
+  // do anything useful without the final video.
   if (!hasMerge) {
+    // Pre-merge the default surface is Clips unless user tabs to Hints.
+    const preMergeActive = activeTool === 'hints' ? 'hints' : 'clips'
     return (
       <div className="p-3 space-y-3">
-        {/* Clips panel on top — where all the setup work happens. */}
+        {/* Active setup panel on top — Clips (upload/sort/merge) or Hints
+            (the creative brief). Both are meaningful before merge. */}
         <div className="bg-white border border-[#e5e5e5] rounded-lg p-3">
-          <ClipsPanel
-            hasMerge={hasMerge}
-            onMerge={() => { setHasMerge(true); setActiveTool('voiceover') }}
-            onUnmerge={() => setHasMerge(false)}
-          />
+          {preMergeActive === 'clips' && (
+            <ClipsPanel
+              hasMerge={hasMerge}
+              onMerge={() => { setHasMerge(true); setActiveTool('voiceover') }}
+              onUnmerge={() => setHasMerge(false)}
+            />
+          )}
+          {preMergeActive === 'hints' && <HintsPanel hasMerge={hasMerge} />}
         </div>
 
         {/* Empty player — placeholder so user sees where the result will land. */}
         <FinalVideoPreview hasMerge={hasMerge} />
 
-        {/* Dimmed menu — hint at what's coming next without letting the user
-            detour. */}
-        <ToolMenu active={'clips'} onChange={() => {}} hasMerge={hasMerge} />
+        {/* Tool menu — Clips + Hints are navigable; rest dimmed. */}
+        <ToolMenu
+          active={preMergeActive}
+          onChange={(key) => {
+            if (key === 'clips' || key === 'hints') setActiveTool(key)
+          }}
+          hasMerge={hasMerge}
+        />
       </div>
     )
   }
@@ -54,6 +66,7 @@ export default function EditorScreen({ draftId }) {
       {/* Active tool panel. Each panel reads/writes the mock state locally. */}
       <div className="bg-white border border-[#e5e5e5] rounded-lg p-3">
         {activeTool === 'clips' && <ClipsPanel hasMerge={hasMerge} onMerge={() => setHasMerge(true)} onUnmerge={() => setHasMerge(false)} />}
+        {activeTool === 'hints' && <HintsPanel hasMerge={hasMerge} />}
         {activeTool === 'voiceover' && <VoiceoverPanel hasMerge={hasMerge} />}
         {activeTool === 'overlays' && <OverlaysPanel hasMerge={hasMerge} />}
         {activeTool === 'channels' && <ChannelsPanel />}

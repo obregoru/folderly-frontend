@@ -1,8 +1,9 @@
 const TOOLS = [
   { key: 'clips',     icon: '🎬', label: 'Clips' },
+  { key: 'hints',     icon: '🎯', label: 'Hints' },
   { key: 'voiceover', icon: '🎤', label: 'Voice' },
   { key: 'overlays',  icon: '📝', label: 'Overlays' },
-  { key: 'captions',  icon: '💬', label: 'Captions' },
+  { key: 'captions',  icon: '💬', label: 'Post text' },
   { key: 'channels',  icon: '📤', label: 'Channels' },
 ]
 
@@ -15,9 +16,10 @@ export default function ToolMenu({ active, onChange, hasMerge }) {
     <div className="bg-white border border-[#e5e5e5] rounded-lg p-1 flex items-center gap-1 overflow-x-auto">
       {TOOLS.map(t => {
         const isActive = t.key === active
-        // Voiceover/overlays/captions/channels are only meaningful after a merge
-        // exists; dim them but still tappable (so the mockup is explorable).
-        const needsMerge = t.key !== 'clips'
+        // Clips + Hints are meaningful before merge exists (Hints accepts
+        // description + filename references even without frames). Voiceover,
+        // overlays, captions, channels all attach to the merged video.
+        const needsMerge = !['clips', 'hints'].includes(t.key)
         const dimmed = needsMerge && !hasMerge
         return (
           <button
