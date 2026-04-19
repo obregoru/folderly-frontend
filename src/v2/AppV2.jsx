@@ -105,28 +105,94 @@ export default function AppV2() {
 
   const inEditor = mode === 'drafts' && activeDraftId
 
+  // Active draft's current name — reads from jobSync.jobList so editor
+  // header reflects renames made anywhere (Drafts list, Editor header,
+  // auto-name). Local editing state keeps the input responsive without
+  // round-tripping every keystroke.
+  const activeJob = inEditor ? (jobSync.jobList || []).find(j => j.uuid === activeDraftId) : null
+  const [nameDraft, setNameDraft] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
+  const [autoNaming, setAutoNaming] = useState(false)
+  useEffect(() => {
+    if (!activeJob) return
+    setNameDraft(activeJob.job_name || '')
+  }, [activeJob?.uuid, activeJob?.job_name])
+
+  const saveDraftName = async () => {
+    if (!activeDraftId) return
+    const next = (nameDraft || '').trim()
+    const current = activeJob?.job_name || ''
+    if (next === current) return
+    setNameSaving(true)
+    try {
+      await api.updateJob(activeDraftId, { job_name: next || null })
+      if (jobSync.refreshJobList) await jobSync.refreshJobList()
+    } catch (e) {
+      alert('Rename failed: ' + (e.message || e))
+      setNameDraft(current)
+    } finally {
+      setNameSaving(false)
+    }
+  }
+
+  const runAutoName = async () => {
+    if (!activeDraftId || autoNaming) return
+    setAutoNaming(true)
+    try {
+      const r = await api.autoNameJob(activeDraftId)
+      if (r?.error) throw new Error(r.error)
+      if (r?.job_name) setNameDraft(r.job_name)
+      if (jobSync.refreshJobList) await jobSync.refreshJobList()
+    } catch (e) {
+      alert('Auto-name failed: ' + (e.message || e))
+    } finally {
+      setAutoNaming(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f5f4f0] text-ink pb-16" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       {/* Top bar */}
       <div className="sticky top-0 bg-white border-b border-[#e5e5e5] z-20 flex items-center gap-2 px-3 py-2">
         <button
           onClick={() => { setMode('drafts'); setActiveDraftId(null); setSettingsOpen(false) }}
-          className="text-[12px] font-medium text-ink bg-transparent border-none cursor-pointer p-0 flex items-center gap-1"
+          className="text-[12px] font-medium text-ink bg-transparent border-none cursor-pointer p-0 flex items-center gap-1 flex-shrink-0"
+          title={inEditor ? 'Back to drafts' : settings?.name || 'Drafts'}
         >
           <span className="text-[#6C5CE7] text-[14px] leading-none">●</span>
-          {settings?.name || 'Posty Posty'}
-          <span className="text-[9px] text-muted ml-1">· v2</span>
+          {!inEditor && <>{settings?.name || 'Posty Posty'}<span className="text-[9px] text-muted ml-1">· v2</span></>}
         </button>
-        <div className="flex-1" />
+        {inEditor && (
+          <input
+            type="text"
+            value={nameDraft}
+            onChange={e => setNameDraft(e.target.value)}
+            onBlur={saveDraftName}
+            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur() } else if (e.key === 'Escape') { setNameDraft(activeJob?.job_name || ''); e.currentTarget.blur() } }}
+            placeholder="Untitled draft"
+            className="text-[12px] font-medium text-ink bg-transparent border-none outline-none flex-1 min-w-0 py-0 focus:bg-[#f5f4f0] focus:px-1 rounded"
+            aria-label="Draft name"
+          />
+        )}
+        {!inEditor && <div className="flex-1" />}
         {inEditor && (
           <>
+            {nameSaving && <span className="text-[9px] text-muted">saving…</span>}
+            {!nameDraft && (
+              <button
+                onClick={runAutoName}
+                disabled={autoNaming}
+                className="text-[9px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-0.5 px-1.5 bg-white cursor-pointer disabled:opacity-50"
+                title="Generate a name from this draft's visuals + hints"
+              >{autoNaming ? '✨…' : '✨ Auto-name'}</button>
+            )}
             <button
               onClick={() => setActiveDraftId(null)}
-              className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer"
+              className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0"
             >← Drafts</button>
             <button
               onClick={() => setAiLogOpen(true)}
-              className="text-[14px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none"
+              className="text-[14px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none flex-shrink-0"
               title="AI activity for this draft"
               aria-label="AI activity log"
             >🤖</button>
