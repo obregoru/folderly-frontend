@@ -334,7 +334,7 @@ export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, plat
   }).then(r => r.json())
 
 // Generate spoken-style voiceover hook(s) for the ElevenLabs TTS field
-export const generateVoiceoverHook = ({ hint, category, includeBody, count, frames, audienceOverride, visualContext } = {}) =>
+export const generateVoiceoverHook = ({ hint, category, includeBody, count, frames, audienceOverride, visualContext, jobUuid } = {}) =>
   fetch(api('/generate/voiceover-hook'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -347,6 +347,7 @@ export const generateVoiceoverHook = ({ hint, category, includeBody, count, fram
       frames: Array.isArray(frames) ? frames : null,
       audience_override: audienceOverride || 'auto',
       visual_context: visualContext || null,
+      job_uuid: jobUuid || null,
     }),
   }).then(r => r.json())
 
