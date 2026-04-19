@@ -150,12 +150,17 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
   const saveFileTrim = useCallback(async (file) => {
     const id = jobIdRef.current
     const dbFileId = fileIdMapRef.current[file.id]
-    if (!id || !dbFileId) return
+    if (!id || !dbFileId) {
+      console.warn('[useJobSync.saveFileTrim] skipping — jobId=', id, 'dbFileId=', dbFileId, 'for frontendId=', file.id)
+      return
+    }
+    const payload = {
+      trim_start: file._trimStart || 0,
+      trim_end: file._trimEnd ?? null,
+    }
     try {
-      await api.updateJobFile(id, dbFileId, {
-        trim_start: file._trimStart || 0,
-        trim_end: file._trimEnd ?? null,
-      })
+      await api.updateJobFile(id, dbFileId, payload)
+      console.log(`[useJobSync.saveFileTrim] PUT jobs/${id}/files/${dbFileId}`, payload)
     } catch (e) {
       console.error('[useJobSync] save trim failed:', e.message)
     }

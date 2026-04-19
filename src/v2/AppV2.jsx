@@ -72,23 +72,36 @@ export default function AppV2() {
   // controls (VideoTrimmer, speed picker, photo duration/motion pickers)
   // fire their window events. Same mechanism App.jsx uses. Without this
   // listener in v2, trims just mutated in-memory and were lost on reload.
+  //
+  // Uses a ref-based files lookup so the listener always sees the latest
+  // array, and attaches ONCE on mount so iOS Safari doesn't drop events
+  // during a re-register frame.
+  const filesRef = useRef(files)
+  useEffect(() => { filesRef.current = files }, [files])
+  const jobSyncRef = useRef(jobSync)
+  useEffect(() => { jobSyncRef.current = jobSync }, [jobSync])
   useEffect(() => {
+    const findItem = (id) => (filesRef.current || []).find(f => f.id === id)
     const onTrimChange = (e) => {
-      const item = files.find(f => f.id === e.detail?.itemId)
-      if (item) jobSync.saveFileTrim?.(item)
+      const item = findItem(e.detail?.itemId)
+      if (!item) { console.warn('[AppV2] posty-trim-change: no file for', e.detail?.itemId); return }
+      console.log(`[AppV2] saving trim: id=${item.id} start=${item._trimStart} end=${item._trimEnd}`)
+      jobSyncRef.current?.saveFileTrim?.(item)
     }
     const onTrimThumbs = (e) => {
-      const item = files.find(f => f.id === e.detail?.itemId)
-      if (item && e.detail?.thumbs) jobSync.saveFileTrimThumbs?.(item, e.detail.thumbs)
+      const item = findItem(e.detail?.itemId)
+      if (item && e.detail?.thumbs) jobSyncRef.current?.saveFileTrimThumbs?.(item, e.detail.thumbs)
     }
     const onSpeedChange = (e) => {
-      const item = files.find(f => f.id === e.detail?.itemId)
+      const item = findItem(e.detail?.itemId)
       if (!item) return
-      if (item.isImg || item.file?.type?.startsWith('image/') || item._mediaType?.startsWith('image/')) {
-        // Photo rows reuse this event for duration + motion changes
-        jobSync.saveFilePhotoMotion?.(item)
+      const isImg = item.isImg || item.file?.type?.startsWith('image/') || item._mediaType?.startsWith('image/')
+      if (isImg) {
+        console.log(`[AppV2] saving photo motion: id=${item.id} motion=${item._photoMotion} dur=${item._trimEnd}`)
+        jobSyncRef.current?.saveFilePhotoMotion?.(item)
       } else {
-        jobSync.saveFileSpeed?.(item)
+        console.log(`[AppV2] saving speed: id=${item.id} speed=${item._speed}`)
+        jobSyncRef.current?.saveFileSpeed?.(item)
       }
     }
     window.addEventListener('posty-trim-change', onTrimChange)
@@ -99,7 +112,7 @@ export default function AppV2() {
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
       window.removeEventListener('posty-speed-change', onSpeedChange)
     }
-  }, [files, jobSync])
+  }, [])
 
   // File-list operations (defined after jobSync so they can reference it).
   const addFiles = async (fileList) => {
