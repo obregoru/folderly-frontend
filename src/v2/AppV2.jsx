@@ -201,16 +201,27 @@ export default function AppV2() {
           {!inEditor && <>{settings?.name || 'Posty Posty'}<span className="text-[9px] text-muted ml-1">· v2</span></>}
         </button>
         {inEditor && (
-          <input
-            type="text"
-            value={nameDraft}
-            onChange={e => setNameDraft(e.target.value)}
-            onBlur={saveDraftName}
-            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur() } else if (e.key === 'Escape') { setNameDraft(activeJob?.job_name || ''); e.currentTarget.blur() } }}
-            placeholder="Untitled draft"
-            className="text-[12px] font-medium text-ink bg-transparent border-none outline-none flex-1 min-w-0 py-0 focus:bg-[#f5f4f0] focus:px-1 rounded"
-            aria-label="Draft name"
-          />
+          <div className="flex-1 min-w-0 flex flex-col gap-0 leading-tight">
+            <input
+              type="text"
+              value={nameDraft}
+              onChange={e => setNameDraft(e.target.value)}
+              onBlur={saveDraftName}
+              onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur() } else if (e.key === 'Escape') { setNameDraft(activeJob?.job_name || ''); e.currentTarget.blur() } }}
+              placeholder="Untitled draft"
+              className="text-[12px] font-medium text-ink bg-transparent border-none outline-none min-w-0 py-0 focus:bg-[#f5f4f0] focus:px-1 rounded"
+              aria-label="Draft name"
+            />
+            {activeDraftId && (
+              <button
+                onClick={async () => {
+                  try { await navigator.clipboard.writeText(activeDraftId) } catch {}
+                }}
+                className="text-[9px] font-mono text-muted bg-transparent border-none cursor-pointer text-left p-0 hover:text-ink truncate"
+                title={`Draft ID: ${activeDraftId}\nClick to copy full UUID.`}
+              >#{activeDraftId.slice(0, 8)}</button>
+            )}
+          </div>
         )}
         {!inEditor && <div className="flex-1" />}
         {inEditor && (

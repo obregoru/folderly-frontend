@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { buildDownloadName } from '../lib/filename'
 import MergePreviewLightbox from './MergePreviewLightbox'
+import { PhotoDurationControl, PhotoMotionControl } from './PhotoDurationBar'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor,
   useSensor, useSensors,
@@ -635,108 +636,5 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         />
       )}
     </div>
-  )
-}
-
-/**
- * Photo "trim" = how long the still stays on screen in the merged video.
- * Range: 0.5–15s. Defaults to 5. Writes to item._trimEnd (same column
- * videos use), persists through onSaveTrim so refresh preserves it, and
- * invalidates the cached merged MP4 since duration changed.
- */
-function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
-  const initial = Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5
-  const [value, setValue] = useState(initial)
-  // Keep in sync when the underlying item is reset externally (e.g. reload)
-  useEffect(() => {
-    const next = Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5
-    if (Math.abs(next - value) > 0.01) setValue(next)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item._trimEnd])
-
-  const commit = (v) => {
-    const clamped = Math.max(0.5, Math.min(15, Number(v) || 5))
-    setValue(clamped)
-    item._trimEnd = clamped
-    onInvalidateMerge?.()
-    onSaveTrim?.(item)
-  }
-
-  return (
-    <label
-      className="flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1 mt-0.5"
-      title="How long the photo stays on screen in the merged video. Range 0.5–15s."
-    >
-      <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap">Show for</span>
-      <input
-        type="range"
-        min={0.5}
-        max={15}
-        step={0.5}
-        value={value}
-        onChange={e => setValue(Number(e.target.value))}
-        onMouseUp={e => commit(e.target.value)}
-        onTouchEnd={e => commit(e.target.value)}
-        onKeyUp={e => commit(e.target.value)}
-        className="flex-1 min-w-0 accent-[#6C5CE7]"
-      />
-      <input
-        type="number"
-        min={0.5}
-        max={15}
-        step={0.5}
-        value={value}
-        onChange={e => setValue(Number(e.target.value) || 0)}
-        onBlur={e => commit(e.target.value)}
-        className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-12 text-right px-1 py-0.5"
-      />
-      <span className="text-[10px] text-[#6C5CE7] font-medium">s</span>
-    </label>
-  )
-}
-
-/**
- * Ken Burns motion picker for a still photo. Available modes match what
- * the backend's photoToVideo helper accepts:
- *   static, zoom-in, zoom-out, pan-lr, pan-rl,
- *   pan-lr-zoom-in, pan-lr-zoom-out, pan-rl-zoom-in, pan-rl-zoom-out
- *
- * Default 'zoom-in' — most-used mode, same as the backend default when
- * photo_to_video_motion is unset. Writes to item._photoMotion and
- * persists via onSaveMotion → job_files.photo_to_video_motion.
- */
-const MOTION_OPTIONS = [
-  { v: 'zoom-in',          label: '🔍 Zoom in' },
-  { v: 'zoom-out',         label: '🔍 Zoom out' },
-  { v: 'pan-lr',           label: '← → Pan L→R' },
-  { v: 'pan-rl',           label: '← → Pan R→L' },
-  { v: 'pan-lr-zoom-in',   label: '← → Pan + zoom in (L→R)' },
-  { v: 'pan-lr-zoom-out',  label: '← → Pan + zoom out (L→R)' },
-  { v: 'pan-rl-zoom-in',   label: '← → Pan + zoom in (R→L)' },
-  { v: 'pan-rl-zoom-out',  label: '← → Pan + zoom out (R→L)' },
-  { v: 'static',           label: '⏸ Still (no motion)' },
-]
-
-function PhotoMotionControl({ item, onInvalidateMerge, onSaveMotion }) {
-  const current = item._photoMotion || 'zoom-in'
-  return (
-    <label
-      className="flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1"
-      title="How the photo moves during its time on screen (Ken Burns effect). Only applies when the photo is part of a video merge."
-    >
-      <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap">Motion</span>
-      <select
-        value={current}
-        onChange={e => {
-          const next = e.target.value
-          item._photoMotion = next
-          onInvalidateMerge?.()
-          onSaveMotion?.(item)
-        }}
-        className="flex-1 min-w-0 text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white px-1 py-0.5"
-      >
-        {MOTION_OPTIONS.map(m => <option key={m.v} value={m.v}>{m.label}</option>)}
-      </select>
-    </label>
   )
 }

@@ -3,6 +3,7 @@ import * as api from '../../api'
 import FileGrid from '../../components/FileGrid'
 import VideoTrimmer from '../../components/VideoTrimmer'
 import VideoMerge from '../../components/VideoMerge'
+import PhotoDurationBarBase from '../../components/PhotoDurationBar'
 import Dropzone from '../../components/Dropzone'
 import FinalPreviewV2 from '../components/FinalPreviewV2'
 import ToolMenuV2 from '../components/ToolMenuV2'
@@ -123,7 +124,29 @@ function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, j
       <Dropzone onFiles={(fileList) => addFiles(fileList)} />
 
       {files.length > 0 && (
-        <FileGrid files={files} onRemove={removeFile} onReorder={reorderFiles} VideoTrimmer={VideoTrimmer} />
+        <FileGrid
+          files={files}
+          onRemove={removeFile}
+          onReorder={reorderFiles}
+          VideoTrimmer={VideoTrimmer}
+          // Only surface the photo duration + motion controls under
+          // photo tiles when this draft is actually going to combine
+          // into a video. Pure photo-carousel drafts don't need them.
+          PhotoDurationBar={showMerge ? (({ item }) => (
+            <PhotoDurationBarBase
+              item={item}
+              onInvalidateMerge={() => {
+                if (typeof window !== 'undefined' && window._postyMergedVideo) {
+                  try { URL.revokeObjectURL(window._postyMergedVideo.url) } catch {}
+                  window._postyMergedVideo = null
+                  try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+                }
+              }}
+              onSaveTrim={it => jobSync.saveFileTrim?.(it)}
+              onSaveMotion={it => jobSync.saveFilePhotoMotion?.(it)}
+            />
+          )) : null}
+        />
       )}
 
       {/* Photo-only drafts default to posting as a photo/carousel.

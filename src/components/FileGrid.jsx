@@ -271,7 +271,7 @@ function SortableTile({ item, children }) {
   )
 }
 
-export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer }) {
+export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer, PhotoDurationBar }) {
   const [previewItem, setPreviewItem] = useState(null)
 
   // Only put the sensors together when we actually have more than one
@@ -343,6 +343,7 @@ export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer }) {
             </div>
             {/* Trim bar right under its video */}
             {isVideo && VideoTrimmer && <VideoTrimmer item={item} />}
+            {isImg && PhotoDurationBar && <PhotoDurationBar item={item} />}
           </>
         )
         // Only wrap with SortableTile when reorder is enabled — otherwise
