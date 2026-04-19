@@ -10,6 +10,7 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
   const [renamingId, setRenamingId] = useState(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [duplicatingId, setDuplicatingId] = useState(null)
+  const [autoNamingId, setAutoNamingId] = useState(null)
 
   // Refresh the jobs list when the drafts screen mounts so newly-created
   // drafts appear without a manual refresh.
@@ -31,6 +32,19 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
       await api.updateJob(j.uuid, { job_name: next })
       if (jobSync.refreshJobList) await jobSync.refreshJobList()
     } catch (e) { alert('Rename failed: ' + e.message) }
+  }
+
+  const autoName = async (j) => {
+    setAutoNamingId(j.uuid)
+    try {
+      const r = await api.autoNameJob(j.uuid)
+      if (r?.error) throw new Error(r.error)
+      if (jobSync.refreshJobList) await jobSync.refreshJobList()
+    } catch (e) {
+      alert('Auto-name failed: ' + e.message)
+    } finally {
+      setAutoNamingId(null)
+    }
   }
 
   const ago = (dateStr) => {
@@ -112,6 +126,13 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
                         onClick={e => { e.stopPropagation(); startRename(j) }}
                         className="text-[10px] text-muted bg-white border border-[#e5e5e5] rounded py-0.5 px-2 cursor-pointer"
                       >Rename</button>
+                      {!j.job_name && j.file_count > 0 && (
+                        <button
+                          onClick={e => { e.stopPropagation(); autoName(j) }}
+                          disabled={autoNamingId === j.uuid}
+                          className="text-[10px] text-[#6C5CE7] bg-white border border-[#6C5CE7]/50 rounded py-0.5 px-2 cursor-pointer disabled:opacity-50"
+                        >{autoNamingId === j.uuid ? 'Naming…' : 'Auto-name'}</button>
+                      )}
                       <button
                         onClick={async e => {
                           e.stopPropagation()
