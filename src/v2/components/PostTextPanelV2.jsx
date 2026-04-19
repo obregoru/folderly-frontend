@@ -1,19 +1,13 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api'
+import { toBase64 } from '../../lib/crop'
 
 /**
  * PostTextPanelV2 — per-platform post body text (caption / description).
- * Each platform gets its own tab; edits save per-file on blur using the
- * existing captions JSONB column (so real app + v2 share the same state).
- *
- * Phase 4 scope:
- *   - Read existing captions from the first file of the current job
- *   - Per-platform edit in textareas
- *   - Save on blur via updateJobFile
- *   - "Generate with AI" links back to ?real=1 for now
- *
- * Deferred: in-panel generation, per-platform AI review, humanize,
- * per-channel overrides.
+ * Each platform tab edits the first file's captions JSONB (shared with the
+ * real app), saves on blur, and generates on demand via /generate/stream
+ * (same endpoint the real app uses, so rules, hook_mode, and cached
+ * visual_descriptions apply identically).
  */
 
 const PLATFORMS = [
@@ -25,35 +19,91 @@ const PLATFORMS = [
   { key: 'google',    label: 'GBP' },
 ]
 
-export default function PostTextPanelV2({ jobSync, draftId, files }) {
+export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
   const [active, setActive] = useState('tiktok')
   const [captions, setCaptions] = useState({})
   const [saving, setSaving] = useState(false)
   const [firstFileDbId, setFirstFileDbId] = useState(null)
+  const [firstFile, setFirstFile] = useState(null)
+  const [job, setJob] = useState(null)
+  const [generating, setGenerating] = useState(null) // 'current' | 'all' | null
+  const [genErr, setGenErr] = useState(null)
+  const [hint, setHint] = useState('')
 
   useEffect(() => {
     if (!draftId) return
-    api.getJob(draftId).then(job => {
-      const f0 = job?.files?.[0]
+    api.getJob(draftId).then(j => {
+      setJob(j || null)
+      const f0 = j?.files?.[0]
       if (f0) {
         setFirstFileDbId(f0.id)
+        setFirstFile(f0)
         const caps = f0.captions && typeof f0.captions === 'object' ? f0.captions : {}
         setCaptions(caps)
       }
+      if (j?.hint_text) setHint(j.hint_text)
     }).catch(() => {})
   }, [draftId])
 
   const update = (key, value) => setCaptions(prev => ({ ...prev, [key]: value }))
 
-  const persistOnBlur = async () => {
+  const persist = async (next = captions) => {
     if (!draftId || !firstFileDbId) return
     setSaving(true)
     try {
-      await api.updateJobFile(draftId, firstFileDbId, { captions })
+      await api.updateJobFile(draftId, firstFileDbId, { captions: next })
     } catch (e) {
       console.warn('[PostTextV2] save failed:', e.message)
     }
     setSaving(false)
+  }
+  const persistOnBlur = () => persist()
+
+  const generate = async (scope /* 'current' | 'all' */) => {
+    setGenErr(null)
+    const f0Live = files?.[0]
+    if (!f0Live && !firstFile) { setGenErr('Upload a file first.'); return }
+    setGenerating(scope)
+    try {
+      const platforms = scope === 'current' ? [active] : PLATFORMS.map(p => p.key)
+      const isImg = (f0Live?.file?.type || f0Live?._mediaType || firstFile?.media_type || '').startsWith('image/')
+      const uploadUuid = f0Live?.uploadResult?.uuid || f0Live?.uploadResult?.id || firstFile?.upload_uuid || null
+
+      const body = {
+        filename: f0Live?.file?.name || f0Live?._filename || firstFile?.filename || 'file',
+        folder_name: '',
+        occasion: '',
+        tone: settings?.default_tone || 'warm',
+        availability: '',
+        platforms,
+        upload_id: uploadUuid,
+        rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
+        user_hint: hint || '',
+      }
+      if (isImg && f0Live?.file) {
+        body.base64 = await toBase64(f0Live.file)
+        body.media_type = f0Live.file.type || f0Live._mediaType || 'image/jpeg'
+      }
+      if (!body.upload_id && !body.base64) {
+        setGenErr('Need either an upload_id or image base64 — the file may still be uploading.')
+        setGenerating(null); return
+      }
+
+      const caps = {}
+      await api.generateStream(body, (partial) => { Object.assign(caps, partial) })
+
+      // Merge into existing captions — keep other platforms' text
+      const next = { ...captions }
+      for (const pk of platforms) {
+        if (caps[pk] != null) next[pk] = caps[pk]
+      }
+      setCaptions(next)
+      await persist(next)
+    } catch (e) {
+      setGenErr(e.message || String(e))
+    } finally {
+      setGenerating(null)
+    }
   }
 
   const current = captions[active] || ''
@@ -61,6 +111,10 @@ export default function PostTextPanelV2({ jobSync, draftId, files }) {
   const currentText = typeof current === 'string'
     ? current
     : (current?.text || current?.description || '')
+
+  const isGenCurrent = generating === 'current'
+  const isGenAll = generating === 'all'
+  const anyGen = !!generating
 
   return (
     <div className="space-y-3">
@@ -80,7 +134,6 @@ export default function PostTextPanelV2({ jobSync, draftId, files }) {
       </div>
 
       <div className="space-y-2">
-        {/* Title row for YouTube / Blog */}
         {currentIsObject && (
           <input
             type="text"
@@ -115,14 +168,35 @@ export default function PostTextPanelV2({ jobSync, draftId, files }) {
         </div>
       </div>
 
-      <div className="border-t border-[#e5e5e5] pt-2 flex flex-col gap-1.5">
-        <div className="text-[10px] text-muted italic">
-          AI generation runs from the real app for now — reads the same Hints + captions so it round-trips cleanly.
+      <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-medium flex-1">Generate with AI</div>
+          {hint && <span className="text-[9px] text-muted">using Hints</span>}
         </div>
-        <a
-          href="/?real=1"
-          className="text-[10px] py-1.5 px-3 bg-[#6C5CE7] text-white rounded text-center no-underline inline-block"
-        >Generate with AI in real app →</a>
+        <input
+          type="text"
+          value={hint}
+          onChange={e => setHint(e.target.value)}
+          placeholder="Extra context for this generation (optional) — product, occasion, angle…"
+          className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white"
+        />
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => generate('current')}
+            disabled={anyGen}
+            className="flex-1 text-[10px] py-1.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          >
+            {isGenCurrent ? 'Generating…' : `Generate ${PLATFORMS.find(p => p.key === active)?.label}`}
+          </button>
+          <button
+            onClick={() => generate('all')}
+            disabled={anyGen}
+            className="flex-1 text-[10px] py-1.5 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+          >
+            {isGenAll ? 'Generating all…' : 'Generate all 6'}
+          </button>
+        </div>
+        {genErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">{genErr}</div>}
       </div>
     </div>
   )
