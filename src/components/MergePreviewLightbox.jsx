@@ -16,16 +16,27 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   const [idx, setIdx] = useState(0)
   const videoRef = useRef(null)
   const photoTimerRef = useRef(null)
+  // Guards a double-advance when timeupdate fires rapidly right at the
+  // trim boundary. Without this, two sibling clips that share the same
+  // URL (iPhone IMG_9376 collisions) were skipping an index on advance.
+  const advancingRef = useRef(false)
 
   // Sanity guard: if playlist becomes empty, close.
   useEffect(() => { if (!playlist || playlist.length === 0) onClose?.() }, [playlist, onClose])
 
-  const advance = () => {
+  // Positional advance — uses the closure-captured idx so multiple
+  // in-flight onTime events can't all bump idx. Only the first one
+  // whose fromIdx matches the current state wins; the rest are no-ops.
+  const advanceFrom = (fromIdx) => {
     if (photoTimerRef.current) { clearTimeout(photoTimerRef.current); photoTimerRef.current = null }
-    setIdx(i => (i + 1 < (playlist?.length || 0) ? i + 1 : i))
+    setIdx(i => {
+      if (i !== fromIdx) return i
+      return i + 1 < (playlist?.length || 0) ? i + 1 : i
+    })
   }
   const restart = () => {
     if (photoTimerRef.current) { clearTimeout(photoTimerRef.current); photoTimerRef.current = null }
+    advancingRef.current = false
     setIdx(0)
   }
 
@@ -35,26 +46,42 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   // Drive video playback — seek to trimStart on load, watch timeupdate
   // for trimEnd, advance on end-of-segment or natural end.
   useEffect(() => {
+    advancingRef.current = false // new clip, re-arm the guard
     if (!current || current.type !== 'video') return
     const v = videoRef.current
     if (!v) return
+    const fromIdx = idx
     const speed = Number(current.speed) > 0 ? Number(current.speed) : 1.0
     try { v.playbackRate = speed } catch {}
     const start = Number(current.trimStart) || 0
     const end = current.trimEnd != null && current.trimEnd > 0 ? Number(current.trimEnd) : null
 
     const onReady = () => {
+      // Seek to THIS clip's trimStart even if the element is the same
+      // <video> (same URL between siblings). Without this the second
+      // sibling would stay at the first sibling's currentTime.
       try { v.currentTime = start } catch {}
       try { const p = v.play(); if (p && p.catch) p.catch(() => {}) } catch {}
       v.removeEventListener('loadedmetadata', onReady)
       v.removeEventListener('canplay', onReady)
     }
     const onTime = () => {
+      if (advancingRef.current) return
       const max = end != null ? end : (Number.isFinite(v.duration) ? v.duration : Infinity)
-      if (v.currentTime >= max - 0.05) { if (!isLast) advance(); else try { v.pause() } catch {} }
+      if (v.currentTime >= max - 0.05) {
+        advancingRef.current = true
+        if (!isLast) advanceFrom(fromIdx); else try { v.pause() } catch {}
+      }
     }
-    const onEnded = () => { if (!isLast) advance() }
+    const onEnded = () => {
+      if (advancingRef.current) return
+      advancingRef.current = true
+      if (!isLast) advanceFrom(fromIdx)
+    }
 
+    // Always seek — readyState may be >= 1 because the element was
+    // reused for the previous clip (same URL). Seek to this clip's
+    // trimStart explicitly each time, not just on first load.
     if (v.readyState >= 1) onReady()
     else {
       v.addEventListener('loadedmetadata', onReady, { once: true })
@@ -72,9 +99,10 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   // Drive photo "playback" — show for N seconds then advance.
   useEffect(() => {
     if (!current || current.type !== 'photo') return
+    const fromIdx = idx
     const ms = Math.max(500, (Number(current.trimEnd) || 5) * 1000)
     photoTimerRef.current = setTimeout(() => {
-      if (!isLast) advance()
+      if (!isLast) advanceFrom(fromIdx)
     }, ms)
     return () => { if (photoTimerRef.current) clearTimeout(photoTimerRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,7 +162,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
         {playlist.map((c, i) => (
           <button
             key={c.id || i}
-            onClick={() => setIdx(i)}
+            onClick={() => { advancingRef.current = false; setIdx(i) }}
             className={`flex-shrink-0 border rounded py-1 px-2 text-[9px] cursor-pointer whitespace-nowrap ${i === idx ? 'bg-white text-black border-white' : 'bg-transparent text-white/80 border-white/30'}`}
             title={c.filename || `clip ${i + 1}`}
           >
