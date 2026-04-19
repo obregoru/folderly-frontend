@@ -254,8 +254,10 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
         body.base64 = await toBase64(f0.file)
         body.media_type = f0.file.type || f0._mediaType || 'image/jpeg'
       }
-      if (!body.upload_id && !body.base64) {
-        setRegenErr(`${ch.label}: no upload ready yet`)
+      // Backend resolves first job file's upload via job_uuid when
+      // upload_id missing — only block when we have no handle at all.
+      if (!body.upload_id && !body.base64 && !body.job_uuid) {
+        setRegenErr(`${ch.label}: no media uploaded yet`)
         setRegenKey(null); return
       }
 

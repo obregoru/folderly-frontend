@@ -114,8 +114,11 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         body.base64 = await toBase64(f0Live.file)
         body.media_type = f0Live.file.type || f0Live._mediaType || 'image/jpeg'
       }
-      if (!body.upload_id && !body.base64) {
-        setGenErr('Need either an upload_id or image base64 — the file may still be uploading.')
+      // Don't hard-error if upload_id isn't on the client — when job_uuid is
+      // present the backend will resolve the first job file's upload via
+      // file_hash. Only block when we have literally no handle at all.
+      if (!body.upload_id && !body.base64 && !body.job_uuid) {
+        setGenErr('No media available yet — upload a file first.')
         setGenerating(null); return
       }
 
