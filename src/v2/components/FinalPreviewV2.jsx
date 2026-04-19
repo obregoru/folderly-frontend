@@ -235,27 +235,41 @@ function CaptionText({ text }) {
   )
 }
 
-// Teleprompter text — overlaid at the bottom of the video while the user
-// records. Visually distinct from OverlayText so it's clear this is a
-// recording aid, not something that gets burned into the final video.
+// Teleprompter text — amber-on-black panel centered for read-aloud
+// comfort. Visually distinct from the YouTube-style closed captions
+// (white-on-black, bottom) and from the story-overlay text (middle of
+// screen, user-configured color) so there's no ambiguity about what you're
+// looking at while recording. Includes a pulsing red "RECORDING · READ"
+// tag so it reads as a recording aid, not a final output.
 function TeleprompterText({ text }) {
   return (
-    <div className="absolute inset-x-0 bottom-14 flex items-end justify-center pointer-events-none px-4">
+    <div className="absolute inset-x-0 top-1/3 flex items-center justify-center pointer-events-none px-4">
       <div
-        className="bg-black/75 rounded-lg px-4 py-3 text-center"
+        className="rounded-lg px-5 py-4 text-center"
         style={{
-          fontSize: '24px',
-          color: '#ffffff',
-          fontWeight: 600,
+          background: 'rgba(20, 14, 0, 0.88)',
+          border: '2px solid #ffc93c',
+          fontSize: '28px',
+          color: '#ffd86b',
+          fontWeight: 700,
           lineHeight: 1.25,
-          maxWidth: '95%',
-          textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+          maxWidth: '96%',
           whiteSpace: 'pre-wrap',
+          textShadow: '0 1px 2px rgba(0,0,0,0.9)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.55)',
         }}
       >
         {text}
       </div>
-      <div className="absolute top-1 right-2 text-[9px] text-[#ff6b6b] bg-black/60 rounded px-1.5 py-0.5 font-mono uppercase tracking-wide">Teleprompter</div>
+      <div
+        className="absolute -top-3 left-1/2 -translate-x-1/2 text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 rounded"
+        style={{
+          background: '#c0392b',
+          color: '#fff',
+          boxShadow: '0 0 0 2px rgba(255,255,255,0.15)',
+          animation: 'pulse 1.6s ease-in-out infinite',
+        }}
+      >● Recording · Read</div>
     </div>
   )
 }

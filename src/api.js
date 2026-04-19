@@ -225,6 +225,14 @@ export const analyzeAnalytics = (platform, rawText) =>
 export const getAnalytics = () =>
   fetch(api('/generate/analytics'), { credentials: 'include' }).then(r => r.json())
 
+// AI interaction log — request/response history of Anthropic calls.
+export const getAiLog = (params = {}) => {
+  const qs = new URLSearchParams(Object.entries(params).filter(([,v]) => v)).toString()
+  return fetch(api('/ai/log' + (qs ? '?' + qs : '')), { credentials: 'include' }).then(r => r.json())
+}
+export const clearAiLog = () =>
+  fetch(api('/ai/log'), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
+
 export const saveOverlayTemplate = (template) =>
   fetch(api('/settings/overlay-templates'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(template) }).then(r => r.json())
 export const deleteOverlayTemplate = (id) =>
