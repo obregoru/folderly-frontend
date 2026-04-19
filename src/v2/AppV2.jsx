@@ -201,27 +201,16 @@ export default function AppV2() {
           {!inEditor && <>{settings?.name || 'Posty Posty'}<span className="text-[9px] text-muted ml-1">· v2</span></>}
         </button>
         {inEditor && (
-          <div className="flex-1 min-w-0 flex flex-col gap-0 leading-tight">
-            <input
-              type="text"
-              value={nameDraft}
-              onChange={e => setNameDraft(e.target.value)}
-              onBlur={saveDraftName}
-              onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur() } else if (e.key === 'Escape') { setNameDraft(activeJob?.job_name || ''); e.currentTarget.blur() } }}
-              placeholder="Untitled draft"
-              className="text-[12px] font-medium text-ink bg-transparent border-none outline-none min-w-0 py-0 focus:bg-[#f5f4f0] focus:px-1 rounded"
-              aria-label="Draft name"
-            />
-            {activeDraftId && (
-              <button
-                onClick={async () => {
-                  try { await navigator.clipboard.writeText(activeDraftId) } catch {}
-                }}
-                className="text-[9px] font-mono text-muted bg-transparent border-none cursor-pointer text-left p-0 hover:text-ink truncate"
-                title={`Draft ID: ${activeDraftId}\nClick to copy full UUID.`}
-              >#{activeDraftId.slice(0, 8)}</button>
-            )}
-          </div>
+          <input
+            type="text"
+            value={nameDraft}
+            onChange={e => setNameDraft(e.target.value)}
+            onBlur={saveDraftName}
+            onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur() } else if (e.key === 'Escape') { setNameDraft(activeJob?.job_name || ''); e.currentTarget.blur() } }}
+            placeholder="Untitled draft"
+            className="text-[12px] font-medium text-ink bg-transparent border-none outline-none flex-1 min-w-0 py-0 focus:bg-[#f5f4f0] focus:px-1 rounded"
+            aria-label="Draft name"
+          />
         )}
         {!inEditor && <div className="flex-1" />}
         {inEditor && (
@@ -258,6 +247,26 @@ export default function AppV2() {
           aria-label="Settings menu"
         >☰</button>
       </div>
+
+      {/* Job ID sub-bar — always visible when editing, click to copy.
+          Separate row so it doesn't compete with the name input or the
+          header buttons. Minimal chrome so it's unobtrusive. */}
+      {inEditor && activeDraftId && (
+        <div className="sticky top-[44px] bg-white border-b border-[#e5e5e5] z-20 flex items-center gap-2 px-3 py-1">
+          <span className="text-[9px] text-muted whitespace-nowrap">Job</span>
+          <button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(activeDraftId)
+                const el = document.activeElement
+                if (el && 'blur' in el) try { el.blur() } catch {}
+              } catch {}
+            }}
+            className="text-[10px] font-mono text-muted bg-transparent border-none cursor-pointer p-0 text-left truncate hover:text-[#6C5CE7]"
+            title="Click to copy full job UUID"
+          >#{activeDraftId}</button>
+        </div>
+      )}
 
       <div className="max-w-[520px] mx-auto">
         {inEditor && (
