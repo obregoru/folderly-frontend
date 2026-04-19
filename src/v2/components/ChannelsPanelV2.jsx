@@ -237,6 +237,10 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
       // Per-job voice overrides beat tenant defaults when set.
       const jobVoice = job?.generation_rules?.voice || {}
       const jobOffTopic = !!job?.generation_rules?.off_topic
+      const selectedHook = job?.generation_rules?.hooks?.selected?.text
+        || job?.overlay_settings?.openingText
+        || null
+      const stickyCritique = (job?.second_opinion || '').trim() || null
 
       const body = {
         filename: f0?.file?.name || f0?._filename || firstSvr?.filename || 'file',
@@ -255,7 +259,11 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
         user_hint: (job?.hint_text) || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,
-        second_opinion:   opts.withCritique ? (job?.second_opinion || '') : undefined,
+        // Sticky critique + selected hook flow on every regen, not
+        // only the explicit "w/ critique" button. That button still
+        // exists for the "regen with focus on the critique" pass.
+        second_opinion: stickyCritique || undefined,
+        selected_hook: selectedHook || undefined,
       }
       if (isImg && f0?.file) {
         const { toBase64 } = await import('../../lib/crop')

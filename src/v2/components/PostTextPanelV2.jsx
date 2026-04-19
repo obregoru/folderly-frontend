@@ -110,6 +110,17 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
       const ctxJob = fresh || job
       const jobVoice = ctxJob?.generation_rules?.voice || {}
       const jobOffTopic = !!ctxJob?.generation_rules?.off_topic
+      // Selected scroll-stopping hook from Hints panel. When present we
+      // send it so captions can reference / complement it instead of
+      // duplicating the hook beat.
+      const selectedHook = ctxJob?.generation_rules?.hooks?.selected?.text
+        || ctxJob?.overlay_settings?.openingText
+        || null
+      // Critique from the Second opinion box — now always flows in when
+      // the draft has one, not only on the dedicated critique button.
+      // The dedicated critique path remains for reruns when the critique
+      // is stale but still saved.
+      const stickyCritique = (ctxJob?.second_opinion || '').trim() || null
 
       const body = {
         filename: f0Live?.file?.name || f0Live?._filename || firstFile?.filename || 'file',
@@ -128,7 +139,10 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         user_hint: hint || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,
-        second_opinion: useCritique ? (ctxJob?.second_opinion || '') : undefined,
+        // Critique flows through on every generate when present; the
+        // dedicated critique scope still flags it as the primary focus.
+        second_opinion: stickyCritique || undefined,
+        selected_hook: selectedHook || undefined,
       }
       if (useCritique && !body.second_opinion) {
         setGenErr('No critique saved on this draft — paste one in Hints → Second opinion first.')
