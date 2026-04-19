@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import * as api from '../../api'
 import FileGrid from '../../components/FileGrid'
 import VideoTrimmer from '../../components/VideoTrimmer'
 import VideoMerge from '../../components/VideoMerge'
@@ -35,7 +36,35 @@ export default function EditorV2({
   const photoFiles = (files || []).filter(f => f.file?.type?.startsWith('image/') || f._mediaType?.startsWith('image/'))
 
   const onlyPhotos = files.length > 0 && videoFiles.length === 0 && photoFiles.length > 0
-  const outputType = onlyPhotos ? 'photo-post' : 'video'
+
+  // Photo-only drafts default to posting as a photo/carousel. The user
+  // can explicitly opt-in to combining photos into a video — that flips
+  // outputType to 'video' and reveals VideoMerge. Persisted per-job so
+  // the choice survives refresh.
+  const [combinePhotosAsVideo, setCombinePhotosAsVideo] = useState(false)
+  useEffect(() => {
+    if (!draftId) return
+    api.getJob(draftId).then(job => {
+      setCombinePhotosAsVideo(!!job?.generation_rules?.combine_photos_as_video)
+    }).catch(() => {})
+  }, [draftId])
+
+  const toggleCombinePhotos = async (next) => {
+    setCombinePhotosAsVideo(next)
+    if (!draftId) return
+    try {
+      const current = await api.getJob(draftId)
+      const existing = current?.generation_rules || {}
+      await api.updateJob(draftId, { generation_rules: { ...existing, combine_photos_as_video: next } })
+    } catch (e) {
+      console.warn('[EditorV2] save combine flag failed:', e.message)
+    }
+  }
+
+  // outputType drives the ToolMenu filter. A photo-only draft stays in
+  // 'photo-post' mode (no voiceover / overlays tabs) unless the user
+  // opts into combining the photos into a video.
+  const outputType = onlyPhotos && !combinePhotosAsVideo ? 'photo-post' : 'video'
 
   const hasMerge = typeof window !== 'undefined' && !!window._postyMergedVideo?.url
   const hasFinal = hasMerge || (videoFiles.length === 1) || (onlyPhotos && photoFiles.length > 0)
@@ -65,6 +94,9 @@ export default function EditorV2({
             removeFile={removeFile}
             reorderFiles={reorderFiles}
             jobSync={jobSync}
+            onlyPhotos={onlyPhotos}
+            combinePhotosAsVideo={combinePhotosAsVideo}
+            onToggleCombinePhotos={toggleCombinePhotos}
           />
         )}
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} settings={settings} />}
@@ -77,7 +109,13 @@ export default function EditorV2({
   )
 }
 
-function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, jobSync }) {
+function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos }) {
+  // Show the merge UI when:
+  //   - There's at least one video (mixed draft or video-only) AND 2+ items, OR
+  //   - It's a photo-only draft and the user opted into combining into video.
+  const hasVideos = videoFiles.length > 0
+  const showMerge = files.length >= 2 && (hasVideos || (onlyPhotos && combinePhotosAsVideo))
+
   return (
     <div className="space-y-3">
       <div className="text-[12px] font-medium">Media ({files.length})</div>
@@ -88,10 +126,33 @@ function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, j
         <FileGrid files={files} onRemove={removeFile} onReorder={reorderFiles} VideoTrimmer={VideoTrimmer} />
       )}
 
-      {/* Pass ALL files (videos + photos) so photos appear in the merge
-          list with a trimmable display duration. VideoMerge decides
-          per-item whether to render a video row or a photo row. */}
-      {files.length >= 2 && (
+      {/* Photo-only drafts default to posting as a photo/carousel.
+          This toggle explicitly opts into combining the photos into a
+          single video (Reel / Short). Hides itself in mixed or
+          video-only drafts where the merge intent is already obvious. */}
+      {onlyPhotos && files.length >= 2 && (
+        <label className={`flex items-start gap-2 border rounded p-2 cursor-pointer ${combinePhotosAsVideo ? 'border-[#6C5CE7]/40 bg-[#f3f0ff]' : 'border-[#e5e5e5] bg-white'}`}>
+          <input
+            type="checkbox"
+            checked={!!combinePhotosAsVideo}
+            onChange={e => onToggleCombinePhotos?.(e.target.checked)}
+            className="mt-0.5"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-medium">Combine these photos into a video</div>
+            <div className="text-[9px] text-muted mt-0.5">
+              Off (default) → post as a photo carousel on IG / FB / TikTok.<br />
+              On → assemble into a Reel / Short with per-photo display durations. Enables voiceover + overlays tabs.
+            </div>
+          </div>
+        </label>
+      )}
+
+      {/* VideoMerge (trim + reorder list + real server merge + Preview
+          lightbox). Hidden for photo-only drafts that haven't opted
+          into combining as video — no merge = no trim/duration UI
+          shown by default. */}
+      {showMerge && (
         <VideoMerge
           videoFiles={files}
           jobId={jobSync.jobId}
