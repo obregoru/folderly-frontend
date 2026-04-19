@@ -138,6 +138,15 @@ export default function SettingsDrawerV2({ open, onClose, settings: settingsProp
           </SectionCard>
 
           <SectionCard
+            icon="📊" label="Analytics"
+            open={expanded === 'analytics'}
+            onToggle={() => toggle('analytics')}
+            desc="Paste platform insights so best-time suggestions use real audience data"
+          >
+            <AnalyticsForm />
+          </SectionCard>
+
+          <SectionCard
             icon="📅" label="Notifications"
             open={expanded === 'notifications'}
             onToggle={() => toggle('notifications')}
@@ -1167,6 +1176,104 @@ function NotificationsForm({ settings, onSaved }) {
           >{testing ? 'Sending…' : 'Send test email'}</button>
         )}
       </div>
+      {msg && <div className="text-[10px] text-[#2D9A5E]">{msg}</div>}
+      {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
+    </div>
+  )
+}
+
+// --- Analytics -----------------------------------------------------------
+// Per-platform audience analytics. AI extracts peak days/hours from pasted
+// raw text and stores into tenants.platform_analytics JSONB. Best-time
+// suggestions in ChannelsPanelV2 consume that same field.
+
+const ANALYTICS_PLATFORMS = [
+  { key: 'instagram', label: 'Instagram' },
+  { key: 'facebook',  label: 'Facebook' },
+  { key: 'tiktok',    label: 'TikTok' },
+  { key: 'youtube',   label: 'YouTube' },
+  { key: 'twitter',   label: 'X / Twitter' },
+]
+
+function AnalyticsForm() {
+  const [existing, setExisting] = useState({})
+  const [platform, setPlatform] = useState('instagram')
+  const [rawText, setRawText] = useState('')
+  const [analyzing, setAnalyzing] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [err, setErr] = useState(null)
+
+  const load = async () => {
+    try { setExisting(await api.getAnalytics() || {}) } catch {}
+  }
+  useEffect(() => { load() }, [])
+
+  const analyze = async () => {
+    setErr(null); setMsg(null)
+    if (!rawText.trim()) { setErr('Paste some analytics text first.'); return }
+    setAnalyzing(true)
+    try {
+      const r = await api.analyzeAnalytics(platform, rawText.trim())
+      if (r?.error) throw new Error(r.error)
+      setMsg(r?.data?.summary || 'Saved. Best-time suggestions will use this on next refresh.')
+      setRawText('')
+      setExisting(prev => ({ ...prev, [platform]: { ...(r?.data || {}), updated_at: new Date().toISOString() } }))
+    } catch (e) {
+      setErr(e.message || String(e))
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] text-muted">
+        Paste raw text from your platform's insights page (any format). AI extracts peak days / hours and saves it per-platform so best-time suggestions in the scheduler use real data instead of business-type heuristics.
+      </div>
+
+      {Object.keys(existing).length > 0 ? (
+        <div className="flex items-center gap-1 flex-wrap text-[9px] bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">
+          <span className="text-muted">on file:</span>
+          {Object.entries(existing).map(([p, data]) => (
+            <span
+              key={p}
+              className="bg-[#2D9A5E]/10 text-[#2D9A5E] rounded-full px-1.5 py-0.5"
+              title={data?.summary || ''}
+            >{p}</span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[9px] text-muted italic">No analytics saved yet.</div>
+      )}
+
+      <Field label="Platform">
+        <select
+          value={platform}
+          onChange={e => setPlatform(e.target.value)}
+          className={inp}
+        >
+          {ANALYTICS_PLATFORMS.map(p => (
+            <option key={p.key} value={p.key}>{p.label}</option>
+          ))}
+        </select>
+      </Field>
+
+      <Field label="Paste insights text" hint="Anything with timing info — audience active hours, peak post-performance days, etc.">
+        <textarea
+          value={rawText}
+          onChange={e => setRawText(e.target.value)}
+          placeholder="Paste from Instagram Insights, TikTok Analytics, Creator Studio, etc."
+          rows={6}
+          className={`${inp} resize-y font-mono`}
+        />
+      </Field>
+
+      <button
+        onClick={analyze}
+        disabled={analyzing || !rawText.trim()}
+        className="w-full text-[11px] py-1.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+      >{analyzing ? 'Analyzing…' : 'Analyze + save'}</button>
+
       {msg && <div className="text-[10px] text-[#2D9A5E]">{msg}</div>}
       {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
     </div>

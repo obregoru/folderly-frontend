@@ -382,7 +382,9 @@ export default function ChannelsPanelV2({ draftId, files }) {
           </div>
         )}
 
-        <AnalyticsPasteBlock onRefresh={refreshAi} />
+        <div className="text-[9px] text-muted italic">
+          Paste real platform analytics under <b>Settings → Analytics</b> to make these suggestions pull from your actual audience-active hours instead of business-type heuristics.
+        </div>
       </div>
 
       <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
@@ -426,114 +428,3 @@ export default function ChannelsPanelV2({ draftId, files }) {
   )
 }
 
-const ANALYTICS_PLATFORMS = [
-  { key: 'instagram', label: 'Instagram' },
-  { key: 'facebook',  label: 'Facebook' },
-  { key: 'tiktok',    label: 'TikTok' },
-  { key: 'youtube',   label: 'YouTube' },
-  { key: 'twitter',   label: 'X / Twitter' },
-]
-
-function AnalyticsPasteBlock({ onRefresh }) {
-  const [open, setOpen] = useState(false)
-  const [existing, setExisting] = useState({})
-  const [platform, setPlatform] = useState('instagram')
-  const [rawText, setRawText] = useState('')
-  const [analyzing, setAnalyzing] = useState(false)
-  const [msg, setMsg] = useState(null)
-  const [err, setErr] = useState(null)
-
-  useEffect(() => {
-    if (!open) return
-    api.getAnalytics().then(r => setExisting(r || {})).catch(() => {})
-  }, [open])
-
-  const analyze = async () => {
-    setErr(null); setMsg(null)
-    if (!rawText.trim()) { setErr('Paste some analytics text first.'); return }
-    setAnalyzing(true)
-    try {
-      const r = await api.analyzeAnalytics(platform, rawText.trim())
-      if (r?.error) throw new Error(r.error)
-      setMsg(r?.data?.summary || 'Saved. Re-generate suggestions to use the new data.')
-      setRawText('')
-      setExisting(prev => ({ ...prev, [platform]: { ...(r?.data || {}), updated_at: new Date().toISOString() } }))
-    } catch (e) {
-      setErr(e.message || String(e))
-    } finally {
-      setAnalyzing(false)
-    }
-  }
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="text-[10px] text-[#6C5CE7] bg-white border border-[#6C5CE7]/50 rounded py-1 px-2 cursor-pointer"
-      >+ Paste platform analytics</button>
-    )
-  }
-
-  return (
-    <div className="border border-[#e5e5e5] rounded p-2 space-y-2 bg-[#fafafa]">
-      <div className="flex items-center gap-2">
-        <div className="text-[11px] font-medium flex-1">Paste analytics</div>
-        <button onClick={() => setOpen(false)} className="text-[10px] text-muted bg-transparent border-none cursor-pointer">✕</button>
-      </div>
-      <div className="text-[10px] text-muted">
-        Paste raw text from your platform's insights page (any format). AI extracts peak days / hours and saves it per-platform so best-time suggestions use real data.
-      </div>
-
-      {Object.keys(existing).length > 0 && (
-        <div className="flex items-center gap-1 flex-wrap text-[9px]">
-          <span className="text-muted">on file:</span>
-          {Object.entries(existing).map(([p, data]) => (
-            <span
-              key={p}
-              className="bg-[#2D9A5E]/10 text-[#2D9A5E] rounded-full px-1.5 py-0.5"
-              title={data?.summary || ''}
-            >{p}</span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex items-center gap-1.5">
-        <label className="text-[10px] text-muted">Platform:</label>
-        <select
-          value={platform}
-          onChange={e => setPlatform(e.target.value)}
-          className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-        >
-          {ANALYTICS_PLATFORMS.map(p => (
-            <option key={p.key} value={p.key}>{p.label}</option>
-          ))}
-        </select>
-      </div>
-
-      <textarea
-        value={rawText}
-        onChange={e => setRawText(e.target.value)}
-        placeholder="Paste analytics data here — audience active hours, post performance times, anything with timing info."
-        rows={5}
-        className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y font-mono"
-      />
-
-      <div className="flex gap-1.5">
-        <button
-          onClick={analyze}
-          disabled={analyzing || !rawText.trim()}
-          className="flex-1 text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-        >{analyzing ? 'Analyzing…' : 'Analyze + save'}</button>
-        {msg && onRefresh && (
-          <button
-            onClick={onRefresh}
-            className="flex-1 text-[10px] py-1 px-2 border border-[#2D9A5E] text-[#2D9A5E] bg-white rounded cursor-pointer"
-          >Regenerate best times</button>
-        )}
-      </div>
-
-      {msg && <div className="text-[10px] text-[#2D9A5E] italic">{msg}</div>}
-      {err && <div className="text-[10px] text-[#c0392b] italic">{err}</div>}
-    </div>
-  )
-}
