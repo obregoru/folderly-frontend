@@ -7,26 +7,20 @@ import AppV2 from './v2/AppV2'
 import './index.css'
 
 // Routing:
-//   ?real=1       → real app (legacy, Phase 0)
-//   ?v2=1         → real v2 app in progress (the rebuild)
-//   /ux-v2        → clickable mockup (ux-v2 branch default on root too)
-//   default       → on ux-v2 branch = mockup; on main = real App
+//   default       → real app (proven legacy experience — what prod users get)
+//   ?v2=1         → real v2 rebuild (opt-in, promote to default once stable)
+//   ?real=1       → real app (explicit; same as default — kept for backlinks)
+//   ?mockup=1     → clickable ux-v2 mockup (design reference, no data)
+//   /ux-v2        → same mockup, path-based
 const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
-const wantsReal = params?.get('real') === '1'
 const wantsV2   = params?.get('v2') === '1'
 const wantsMockupByPath = typeof window !== 'undefined' && window.location.pathname.startsWith('/ux-v2')
 const wantsMockupByQuery = params?.get('mockup') === '1'
 
-// On the ux-v2 branch the mockup is the default so testers don't need to
-// remember a path. Flip this back to false when merging to main.
-const defaultToMockup = true
-
 let Mount
-if (wantsReal) Mount = App
-else if (wantsV2) Mount = AppV2
+if (wantsV2) Mount = AppV2
 else if (wantsMockupByPath || wantsMockupByQuery) Mount = MockApp
-else if (defaultToMockup) Mount = MockApp
-else Mount = App
+else Mount = App // real app is the default and the ?real=1 fallthrough
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
