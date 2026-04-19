@@ -298,7 +298,68 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
           {active === 'tiktok' && <span className="ml-auto">TikTok cap: 2,200</span>}
           {active === 'instagram' && <span className="ml-auto">Instagram cap: 2,200</span>}
         </div>
+
+        {/* YouTube-only: tags field. The generator already returns
+            { title, description, tags: [...] }. Before this, tags were
+            dropped because the UI didn't surface them. */}
+        {active === 'youtube' && (
+          <YoutubeTagsEditor
+            current={current}
+            onChange={next => update('youtube', next)}
+            onBlur={persistOnBlur}
+          />
+        )}
       </div>
+    </div>
+  )
+}
+
+function YoutubeTagsEditor({ current, onChange, onBlur }) {
+  const obj = typeof current === 'object' && current ? current : {}
+  const tagsArr = Array.isArray(obj.tags) ? obj.tags : []
+  const [draft, setDraft] = useState(tagsArr.join(', '))
+  // Re-sync when the underlying tags change (e.g. Generate response).
+  useEffect(() => {
+    const joined = (Array.isArray(obj.tags) ? obj.tags : []).join(', ')
+    if (joined !== draft) setDraft(joined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(obj.tags)])
+
+  const parseTags = (s) => String(s || '')
+    .split(/[,\n]+/)
+    .map(t => t.trim())
+    .filter(Boolean)
+    .slice(0, 20) // YouTube enforces ~500-char total; 20 is a safe cap
+
+  const commit = () => {
+    const next = parseTags(draft)
+    onChange({ ...obj, tags: next })
+    onBlur?.()
+  }
+
+  return (
+    <div className="border-t border-[#e5e5e5] pt-2 mt-1 space-y-1">
+      <div className="flex items-center gap-2 text-[10px]">
+        <label className="text-muted font-medium">Tags</label>
+        <span className="text-muted">({tagsArr.length} / 20)</span>
+        <span className="text-[9px] text-muted ml-auto">Comma-separated. Used for YouTube search.</span>
+      </div>
+      {/* Pill preview so the user sees the parsed tags, not just the raw string */}
+      {tagsArr.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap pb-1">
+          {tagsArr.map((t, i) => (
+            <span key={i} className="text-[9px] bg-[#6C5CE7]/10 text-[#6C5CE7] border border-[#6C5CE7]/30 rounded-full px-2 py-0.5">#{t}</span>
+          ))}
+        </div>
+      )}
+      <textarea
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        placeholder="shorts, candle making, diy, gift idea, perfume bar…"
+        rows={2}
+        className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y font-mono"
+      />
     </div>
   )
 }
