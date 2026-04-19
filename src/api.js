@@ -69,6 +69,7 @@ export const listJobs = () => fetch(api('/jobs'), { credentials: 'include' }).th
 export const createJob = () => fetch(api('/jobs'), { method: 'POST', headers: h(), credentials: 'include', body: '{}' }).then(r => r.json())
 export const getJob = (id) => fetch(api(`/jobs/${id}`), { credentials: 'include' }).then(r => r.json())
 export const updateJob = (id, data) => fetch(api(`/jobs/${id}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
+export const autoNameJob = (id) => fetch(api(`/jobs/${id}/auto-name`), { method: 'POST', headers: h(), credentials: 'include' }).then(r => r.json())
 export const deleteJob = (id) => fetch(api(`/jobs/${id}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const duplicateJob = (id, opts = {}) => fetch(api(`/jobs/${id}/duplicate`), {
   method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
@@ -215,6 +216,8 @@ export const reviewHint = (text, platforms) =>
 
 export const getPostingSchedule = () =>
   fetch(api('/generate/posting-schedule'), { method: 'POST', headers: h(), credentials: 'include' }).then(r => r.json())
+export const loadPostingSchedule = () =>
+  fetch(api('/generate/posting-schedule'), { credentials: 'include' }).then(r => r.json())
 
 export const analyzeAnalytics = (platform, rawText) =>
   fetch(api('/generate/analyze-analytics'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ platform, raw_text: rawText }) }).then(r => r.json())
