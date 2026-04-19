@@ -66,13 +66,14 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
   }
   const persistOnBlur = () => persist()
 
-  const generate = async (scope /* 'current' | 'all' */) => {
+  const generate = async (scope /* 'current' | 'all' | 'critique' */) => {
     setGenErr(null)
     const f0Live = files?.[0]
     if (!f0Live && !firstFile) { setGenErr('Upload a file first.'); return }
     setGenerating(scope)
     try {
       const platforms = scope === 'current' ? [active] : PLATFORMS.map(p => p.key)
+      const useCritique = scope === 'critique'
       const isImg = (f0Live?.file?.type || f0Live?._mediaType || firstFile?.media_type || '').startsWith('image/')
       const uploadUuid = f0Live?.uploadResult?.uuid || f0Live?.uploadResult?.id || firstFile?.upload_uuid || null
 
@@ -107,6 +108,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         user_hint: hint || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,
+        second_opinion: useCritique ? (job?.second_opinion || '') : undefined,
       }
       if (isImg && f0Live?.file) {
         body.base64 = await toBase64(f0Live.file)
@@ -228,6 +230,16 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
             {isGenAll ? 'Generating everything…' : 'Generate everything (all 6 platforms)'}
           </button>
         </div>
+        {job?.second_opinion && (
+          <button
+            onClick={() => generate('critique')}
+            disabled={anyGen}
+            className="w-full text-[11px] py-2 px-2 bg-[#fef3c7] border border-[#d97706]/40 text-[#92400e] rounded cursor-pointer disabled:opacity-50 font-medium"
+            title={job.second_opinion.slice(0, 500)}
+          >
+            {generating === 'critique' ? 'Regenerating with critique…' : '🎯 Regenerate everything with critique from Hints'}
+          </button>
+        )}
         {genErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">{genErr}</div>}
       </div>
     </div>

@@ -22,6 +22,9 @@ export default function HintsPanelV2({ jobSync, draftId }) {
   const [description, setDescription] = useState('')
   const [angles, setAngles] = useState('')
   const [saved, setSaved] = useState(false)
+  const [secondOpinion, setSecondOpinion] = useState('')
+  const [soSaving, setSoSaving] = useState(false)
+  const [soSaved, setSoSaved] = useState(false)
 
   // Hook generator state
   const [hookOn, setHookOn] = useState(false)
@@ -43,6 +46,7 @@ export default function HintsPanelV2({ jobSync, draftId }) {
         setDescription(desc || '')
         setAngles(rest.join('\n---\n') || '')
       }
+      if (typeof job?.second_opinion === 'string') setSecondOpinion(job.second_opinion)
       // If an opening hook is already on the overlay, show it as "applied"
       if (job?.overlay_settings?.openingText) {
         setHookAppliedTo({ text: job.overlay_settings.openingText, from: 'existing' })
@@ -64,6 +68,23 @@ export default function HintsPanelV2({ jobSync, draftId }) {
     } catch (e) {
       alert('Save failed: ' + e.message)
     }
+  }
+
+  const saveSecondOpinion = async () => {
+    setSoSaving(true)
+    try {
+      await api.updateJob(draftId, { second_opinion: secondOpinion })
+      setSoSaved(true)
+      setTimeout(() => setSoSaved(false), 2000)
+    } catch (e) {
+      alert('Save failed: ' + e.message)
+    } finally {
+      setSoSaving(false)
+    }
+  }
+  const clearSecondOpinion = async () => {
+    setSecondOpinion('')
+    try { await api.updateJob(draftId, { second_opinion: '' }) } catch {}
   }
 
   const generateHooks = async () => {
@@ -148,6 +169,42 @@ export default function HintsPanelV2({ jobSync, draftId }) {
         onClick={saveHints}
         className={`w-full py-2 text-[11px] font-medium border-none rounded cursor-pointer ${saved ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
       >{saved ? '✓ Saved' : 'Save hints'}</button>
+
+      {/* --- Second opinion (pasted critique from another AI) --- */}
+      <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[12px] font-medium flex-1">Second opinion</div>
+          {secondOpinion.trim().length > 0 && (
+            <span className="text-[9px] bg-[#fef3c7] text-[#92400e] border border-[#d97706]/40 rounded-full px-2 py-0.5">on file</span>
+          )}
+        </div>
+        <div className="text-[10px] text-muted">
+          Pasted critique from another AI (ChatGPT, Gemini, etc). Save it here, then hit <b>Regenerate with critique</b> in the Captions or Channels tab to apply it explicitly — regular generates stay untouched so you control when the critique tunes the output.
+        </div>
+        <textarea
+          value={secondOpinion}
+          onChange={e => { setSecondOpinion(e.target.value); setSoSaved(false) }}
+          placeholder={`Paste here:\n\n"The caption is too generic. Consider leading with the specific moment..."\n"Remove the hashtag cluster — breaks the voice."\n"The hook assumes knowledge the viewer doesn't have."`}
+          rows={6}
+          className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[120px]"
+        />
+        <div className="flex gap-1.5">
+          <button
+            onClick={saveSecondOpinion}
+            disabled={soSaving}
+            className={`flex-1 py-1.5 text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50 ${soSaved ? 'bg-[#2D9A5E] text-white' : 'bg-[#6C5CE7] text-white'}`}
+          >{soSaving ? 'Saving…' : (soSaved ? '✓ Saved' : 'Save critique')}</button>
+          {secondOpinion && (
+            <button
+              onClick={clearSecondOpinion}
+              className="py-1.5 px-3 text-[10px] border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+            >Clear</button>
+          )}
+        </div>
+        <div className="text-[9px] text-muted italic">
+          Flow: generate → copy the interaction from <span className="font-mono">🤖</span> log → paste into ChatGPT/Gemini for a critique → paste their reply here → go to Captions/Channels and click <b>Regenerate with critique</b>. The critique stays attached to this draft until you clear it.
+        </div>
+      </div>
 
       {/* --- Hook generator ------------------------------------------------ */}
       <div className="border-t border-[#e5e5e5] pt-3">

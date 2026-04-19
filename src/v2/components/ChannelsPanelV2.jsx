@@ -211,7 +211,9 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
   // Regenerate the caption for one specific channel. Sends the same
   // voiceover + captions script context the PostTextPanelV2 sends, so
   // the result references what's already on the timeline.
-  const regenChannel = async (ch) => {
+  // opts.withCritique=true includes job.second_opinion so pasted
+  // external-AI critique tunes this specific regen.
+  const regenChannel = async (ch, opts = {}) => {
     if (!draftId || !firstFileDbId) return
     setRegenErr(null); setRegenKey(ch.key)
     try {
@@ -245,6 +247,7 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
         user_hint: (job?.hint_text) || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,
+        second_opinion:   opts.withCritique ? (job?.second_opinion || '') : undefined,
       }
       if (isImg && f0?.file) {
         const { toBase64 } = await import('../../lib/crop')
@@ -416,10 +419,18 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
                   )}
                   <button
                     onClick={() => regenChannel(c)}
-                    disabled={regenKey === c.key}
+                    disabled={!!regenKey}
                     className="text-[9px] text-[#2D9A5E] bg-white border border-[#2D9A5E] rounded py-0.5 px-1.5 cursor-pointer disabled:opacity-50 ml-auto"
                     title={`Regenerate the ${c.captionKey} caption with the latest voiceover + captions + hints as context`}
-                  >{regenKey === c.key ? '↻…' : '↻ Regen caption'}</button>
+                  >{regenKey === c.key ? '↻…' : '↻ Regen'}</button>
+                  {job?.second_opinion && (
+                    <button
+                      onClick={() => regenChannel(c, { withCritique: true })}
+                      disabled={!!regenKey}
+                      className="text-[9px] text-[#92400e] bg-[#fef3c7] border border-[#d97706]/40 rounded py-0.5 px-1.5 cursor-pointer disabled:opacity-50"
+                      title={`Regenerate using the saved critique from Hints:\n\n${String(job.second_opinion).slice(0, 200)}`}
+                    >{regenKey === c.key ? '🎯…' : '🎯 w/ critique'}</button>
+                  )}
                 </div>
               )}
             </div>
