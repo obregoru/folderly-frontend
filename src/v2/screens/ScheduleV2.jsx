@@ -48,7 +48,7 @@ export default function ScheduleV2() {
     const from = new Date(anchor); from.setDate(from.getDate() - 30)
     const to = new Date(anchor); to.setDate(to.getDate() + 30)
     api.getScheduledPosts({
-      status: 'scheduled',
+      status: 'pending',
       from: from.toISOString(),
       to: to.toISOString(),
       limit: 200,
