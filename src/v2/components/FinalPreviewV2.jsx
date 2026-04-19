@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import * as api from '../../api'
 
 /**
  * Final output preview — the single video/photo surface every v2 tool
@@ -19,7 +20,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
  *   3. Photo carousel (all photos, onlyPhotos == true)
  *   4. Empty state
  */
-const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMergeUrl }, ref) {
+const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMergeUrl, draftId }, ref) {
   const videoRef = useRef(null)
   const [mergedUrl, setMergedUrl] = useState(
     restoredMergeUrl || (typeof window !== 'undefined' ? window._postyMergedVideo?.url : null) || null
@@ -273,8 +274,11 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
             className="w-full h-full object-contain bg-black"
           />
           {mergedUrl && (
-            <div className="absolute top-2 left-2 text-[10px] text-white bg-[#2D9A5E]/80 rounded-full px-2 py-0.5 pointer-events-none">
-              Merged
+            <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
+              <div className="text-[10px] text-white bg-[#2D9A5E]/80 rounded-full px-2 py-0.5 pointer-events-none">
+                Merged
+              </div>
+              <DownloadButton url={mergedUrl} label="⬇ Raw merge" />
             </div>
           )}
           {source.type === 'playlist' && !mergedUrl && (
@@ -439,6 +443,162 @@ function PhotoCarousel({ urls }) {
         </>
       )}
     </>
+  )
+}
+
+// Download the merged video. On mobile (with Web Share API + file support,
+// e.g. iOS Safari, Android Chrome) we open the native share sheet so the
+// user can pick "Save Video" / "Save to Photos". On desktop we trigger a
+// normal save dialog via an <a download>. If CORS blocks the blob fetch we
+// fall back to opening the URL in a new tab so the user can long-press /
+// right-click → Save As.
+export function DownloadButton({ url, label: idleLabel = '⬇ Download' }) {
+  const [state, setState] = useState('idle') // idle | working | done | error
+  const handle = async () => {
+    if (state === 'working') return
+    setState('working')
+    try {
+      const res = await fetch(url, { credentials: 'omit' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const type = blob.type || 'video/mp4'
+      const ext = type.includes('webm') ? 'webm' : type.includes('quicktime') ? 'mov' : 'mp4'
+      const filename = `posty-${Date.now()}.${ext}`
+      const file = new File([blob], filename, { type })
+
+      // Prefer Web Share API with files (iOS / Android). navigator.share
+      // alone isn't enough — it must support sharing files specifically,
+      // which canShare({ files }) gates.
+      const canShareFiles = typeof navigator !== 'undefined'
+        && typeof navigator.canShare === 'function'
+        && navigator.canShare({ files: [file] })
+      if (canShareFiles) {
+        try {
+          await navigator.share({ files: [file], title: 'Posty video' })
+          setState('done')
+          setTimeout(() => setState('idle'), 1500)
+          return
+        } catch (shareErr) {
+          // User cancelled, or share failed — fall through to anchor save.
+          if (shareErr?.name === 'AbortError') { setState('idle'); return }
+        }
+      }
+
+      // Desktop (and mobile fallback): anchor-click save dialog.
+      const objUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { try { URL.revokeObjectURL(objUrl); a.remove() } catch {} }, 1500)
+      setState('done')
+      setTimeout(() => setState('idle'), 1500)
+    } catch (e) {
+      // CORS or network — open in a new tab as a last resort so the user
+      // can save manually.
+      try { window.open(url, '_blank', 'noopener') } catch {}
+      setState('error')
+      setTimeout(() => setState('idle'), 2500)
+    }
+  }
+  const label = state === 'working' ? 'Preparing…'
+    : state === 'done' ? 'Ready'
+    : state === 'error' ? 'Opened — save manually'
+    : idleLabel
+  return (
+    <button
+      onClick={handle}
+      disabled={state === 'working'}
+      className="text-[10px] text-white bg-[#6C5CE7]/90 hover:bg-[#6C5CE7] rounded-full px-2.5 py-0.5 border-none cursor-pointer disabled:opacity-60"
+      title="Save the merged video to your device. On phones, uses the share sheet so you can Save to Photos."
+    >{label}</button>
+  )
+}
+
+// Download the "final" composition — merged video with overlays, closed
+// captions, and voiceover all burned in. Calls POST /post/render-final to
+// produce the mp4 on the server, then feeds the result into the same
+// mobile-share / desktop-save flow as DownloadButton.
+export function DownloadFinalButton({ draftId }) {
+  const [state, setState] = useState('idle') // idle | rendering | saving | done | error
+  const [msg, setMsg] = useState('')
+
+  const saveBlob = async (blob, filename) => {
+    const type = blob.type || 'video/mp4'
+    const file = new File([blob], filename, { type })
+    const canShareFiles = typeof navigator !== 'undefined'
+      && typeof navigator.canShare === 'function'
+      && navigator.canShare({ files: [file] })
+    if (canShareFiles) {
+      try {
+        await navigator.share({ files: [file], title: 'Posty video' })
+        return 'done'
+      } catch (shareErr) {
+        if (shareErr?.name === 'AbortError') return 'idle'
+      }
+    }
+    const objUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objUrl
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    setTimeout(() => { try { URL.revokeObjectURL(objUrl); a.remove() } catch {} }, 1500)
+    return 'done'
+  }
+
+  const handle = async () => {
+    if (state === 'rendering' || state === 'saving') return
+    setState('rendering'); setMsg('')
+    try {
+      // Try to grab the in-memory primary voice (if the user generated it
+      // this session but hasn't posted yet). If the backend has a persisted
+      // primary via voiceover_audio_key, the server picks that up on its own.
+      let primaryBase64 = null
+      let primaryStartTime = 0
+      try {
+        const primaryEl = document.querySelector('audio[data-posty-primary-voice]')
+        if (primaryEl?.src) {
+          const r = await fetch(primaryEl.src)
+          const b = await r.blob()
+          const buf = new Uint8Array(await b.arrayBuffer())
+          let bin = ''
+          for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
+          primaryBase64 = btoa(bin)
+        }
+      } catch { /* ignore — server-side primary will still work */ }
+
+      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64, primaryAudioStartTime: primaryStartTime })
+      if (!r?.final_url) throw new Error('Server returned no final URL')
+      setState('saving')
+      const vres = await fetch(r.final_url, { credentials: 'omit' })
+      if (!vres.ok) throw new Error(`Download failed (${vres.status})`)
+      const blob = await vres.blob()
+      const filename = `posty-final-${Date.now()}.mp4`
+      const next = await saveBlob(blob, filename)
+      setState(next)
+      if (next === 'done') setTimeout(() => setState('idle'), 1500)
+    } catch (e) {
+      setMsg(e.message || String(e))
+      setState('error')
+      setTimeout(() => { setState('idle'); setMsg('') }, 3500)
+    }
+  }
+
+  const label = state === 'rendering' ? 'Rendering final video…'
+    : state === 'saving' ? 'Saving…'
+    : state === 'done' ? 'Ready'
+    : state === 'error' ? (msg ? `Error: ${msg.slice(0, 60)}` : 'Error')
+    : '⬇ Download final video'
+  const disabled = state === 'rendering' || state === 'saving'
+  return (
+    <button
+      onClick={handle}
+      disabled={disabled}
+      className="w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
+      title="Render and download the final video with overlays, closed captions, and voiceover all burned in. Takes 10–30s."
+    >{label}</button>
   )
 }
 

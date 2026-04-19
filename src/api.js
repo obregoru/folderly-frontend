@@ -342,7 +342,7 @@ export const voiceoverFromVideo = ({ frames, videoHint, duration, hookMode, plat
 // Generate spoken-style voiceover hook(s) for the ElevenLabs TTS field
 // Write a VO script from what the draft already has (hints + generated
 // captions + cached visuals). Returns { primary, segments: [{startTime, text}] }.
-export const generateVoiceoverScript = ({ jobUuid, mode, segmentLength, hook, secondOpinion } = {}) =>
+export const generateVoiceoverScript = ({ jobUuid, mode, segmentLength, hook, secondOpinion, videoDurationS } = {}) =>
   fetch(api('/generate/voiceover-script'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -353,6 +353,7 @@ export const generateVoiceoverScript = ({ jobUuid, mode, segmentLength, hook, se
       segment_length: segmentLength || 'medium',
       hook: hook || null,
       second_opinion: secondOpinion || null,
+      video_duration_s: videoDurationS != null ? Number(videoDurationS) : null,
     }),
   }).then(r => r.json())
 
@@ -525,6 +526,29 @@ export const addVoiceoverSegments = (videoBase64, segments, mode = 'mix', origin
       original_volume: originalVolume,
     }),
   }).then(r => r.json())
+
+// Compose a single "final" mp4 for the job: merged video → overlays →
+// caption timeline → primary+timed voiceovers. Server reads all the pieces
+// off the job record. Optional `primaryAudioBase64` lets the client pass
+// an in-memory primary voice that hasn't been persisted yet.
+export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime } = {}) =>
+  fetch(api('/post/render-final'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      job_id: jobUuid,
+      primary_audio_base64: primaryAudioBase64 || null,
+      primary_audio_start_time: primaryAudioStartTime != null ? Number(primaryAudioStartTime) : 0,
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `Render failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
 
 // ElevenLabs TTS
 export const textToSpeech = (text, voiceId, voiceSettings = {}) =>

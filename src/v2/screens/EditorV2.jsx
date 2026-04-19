@@ -5,7 +5,7 @@ import VideoTrimmer from '../../components/VideoTrimmer'
 import VideoMerge from '../../components/VideoMerge'
 import PhotoDurationBarBase from '../../components/PhotoDurationBar'
 import Dropzone from '../../components/Dropzone'
-import FinalPreviewV2 from '../components/FinalPreviewV2'
+import FinalPreviewV2, { DownloadFinalButton } from '../components/FinalPreviewV2'
 import ToolMenuV2 from '../components/ToolMenuV2'
 import HintsPanelV2 from '../components/HintsPanelV2'
 import VoiceoverPanelV2 from '../components/VoiceoverPanelV2'
@@ -67,7 +67,26 @@ export default function EditorV2({
   // opts into combining the photos into a video.
   const outputType = onlyPhotos && !combinePhotosAsVideo ? 'photo-post' : 'video'
 
-  const hasMerge = typeof window !== 'undefined' && !!window._postyMergedVideo?.url
+  // Reactive merge flag — true when the job has a merged video available.
+  // Covers: in-session merge (window._postyMergedVideo), job reload
+  // (job.merged_video_url pulled via getJob). Subscribes to the
+  // 'posty-merge-change' event so the Export panel appears as soon as the
+  // merge completes, without a full re-render cycle.
+  const [hasMerge, setHasMerge] = useState(() =>
+    typeof window !== 'undefined' && !!window._postyMergedVideo?.url
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const sync = () => setHasMerge(!!window._postyMergedVideo?.url)
+    window.addEventListener('posty-merge-change', sync)
+    return () => window.removeEventListener('posty-merge-change', sync)
+  }, [])
+  useEffect(() => {
+    if (!draftId) return
+    api.getJob(draftId).then(job => {
+      if (job?.merged_video_url || job?.merged_video_key) setHasMerge(true)
+    }).catch(() => {})
+  }, [draftId])
   const hasFinal = hasMerge || (videoFiles.length === 1) || (onlyPhotos && photoFiles.length > 0)
 
   const VIDEO_ONLY_TOOLS = ['voiceover', 'overlays']
@@ -77,7 +96,7 @@ export default function EditorV2({
 
   return (
     <div className="p-3 space-y-3">
-      <FinalPreviewV2 ref={previewRef} files={files} />
+      <FinalPreviewV2 ref={previewRef} files={files} draftId={draftId} />
 
       <ToolMenuV2
         active={safeActiveTool}
@@ -106,6 +125,16 @@ export default function EditorV2({
         {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} settings={settings} />}
         {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} files={files} settings={settings} />}
       </div>
+
+      {hasMerge && draftId && (
+        <div className="bg-white border border-[#e5e5e5] rounded-lg p-3 space-y-2">
+          <div className="text-[12px] font-medium">Export</div>
+          <div className="text-[10px] text-muted">
+            Bakes overlays, closed captions, and voiceover into the merged video. Takes 10–30s. On phone, opens the share sheet so you can Save to Photos.
+          </div>
+          <DownloadFinalButton draftId={draftId} />
+        </div>
+      )}
     </div>
   )
 }

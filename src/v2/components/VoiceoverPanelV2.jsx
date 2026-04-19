@@ -18,10 +18,13 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   const [text, setText] = useState('')
   const [audioBlob, setAudioBlob] = useState(null)
   const [audioUrl, setAudioUrl] = useState(null)
+  const [primarySpeed, setPrimarySpeed] = useState(1.0)
+  const [primaryDuration, setPrimaryDuration] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [recording, setRecording] = useState(false)
   const [mixMode, setMixMode] = useState('mix')
   const [origVolume, setOrigVolume] = useState(30)
+  const [videoDuration, setVideoDuration] = useState(null)
 
   // Timed segments: rehydrated from job.voiceover_settings.segments
   const [segments, setSegments] = useState([])
@@ -62,8 +65,10 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         text: s.text || '',
         startTime: Number(s.startTime) || 0,
         voiceId: s.voiceId || voiceId,
+        speed: Number(s.speed) || 1.0,
         audioKey: s.audioKey || null,
         audioUrl: s.audioUrl || null,
+        duration: Number(s.duration) || null,
         generating: false,
       })))
       setSegLoaded(true)
@@ -76,7 +81,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     if (!segLoaded || !jobSync?.saveVoiceoverSettings) return
     const clean = segments.map(s => ({
       id: s.id, text: s.text, startTime: Number(s.startTime) || 0,
-      voiceId: s.voiceId || null, audioKey: s.audioKey || null,
+      voiceId: s.voiceId || null, speed: Number(s.speed) || 1.0,
+      audioKey: s.audioKey || null, duration: Number(s.duration) || null,
     }))
     jobSync.saveVoiceoverSettings({ segments: clean })
   }, [segments, segLoaded, jobSync])
@@ -109,6 +115,34 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       }
     }
   }, [segments])
+
+  // Track preview video duration so we can compare VO length against it.
+  useEffect(() => {
+    let cancelled = false
+    let attachedVideo = null
+    let onRead = null
+    const attach = () => {
+      if (cancelled) return
+      const v = previewRef?.current?.getVideo?.()
+      if (!v) { requestAnimationFrame(attach); return }
+      attachedVideo = v
+      onRead = () => {
+        const d = Number(v.duration)
+        setVideoDuration(Number.isFinite(d) && d > 0 ? d : null)
+      }
+      onRead()
+      v.addEventListener('loadedmetadata', onRead)
+      v.addEventListener('durationchange', onRead)
+    }
+    attach()
+    return () => {
+      cancelled = true
+      if (attachedVideo && onRead) {
+        attachedVideo.removeEventListener('loadedmetadata', onRead)
+        attachedVideo.removeEventListener('durationchange', onRead)
+      }
+    }
+  }, [previewRef])
 
   // Wire playback sync: primary audio + segment firing on timeupdate
   useEffect(() => {
@@ -197,13 +231,16 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     if (!text.trim() || !voiceId) return
     setGenerating(true)
     try {
-      const r = await api.textToSpeech(text.trim(), voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1.0 })
+      const r = await api.textToSpeech(text.trim(), voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: Number(primarySpeed) || 1.0 })
       if (r?.error) throw new Error(r.error)
       const bytes = base64ToBytes(r.audio_base64)
       const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
       if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-      setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
+      const url = URL.createObjectURL(blob)
+      setAudioBlob(blob); setAudioUrl(url)
       primaryFiredRef.current = false
+      const dur = await readAudioDuration(url)
+      setPrimaryDuration(dur)
     } catch (e) {
       alert('TTS failed: ' + e.message)
     }
@@ -219,12 +256,15 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       const mr = new MediaRecorder(stream)
       recordedChunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
-      mr.onstop = () => {
+      mr.onstop = async () => {
         const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
         if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-        setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
+        const url = URL.createObjectURL(blob)
+        setAudioBlob(blob); setAudioUrl(url)
         stream.getTracks().forEach(t => t.stop())
         primaryFiredRef.current = false
+        const dur = await readAudioDuration(url)
+        setPrimaryDuration(dur)
       }
       mediaRecorderRef.current = mr
       mr.start()
@@ -245,7 +285,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   }
   const discard = () => {
     if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-    setAudioBlob(null); setAudioUrl(null); primaryFiredRef.current = false
+    setAudioBlob(null); setAudioUrl(null); setPrimaryDuration(null); primaryFiredRef.current = false
   }
 
   // --- Segments ---
@@ -257,7 +297,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       text: '',
       startTime: Math.max(1, Math.round(lastStart + 5)),
       voiceId: voiceId || '',
-      audioKey: null, audioUrl: null, generating: false,
+      speed: 1.0,
+      audioKey: null, audioUrl: null, duration: null, generating: false,
     }])
   }
   const updateSegment = (id, patch) => {
@@ -273,7 +314,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     if (!seg.text?.trim() || !seg.voiceId) return
     updateSegment(seg.id, { generating: true })
     try {
-      const r = await api.textToSpeech(seg.text.trim(), seg.voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1.0 })
+      const segSpeed = Number(seg.speed) || 1.0
+      const r = await api.textToSpeech(seg.text.trim(), seg.voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: segSpeed })
       if (r?.error) throw new Error(r.error)
       const bytes = base64ToBytes(r.audio_base64)
       const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
@@ -287,7 +329,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         } catch (e) { console.warn('[segment persist] failed:', e.message) }
       }
 
-      updateSegment(seg.id, { audioUrl: url, audioKey, generating: false })
+      const duration = await readAudioDuration(url)
+      updateSegment(seg.id, { audioUrl: url, audioKey, duration, generating: false })
     } catch (e) {
       updateSegment(seg.id, { generating: false })
       alert(`Segment generate failed: ${e.message}`)
@@ -301,10 +344,16 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     if (!draftId) { setScriptErr('Open a draft first.'); return }
     setScriptErr(null); setWritingScript(true)
     try {
+      // Pass the playing video's duration so the backend constrains the
+      // script length (speaking rate × duration) — keeps the VO from
+      // running past the end of the video.
+      const vidEl = previewRef?.current?.getVideo?.()
+      const videoDurationS = Number.isFinite(vidEl?.duration) ? vidEl.duration : null
       const r = await api.generateVoiceoverScript({
         jobUuid: draftId,
         mode: scriptMode,
         segmentLength: scriptLen,
+        videoDurationS,
       })
       if (r?.error) throw new Error(r.error)
       if (typeof r?.primary !== 'string') throw new Error('AI returned no primary')
@@ -315,7 +364,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         text: s.text || '',
         startTime: Number(s.startTime) || 0,
         voiceId: voiceId || '',
-        audioKey: null, audioUrl: null, generating: false,
+        speed: 1.0,
+        audioKey: null, audioUrl: null, duration: null, generating: false,
       })))
     } catch (e) {
       setScriptErr(e.message || String(e))
@@ -350,13 +400,16 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       const mr = new MediaRecorder(stream)
       recordedChunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
-      mr.onstop = () => {
+      mr.onstop = async () => {
         const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
         if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-        setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
+        const url = URL.createObjectURL(blob)
+        setAudioBlob(blob); setAudioUrl(url)
         stream.getTracks().forEach(t => t.stop())
         primaryFiredRef.current = false
         setTeleprompterOn(false) // auto-dismiss
+        const dur = await readAudioDuration(url)
+        setPrimaryDuration(dur)
       }
       mediaRecorderRef.current = mr
       mr.start()
@@ -443,13 +496,16 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // 1. Primary: update the AI tab text + generate audio
       if (parsed.primary) {
         setText(parsed.primary)
-        const r = await api.textToSpeech(parsed.primary, voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1.0 })
+        const r = await api.textToSpeech(parsed.primary, voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: Number(primarySpeed) || 1.0 })
         if (r?.error) throw new Error(r.error)
         const bytes = base64ToBytes(r.audio_base64)
         const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
         if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-        setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
+        const pUrl = URL.createObjectURL(blob)
+        setAudioBlob(blob); setAudioUrl(pUrl)
         primaryFiredRef.current = false
+        const pDur = await readAudioDuration(pUrl)
+        setPrimaryDuration(pDur)
       }
 
       // 2. Replace segments with the parsed list
@@ -458,7 +514,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         text: p.text,
         startTime: p.startTime,
         voiceId,
-        audioKey: null, audioUrl: null, generating: false,
+        speed: 1.0,
+        audioKey: null, audioUrl: null, duration: null, generating: false,
       }))
       setSegments(newSegs)
 
@@ -564,11 +621,35 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
 
           <textarea
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={e => { setText(e.target.value); setPrimaryDuration(null) }}
             placeholder="Type what the voiceover should say (plays from t=0), or click Write script from content above."
             rows={5}
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[100px]"
           />
+          <div className="flex items-center gap-2 text-[10px]">
+            <label className="text-muted">Speed:</label>
+            <input
+              type="range" min={0.7} max={1.2} step={0.05}
+              value={primarySpeed}
+              onChange={e => {
+                setPrimarySpeed(Number(e.target.value))
+                // Speed changed → old audio no longer matches; invalidate so
+                // "Generate primary voice" re-runs.
+                if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
+                setAudioBlob(null); setAudioUrl(null); setPrimaryDuration(null)
+                primaryFiredRef.current = false
+              }}
+              className="flex-1"
+            />
+            <span className="font-mono text-muted w-10 text-right">{primarySpeed.toFixed(2)}x</span>
+            <span
+              className="font-mono text-[9px] rounded px-1.5 py-0.5 border"
+              style={{ background: '#f3f0ff', color: '#6C5CE7', borderColor: '#6C5CE766' }}
+              title="Estimated speech length at current speed (before you click Generate)"
+            >
+              {primaryDuration != null ? `actual ${formatSec(primaryDuration)}` : `est ~${formatSec(wordsToSeconds(text, primarySpeed))}`}
+            </span>
+          </div>
           <button
             onClick={generate}
             disabled={generating || !text.trim() || !voiceId}
@@ -643,7 +724,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-[#2D9A5E] font-medium">Primary ready</span>
-            <audio ref={audioElRef} src={audioUrl} controls preload="metadata" className="h-7 flex-1 min-w-[140px] max-w-[280px]" style={{ maxHeight: 28 }} />
+            <audio ref={audioElRef} src={audioUrl} controls preload="metadata" data-posty-primary-voice className="h-7 flex-1 min-w-[140px] max-w-[280px]" style={{ maxHeight: 28 }} />
             <button onClick={discard} className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer">Discard</button>
           </div>
           <div className="flex items-center gap-3 text-[10px]">
@@ -674,6 +755,37 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         <div className="text-[10px] text-muted">
           Each segment fires on top of the primary at its start time. Order is by start time.
         </div>
+
+        {(() => {
+          // Summary: estimate uses words/sec when audio isn't generated, actual
+          // duration otherwise. Longest arm wins: the voiceover ends at
+          // max(primaryEnd, each segment's end). Overlaps still count as time
+          // the audio is playing; we don't double-add them.
+          const primaryEst = primaryDuration ?? wordsToSeconds(text, primarySpeed)
+          const primaryActual = primaryDuration
+          let maxEstEnd = primaryEst
+          let maxActualEnd = primaryActual ?? 0
+          let anyActual = primaryActual != null
+          for (const s of segments) {
+            const sText = s.text || ''
+            const start = Number(s.startTime) || 0
+            const est = s.duration ?? wordsToSeconds(sText, s.speed)
+            maxEstEnd = Math.max(maxEstEnd, start + (est || 0))
+            if (s.duration != null) { anyActual = true; maxActualEnd = Math.max(maxActualEnd, start + s.duration) }
+          }
+          const over = videoDuration != null && maxEstEnd > videoDuration + 0.2
+          return (
+            <div
+              className={`rounded px-2 py-1 text-[10px] flex items-center gap-2 flex-wrap border ${over ? 'bg-[#fdf2f1] border-[#c0392b]/30 text-[#c0392b]' : 'bg-[#fafafa] border-[#e5e5e5] text-ink'}`}
+              title="Total voiceover length (end of the last-playing clip). Must be ≤ video length or the VO will run past the end."
+            >
+              <span className="font-medium">Estimated {formatSec(maxEstEnd)}</span>
+              {anyActual && <span>· Generated {formatSec(maxActualEnd)}</span>}
+              <span className="ml-auto">Video {videoDuration != null ? formatSec(videoDuration) : '—'}</span>
+              {over && <span className="w-full text-[9px]">⚠ Voiceover runs past the video. Speed up a segment or trim text.</span>}
+            </div>
+          )
+        })()}
 
         {sortedSegments.map(seg => (
           <SegmentRow
@@ -715,6 +827,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
 
 function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay, onRemove }) {
   const hasAudio = !!seg.audioUrl
+  const speed = Number(seg.speed) || 1.0
+  const estSec = wordsToSeconds(seg.text, speed)
   return (
     <div className={`border rounded p-2 space-y-1.5 ${hasAudio ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
       <div className="flex items-center gap-1.5 text-[10px]">
@@ -729,7 +843,7 @@ function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay,
         <span className="text-muted">s</span>
         <select
           value={seg.voiceId || defaultVoiceId || ''}
-          onChange={e => onChange({ voiceId: e.target.value, audioUrl: null, audioKey: null })}
+          onChange={e => onChange({ voiceId: e.target.value, audioUrl: null, audioKey: null, duration: null })}
           className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white flex-1 min-w-0"
         >
           <option value="">Voice…</option>
@@ -743,11 +857,22 @@ function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay,
       </div>
       <textarea
         value={seg.text}
-        onChange={e => onChange({ text: e.target.value, audioUrl: null, audioKey: null })}
+        onChange={e => onChange({ text: e.target.value, audioUrl: null, audioKey: null, duration: null })}
         placeholder="What should this voice say at that time?"
         rows={2}
         className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y"
       />
+      <div className="flex items-center gap-1.5 text-[10px]">
+        <label className="text-muted">Speed</label>
+        <input
+          type="range" min={0.7} max={1.2} step={0.05}
+          value={speed}
+          onChange={e => onChange({ speed: Number(e.target.value), audioUrl: null, audioKey: null, duration: null })}
+          className="flex-1"
+          title="0.7x slower · 1.0x normal · 1.2x faster. Regenerate to apply."
+        />
+        <span className="font-mono text-muted w-10 text-right">{speed.toFixed(2)}x</span>
+      </div>
       <div className="flex items-center gap-1.5 text-[10px]">
         <button
           onClick={onGenerate}
@@ -757,7 +882,18 @@ function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay,
         {hasAudio && (
           <button onClick={onPlay} className="text-[10px] py-0.5 px-2 border border-[#2D9A5E] text-[#2D9A5E] bg-white rounded cursor-pointer">▶ Test</button>
         )}
-        {hasAudio && seg.audioKey && <span className="text-[8px] text-muted ml-auto italic">persisted</span>}
+        <span
+          className="font-mono text-[9px] rounded px-1.5 py-0.5 border ml-auto"
+          style={{
+            background: hasAudio ? '#f0faf4' : '#f3f0ff',
+            color: hasAudio ? '#2D9A5E' : '#6C5CE7',
+            borderColor: (hasAudio ? '#2D9A5E' : '#6C5CE7') + '66',
+          }}
+          title={hasAudio ? 'Actual generated audio length' : 'Estimated speech length at current speed (2.3 words/sec × speed)'}
+        >
+          {seg.duration != null ? formatSec(seg.duration) : `~${formatSec(estSec)}`}
+        </span>
+        {hasAudio && seg.audioKey && <span className="text-[8px] text-muted italic">persisted</span>}
       </div>
     </div>
   )
@@ -768,6 +904,38 @@ function base64ToBytes(b64) {
   const bytes = new Uint8Array(byteChars.length)
   for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
   return bytes
+}
+
+// Detached <audio> element → resolves with the file's duration in seconds.
+function readAudioDuration(url) {
+  return new Promise(resolve => {
+    try {
+      const a = new Audio()
+      a.preload = 'metadata'
+      const done = () => {
+        const d = Number(a.duration)
+        resolve(Number.isFinite(d) && d > 0 ? d : null)
+      }
+      a.addEventListener('loadedmetadata', done, { once: true })
+      a.addEventListener('error', () => resolve(null), { once: true })
+      a.src = url
+    } catch { resolve(null) }
+  })
+}
+
+// Rough speaking-rate estimate: 2.3 words/sec at 1.0x, scaled by speed.
+function wordsToSeconds(txt, speed = 1.0) {
+  const s = String(txt || '').trim()
+  if (!s) return 0
+  const words = s.split(/\s+/).length
+  const rate = 2.3 * (Number(speed) || 1.0)
+  return words / rate
+}
+
+function formatSec(n) {
+  const v = Number(n)
+  if (!Number.isFinite(v) || v <= 0) return '—'
+  return `${v.toFixed(1)}s`
 }
 
 // --- Script tab -----------------------------------------------------------
