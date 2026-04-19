@@ -1,25 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
 
 /**
- * VoiceoverPanelV2 — zero video players. Drives the shared FinalPreview
- * <video> via the ref exposed by FinalPreviewV2.getVideo().
+ * VoiceoverPanelV2 — drives the shared FinalPreview <video> via
+ * previewRef.getVideo(). Primary voice (single clip, starts at t=0) + any
+ * number of timed segments that fire at their startTime during playback.
  *
- * Phase 3 scope — minimal but functional:
- *   - Record mic tab: records while the shared video plays muted.
- *   - AI voice tab: text → ElevenLabs TTS → single audio blob.
- *   - Paste-script tab: accepts a pasted script, applies to AI tab input.
- *   - Mix vs Replace (original audio volume slider in mix mode).
- *   - Play button controls the shared video; voiceover audio plays in sync.
+ * Segments persist via jobSync.saveVoiceoverSettings({ segments }) and
+ * restore on draft resume (backend injects audioUrl for each saved audioKey).
  *
- * Deferred to later sub-phases:
- *   - Timed segments with drag-reorder
- *   - Review / Suggest-from-video / Bundle advanced tools
- *   - Per-segment speed / regenerate / preview
- *
- * For those, link back to ?real=1.
+ * Deferred: Review / Suggest-from-video / Bundle into single audio track.
  */
-export default function VoiceoverPanelV2({ previewRef, settings }) {
+export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftId }) {
   const [tab, setTab] = useState('ai')
   const [voiceId, setVoiceId] = useState(() => settings?.elevenlabs_voice_id || '')
   const [voices, setVoices] = useState([])
@@ -30,100 +22,190 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
   const [recording, setRecording] = useState(false)
   const [mixMode, setMixMode] = useState('mix')
   const [origVolume, setOrigVolume] = useState(30)
+
+  // Timed segments: rehydrated from job.voiceover_settings.segments
+  const [segments, setSegments] = useState([])
+  const [segLoaded, setSegLoaded] = useState(false)
+
   const audioElRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const recordedChunksRef = useRef([])
+  // Map<segmentId, HTMLAudioElement> — pool of preloaded segment audios
+  const segAudioMapRef = useRef(new Map())
+  // Set<segmentId> — which segments already fired during the current play
+  const segFiredRef = useRef(new Set())
+  // Primary-fired guard (so mid-play seeks don't re-fire it indefinitely)
+  const primaryFiredRef = useRef(false)
 
   const hasElevenLabs = !!settings?.elevenlabs_configured
+  const audioEl = () => audioElRef.current
 
-  // Load voices list once.
   useEffect(() => {
     if (!hasElevenLabs) return
-    api.listElevenLabsVoices?.()
+    api.getVoices?.()
       .then(r => setVoices(Array.isArray(r?.voices) ? r.voices : []))
       .catch(() => {})
   }, [hasElevenLabs])
 
-  // Keep the audio element's src in sync with the blob.
+  // Restore segments on draft load — wait one tick so jobSync has run
   useEffect(() => {
-    if (audioBlob && !audioUrl) {
-      setAudioUrl(URL.createObjectURL(audioBlob))
-    }
-    return () => {
-      if (audioUrl && !audioBlob) try { URL.revokeObjectURL(audioUrl) } catch {}
-    }
+    if (!draftId) { setSegLoaded(true); return }
+    api.getJob(draftId).then(job => {
+      const segs = Array.isArray(job?.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
+      setSegments(segs.map(s => ({
+        id: s.id,
+        text: s.text || '',
+        startTime: Number(s.startTime) || 0,
+        voiceId: s.voiceId || voiceId,
+        audioKey: s.audioKey || null,
+        audioUrl: s.audioUrl || null,
+        generating: false,
+      })))
+      setSegLoaded(true)
+    }).catch(() => setSegLoaded(true))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId])
+
+  // Persist segments (debounced by jobSync) whenever they change meaningfully
+  useEffect(() => {
+    if (!segLoaded || !jobSync?.saveVoiceoverSettings) return
+    const clean = segments.map(s => ({
+      id: s.id, text: s.text, startTime: Number(s.startTime) || 0,
+      voiceId: s.voiceId || null, audioKey: s.audioKey || null,
+    }))
+    jobSync.saveVoiceoverSettings({ segments: clean })
+  }, [segments, segLoaded, jobSync])
+
+  // Keep primary audio URL in sync with its blob
+  useEffect(() => {
+    if (audioBlob && !audioUrl) setAudioUrl(URL.createObjectURL(audioBlob))
+    return () => { if (audioUrl && !audioBlob) try { URL.revokeObjectURL(audioUrl) } catch {} }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioBlob])
 
-  // Sync: when the shared video plays, start the voiceover audio at
-  // the same output-timeline offset. When it pauses, pause audio.
+  // Keep the segment audio pool in sync with the segments array
+  useEffect(() => {
+    const map = segAudioMapRef.current
+    const liveIds = new Set(segments.map(s => s.id))
+    for (const [id, a] of map) {
+      if (!liveIds.has(id)) { try { a.pause() } catch {}; map.delete(id) }
+    }
+    for (const s of segments) {
+      const existing = map.get(s.id)
+      const wantedSrc = s.audioUrl || ''
+      if (wantedSrc && (!existing || existing.src !== wantedSrc)) {
+        if (existing) try { existing.pause() } catch {}
+        const a = new Audio(wantedSrc)
+        a.preload = 'auto'
+        map.set(s.id, a)
+      } else if (!wantedSrc && existing) {
+        try { existing.pause() } catch {}
+        map.delete(s.id)
+      }
+    }
+  }, [segments])
+
+  // Wire playback sync: primary audio + segment firing on timeupdate
   useEffect(() => {
     const video = previewRef?.current?.getVideo?.()
-    if (!video || !audioEl() || !audioUrl) return
+    if (!video) return
+
+    const resetAll = () => {
+      primaryFiredRef.current = false
+      segFiredRef.current.clear()
+      for (const a of segAudioMapRef.current.values()) {
+        try { a.pause(); a.currentTime = 0 } catch {}
+      }
+      const primary = audioEl()
+      if (primary) try { primary.pause(); primary.currentTime = 0 } catch {}
+    }
+
     const onPlay = () => {
-      const audio = audioEl()
-      if (!audio) return
-      try {
-        audio.currentTime = Math.max(0, video.currentTime)
-        audio.volume = 1.0
-        const p = audio.play()
-        if (p && p.catch) p.catch(() => {})
-      } catch {}
-      // Mix mode: dim the video's own audio.
-      if (mixMode === 'mix') {
-        try { video.volume = origVolume / 100 } catch {}
-      } else {
-        try { video.muted = true } catch {}
+      // Primary fires immediately when video starts (t >= 0)
+      const primary = audioEl()
+      if (primary && audioUrl && !primaryFiredRef.current) {
+        try {
+          primary.currentTime = Math.max(0, video.currentTime)
+          primary.volume = 1.0
+          const p = primary.play()
+          if (p && p.catch) p.catch(() => {})
+          primaryFiredRef.current = true
+        } catch {}
+      }
+      // Dim / mute video track based on mix mode (only if we have any VO)
+      const hasVo = !!audioUrl || segments.some(s => s.audioUrl)
+      if (hasVo) {
+        if (mixMode === 'mix') { try { video.volume = origVolume / 100; video.muted = false } catch {} }
+        else                   { try { video.muted = true } catch {} }
       }
     }
     const onPause = () => {
-      const audio = audioEl()
-      if (!audio) return
-      try { audio.pause() } catch {}
+      const primary = audioEl()
+      if (primary) try { primary.pause() } catch {}
+      for (const a of segAudioMapRef.current.values()) try { a.pause() } catch {}
     }
     const onSeek = () => {
-      const audio = audioEl()
-      if (!audio) return
-      try { audio.currentTime = Math.max(0, video.currentTime) } catch {}
+      const t = video.currentTime
+      const primary = audioEl()
+      if (primary) try { primary.currentTime = Math.max(0, t) } catch {}
+      // Segments whose startTime is AFTER current time should refire later
+      for (const s of segments) {
+        if ((Number(s.startTime) || 0) > t) segFiredRef.current.delete(s.id)
+      }
+      // Segments already past: mark fired and stop
+      for (const s of segments) {
+        if ((Number(s.startTime) || 0) <= t) segFiredRef.current.add(s.id)
+      }
     }
+    const onTimeUpdate = () => {
+      const t = video.currentTime
+      for (const s of segments) {
+        if (segFiredRef.current.has(s.id)) continue
+        const start = Number(s.startTime) || 0
+        if (t >= start) {
+          const a = segAudioMapRef.current.get(s.id)
+          if (!a) continue
+          segFiredRef.current.add(s.id)
+          try { a.currentTime = 0; a.play().catch(() => {}) } catch {}
+        }
+      }
+    }
+    const onEnded = () => resetAll()
+
     video.addEventListener('play', onPlay)
     video.addEventListener('pause', onPause)
     video.addEventListener('seeking', onSeek)
+    video.addEventListener('timeupdate', onTimeUpdate)
+    video.addEventListener('ended', onEnded)
     return () => {
       video.removeEventListener('play', onPlay)
       video.removeEventListener('pause', onPause)
       video.removeEventListener('seeking', onSeek)
+      video.removeEventListener('timeupdate', onTimeUpdate)
+      video.removeEventListener('ended', onEnded)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [audioUrl, mixMode, origVolume, previewRef])
+  }, [audioUrl, mixMode, origVolume, segments, previewRef])
 
-  const audioEl = () => audioElRef.current
-
+  // --- Primary voice TTS ---
   const generate = async () => {
     if (!text.trim() || !voiceId) return
     setGenerating(true)
     try {
-      const r = await api.textToSpeech(text.trim(), voiceId, {
-        stability: 0.5,
-        similarity_boost: 0.75,
-        style: 0,
-        use_speaker_boost: true,
-        speed: 1.0,
-      })
+      const r = await api.textToSpeech(text.trim(), voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1.0 })
       if (r?.error) throw new Error(r.error)
-      const byteChars = atob(r.audio_base64)
-      const bytes = new Uint8Array(byteChars.length)
-      for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+      const bytes = base64ToBytes(r.audio_base64)
       const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
       if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-      setAudioBlob(blob)
-      setAudioUrl(URL.createObjectURL(blob))
+      setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
+      primaryFiredRef.current = false
     } catch (e) {
       alert('TTS failed: ' + e.message)
     }
     setGenerating(false)
   }
 
+  // --- Mic recording (primary) ---
   const startRecording = async () => {
     const video = previewRef?.current?.getVideo?.()
     if (!video) { alert('No video to narrate over — merge or upload first.'); return }
@@ -135,20 +217,18 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
       mr.onstop = () => {
         const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
         if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-        setAudioBlob(blob)
-        setAudioUrl(URL.createObjectURL(blob))
+        setAudioBlob(blob); setAudioUrl(URL.createObjectURL(blob))
         stream.getTracks().forEach(t => t.stop())
+        primaryFiredRef.current = false
       }
       mediaRecorderRef.current = mr
       mr.start()
       setRecording(true)
-      // Start the video muted while recording.
       try { video.currentTime = 0; video.muted = true; video.play() } catch {}
     } catch (e) {
       alert('Mic access denied or unavailable: ' + e.message)
     }
   }
-
   const stopRecording = () => {
     const video = previewRef?.current?.getVideo?.()
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -157,23 +237,82 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
     if (video) try { video.pause(); video.muted = false } catch {}
     setRecording(false)
   }
-
   const discard = () => {
     if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
-    setAudioBlob(null)
-    setAudioUrl(null)
+    setAudioBlob(null); setAudioUrl(null); primaryFiredRef.current = false
   }
+
+  // --- Segments ---
+  const nextSegId = () => `seg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+  const addSegment = () => {
+    const lastStart = segments.reduce((m, s) => Math.max(m, Number(s.startTime) || 0), 0)
+    setSegments(prev => [...prev, {
+      id: nextSegId(),
+      text: '',
+      startTime: Math.max(1, Math.round(lastStart + 5)),
+      voiceId: voiceId || '',
+      audioKey: null, audioUrl: null, generating: false,
+    }])
+  }
+  const updateSegment = (id, patch) => {
+    setSegments(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s))
+  }
+  const removeSegment = (id) => {
+    setSegments(prev => prev.filter(s => s.id !== id))
+    const map = segAudioMapRef.current
+    const a = map.get(id); if (a) { try { a.pause() } catch {}; map.delete(id) }
+  }
+
+  const generateSegment = async (seg) => {
+    if (!seg.text?.trim() || !seg.voiceId) return
+    updateSegment(seg.id, { generating: true })
+    try {
+      const r = await api.textToSpeech(seg.text.trim(), seg.voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1.0 })
+      if (r?.error) throw new Error(r.error)
+      const bytes = base64ToBytes(r.audio_base64)
+      const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
+      const url = URL.createObjectURL(blob)
+
+      let audioKey = null
+      if (draftId) {
+        try {
+          const saveRes = await api.saveVoiceoverSegment(r.audio_base64, draftId, seg.id, r.media_type || 'audio/mpeg')
+          if (saveRes?.audio_key) audioKey = saveRes.audio_key
+        } catch (e) { console.warn('[segment persist] failed:', e.message) }
+      }
+
+      updateSegment(seg.id, { audioUrl: url, audioKey, generating: false })
+    } catch (e) {
+      updateSegment(seg.id, { generating: false })
+      alert(`Segment generate failed: ${e.message}`)
+    }
+  }
+  const generateAllMissing = async () => {
+    const pending = segments.filter(s => s.text?.trim() && !s.audioUrl)
+    for (const s of pending) await generateSegment(s)
+  }
+
+  const playSegment = (seg) => {
+    if (!seg.audioUrl) return
+    const a = new Audio(seg.audioUrl)
+    try { a.play().catch(() => {}) } catch {}
+  }
+
+  const sortedSegments = useMemo(
+    () => [...segments].sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0)),
+    [segments]
+  )
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <div className="text-[12px] font-medium flex-1">Voiceover</div>
-        {audioUrl && (
+        {(audioUrl || segments.some(s => s.audioUrl)) && (
           <button
             onClick={() => {
               const v = previewRef?.current?.getVideo?.()
               if (!v) return
-              try { v.currentTime = 0; v.play() } catch {}
+              try { v.currentTime = 0; primaryFiredRef.current = false; segFiredRef.current.clear(); v.play() } catch {}
             }}
             className="text-[10px] py-1 px-2.5 bg-[#2D9A5E] text-white border-none rounded cursor-pointer"
           >▶ Play with video</button>
@@ -182,9 +321,9 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
 
       <div className="flex items-center gap-1 bg-[#f8f7f3] rounded-lg p-0.5">
         {[
-          { key: 'ai', label: 'AI voice', enabled: hasElevenLabs },
-          { key: 'record', label: 'Record', enabled: true },
-          { key: 'paste', label: 'Paste script', enabled: true },
+          { key: 'ai',     label: 'AI voice',    enabled: hasElevenLabs },
+          { key: 'record', label: 'Record',      enabled: true },
+          { key: 'paste',  label: 'Paste script', enabled: true },
         ].map(t => (
           <button
             key={t.key}
@@ -214,7 +353,7 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
           <textarea
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder="Type what the voiceover should say…"
+            placeholder="Type what the voiceover should say (plays from t=0)…"
             rows={5}
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[100px]"
           />
@@ -222,7 +361,7 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
             onClick={generate}
             disabled={generating || !text.trim() || !voiceId}
             className="w-full py-2 bg-[#6C5CE7] text-white text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
-          >{generating ? 'Generating…' : 'Generate voice'}</button>
+          >{generating ? 'Generating…' : 'Generate primary voice'}</button>
         </div>
       )}
 
@@ -233,15 +372,9 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
             {recording ? 'Recording… video above plays muted.' : 'Tap to start. Video above plays muted while you narrate.'}
           </div>
           {!recording ? (
-            <button
-              onClick={startRecording}
-              className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer"
-            >● Start recording</button>
+            <button onClick={startRecording} className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer">● Start recording</button>
           ) : (
-            <button
-              onClick={stopRecording}
-              className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer animate-pulse"
-            >■ Stop recording</button>
+            <button onClick={stopRecording} className="py-2 px-6 bg-[#c0392b] text-white text-[11px] font-medium border-none rounded cursor-pointer animate-pulse">■ Stop recording</button>
           )}
         </div>
       )}
@@ -251,26 +384,20 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
           <textarea
             value={text}
             onChange={e => setText(e.target.value)}
-            placeholder="Paste your script here. Timestamps like [0:00] are preserved for when segments are wired in a later phase."
+            placeholder="Paste your script here. Switch to AI tab to generate."
             rows={6}
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 bg-white resize-y min-h-[140px] font-mono"
           />
-          <button
-            onClick={() => setTab('ai')}
-            className="w-full py-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] text-[11px] font-medium rounded cursor-pointer"
-          >Use in AI tab →</button>
+          <button onClick={() => setTab('ai')} className="w-full py-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] text-[11px] font-medium rounded cursor-pointer">Use in AI tab →</button>
         </div>
       )}
 
       {audioUrl && (
         <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-[#2D9A5E] font-medium">Voiceover ready</span>
+            <span className="text-[10px] text-[#2D9A5E] font-medium">Primary ready</span>
             <audio ref={audioElRef} src={audioUrl} controls preload="metadata" className="h-7 flex-1 min-w-[140px] max-w-[280px]" style={{ maxHeight: 28 }} />
-            <button
-              onClick={discard}
-              className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer"
-            >Discard</button>
+            <button onClick={discard} className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer">Discard</button>
           </div>
           <div className="flex items-center gap-3 text-[10px]">
             <label className="flex items-center gap-1 cursor-pointer">
@@ -292,9 +419,99 @@ export default function VoiceoverPanelV2({ previewRef, settings }) {
         </div>
       )}
 
-      <div className="border-t border-[#e5e5e5] pt-2 text-[9px] text-muted italic">
-        Timed segments, review, and suggest-from-video ship in a later sub-phase. For those, use <a href="/?real=1" className="text-[#6C5CE7]">the real app</a>.
+      <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="text-[12px] font-medium flex-1">Timed segments</div>
+          <span className="text-[9px] text-muted">{segments.length} · {segments.filter(s => s.audioUrl).length} ready</span>
+        </div>
+        <div className="text-[10px] text-muted">
+          Each segment fires on top of the primary at its start time. Order is by start time.
+        </div>
+
+        {sortedSegments.map(seg => (
+          <SegmentRow
+            key={seg.id}
+            seg={seg}
+            voices={voices}
+            defaultVoiceId={voiceId}
+            onChange={patch => updateSegment(seg.id, patch)}
+            onGenerate={() => generateSegment(seg)}
+            onPlay={() => playSegment(seg)}
+            onRemove={() => removeSegment(seg.id)}
+          />
+        ))}
+
+        <div className="flex gap-1.5">
+          <button
+            onClick={addSegment}
+            disabled={!hasElevenLabs}
+            className="flex-1 text-[10px] py-1.5 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-40"
+          >+ Add segment</button>
+          {segments.some(s => s.text?.trim() && !s.audioUrl) && (
+            <button
+              onClick={generateAllMissing}
+              className="flex-1 text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+            >Generate all missing</button>
+          )}
+        </div>
       </div>
     </div>
   )
+}
+
+function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay, onRemove }) {
+  const hasAudio = !!seg.audioUrl
+  return (
+    <div className={`border rounded p-2 space-y-1.5 ${hasAudio ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
+      <div className="flex items-center gap-1.5 text-[10px]">
+        <label className="text-muted">@</label>
+        <input
+          type="text"
+          inputMode="decimal"
+          value={seg.startTime}
+          onChange={e => onChange({ startTime: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })}
+          className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+        />
+        <span className="text-muted">s</span>
+        <select
+          value={seg.voiceId || defaultVoiceId || ''}
+          onChange={e => onChange({ voiceId: e.target.value, audioUrl: null, audioKey: null })}
+          className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white flex-1 min-w-0"
+        >
+          <option value="">Voice…</option>
+          {voices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
+        </select>
+        <button
+          onClick={onRemove}
+          className="text-[10px] py-0.5 px-1.5 border border-[#c0392b]/30 text-[#c0392b] bg-white rounded cursor-pointer"
+          title="Remove"
+        >✕</button>
+      </div>
+      <textarea
+        value={seg.text}
+        onChange={e => onChange({ text: e.target.value, audioUrl: null, audioKey: null })}
+        placeholder="What should this voice say at that time?"
+        rows={2}
+        className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y"
+      />
+      <div className="flex items-center gap-1.5 text-[10px]">
+        <button
+          onClick={onGenerate}
+          disabled={!seg.text?.trim() || !(seg.voiceId || defaultVoiceId) || seg.generating}
+          className="text-[10px] py-0.5 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+        >{seg.generating ? 'Generating…' : (hasAudio ? 'Regenerate' : 'Generate')}</button>
+        {hasAudio && (
+          <button onClick={onPlay} className="text-[10px] py-0.5 px-2 border border-[#2D9A5E] text-[#2D9A5E] bg-white rounded cursor-pointer">▶ Test</button>
+        )}
+        {hasAudio && seg.audioKey && <span className="text-[8px] text-muted ml-auto italic">persisted</span>}
+      </div>
+    </div>
+  )
+}
+
+function base64ToBytes(b64) {
+  const byteChars = atob(b64)
+  const bytes = new Uint8Array(byteChars.length)
+  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i)
+  return bytes
 }

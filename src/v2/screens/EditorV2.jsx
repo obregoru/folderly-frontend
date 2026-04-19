@@ -68,7 +68,7 @@ export default function EditorV2({
           />
         )}
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} />}
-        {safeActiveTool === 'voiceover' && <VoiceoverPanelV2 previewRef={previewRef} settings={settings} />}
+        {safeActiveTool === 'voiceover' && <VoiceoverPanelV2 previewRef={previewRef} settings={settings} jobSync={jobSync} draftId={draftId} />}
         {safeActiveTool === 'overlays' && <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} />}
         {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} settings={settings} />}
         {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} files={files} />}
