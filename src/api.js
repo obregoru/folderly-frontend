@@ -289,7 +289,7 @@ export const reviewVoiceoverScript = ({ script, videoHint, duration, overlayOpen
 // structured description that gets cached on the upload row and then
 // reused as TEXT across every downstream AI call (captions, hooks,
 // voiceover, overlays). Raw images never leave the client a second time.
-export const describeMedia = ({ frames, mediaType, hint } = {}) =>
+export const describeMedia = ({ frames, mediaType, hint, jobUuid } = {}) =>
   fetch(api('/generate/describe-media'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -298,6 +298,7 @@ export const describeMedia = ({ frames, mediaType, hint } = {}) =>
       frames: Array.isArray(frames) ? frames : [],
       media_type: mediaType || 'photo',
       hint: hint || null,
+      job_uuid: jobUuid || null,
     }),
   }).then(r => r.json())
 

@@ -95,7 +95,7 @@ function itemMediaKind(item) {
 // Describe a single upload item. Idempotent — skips the call if the item
 // already has a cached description. Stores result on item._visualDescription
 // AND persists to the backend if the item has a server uuid.
-export async function describeUpload(item, { force = false } = {}) {
+export async function describeUpload(item, { force = false, jobUuid = null } = {}) {
   if (!item) return null
   if (!force) {
     if (item._visualDescription?.summary) return item._visualDescription
@@ -121,6 +121,7 @@ export async function describeUpload(item, { force = false } = {}) {
       frames,
       mediaType: kind,
       hint: item._hint || null,
+      jobUuid: jobUuid || item._jobUuid || null,
     })
     if (r?.error) throw new Error(r.error)
     if (!r?.summary) throw new Error('missing summary')

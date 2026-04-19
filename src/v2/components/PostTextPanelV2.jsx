@@ -77,6 +77,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         availability: '',
         platforms,
         upload_id: uploadUuid,
+        job_uuid: draftId || null,
         rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
         user_hint: hint || '',
       }
