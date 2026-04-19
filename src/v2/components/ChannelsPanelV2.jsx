@@ -3,37 +3,72 @@ import * as api from '../../api'
 import { toBase64 } from '../../lib/crop'
 
 /**
- * ChannelsPanelV2 — destinations + scheduling. Per-channel toggles
- * read/write the first file's post_destinations JSONB column so real
- * app + v2 share state.
+ * ChannelsPanelV2 — destinations + scheduling with AI best-time suggestions.
  *
- * Scheduling: one scheduled_at for all enabled destinations. Builds one
- * scheduled_posts row per destination with the right platform + media
- * (merged base64 for multi-clip merges, upload_key for single files,
- * base64 for photo-only posts). Captions come from the first file's
- * captions JSONB — same column PostTextPanelV2 writes.
+ * Each destination can use a per-channel time override, or fall back to the
+ * global "When" time. Best times come from /generate/posting-schedule (cached
+ * per tenant), optionally informed by real analytics data from tenant settings.
  */
 
 const CHANNELS = [
-  { key: 'tiktok',   label: 'TikTok',             icon: 'TT',  requiresVideo: true,  platform: 'tiktok',           captionKey: 'tiktok'    },
-  { key: 'ig_reel',  label: 'Instagram Reel',     icon: 'IG',  requiresVideo: true,  platform: 'instagram',        captionKey: 'instagram' },
-  { key: 'fb_reel',  label: 'Facebook Reel',      icon: 'FB',  requiresVideo: true,  platform: 'facebook_reel',    captionKey: 'facebook'  },
-  { key: 'yt_short', label: 'YouTube Shorts',     icon: 'YT',  requiresVideo: true,  platform: 'youtube',          captionKey: 'youtube'   },
-  { key: 'ig_story', label: 'Instagram Story',    icon: 'IG',  requiresVideo: false, platform: 'instagram_story',  captionKey: 'instagram' },
-  { key: 'fb_story', label: 'Facebook Story',     icon: 'FB',  requiresVideo: false, platform: 'facebook_story',   captionKey: 'facebook'  },
-  { key: 'fb_post',  label: 'Facebook Post',      icon: 'FB',  requiresVideo: false, platform: 'facebook',         captionKey: 'facebook'  },
-  { key: 'blog',     label: 'Blog',               icon: 'BL',  requiresVideo: false, platform: 'blog',             captionKey: 'blog'      },
-  { key: 'gbp',      label: 'Google Business',    icon: 'GBP', requiresVideo: false, platform: 'google',           captionKey: 'google'    },
+  { key: 'tiktok',   label: 'TikTok',             icon: 'TT',  requiresVideo: true,  platform: 'tiktok',           captionKey: 'tiktok',    aiName: 'TikTok' },
+  { key: 'ig_reel',  label: 'Instagram Reel',     icon: 'IG',  requiresVideo: true,  platform: 'instagram',        captionKey: 'instagram', aiName: 'Instagram' },
+  { key: 'fb_reel',  label: 'Facebook Reel',      icon: 'FB',  requiresVideo: true,  platform: 'facebook_reel',    captionKey: 'facebook',  aiName: 'Facebook' },
+  { key: 'yt_short', label: 'YouTube Shorts',     icon: 'YT',  requiresVideo: true,  platform: 'youtube',          captionKey: 'youtube',   aiName: 'YouTube Shorts' },
+  { key: 'ig_story', label: 'Instagram Story',    icon: 'IG',  requiresVideo: false, platform: 'instagram_story',  captionKey: 'instagram', aiName: 'Instagram' },
+  { key: 'fb_story', label: 'Facebook Story',     icon: 'FB',  requiresVideo: false, platform: 'facebook_story',   captionKey: 'facebook',  aiName: 'Facebook' },
+  { key: 'fb_post',  label: 'Facebook Post',      icon: 'FB',  requiresVideo: false, platform: 'facebook',         captionKey: 'facebook',  aiName: 'Facebook' },
+  { key: 'blog',     label: 'Blog',               icon: 'BL',  requiresVideo: false, platform: 'blog',             captionKey: 'blog',      aiName: 'Blog' },
+  { key: 'gbp',      label: 'Google Business',    icon: 'GBP', requiresVideo: false, platform: 'google',           captionKey: 'google',    aiName: 'Google Business' },
 ]
 
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+
 function defaultScheduledAt() {
-  const d = new Date()
-  d.setHours(d.getHours() + 1, 0, 0, 0)
-  return d
+  const d = new Date(); d.setHours(d.getHours() + 1, 0, 0, 0); return d
 }
 function toLocalInput(d) {
   const pad = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+function parseAiTime(timeStr) {
+  // "11:30 AM", "7:00 PM", "19:00"
+  if (!timeStr) return null
+  const s = String(timeStr).trim()
+  const ampm = s.match(/^(\d{1,2}):?(\d{2})?\s*(AM|PM|am|pm)$/)
+  const h24 = s.match(/^(\d{1,2}):(\d{2})$/)
+  let h, m
+  if (ampm) {
+    h = Number(ampm[1]); m = Number(ampm[2] || 0)
+    const isPm = /pm/i.test(ampm[3])
+    if (isPm && h < 12) h += 12
+    if (!isPm && h === 12) h = 0
+  } else if (h24) {
+    h = Number(h24[1]); m = Number(h24[2])
+  } else return null
+  if (isNaN(h) || isNaN(m)) return null
+  return { h, m }
+}
+function nextOccurrence(dayName, timeStr) {
+  const dayIdx = DAY_NAMES.findIndex(d => d.toLowerCase() === String(dayName).toLowerCase())
+  const t = parseAiTime(timeStr)
+  if (dayIdx < 0 || !t) return null
+  const now = new Date()
+  const out = new Date(now)
+  const diff = (dayIdx - now.getDay() + 7) % 7
+  out.setDate(now.getDate() + diff)
+  out.setHours(t.h, t.m, 0, 0)
+  if (out <= now) out.setDate(out.getDate() + 7)
+  return out
+}
+function topSlotForChannel(scheduleObj, ch) {
+  const entry = scheduleObj?.schedule?.find(s => s.platform?.toLowerCase() === ch.aiName.toLowerCase())
+  if (!entry || !Array.isArray(entry.slots) || entry.slots.length === 0) return null
+  // Rank slots by how soon they fire — pick the nearest upcoming one
+  const dated = entry.slots.map(s => ({ s, when: nextOccurrence(s.day, s.time) })).filter(x => x.when)
+  if (dated.length === 0) return null
+  dated.sort((a, b) => a.when - b.when)
+  return dated[0]
 }
 
 export default function ChannelsPanelV2({ draftId, files }) {
@@ -42,9 +77,14 @@ export default function ChannelsPanelV2({ draftId, files }) {
   const [firstFileDbId, setFirstFileDbId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [whenInput, setWhenInput] = useState(toLocalInput(defaultScheduledAt()))
+  const [overrides, setOverrides] = useState({}) // { [channelKey]: Date }
   const [scheduling, setScheduling] = useState(false)
   const [schedMsg, setSchedMsg] = useState(null)
   const [schedErr, setSchedErr] = useState(null)
+
+  const [aiSchedule, setAiSchedule] = useState(null)
+  const [loadingAi, setLoadingAi] = useState(false)
+  const [aiErr, setAiErr] = useState(null)
 
   useEffect(() => {
     if (!draftId) return
@@ -60,6 +100,13 @@ export default function ChannelsPanelV2({ draftId, files }) {
     }).catch(() => {})
   }, [draftId])
 
+  // Load cached AI schedule once (cheap GET)
+  useEffect(() => {
+    api.loadPostingSchedule().then(s => {
+      if (s && !s.error) setAiSchedule(s)
+    }).catch(() => {})
+  }, [])
+
   const toggle = async (key) => {
     const next = { ...destinations, [key]: !destinations[key] }
     setDestinations(next)
@@ -73,26 +120,56 @@ export default function ChannelsPanelV2({ draftId, files }) {
     setSaving(false)
   }
 
-  const enabledCount = Object.values(destinations).filter(Boolean).length
-  const enabledChannels = useMemo(
-    () => CHANNELS.filter(c => destinations[c.key]),
-    [destinations]
-  )
+  const refreshAi = async () => {
+    setAiErr(null); setLoadingAi(true)
+    try {
+      const s = await api.getPostingSchedule()
+      if (s?.error) throw new Error(s.error)
+      setAiSchedule(s)
+    } catch (e) {
+      setAiErr(e.message || String(e))
+    } finally {
+      setLoadingAi(false)
+    }
+  }
 
-  // Work out what media we have. mergedBase64 wins (multi-clip merges are
-  // client-side only — there's no server copy to reference by upload_key).
-  // Else single-video upload_key. Else photo base64.
+  const applyAllSuggestions = () => {
+    const next = { ...overrides }
+    for (const ch of CHANNELS) {
+      if (!destinations[ch.key]) continue
+      const top = topSlotForChannel(aiSchedule, ch)
+      if (top) next[ch.key] = top.when
+    }
+    setOverrides(next)
+  }
+  const clearAllOverrides = () => setOverrides({})
+
+  const applyOne = (ch) => {
+    const top = topSlotForChannel(aiSchedule, ch)
+    if (!top) return
+    setOverrides(prev => ({ ...prev, [ch.key]: top.when }))
+  }
+  const clearOne = (chKey) => {
+    setOverrides(prev => { const n = { ...prev }; delete n[chKey]; return n })
+  }
+  const setOverride = (chKey, isoLocal) => {
+    const d = new Date(isoLocal)
+    if (isNaN(d.getTime())) return
+    setOverrides(prev => ({ ...prev, [chKey]: d }))
+  }
+
+  const enabledCount = Object.values(destinations).filter(Boolean).length
+  const enabledChannels = useMemo(() => CHANNELS.filter(c => destinations[c.key]), [destinations])
+
   const mergeMeta = typeof window !== 'undefined' ? window._postyMergedVideo : null
   const videoFiles = (files || []).filter(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))
   const photoFiles = (files || []).filter(f => f.file?.type?.startsWith('image/') || f._mediaType?.startsWith('image/'))
   const hasMerge = !!(mergeMeta?.base64 || mergeMeta?.url || mergeMeta?.blob)
   const hasSingleVideo = !hasMerge && videoFiles.length === 1
-  const hasPhotos = photoFiles.length > 0 && videoFiles.length === 0
   const canProduceVideo = hasMerge || hasSingleVideo
   const canSchedule = files.length > 0 && enabledCount > 0 && !!firstFileDbId
 
   const buildMedia = async () => {
-    // Returns { image_base64, upload_key, media_type } for video/photo paths
     if (hasMerge) {
       let base64 = mergeMeta.base64
       if (!base64) {
@@ -110,18 +187,13 @@ export default function ChannelsPanelV2({ draftId, files }) {
         media_type: v.file?.type || v._mediaType || 'video/mp4',
       }
     }
-    // Photo path — first image
     const p0 = photoFiles[0]
     if (p0?.file) {
       const b = await toBase64(p0.file)
       return { image_base64: b, upload_key: null, media_type: p0.file.type || 'image/jpeg' }
     }
     if (p0?._uploadKey) {
-      return {
-        image_base64: null,
-        upload_key: p0._uploadKey,
-        media_type: p0._mediaType || 'image/jpeg',
-      }
+      return { image_base64: null, upload_key: p0._uploadKey, media_type: p0._mediaType || 'image/jpeg' }
     }
     throw new Error('No usable media on this draft')
   }
@@ -138,22 +210,26 @@ export default function ChannelsPanelV2({ draftId, files }) {
   const scheduleAll = async () => {
     setSchedMsg(null); setSchedErr(null)
     if (!canSchedule) return
-    const when = new Date(whenInput)
-    if (isNaN(when.getTime()) || when <= new Date()) {
-      setSchedErr('Pick a future date/time.'); return
+    const fallback = new Date(whenInput)
+    if (isNaN(fallback.getTime())) {
+      setSchedErr('Pick a valid fallback date/time.'); return
     }
+    const now = new Date()
     setScheduling(true)
     try {
       const media = await buildMedia()
       const isVideoMedia = (media.media_type || '').startsWith('video/')
       const primaryFile = files[0]
       const jobName = primaryFile?.job_name || primaryFile?.file?.name?.replace(/\.[^.]+$/, '') || 'v2 post'
-      const posts = []
       const skipped = []
+      const results = []
       for (const ch of enabledChannels) {
         if (ch.requiresVideo && !isVideoMedia) { skipped.push(`${ch.label} (needs video)`); continue }
         const { caption, title } = captionFor(ch)
         if (!caption && ch.key !== 'gbp') { skipped.push(`${ch.label} (empty caption)`); continue }
+        const when = overrides[ch.key] || fallback
+        if (when <= now) { skipped.push(`${ch.label} (time is in the past)`); continue }
+
         const post = {
           platform: ch.platform,
           caption: caption || '',
@@ -164,14 +240,19 @@ export default function ChannelsPanelV2({ draftId, files }) {
           job_uuid:     draftId || null,
         }
         if ((ch.key === 'blog' || ch.key === 'yt_short') && title) post.title = title
-        posts.push(post)
+
+        try {
+          const res = await api.schedulePosts([post], when.toISOString())
+          const n = res?.scheduled?.length || 1
+          results.push(`${ch.label} @ ${when.toLocaleString()}`)
+        } catch (e) {
+          skipped.push(`${ch.label} (${e.message})`)
+        }
       }
-      if (posts.length === 0) {
+      if (results.length === 0) {
         setSchedErr(skipped.length ? `Nothing scheduled — ${skipped.join(', ')}` : 'Nothing scheduled.')
       } else {
-        const res = await api.schedulePosts(posts, when.toISOString())
-        const n = res?.scheduled?.length || posts.length
-        setSchedMsg(`Scheduled ${n} post${n === 1 ? '' : 's'} for ${when.toLocaleString()}${skipped.length ? ` · skipped ${skipped.join(', ')}` : ''}`)
+        setSchedMsg(`Scheduled ${results.length} post${results.length === 1 ? '' : 's'}: ${results.join(' · ')}${skipped.length ? ` · skipped ${skipped.join(', ')}` : ''}`)
       }
     } catch (e) {
       setSchedErr(e.message || String(e))
@@ -196,6 +277,8 @@ export default function ChannelsPanelV2({ draftId, files }) {
         {CHANNELS.map(c => {
           const enabled = !!destinations[c.key]
           const blocked = c.requiresVideo && !canProduceVideo
+          const top = enabled ? topSlotForChannel(aiSchedule, c) : null
+          const override = overrides[c.key]
           return (
             <div
               key={c.key}
@@ -223,15 +306,87 @@ export default function ChannelsPanelV2({ draftId, files }) {
                   <span className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-4" />
                 </label>
               </div>
+
+              {enabled && (
+                <div className="mt-2 pt-2 border-t border-[#e5e5e5]/50 flex items-center gap-2 flex-wrap">
+                  {override ? (
+                    <>
+                      <span className="text-[9px] bg-[#6C5CE7] text-white px-1.5 py-0.5 rounded">
+                        {override.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                        {' · '}
+                        {override.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      <input
+                        type="datetime-local"
+                        value={toLocalInput(override)}
+                        onChange={e => setOverride(c.key, e.target.value)}
+                        className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+                      />
+                      <button onClick={() => clearOne(c.key)} className="text-[9px] text-muted bg-white border border-[#e5e5e5] rounded py-0.5 px-1.5 cursor-pointer">
+                        Use default
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[9px] text-muted">Uses default time</span>
+                      {top && (
+                        <button
+                          onClick={() => applyOne(c)}
+                          className="text-[9px] text-[#6C5CE7] bg-white border border-[#6C5CE7] rounded py-0.5 px-1.5 cursor-pointer"
+                          title={top.s.reason || ''}
+                        >
+                          Use {top.s.day} {top.s.time}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
       </div>
 
       <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
-        <div className="text-[12px] font-medium">Schedule</div>
+        <div className="flex items-center gap-2">
+          <div className="text-[12px] font-medium flex-1">Best-time suggestions</div>
+          {aiSchedule && <span className="text-[9px] text-muted">cached</span>}
+          <button
+            onClick={refreshAi}
+            disabled={loadingAi}
+            className="text-[9px] py-1 px-2 border border-[#e5e5e5] rounded bg-white cursor-pointer disabled:opacity-50"
+          >{loadingAi ? 'Thinking…' : (aiSchedule ? 'Refresh' : 'Suggest (AI)')}</button>
+        </div>
+        {aiErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">{aiErr}</div>}
+        {!aiSchedule && !aiErr && !loadingAi && (
+          <div className="text-[10px] text-muted italic">
+            Click "Suggest" to get AI-picked slots based on your business type, location, and any analytics you've pasted into tenant settings.
+          </div>
+        )}
+        {aiSchedule?.posting_frequency && (
+          <div className="text-[10px] text-muted italic">{aiSchedule.posting_frequency}</div>
+        )}
+        {aiSchedule && (
+          <div className="flex gap-1.5 flex-wrap">
+            <button
+              onClick={applyAllSuggestions}
+              disabled={enabledCount === 0}
+              className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] rounded bg-white cursor-pointer disabled:opacity-50"
+            >Apply to all {enabledCount} enabled</button>
+            {Object.keys(overrides).length > 0 && (
+              <button
+                onClick={clearAllOverrides}
+                className="text-[10px] py-1 px-2 border border-[#e5e5e5] text-muted rounded bg-white cursor-pointer"
+              >Clear overrides</button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
+        <div className="text-[12px] font-medium">Default time</div>
+        <div className="text-[9px] text-muted">Channels without their own override use this.</div>
         <div className="flex items-center gap-2 flex-wrap">
-          <label className="text-[10px] text-muted">When:</label>
           <input
             type="datetime-local"
             value={whenInput}
@@ -264,10 +419,6 @@ export default function ChannelsPanelV2({ draftId, files }) {
 
         {schedMsg && <div className="text-[10px] text-[#2D9A5E] bg-[#f0faf4] border border-[#2D9A5E]/30 rounded p-2">{schedMsg}</div>}
         {schedErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">{schedErr}</div>}
-
-        <div className="text-[9px] text-muted italic">
-          Best-time suggestions + staggered per-platform times land in a later sub-phase. For now, one time → all destinations.
-        </div>
       </div>
     </div>
   )

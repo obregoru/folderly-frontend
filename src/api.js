@@ -215,6 +215,8 @@ export const reviewHint = (text, platforms) =>
 
 export const getPostingSchedule = () =>
   fetch(api('/generate/posting-schedule'), { method: 'POST', headers: h(), credentials: 'include' }).then(r => r.json())
+export const loadPostingSchedule = () =>
+  fetch(api('/generate/posting-schedule'), { credentials: 'include' }).then(r => r.json())
 
 export const analyzeAnalytics = (platform, rawText) =>
   fetch(api('/generate/analyze-analytics'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ platform, raw_text: rawText }) }).then(r => r.json())
