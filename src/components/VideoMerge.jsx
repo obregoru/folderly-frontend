@@ -54,7 +54,7 @@ function SortableClipRow({ id, children }) {
  * Lets users reorder clips, pick a transition, and merge into a single MP4.
  * The merged result becomes a virtual file item that the post flow can use.
  */
-export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl }) {
+export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl, onSaveTrim }) {
   // The merge list now uses the natural order of videoFiles so reordering here
   // flows back to the file grid + voiceover preview. onReorder(fromIdx, toIdx)
   // is implemented by App.jsx and persists the new order to the server.
@@ -452,30 +452,18 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                         )}
                         <div className="flex-1" />
                     {itemIsPhoto ? (
-                      // Photo: single "display duration" input. trim_end
-                      // doubles as the duration in seconds; defaults to 5.
-                      <label className="flex items-center gap-0.5" title="How long the photo stays on screen in the merged video.">
-                        <span className="text-[9px] text-muted">Show:</span>
-                        <input
-                          type="number"
-                          min={0.5}
-                          step={0.5}
-                          value={Number(item._trimEnd) > 0 ? item._trimEnd : 5}
-                          onChange={e => {
-                            const next = Math.max(0.5, Number(e.target.value) || 5)
-                            item._trimEnd = next
-                            try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
-                            if (mergedUrl) {
-                              try { URL.revokeObjectURL(mergedUrl) } catch {}
-                              setMergedUrl(null)
-                              mergedBlobRef.current = null
-                              window._postyMergedVideo = null
-                            }
-                          }}
-                          className="text-[9px] border border-border rounded py-0 px-1 bg-white w-10"
-                        />
-                        <span className="text-[9px] text-muted">s</span>
-                      </label>
+                      <PhotoDurationControl
+                        item={item}
+                        onInvalidateMerge={() => {
+                          if (mergedUrl) {
+                            try { URL.revokeObjectURL(mergedUrl) } catch {}
+                            setMergedUrl(null)
+                            mergedBlobRef.current = null
+                            window._postyMergedVideo = null
+                          }
+                        }}
+                        onSaveTrim={onSaveTrim}
+                      />
                     ) : (
                       <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
                         <span className="text-[9px] text-muted">Speed:</span>
@@ -626,5 +614,59 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         />
       )}
     </div>
+  )
+}
+
+/**
+ * Photo "trim" = how long the still stays on screen in the merged video.
+ * Range: 0.5–15s. Defaults to 5. Writes to item._trimEnd (same column
+ * videos use), persists through onSaveTrim so refresh preserves it, and
+ * invalidates the cached merged MP4 since duration changed.
+ */
+function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
+  const initial = Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5
+  const [value, setValue] = useState(initial)
+  // Keep in sync when the underlying item is reset externally (e.g. reload)
+  useEffect(() => {
+    const next = Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5
+    if (Math.abs(next - value) > 0.01) setValue(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item._trimEnd])
+
+  const commit = (v) => {
+    const clamped = Math.max(0.5, Math.min(15, Number(v) || 5))
+    setValue(clamped)
+    item._trimEnd = clamped
+    onInvalidateMerge?.()
+    onSaveTrim?.(item)
+  }
+
+  return (
+    <label className="flex items-center gap-1 bg-white border border-border rounded px-1.5 py-0.5" title="How long the photo stays on screen in the merged video. Range 0.5–15s.">
+      <span className="text-[9px] text-muted">Show</span>
+      <input
+        type="range"
+        min={0.5}
+        max={15}
+        step={0.5}
+        value={value}
+        onChange={e => setValue(Number(e.target.value))}
+        onMouseUp={e => commit(e.target.value)}
+        onTouchEnd={e => commit(e.target.value)}
+        onKeyUp={e => commit(e.target.value)}
+        className="w-16"
+      />
+      <input
+        type="number"
+        min={0.5}
+        max={15}
+        step={0.5}
+        value={value}
+        onChange={e => setValue(Number(e.target.value) || 0)}
+        onBlur={e => commit(e.target.value)}
+        className="text-[10px] border-none outline-none bg-transparent w-10 text-right font-medium"
+      />
+      <span className="text-[9px] text-muted">s</span>
+    </label>
   )
 }

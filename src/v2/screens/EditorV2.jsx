@@ -107,6 +107,7 @@ function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, j
             window._postyMergedVideo = { blob, url, base64 }
             try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
           }}
+          onSaveTrim={item => jobSync.saveFileTrim?.(item)}
         />
       )}
     </div>
