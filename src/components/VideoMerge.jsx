@@ -431,70 +431,61 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                     )}
                     <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                       {/* Line 1 — always visible filename with position prefix */}
-                      <div className="text-[11px] font-medium text-ink truncate" title={displayName}>
-                        <span className="text-muted mr-1">{pos + 1}.</span>
-                        {displayName}
+                      <div className="text-[11px] font-medium text-ink truncate flex items-center gap-1.5" title={displayName}>
+                        <span className="text-muted">{pos + 1}.</span>
+                        <span className="truncate">{displayName}</span>
+                        {itemIsPhoto && (
+                          <span className="text-[9px] bg-[#6C5CE7]/10 text-[#6C5CE7] rounded-full px-1.5 py-0 font-medium flex-shrink-0">PHOTO</span>
+                        )}
                       </div>
-                      {/* Line 2 — meta + controls */}
+
+                      {/* Line 2 — meta */}
                       <div className="flex items-center gap-1.5 flex-wrap text-[9px] text-muted">
                         {outLen > 0 && (
-                          speed !== 1.0 ? (
+                          speed !== 1.0 && !itemIsPhoto ? (
                             <span className="whitespace-nowrap" title={`Trim: ${trimLen.toFixed(1)}s · Output at ${speed}×: ${outLen.toFixed(1)}s`}>
                               {trimLen.toFixed(1)}s → <b className="text-ink">{outLen.toFixed(1)}s</b>
                             </span>
                           ) : (
-                            <span className="whitespace-nowrap" title="Output length">{outLen.toFixed(1)}s</span>
+                            <span className="whitespace-nowrap" title={itemIsPhoto ? 'Photo display duration' : 'Output length'}>{outLen.toFixed(1)}s</span>
                           )
                         )}
                         {sizeLabel && <span className="text-muted">· {sizeLabel}</span>}
-                        {(ts > 0 || te != null) && (
+                        {!itemIsPhoto && (ts > 0 || te != null) && (
                           <span className="text-[#d97706]">trimmed</span>
                         )}
                         <div className="flex-1" />
-                    {itemIsPhoto ? (
-                      <PhotoDurationControl
-                        item={item}
-                        onInvalidateMerge={() => {
-                          if (mergedUrl) {
-                            try { URL.revokeObjectURL(mergedUrl) } catch {}
-                            setMergedUrl(null)
-                            mergedBlobRef.current = null
-                            window._postyMergedVideo = null
-                          }
-                        }}
-                        onSaveTrim={onSaveTrim}
-                      />
-                    ) : (
-                      <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
-                        <span className="text-[9px] text-muted">Speed:</span>
-                        <select
-                          value={String(speed)}
-                          onChange={e => {
-                            const newSpeed = Number(e.target.value)
-                            if (!(newSpeed > 0)) return
-                            item._speed = newSpeed
-                            try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
-                            if (mergedUrl) {
-                              try { URL.revokeObjectURL(mergedUrl) } catch {}
-                              setMergedUrl(null)
-                              mergedBlobRef.current = null
-                              window._postyMergedVideo = null
-                            }
-                          }}
-                          className="text-[9px] border border-border rounded py-0 px-0.5 bg-white"
-                        >
-                          <option value="0.25">0.25×</option>
-                          <option value="0.5">0.5×</option>
-                          <option value="0.75">0.75×</option>
-                          <option value="1">1×</option>
-                          <option value="1.25">1.25×</option>
-                          <option value="1.5">1.5×</option>
-                          <option value="2">2×</option>
-                          <option value="3">3×</option>
-                          <option value="4">4×</option>
-                        </select>
-                      </label>
-                    )}
+                        {!itemIsPhoto && (
+                          <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
+                            <span className="text-[9px] text-muted">Speed:</span>
+                            <select
+                              value={String(speed)}
+                              onChange={e => {
+                                const newSpeed = Number(e.target.value)
+                                if (!(newSpeed > 0)) return
+                                item._speed = newSpeed
+                                try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
+                                if (mergedUrl) {
+                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                  setMergedUrl(null)
+                                  mergedBlobRef.current = null
+                                  window._postyMergedVideo = null
+                                }
+                              }}
+                              className="text-[9px] border border-border rounded py-0 px-0.5 bg-white"
+                            >
+                              <option value="0.25">0.25×</option>
+                              <option value="0.5">0.5×</option>
+                              <option value="0.75">0.75×</option>
+                              <option value="1">1×</option>
+                              <option value="1.25">1.25×</option>
+                              <option value="1.5">1.5×</option>
+                              <option value="2">2×</option>
+                              <option value="3">3×</option>
+                              <option value="4">4×</option>
+                            </select>
+                          </label>
+                        )}
                     <div className="flex gap-0.5">
                       <button
                         onClick={() => moveUp(pos)}
@@ -508,6 +499,22 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                       >&#9660;</button>
                     </div>
                       </div>
+                      {/* Line 3 (photo rows only): full-width duration
+                          slider so the trim control is unmistakable. */}
+                      {itemIsPhoto && (
+                        <PhotoDurationControl
+                          item={item}
+                          onInvalidateMerge={() => {
+                            if (mergedUrl) {
+                              try { URL.revokeObjectURL(mergedUrl) } catch {}
+                              setMergedUrl(null)
+                              mergedBlobRef.current = null
+                              window._postyMergedVideo = null
+                            }
+                          }}
+                          onSaveTrim={onSaveTrim}
+                        />
+                      )}
                     </div>
                   </div>
                     )}
@@ -642,8 +649,11 @@ function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
   }
 
   return (
-    <label className="flex items-center gap-1 bg-white border border-border rounded px-1.5 py-0.5" title="How long the photo stays on screen in the merged video. Range 0.5–15s.">
-      <span className="text-[9px] text-muted">Show</span>
+    <label
+      className="flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1 mt-0.5"
+      title="How long the photo stays on screen in the merged video. Range 0.5–15s."
+    >
+      <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap">Show for</span>
       <input
         type="range"
         min={0.5}
@@ -654,7 +664,7 @@ function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
         onMouseUp={e => commit(e.target.value)}
         onTouchEnd={e => commit(e.target.value)}
         onKeyUp={e => commit(e.target.value)}
-        className="w-16"
+        className="flex-1 min-w-0 accent-[#6C5CE7]"
       />
       <input
         type="number"
@@ -664,9 +674,9 @@ function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
         value={value}
         onChange={e => setValue(Number(e.target.value) || 0)}
         onBlur={e => commit(e.target.value)}
-        className="text-[10px] border-none outline-none bg-transparent w-10 text-right font-medium"
+        className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-12 text-right px-1 py-0.5"
       />
-      <span className="text-[9px] text-muted">s</span>
+      <span className="text-[10px] text-[#6C5CE7] font-medium">s</span>
     </label>
   )
 }
