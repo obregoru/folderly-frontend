@@ -6,6 +6,7 @@ import ScheduleV2 from './screens/ScheduleV2'
 import HistoryV2 from './screens/HistoryV2'
 import EditorV2 from './screens/EditorV2'
 import SettingsDrawerV2 from './components/SettingsDrawerV2'
+import JobAiLogModal from './components/JobAiLogModal'
 
 /**
  * Real v2 app — mockup layout + real backend. Phase 1: shell only.
@@ -28,6 +29,7 @@ export default function AppV2() {
   const [mode, setMode] = useState('drafts')
   const [activeDraftId, setActiveDraftId] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [aiLogOpen, setAiLogOpen] = useState(false)
 
   // Check auth + load tenant settings on mount (mirrors App.jsx).
   // On Vercel preview domains localStorage is empty even when the session
@@ -117,10 +119,18 @@ export default function AppV2() {
         </button>
         <div className="flex-1" />
         {inEditor && (
-          <button
-            onClick={() => setActiveDraftId(null)}
-            className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer"
-          >← Drafts</button>
+          <>
+            <button
+              onClick={() => setActiveDraftId(null)}
+              className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer"
+            >← Drafts</button>
+            <button
+              onClick={() => setAiLogOpen(true)}
+              className="text-[14px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none"
+              title="AI activity for this draft"
+              aria-label="AI activity log"
+            >🤖</button>
+          </>
         )}
         <button
           onClick={() => setSettingsOpen(true)}
@@ -188,6 +198,11 @@ export default function AppV2() {
         onClose={() => setSettingsOpen(false)}
         settings={settings}
         setSettings={setSettings}
+      />
+      <JobAiLogModal
+        open={aiLogOpen}
+        draftId={activeDraftId}
+        onClose={() => setAiLogOpen(false)}
       />
     </div>
   )

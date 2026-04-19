@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api'
+import AiLogRow from './AiLogRow'
 
 /**
  * SettingsDrawerV2 — real forms for the high-leverage settings. Writes
@@ -1295,7 +1296,6 @@ function AiLogView({ open }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
-  const [expandedId, setExpandedId] = useState(null)
   const [endpointFilter, setEndpointFilter] = useState('')
 
   const load = async () => {
@@ -1339,97 +1339,8 @@ function AiLogView({ open }) {
       )}
 
       <div className="space-y-1">
-        {rows.map(row => (
-          <AiLogRow
-            key={row.uuid}
-            row={row}
-            expanded={expandedId === row.uuid}
-            onToggle={() => setExpandedId(p => p === row.uuid ? null : row.uuid)}
-          />
-        ))}
+        {rows.map(row => <AiLogRow key={row.uuid} row={row} showJob={true} />)}
       </div>
-    </div>
-  )
-}
-
-function AiLogRow({ row, expanded, onToggle }) {
-  const when = row.created_at ? new Date(row.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'
-  const preview = (row.response_text || row.error || '').slice(0, 120).replace(/\s+/g, ' ')
-  const dur = row.duration_ms != null ? `${Math.round(row.duration_ms)}ms` : ''
-  const tokens = (row.tokens_in || row.tokens_out) ? `${row.tokens_in || 0}→${row.tokens_out || 0}` : ''
-  const copy = (text) => { try { navigator.clipboard.writeText(text || '') } catch {} }
-
-  return (
-    <div className={`border rounded bg-white ${row.error ? 'border-[#c0392b]/30' : 'border-[#e5e5e5]'}`}>
-      <button
-        onClick={onToggle}
-        className="w-full text-left p-2 bg-transparent border-none cursor-pointer"
-      >
-        <div className="flex items-center gap-2 text-[10px]">
-          <span className="font-mono text-muted flex-shrink-0">{when}</span>
-          <span className="font-medium text-ink truncate flex-1">{row.endpoint}</span>
-          {tokens && <span className="text-muted font-mono text-[9px]">{tokens}</span>}
-          {dur && <span className="text-muted font-mono text-[9px]">{dur}</span>}
-          <span className="text-muted">{expanded ? '▾' : '▸'}</span>
-        </div>
-        <div className="text-[9px] text-muted mt-0.5 line-clamp-1 font-mono">{row.error ? `ERR: ${row.error.slice(0, 140)}` : preview}</div>
-      </button>
-      {expanded && (
-        <div className="border-t border-[#e5e5e5] p-2 space-y-2 text-[10px] bg-[#fafafa]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-muted">{row.model || 'model unknown'}</span>
-            <span className="font-mono text-muted">{row.kind || 'anthropic'}</span>
-            {row.metadata && Object.keys(row.metadata).length > 0 && (
-              <span className="font-mono text-[9px] text-muted">{JSON.stringify(row.metadata)}</span>
-            )}
-          </div>
-
-          {row.system_prompt && (
-            <LogBlock label="System prompt" text={row.system_prompt} onCopy={copy} />
-          )}
-          {row.user_content && (
-            <LogBlock label="User message" text={row.user_content} onCopy={copy} />
-          )}
-          {row.response_text && (
-            <LogBlock label="Assistant response" text={row.response_text} onCopy={copy} />
-          )}
-          {row.error && (
-            <div className="border border-[#c0392b]/30 bg-[#fdf2f1] rounded p-1.5">
-              <div className="text-[9px] text-[#c0392b] font-medium mb-1">Error</div>
-              <div className="text-[10px] font-mono whitespace-pre-wrap">{row.error}</div>
-            </div>
-          )}
-          <button
-            onClick={() => {
-              const combined = [
-                `# ${row.endpoint}`,
-                `model: ${row.model}`,
-                '',
-                row.system_prompt ? `## System\n${row.system_prompt}` : '',
-                row.user_content ? `## User\n${row.user_content}` : '',
-                row.response_text ? `## Response\n${row.response_text}` : '',
-              ].filter(Boolean).join('\n\n')
-              copy(combined)
-            }}
-            className="w-full text-[9px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer"
-          >Copy entire interaction (paste into ChatGPT / Gemini for comparison)</button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function LogBlock({ label, text, onCopy }) {
-  return (
-    <div>
-      <div className="flex items-center gap-1 text-[9px] text-muted mb-1">
-        <span className="font-medium uppercase tracking-wide">{label}</span>
-        <button
-          onClick={() => onCopy(text)}
-          className="ml-auto text-[9px] py-0 px-1.5 border border-[#e5e5e5] bg-white rounded cursor-pointer"
-        >copy</button>
-      </div>
-      <pre className="text-[10px] font-mono whitespace-pre-wrap bg-white border border-[#e5e5e5] rounded p-1.5 max-h-40 overflow-auto">{text}</pre>
     </div>
   )
 }
