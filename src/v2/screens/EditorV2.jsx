@@ -5,7 +5,11 @@ import VideoMerge from '../../components/VideoMerge'
 import Dropzone from '../../components/Dropzone'
 import FinalPreviewV2 from '../components/FinalPreviewV2'
 import ToolMenuV2 from '../components/ToolMenuV2'
+import HintsPanelV2 from '../components/HintsPanelV2'
 import VoiceoverPanelV2 from '../components/VoiceoverPanelV2'
+import OverlaysPanelV2 from '../components/OverlaysPanelV2'
+import PostTextPanelV2 from '../components/PostTextPanelV2'
+import ChannelsPanelV2 from '../components/ChannelsPanelV2'
 
 /**
  * EditorV2 — the new mockup-style editor, real data.
@@ -63,11 +67,11 @@ export default function EditorV2({
             jobSync={jobSync}
           />
         )}
-        {safeActiveTool === 'hints' && <PlaceholderPanel label="Hints" />}
+        {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} />}
         {safeActiveTool === 'voiceover' && <VoiceoverPanelV2 previewRef={previewRef} settings={settings} />}
-        {safeActiveTool === 'overlays' && <PlaceholderPanel label="Overlays" />}
-        {safeActiveTool === 'captions' && <PlaceholderPanel label="Post text" />}
-        {safeActiveTool === 'channels' && <PlaceholderPanel label="Channels" />}
+        {safeActiveTool === 'overlays' && <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} />}
+        {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} />}
+        {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} files={files} />}
       </div>
     </div>
   )
