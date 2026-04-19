@@ -55,38 +55,53 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     try { v.playbackRate = speed } catch {}
     const start = Number(current.trimStart) || 0
     const end = current.trimEnd != null && current.trimEnd > 0 ? Number(current.trimEnd) : null
+    console.log(`[preview] ↻ clip ${fromIdx + 1}/${playlist.length} "${current.filename || ''}" start=${start}s end=${end != null ? end.toFixed(2) + 's' : 'natural'} speed=${speed}x url=${current.url?.slice(-40)}`)
+
+    let seekApplied = false
+    const applySeekAndPlay = () => {
+      if (seekApplied) return
+      seekApplied = true
+      // Seek to this clip's trimStart explicitly on EVERY effect run,
+      // not just on first-ever load. React's <video key={url}> reuses
+      // the element between siblings that share a URL (iPhone
+      // IMG_#### recycling), so the second sibling inherits the
+      // first's currentTime without an explicit seek.
+      const before = v.currentTime
+      try { v.currentTime = start } catch (e) { console.warn('[preview] seek failed:', e.message) }
+      console.log(`[preview] seek ${before.toFixed(2)}s → ${start}s`)
+      try { const p = v.play(); if (p && p.catch) p.catch(err => console.warn('[preview] play rejected:', err.message)) } catch {}
+    }
 
     const onReady = () => {
-      // Seek to THIS clip's trimStart even if the element is the same
-      // <video> (same URL between siblings). Without this the second
-      // sibling would stay at the first sibling's currentTime.
-      try { v.currentTime = start } catch {}
-      try { const p = v.play(); if (p && p.catch) p.catch(() => {}) } catch {}
+      applySeekAndPlay()
       v.removeEventListener('loadedmetadata', onReady)
       v.removeEventListener('canplay', onReady)
+      v.removeEventListener('loadeddata', onReady)
     }
     const onTime = () => {
       if (advancingRef.current) return
       const max = end != null ? end : (Number.isFinite(v.duration) ? v.duration : Infinity)
       if (v.currentTime >= max - 0.05) {
+        console.log(`[preview] ✂ clip ${fromIdx + 1} hit end at ${v.currentTime.toFixed(2)}s (max=${max.toFixed(2)}s) → ${isLast ? 'stop' : 'advance'}`)
         advancingRef.current = true
         if (!isLast) advanceFrom(fromIdx); else try { v.pause() } catch {}
       }
     }
     const onEnded = () => {
       if (advancingRef.current) return
+      console.log(`[preview] natural end on clip ${fromIdx + 1}`)
       advancingRef.current = true
       if (!isLast) advanceFrom(fromIdx)
     }
 
-    // Always seek — readyState may be >= 1 because the element was
-    // reused for the previous clip (same URL). Seek to this clip's
-    // trimStart explicitly each time, not just on first load.
-    if (v.readyState >= 1) onReady()
-    else {
-      v.addEventListener('loadedmetadata', onReady, { once: true })
-      v.addEventListener('canplay', onReady, { once: true })
-    }
+    // Seek + play whenever ready — even if the element reports ready
+    // immediately (reused element, same URL), because the seekable
+    // range for a freshly-loaded video might not include our
+    // trimStart until after loadedmetadata.
+    v.addEventListener('loadedmetadata', onReady)
+    v.addEventListener('loadeddata', onReady)
+    v.addEventListener('canplay', onReady)
+    if (v.readyState >= 2) applySeekAndPlay()
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('ended', onEnded)
     return () => {
