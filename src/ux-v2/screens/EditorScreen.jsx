@@ -15,15 +15,40 @@ import CaptionsPanel from '../components/CaptionsPanel'
 export default function EditorScreen({ draftId }) {
   // Simulated merge status — toggling "Merge" in the clips panel flips this.
   const [hasMerge, setHasMerge] = useState(false)
-  const [activeTool, setActiveTool] = useState('clips')
+  const [activeTool, setActiveTool] = useState('voiceover')
 
+  // Before merge: Clips panel is the primary surface (upload / sort / merge).
+  // Player shows empty state below. Tool menu is dimmed — voiceover /
+  // overlays / captions aren't meaningful without a video yet.
+  if (!hasMerge) {
+    return (
+      <div className="p-3 space-y-3">
+        {/* Clips panel on top — where all the setup work happens. */}
+        <div className="bg-white border border-[#e5e5e5] rounded-lg p-3">
+          <ClipsPanel
+            hasMerge={hasMerge}
+            onMerge={() => { setHasMerge(true); setActiveTool('voiceover') }}
+            onUnmerge={() => setHasMerge(false)}
+          />
+        </div>
+
+        {/* Empty player — placeholder so user sees where the result will land. */}
+        <FinalVideoPreview hasMerge={hasMerge} />
+
+        {/* Dimmed menu — hint at what's coming next without letting the user
+            detour. */}
+        <ToolMenu active={'clips'} onChange={() => {}} hasMerge={hasMerge} />
+      </div>
+    )
+  }
+
+  // After merge: player becomes the anchor. Tools attach to it.
   return (
     <div className="p-3 space-y-3">
-      {/* Final video canvas — always on top. Its state is hasMerge. */}
+      {/* The merged result — center of gravity from here on out. */}
       <FinalVideoPreview hasMerge={hasMerge} />
 
-      {/* Icon menu — the single entry point for every tool that attaches
-          to the final video. Horizontal on mobile, scrollable if needed. */}
+      {/* Single entry point for every tool that attaches to the final video. */}
       <ToolMenu active={activeTool} onChange={setActiveTool} hasMerge={hasMerge} />
 
       {/* Active tool panel. Each panel reads/writes the mock state locally. */}
