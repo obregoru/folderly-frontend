@@ -236,6 +236,7 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
 
       // Per-job voice overrides beat tenant defaults when set.
       const jobVoice = job?.generation_rules?.voice || {}
+      const jobOffTopic = !!job?.generation_rules?.off_topic
 
       const body = {
         filename: f0?.file?.name || f0?._filename || firstSvr?.filename || 'file',
@@ -249,6 +250,7 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
         upload_id: uploadUuid,
         job_uuid: draftId || null,
         rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
+        off_topic: jobOffTopic || undefined,
         user_hint: (job?.hint_text) || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,

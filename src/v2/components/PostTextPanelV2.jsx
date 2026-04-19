@@ -97,6 +97,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
 
       // Per-job voice overrides beat tenant defaults when set.
       const jobVoice = job?.generation_rules?.voice || {}
+      const jobOffTopic = !!job?.generation_rules?.off_topic
 
       const body = {
         filename: f0Live?.file?.name || f0Live?._filename || firstFile?.filename || 'file',
@@ -110,6 +111,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         upload_id: uploadUuid,
         job_uuid: draftId || null,
         rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
+        off_topic: jobOffTopic || undefined,
         user_hint: hint || '',
         voiceover_script: voLines.length ? voLines.join('\n') : undefined,
         captions_script:  capLines.length ? capLines.join('\n') : undefined,

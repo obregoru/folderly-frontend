@@ -52,6 +52,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
   const [jobTone, setJobTone] = useState('')
   const [jobPov, setJobPov] = useState('')
   const [jobMarketing, setJobMarketing] = useState('')
+  const [jobOffTopic, setJobOffTopic] = useState(false)
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voiceSaved, setVoiceSaved] = useState(false)
 
@@ -80,6 +81,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       setJobTone(voice.tone || '')
       setJobPov(voice.pov || '')
       setJobMarketing(voice.marketing_intensity || '')
+      setJobOffTopic(!!job?.generation_rules?.off_topic)
       // If an opening hook is already on the overlay, show it as "applied"
       if (job?.overlay_settings?.openingText) {
         setHookAppliedTo({ text: job.overlay_settings.openingText, from: 'existing' })
@@ -127,7 +129,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       if (jobTone)      voice.tone = jobTone
       if (jobPov)       voice.pov = jobPov
       if (jobMarketing) voice.marketing_intensity = jobMarketing
-      const next = { voice }
+      const next = { voice, off_topic: !!jobOffTopic }
       await api.updateJob(draftId, { generation_rules: next })
       setVoiceSaved(true)
       setTimeout(() => setVoiceSaved(false), 2000)
@@ -225,13 +227,24 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
       <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
         <div className="flex items-center gap-2">
           <div className="text-[12px] font-medium flex-1">Voice & tone for this draft</div>
-          {(jobTone || jobPov || jobMarketing) && (
+          {(jobTone || jobPov || jobMarketing || jobOffTopic) && (
             <span className="text-[9px] bg-[#6C5CE7]/10 text-[#6C5CE7] border border-[#6C5CE7]/30 rounded-full px-2 py-0.5">override on</span>
           )}
         </div>
         <div className="text-[10px] text-muted">
           Overrides the tenant defaults (<span className="font-mono">{settings?.default_tone || 'warm'}</span> · <span className="font-mono">{settings?.default_pov || 'first_person'}</span> · <span className="font-mono">{settings?.marketing_intensity || 'balanced'}</span>) for this draft only. Leave a field on "tenant default" to inherit.
         </div>
+
+        <label className={`flex items-start gap-2 border rounded p-2 cursor-pointer ${jobOffTopic ? 'border-[#d97706]/40 bg-[#fef3c7]' : 'border-[#e5e5e5] bg-white'}`}>
+          <input type="checkbox" checked={jobOffTopic} onChange={e => setJobOffTopic(e.target.checked)} className="mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-medium">This draft is off-topic (unrelated to my business)</div>
+            <div className="text-[9px] text-muted mt-0.5">
+              Lifts brand rules, CTAs, SEO, and hashtag requirements. Use when reviewing another business, sharing something from the neighborhood, or posting anything that shouldn't loop back to <span className="font-mono">{settings?.name || 'your tenant'}</span>.
+            </div>
+          </div>
+        </label>
+
         <div className="grid grid-cols-1 gap-2">
           <VoiceField label="Tone" value={jobTone} onChange={setJobTone} options={TONE_OPTIONS} />
           <VoiceField label="Point of view" value={jobPov} onChange={setJobPov} options={POV_OPTIONS} />
