@@ -332,31 +332,14 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     }
   }
 
-  // Build a closed-captions timeline from a script and attach it to the
-  // job as overlay_settings.caption_timeline. Each script line becomes one
-  // timed caption cue (start/end = next line's start or +3s), rendered as
-  // subtitle-style text in FinalPreviewV2. Separate concept from the
-  // three-block opening/middle/closing overlay text, which is unchanged.
-  const applyScriptAsCaptions = (raw) => {
-    const parsed = parseScript(raw)
-    const all = [
-      ...(parsed.primary ? [{ startTime: 0, text: parsed.primary }] : []),
-      ...parsed.segments,
-    ]
-      .filter(x => x.text && x.text.trim())
-      .sort((a, b) => a.startTime - b.startTime)
-    if (all.length === 0) { alert('Nothing to apply — parse a script first.'); return }
-
-    const video = previewRef?.current?.getVideo?.()
-    const videoDur = Number(video?.duration) || 0
-    const timeline = all.map((cue, i) => {
-      const next = all[i + 1]
-      const end = next ? next.startTime : (videoDur > cue.startTime ? videoDur : cue.startTime + 3)
-      return { startTime: Number(cue.startTime) || 0, endTime: end, text: cue.text }
-    })
-
-    // Merge into the job's existing overlay_settings so we don't clobber
-    // the three-block overlay text. Read current, mutate caption_timeline.
+  // Persist a caption_timeline (array of {startTime,endTime,text}) under
+  // overlay_settings.caption_timeline. Shared by every "apply as closed
+  // captions" action, whatever the source. Broadcasts so FinalPreviewV2
+  // re-renders immediately.
+  const persistCaptionTimeline = (timeline, sourceLabel) => {
+    if (!timeline || timeline.length === 0) {
+      alert(`Nothing to apply — ${sourceLabel}.`); return
+    }
     const existing = (typeof window !== 'undefined' && window._postyOverlays) || {}
     const next = { ...existing, caption_timeline: timeline }
     jobSync?.saveOverlaySettings?.(next)
@@ -369,6 +352,43 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       }
     } catch {}
     alert(`Applied ${timeline.length} closed-caption line${timeline.length === 1 ? '' : 's'} to the video.`)
+  }
+
+  // Build a caption_timeline from an array of { startTime, text } cues —
+  // end time is the next cue's start or video duration or +3s fallback.
+  const buildCaptionTimeline = (cues) => {
+    const video = previewRef?.current?.getVideo?.()
+    const videoDur = Number(video?.duration) || 0
+    const sorted = [...cues]
+      .filter(x => x?.text && String(x.text).trim())
+      .map(x => ({ startTime: Number(x.startTime) || 0, text: String(x.text).trim() }))
+      .sort((a, b) => a.startTime - b.startTime)
+    return sorted.map((cue, i) => {
+      const nxt = sorted[i + 1]
+      const end = nxt ? nxt.startTime : (videoDur > cue.startTime ? videoDur : cue.startTime + 3)
+      return { startTime: cue.startTime, endTime: end, text: cue.text }
+    })
+  }
+
+  // Captions from a pasted script (Script tab).
+  const applyScriptAsCaptions = (raw) => {
+    const parsed = parseScript(raw)
+    const cues = [
+      ...(parsed.primary ? [{ startTime: 0, text: parsed.primary }] : []),
+      ...parsed.segments,
+    ]
+    persistCaptionTimeline(buildCaptionTimeline(cues), 'parse a script first')
+  }
+
+  // Captions from the current voiceover segments + primary text (AI tab).
+  // Mirrors the existing segment startTimes — whatever the user generated
+  // audio for is what shows on screen.
+  const applySegmentsAsCaptions = () => {
+    const cues = [
+      ...(text && text.trim() ? [{ startTime: 0, text }] : []),
+      ...segments.map(s => ({ startTime: Number(s.startTime) || 0, text: s.text })),
+    ]
+    persistCaptionTimeline(buildCaptionTimeline(cues), 'add at least one segment first')
   }
 
   // Parse a pasted script into primary + timed segments, then generate all
@@ -603,19 +623,26 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           />
         ))}
 
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 flex-wrap">
           <button
             onClick={addSegment}
             disabled={!hasElevenLabs}
-            className="flex-1 text-[10px] py-1.5 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-40"
+            className="flex-1 min-w-[100px] text-[10px] py-1.5 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-40"
           >+ Add segment</button>
           {segments.some(s => s.text?.trim() && !s.audioUrl) && (
             <button
               onClick={generateAllMissing}
-              className="flex-1 text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+              className="flex-1 min-w-[100px] text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
             >Generate all missing</button>
           )}
         </div>
+        {(segments.some(s => s.text?.trim()) || (text && text.trim())) && (
+          <button
+            onClick={applySegmentsAsCaptions}
+            className="w-full text-[10px] py-1.5 border border-[#2D9A5E] text-[#2D9A5E] bg-white rounded cursor-pointer"
+            title="Writes every segment's text to overlay_settings.caption_timeline at the same start times — rendered as YouTube-style subtitles in the preview."
+          >📝 Use segments as closed captions</button>
+        )}
       </div>
     </div>
   )
