@@ -105,6 +105,13 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     v.addEventListener('timeupdate', onTime)
     v.addEventListener('ended', onEnded)
     return () => {
+      // All five listeners — including the readiness ones — must go
+      // on cleanup. Otherwise a stale onReady from a previous clip
+      // could fire later and apply THAT clip's trimStart + play
+      // directives to the reused <video> element.
+      v.removeEventListener('loadedmetadata', onReady)
+      v.removeEventListener('loadeddata', onReady)
+      v.removeEventListener('canplay', onReady)
       v.removeEventListener('timeupdate', onTime)
       v.removeEventListener('ended', onEnded)
     }
