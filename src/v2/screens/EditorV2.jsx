@@ -88,13 +88,16 @@ function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, j
         <FileGrid files={files} onRemove={removeFile} onReorder={reorderFiles} VideoTrimmer={VideoTrimmer} />
       )}
 
-      {videoFiles.length >= 2 && (
+      {/* Pass ALL files (videos + photos) so photos appear in the merge
+          list with a trimmable display duration. VideoMerge decides
+          per-item whether to render a video row or a photo row. */}
+      {files.length >= 2 && (
         <VideoMerge
-          videoFiles={videoFiles}
+          videoFiles={files}
           jobId={jobSync.jobId}
           onReorder={(fromIdxLocal, toIdxLocal) => {
-            const fromFileId = videoFiles[fromIdxLocal]?.id
-            const toFileId = videoFiles[toIdxLocal]?.id
+            const fromFileId = files[fromIdxLocal]?.id
+            const toFileId = files[toIdxLocal]?.id
             if (!fromFileId || !toFileId) return
             const fromAbs = files.findIndex(f => f.id === fromFileId)
             const toAbs = files.findIndex(f => f.id === toFileId)

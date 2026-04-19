@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { buildDownloadName } from '../lib/filename'
+import MergePreviewLightbox from './MergePreviewLightbox'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor, TouchSensor,
   useSensor, useSensors,
@@ -160,49 +161,48 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mergedUrl])
 
-  // Sequential-playback preview — no server round-trip, no ffmpeg. Plays
-  // each clip in order, respecting trim_start / trim_end / speed. Hard
-  // cuts (no crossfades), no voiceover mix, no overlay burn-in. Fast
-  // iteration tool; the real Merge button still produces the final file.
-  const handlePreviewMerge = () => {
-    const playlist = videoFiles.map(item => {
-      let url = null
-      if (item.file instanceof Blob || item.file instanceof File) {
-        // Cache the object URL so repeated preview runs don't leak a new one.
-        if (!item._previewBlobUrl) item._previewBlobUrl = URL.createObjectURL(item.file)
-        url = item._previewBlobUrl
-      } else if (item._publicUrl) {
-        url = item._publicUrl
-      } else if (item._uploadKey && item._tenantSlug) {
-        url = `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
-      }
-      return {
-        url,
-        trimStart: Number(item._trimStart) || 0,
-        trimEnd: item._trimEnd != null ? Number(item._trimEnd) : null,
-        speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
-      }
-    }).filter(c => c.url)
-    if (playlist.length === 0) return
-    // Tell FinalPreviewV2 to enter playlist mode
-    try {
-      if (typeof window !== 'undefined') {
-        window._postyPreviewPlaylist = playlist
-        window.dispatchEvent(new CustomEvent('posty-preview-playlist-change', { detail: playlist }))
-        // If there's a stale merged video cached, keep it — merged still
-        // wins visually. Users hit Re-merge when they want the real thing.
-      }
-    } catch {}
+  // Lightbox preview state + playlist builder. The lightbox walks each
+  // clip in order (videos respect trim+speed, photos get their display
+  // duration). Hard cuts, no crossfades, no overlay / voiceover mix —
+  // fast iteration tool; Merge produces the final file.
+  const [previewPlaylist, setPreviewPlaylist] = useState(null)
+
+  const itemToPlaylistEntry = (item) => {
+    const isImg = item.isImg || item.file?.type?.startsWith('image/') || item._mediaType?.startsWith('image/')
+    let url = null
+    if (item.file instanceof Blob || item.file instanceof File) {
+      if (!item._previewBlobUrl) item._previewBlobUrl = URL.createObjectURL(item.file)
+      url = item._previewBlobUrl
+    } else if (item._publicUrl) {
+      url = item._publicUrl
+    } else if (item._uploadKey && item._tenantSlug) {
+      url = `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
+    }
+    const filename = item.file?.name || item._filename || 'Untitled'
+    if (isImg) {
+      // Photos: _trimEnd doubles as "display duration" (seconds).
+      // Default to 5s when unset.
+      const duration = item._trimEnd != null && item._trimEnd > 0 ? Number(item._trimEnd) : 5
+      return { id: item.id, type: 'photo', url, filename, trimEnd: duration }
+    }
+    return {
+      id: item.id,
+      type: 'video',
+      url,
+      filename,
+      trimStart: Number(item._trimStart) || 0,
+      trimEnd: item._trimEnd != null ? Number(item._trimEnd) : null,
+      speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
+    }
   }
 
-  const clearPreviewMerge = () => {
-    try {
-      if (typeof window !== 'undefined') {
-        window._postyPreviewPlaylist = null
-        window.dispatchEvent(new CustomEvent('posty-preview-playlist-change', { detail: null }))
-      }
-    } catch {}
+  const handlePreviewMerge = () => {
+    const playlist = videoFiles.map(itemToPlaylistEntry).filter(c => c.url)
+    if (playlist.length === 0) { setError('Nothing to preview — no media with a usable URL.'); return }
+    setPreviewPlaylist(playlist)
   }
+
+  const clearPreviewMerge = () => setPreviewPlaylist(null)
 
   const handleMerge = async () => {
     setMerging(true)
@@ -217,12 +217,24 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     }
     try {
       const api = await import('../api')
+      // Filter to videos only for the server merge — backend photo-to-video
+      // segment support lands in a follow-up. Photos still appear in the
+      // Preview lightbox with their display duration; the merged MP4
+      // posted to social is video-only for now.
+      const isPhotoItem = (i) => i?.isImg || i?.file?.type?.startsWith('image/') || i?._mediaType?.startsWith('image/')
+      const videoOnly = videoFiles.filter(i => !isPhotoItem(i))
+      const photoCount = videoFiles.length - videoOnly.length
+      if (videoOnly.length < 2) {
+        throw new Error(photoCount > 0
+          ? 'Merge needs at least 2 videos — photo-to-video-segment merge coming in a follow-up. Use Preview to confirm the photo sequencing.'
+          : 'Need at least 2 videos to merge.')
+      }
       const clips = []
-      for (let i = 0; i < videoFiles.length; i++) {
-        const item = videoFiles[i]
+      for (let i = 0; i < videoOnly.length; i++) {
+        const item = videoOnly[i]
         let uploadKey = item.uploadResult?.original_temp_path || null
         if (!uploadKey) {
-          setProgress(`Uploading clip ${i + 1}/${videoFiles.length} (${item.file?.name || item._filename || 'Untitled'})...`)
+          setProgress(`Uploading clip ${i + 1}/${videoOnly.length} (${item.file?.name || item._filename || 'Untitled'})...`)
           try {
             const result = await api.uploadFile(item.file, null, null, {}, null, jobId)
             item.uploadResult = result
@@ -231,7 +243,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             throw new Error(`Upload clip ${i + 1} failed: ${e.message}`)
           }
         } else {
-          setProgress(`Preparing clip ${i + 1}/${videoFiles.length} (${item.file?.name || item._filename || 'Untitled'})...`)
+          setProgress(`Preparing clip ${i + 1}/${videoOnly.length} (${item.file?.name || item._filename || 'Untitled'})...`)
         }
         clips.push({
           upload_key: uploadKey,
@@ -239,6 +251,9 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
           trim_end: item._trimEnd ?? null,
           speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
         })
+      }
+      if (photoCount > 0) {
+        console.warn(`[merge] ${photoCount} photo(s) excluded from server merge (video-only for now)`)
       }
       setProgress(`Merging ${clips.length} clips on server...`)
       // mergeVideos now returns a blob URL directly (binary response, not JSON)
@@ -322,21 +337,29 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
           before merge exists. */}
       {!clipsCollapsed && <div className="space-y-1">
         {(() => {
-          // Trim length on the ORIGINAL timeline.
+          // Per-item detection: photos contribute their display duration;
+          // videos contribute (trim_end - trim_start) / speed.
+          const isPhoto = (item) => item?.isImg || item?.file?.type?.startsWith('image/') || item?._mediaType?.startsWith('image/')
+
           const clipTrimLengths = videoFiles.map(item => {
+            if (isPhoto(item)) {
+              // Photo "trim" == display duration. Defaults to 5s when unset.
+              return item._trimEnd != null && item._trimEnd > 0 ? Number(item._trimEnd) : 5
+            }
             const dur = item?._videoDuration || 0
             if (!dur) return 0
             const ts = item._trimStart || 0
             const te = item._trimEnd ?? dur
             return Math.max(0, te - ts)
           })
-          // Output length after per-clip speed is applied.
           const clipDurations = videoFiles.map((item, i) => {
             const trimLen = clipTrimLengths[i]
+            if (isPhoto(item)) return trimLen
             const speed = Number(item?._speed) > 0 ? Number(item._speed) : 1.0
             return trimLen / speed
           })
           const totalKept = clipDurations.reduce((a, b) => a + b, 0)
+          const hasPhotos = videoFiles.some(isPhoto)
           // Detect filename collisions (iPhone recycles IMG_####.mov numbers
           // when the Photos counter rolls over — two different clips can
           // share the same filename, making the merge list ambiguous).
@@ -367,18 +390,16 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                 <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
               {videoFiles.map((item, pos) => {
                 if (!item) return null
+                const itemIsPhoto = isPhoto(item)
                 const ts = item._trimStart || 0
                 const te = item._trimEnd
                 const trimLen = clipTrimLengths[pos]
                 const outLen = clipDurations[pos]
                 const speed = Number(item._speed) > 0 ? Number(item._speed) : 1.0
                 const displayName = disambiguatedNames[pos]
-                // First frame thumbnail for visual disambiguation (when two
-                // different iPhone clips share the same filename). Falls back
-                // to no thumb when trim_thumbs aren't yet generated.
-                const thumb = Array.isArray(item._trimThumbs) && item._trimThumbs[0] ? item._trimThumbs[0] : null
-                // File size — only available right after upload (item.file is
-                // the Blob), lost after job restore. Shows "X.XM" when known.
+                const thumb = itemIsPhoto
+                  ? (item.file instanceof Blob ? (item._imgThumb ||= URL.createObjectURL(item.file)) : (item._publicUrl || null))
+                  : (Array.isArray(item._trimThumbs) && item._trimThumbs[0] ? item._trimThumbs[0] : null)
                 const size = item.file?.size
                 const sizeLabel = size ? `${(size / (1024 * 1024)).toFixed(1)}M` : null
                 return (
@@ -430,37 +451,62 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                           <span className="text-[#d97706]">trimmed</span>
                         )}
                         <div className="flex-1" />
-                    {/* Speed dropdown — native <select> for one-tap mobile. */}
-                    <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
-                      <span className="text-[9px] text-muted">Speed:</span>
-                      <select
-                        value={String(speed)}
-                        onChange={e => {
-                          const newSpeed = Number(e.target.value)
-                          if (!(newSpeed > 0)) return
-                          item._speed = newSpeed
-                          try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
-                          // Invalidate the current merged preview — it was rendered at the old speed.
-                          if (mergedUrl) {
-                            try { URL.revokeObjectURL(mergedUrl) } catch {}
-                            setMergedUrl(null)
-                            mergedBlobRef.current = null
-                            window._postyMergedVideo = null
-                          }
-                        }}
-                        className="text-[9px] border border-border rounded py-0 px-0.5 bg-white"
-                      >
-                        <option value="0.25">0.25×</option>
-                        <option value="0.5">0.5×</option>
-                        <option value="0.75">0.75×</option>
-                        <option value="1">1×</option>
-                        <option value="1.25">1.25×</option>
-                        <option value="1.5">1.5×</option>
-                        <option value="2">2×</option>
-                        <option value="3">3×</option>
-                        <option value="4">4×</option>
-                      </select>
-                    </label>
+                    {itemIsPhoto ? (
+                      // Photo: single "display duration" input. trim_end
+                      // doubles as the duration in seconds; defaults to 5.
+                      <label className="flex items-center gap-0.5" title="How long the photo stays on screen in the merged video.">
+                        <span className="text-[9px] text-muted">Show:</span>
+                        <input
+                          type="number"
+                          min={0.5}
+                          step={0.5}
+                          value={Number(item._trimEnd) > 0 ? item._trimEnd : 5}
+                          onChange={e => {
+                            const next = Math.max(0.5, Number(e.target.value) || 5)
+                            item._trimEnd = next
+                            try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
+                            if (mergedUrl) {
+                              try { URL.revokeObjectURL(mergedUrl) } catch {}
+                              setMergedUrl(null)
+                              mergedBlobRef.current = null
+                              window._postyMergedVideo = null
+                            }
+                          }}
+                          className="text-[9px] border border-border rounded py-0 px-1 bg-white w-10"
+                        />
+                        <span className="text-[9px] text-muted">s</span>
+                      </label>
+                    ) : (
+                      <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
+                        <span className="text-[9px] text-muted">Speed:</span>
+                        <select
+                          value={String(speed)}
+                          onChange={e => {
+                            const newSpeed = Number(e.target.value)
+                            if (!(newSpeed > 0)) return
+                            item._speed = newSpeed
+                            try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
+                            if (mergedUrl) {
+                              try { URL.revokeObjectURL(mergedUrl) } catch {}
+                              setMergedUrl(null)
+                              mergedBlobRef.current = null
+                              window._postyMergedVideo = null
+                            }
+                          }}
+                          className="text-[9px] border border-border rounded py-0 px-0.5 bg-white"
+                        >
+                          <option value="0.25">0.25×</option>
+                          <option value="0.5">0.5×</option>
+                          <option value="0.75">0.75×</option>
+                          <option value="1">1×</option>
+                          <option value="1.25">1.25×</option>
+                          <option value="1.5">1.5×</option>
+                          <option value="2">2×</option>
+                          <option value="3">3×</option>
+                          <option value="4">4×</option>
+                        </select>
+                      </label>
+                    )}
                     <div className="flex gap-0.5">
                       <button
                         onClick={() => moveUp(pos)}
@@ -571,6 +617,13 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             Save merged video
           </button>
         </div>
+      )}
+
+      {previewPlaylist && (
+        <MergePreviewLightbox
+          playlist={previewPlaylist}
+          onClose={clearPreviewMerge}
+        />
       )}
     </div>
   )
