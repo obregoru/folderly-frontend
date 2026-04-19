@@ -3,29 +3,35 @@ import ReactDOM from 'react-dom/client'
 import { HelmetProvider } from 'react-helmet-async'
 import App from './App'
 import MockApp from './ux-v2/MockApp'
+import AppV2 from './v2/AppV2'
 import './index.css'
 
-// On the ux-v2 branch the mockup is the default — simplifies testing
-// on branch previews where the default URL opens straight into the
-// new flow. The real app is still reachable at `?real=1` for
-// side-by-side comparisons.
-// On main, the real app is the default and the mockup is at /ux-v2
-// (path-based) for anyone who wants to preview the new flow.
+// Routing:
+//   ?real=1       → real app (legacy, Phase 0)
+//   ?v2=1         → real v2 app in progress (the rebuild)
+//   /ux-v2        → clickable mockup (ux-v2 branch default on root too)
+//   default       → on ux-v2 branch = mockup; on main = real App
 const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+const wantsReal = params?.get('real') === '1'
+const wantsV2   = params?.get('v2') === '1'
 const wantsMockupByPath = typeof window !== 'undefined' && window.location.pathname.startsWith('/ux-v2')
-const wantsRealByQuery = params?.get('real') === '1'
 const wantsMockupByQuery = params?.get('mockup') === '1'
 
-// __UX_V2_DEFAULT__ is replaced at build time by Vite's define config,
-// set to "true" on the ux-v2 branch so the mockup is shown by default.
+// On the ux-v2 branch the mockup is the default so testers don't need to
+// remember a path. Flip this back to false when merging to main.
 const defaultToMockup = true
 
-const isMockup = wantsRealByQuery ? false : (wantsMockupByPath || wantsMockupByQuery || defaultToMockup)
+let Mount
+if (wantsReal) Mount = App
+else if (wantsV2) Mount = AppV2
+else if (wantsMockupByPath || wantsMockupByQuery) Mount = MockApp
+else if (defaultToMockup) Mount = MockApp
+else Mount = App
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <HelmetProvider>
-      {isMockup ? <MockApp /> : <App />}
+      <Mount />
     </HelmetProvider>
   </React.StrictMode>
 )
