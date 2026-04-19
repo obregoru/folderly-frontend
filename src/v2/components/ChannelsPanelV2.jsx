@@ -27,6 +27,12 @@ const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','
 function defaultScheduledAt() {
   const d = new Date(); d.setHours(d.getHours() + 1, 0, 0, 0); return d
 }
+function fmtTs(secs) {
+  const s = Math.max(0, Math.round(Number(secs) || 0))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${m}:${String(r).padStart(2, '0')}`
+}
 function toLocalInput(d) {
   const pad = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -71,16 +77,19 @@ function topSlotForChannel(scheduleObj, ch) {
   return dated[0]
 }
 
-export default function ChannelsPanelV2({ draftId, files }) {
+export default function ChannelsPanelV2({ draftId, files, settings }) {
   const [destinations, setDestinations] = useState({})
   const [captions, setCaptions] = useState({})
   const [firstFileDbId, setFirstFileDbId] = useState(null)
+  const [job, setJob] = useState(null)
   const [saving, setSaving] = useState(false)
   const [whenInput, setWhenInput] = useState(toLocalInput(defaultScheduledAt()))
   const [overrides, setOverrides] = useState({}) // { [channelKey]: Date }
   const [scheduling, setScheduling] = useState(false)
   const [schedMsg, setSchedMsg] = useState(null)
   const [schedErr, setSchedErr] = useState(null)
+  const [regenKey, setRegenKey] = useState(null) // channel.key while regenerating
+  const [regenErr, setRegenErr] = useState(null)
 
   const [aiSchedule, setAiSchedule] = useState(null)
   const [loadingAi, setLoadingAi] = useState(false)
@@ -89,6 +98,7 @@ export default function ChannelsPanelV2({ draftId, files }) {
   useEffect(() => {
     if (!draftId) return
     api.getJob(draftId).then(job => {
+      setJob(job || null)
       const f0 = job?.files?.[0]
       if (f0) {
         setFirstFileDbId(f0.id)
@@ -196,6 +206,70 @@ export default function ChannelsPanelV2({ draftId, files }) {
       return { image_base64: null, upload_key: p0._uploadKey, media_type: p0._mediaType || 'image/jpeg' }
     }
     throw new Error('No usable media on this draft')
+  }
+
+  // Regenerate the caption for one specific channel. Sends the same
+  // voiceover + captions script context the PostTextPanelV2 sends, so
+  // the result references what's already on the timeline.
+  const regenChannel = async (ch) => {
+    if (!draftId || !firstFileDbId) return
+    setRegenErr(null); setRegenKey(ch.key)
+    try {
+      const f0 = files?.[0]
+      const firstSvr = job?.files?.[0]
+      const isImg = (f0?.file?.type || f0?._mediaType || firstSvr?.media_type || '').startsWith('image/')
+      const uploadUuid = f0?.uploadResult?.uuid || f0?.uploadResult?.id || firstSvr?.upload_uuid || null
+
+      // Script context — same shape PostTextPanelV2 builds.
+      const segs = Array.isArray(job?.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
+      const voLines = segs
+        .filter(s => s?.text?.trim())
+        .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
+        .map(s => `[${fmtTs(Number(s.startTime) || 0)}]${s.text.trim()}`)
+      const capTimeline = Array.isArray(job?.overlay_settings?.caption_timeline) ? job.overlay_settings.caption_timeline : []
+      const capLines = capTimeline
+        .filter(c => c?.text?.trim())
+        .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
+        .map(c => `[${fmtTs(Number(c.startTime) || 0)}]${c.text.trim()}`)
+
+      const body = {
+        filename: f0?.file?.name || f0?._filename || firstSvr?.filename || 'file',
+        folder_name: '',
+        occasion: '',
+        tone: settings?.default_tone || 'warm',
+        availability: '',
+        platforms: [ch.captionKey],
+        upload_id: uploadUuid,
+        job_uuid: draftId || null,
+        rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
+        user_hint: (job?.hint_text) || '',
+        voiceover_script: voLines.length ? voLines.join('\n') : undefined,
+        captions_script:  capLines.length ? capLines.join('\n') : undefined,
+      }
+      if (isImg && f0?.file) {
+        const { toBase64 } = await import('../../lib/crop')
+        body.base64 = await toBase64(f0.file)
+        body.media_type = f0.file.type || f0._mediaType || 'image/jpeg'
+      }
+      if (!body.upload_id && !body.base64) {
+        setRegenErr(`${ch.label}: no upload ready yet`)
+        setRegenKey(null); return
+      }
+
+      const caps = {}
+      await api.generateStream(body, (partial) => { Object.assign(caps, partial) })
+
+      // Merge into our local captions state + persist via updateJobFile.
+      const updated = { ...(captions || {}) }
+      if (caps[ch.captionKey] != null) updated[ch.captionKey] = caps[ch.captionKey]
+      setCaptions(updated)
+      try { await api.updateJobFile(draftId, firstFileDbId, { captions: updated }) }
+      catch (e) { console.warn('[channels regen] save failed:', e.message) }
+    } catch (e) {
+      setRegenErr(`${ch.label}: ${e.message || e}`)
+    } finally {
+      setRegenKey(null)
+    }
   }
 
   const captionFor = (ch) => {
@@ -340,6 +414,12 @@ export default function ChannelsPanelV2({ draftId, files }) {
                       )}
                     </>
                   )}
+                  <button
+                    onClick={() => regenChannel(c)}
+                    disabled={regenKey === c.key}
+                    className="text-[9px] text-[#2D9A5E] bg-white border border-[#2D9A5E] rounded py-0.5 px-1.5 cursor-pointer disabled:opacity-50 ml-auto"
+                    title={`Regenerate the ${c.captionKey} caption with the latest voiceover + captions + hints as context`}
+                  >{regenKey === c.key ? '↻…' : '↻ Regen caption'}</button>
                 </div>
               )}
             </div>
@@ -423,6 +503,7 @@ export default function ChannelsPanelV2({ draftId, files }) {
 
         {schedMsg && <div className="text-[10px] text-[#2D9A5E] bg-[#f0faf4] border border-[#2D9A5E]/30 rounded p-2">{schedMsg}</div>}
         {schedErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">{schedErr}</div>}
+        {regenErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">{regenErr}</div>}
       </div>
     </div>
   )

@@ -19,6 +19,13 @@ const PLATFORMS = [
   { key: 'google',    label: 'GBP' },
 ]
 
+function fmtTs(secs) {
+  const s = Math.max(0, Math.round(Number(secs) || 0))
+  const m = Math.floor(s / 60)
+  const r = s % 60
+  return `${m}:${String(r).padStart(2, '0')}`
+}
+
 export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
   const [active, setActive] = useState('tiktok')
   const [captions, setCaptions] = useState({})
@@ -69,6 +76,24 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
       const isImg = (f0Live?.file?.type || f0Live?._mediaType || firstFile?.media_type || '').startsWith('image/')
       const uploadUuid = f0Live?.uploadResult?.uuid || f0Live?.uploadResult?.id || firstFile?.upload_uuid || null
 
+      // Pull voiceover + caption script text out of the job so the AI has
+      // them as context. Only included when the user has actually written
+      // something — otherwise the model falls back to visuals + hint + names.
+      const segs = Array.isArray(job?.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
+      const primaryVo = job?.voiceover_settings?.primary_text || '' // future-proof if we start storing it
+      const voLines = [
+        primaryVo ? `[0:00]${primaryVo}` : null,
+        ...segs
+          .filter(s => s?.text?.trim())
+          .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
+          .map(s => `[${fmtTs(Number(s.startTime) || 0)}]${s.text.trim()}`),
+      ].filter(Boolean)
+      const capTimeline = Array.isArray(job?.overlay_settings?.caption_timeline) ? job.overlay_settings.caption_timeline : []
+      const capLines = capTimeline
+        .filter(c => c?.text?.trim())
+        .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
+        .map(c => `[${fmtTs(Number(c.startTime) || 0)}]${c.text.trim()}`)
+
       const body = {
         filename: f0Live?.file?.name || f0Live?._filename || firstFile?.filename || 'file',
         folder_name: '',
@@ -80,6 +105,8 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
         job_uuid: draftId || null,
         rule_name: true, rule_cta: true, rule_brand: true, rule_seo: true, rule_hashtags: true,
         user_hint: hint || '',
+        voiceover_script: voLines.length ? voLines.join('\n') : undefined,
+        captions_script:  capLines.length ? capLines.join('\n') : undefined,
       }
       if (isImg && f0Live?.file) {
         body.base64 = await toBase64(f0Live.file)
@@ -198,7 +225,7 @@ export default function PostTextPanelV2({ jobSync, draftId, files, settings }) {
             disabled={anyGen}
             className="flex-1 text-[10px] py-1.5 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
           >
-            {isGenAll ? 'Generating all…' : 'Generate all 6'}
+            {isGenAll ? 'Generating everything…' : 'Generate everything (all 6 platforms)'}
           </button>
         </div>
         {genErr && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">{genErr}</div>}

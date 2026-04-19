@@ -71,7 +71,7 @@ export default function EditorV2({
         {safeActiveTool === 'voiceover' && <VoiceoverPanelV2 previewRef={previewRef} settings={settings} jobSync={jobSync} draftId={draftId} />}
         {safeActiveTool === 'overlays' && <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} />}
         {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} settings={settings} />}
-        {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} files={files} />}
+        {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} files={files} settings={settings} />}
       </div>
     </div>
   )
