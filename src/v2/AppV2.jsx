@@ -30,6 +30,13 @@ export default function AppV2() {
   const [activeDraftId, setActiveDraftId] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [aiLogOpen, setAiLogOpen] = useState(false)
+  // Draft-name editing state — declared up here so the hooks always run
+  // in the same order regardless of auth-checked / user branches below.
+  // Moving them after the early returns triggers React error #310
+  // (rendered more hooks than during the previous render).
+  const [nameDraft, setNameDraft] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
+  const [autoNaming, setAutoNaming] = useState(false)
 
   // Check auth + load tenant settings on mount (mirrors App.jsx).
   // On Vercel preview domains localStorage is empty even when the session
@@ -51,6 +58,15 @@ export default function AppV2() {
 
   // Job persistence wiring — same hook the real app uses.
   const jobSync = useJobSync({ files, setFiles, userHint, setUserHint, settings })
+
+  // Keep the header's draft-name input in sync with the backing job list.
+  // Placed here (after jobSync, before the auth-gated early returns) so
+  // hook order stays stable across renders regardless of auth state.
+  useEffect(() => {
+    if (!activeDraftId) { setNameDraft(''); return }
+    const j = (jobSync?.jobList || []).find(x => x.uuid === activeDraftId)
+    if (j) setNameDraft(j.job_name || '')
+  }, [activeDraftId, jobSync?.jobList])
 
   // File-list operations (defined after jobSync so they can reference it).
   const addFiles = (fileList) => {
@@ -107,16 +123,10 @@ export default function AppV2() {
 
   // Active draft's current name — reads from jobSync.jobList so editor
   // header reflects renames made anywhere (Drafts list, Editor header,
-  // auto-name). Local editing state keeps the input responsive without
-  // round-tripping every keystroke.
+  // auto-name). The state for this is hoisted to the top of the
+  // component with the other hooks so hook order stays stable across
+  // auth-checked / user / no-user branches.
   const activeJob = inEditor ? (jobSync.jobList || []).find(j => j.uuid === activeDraftId) : null
-  const [nameDraft, setNameDraft] = useState('')
-  const [nameSaving, setNameSaving] = useState(false)
-  const [autoNaming, setAutoNaming] = useState(false)
-  useEffect(() => {
-    if (!activeJob) return
-    setNameDraft(activeJob.job_name || '')
-  }, [activeJob?.uuid, activeJob?.job_name])
 
   const saveDraftName = async () => {
     if (!activeDraftId) return

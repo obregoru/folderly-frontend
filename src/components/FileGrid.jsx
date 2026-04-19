@@ -251,8 +251,13 @@ function ImageThumb({ file, onClick }) {
 // the sequence becomes the video timeline. Videos don't need reorder
 // here — VideoMerge has its own sortable list for that — but the photo
 // case was missing entirely.
-function SortableTile({ item, children, enabled }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: !enabled })
+//
+// IMPORTANT: useSortable must only be called inside a DndContext subtree,
+// otherwise iOS Safari (and some other browsers) throw / blank the page.
+// We only mount this component when reorder is actually enabled so the
+// hook is always reachable from a matching DndContext.
+function SortableTile({ item, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -261,7 +266,7 @@ function SortableTile({ item, children, enabled }) {
   }
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
-      {typeof children === 'function' ? children({ dragHandle: listeners }) : children}
+      {children({ dragHandle: listeners })}
     </div>
   )
 }
@@ -340,11 +345,16 @@ export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer }) {
             {isVideo && VideoTrimmer && <VideoTrimmer item={item} />}
           </>
         )
-        return (
-          <SortableTile key={item.id} item={item} enabled={reorderEnabled}>
-            {reorderEnabled ? tile : tile()}
-          </SortableTile>
-        )
+        // Only wrap with SortableTile when reorder is enabled — otherwise
+        // useSortable runs without a DndContext parent and crashes iOS.
+        if (reorderEnabled) {
+          return (
+            <SortableTile key={item.id} item={item}>
+              {tile}
+            </SortableTile>
+          )
+        }
+        return <div key={item.id}>{tile()}</div>
       })}
     </div>
   )
