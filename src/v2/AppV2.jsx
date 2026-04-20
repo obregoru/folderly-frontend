@@ -273,10 +273,10 @@ export default function AppV2() {
             >← Drafts</button>
             <button
               onClick={() => setAiLogOpen(true)}
-              className="text-[14px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none flex-shrink-0"
-              title="AI activity for this draft"
+              className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0"
+              title="Every AI prompt + response for this draft — copy out and paste into ChatGPT or Gemini for a second opinion"
               aria-label="AI activity log"
-            >🤖</button>
+            >🤖 AI log</button>
           </>
         )}
         <button
