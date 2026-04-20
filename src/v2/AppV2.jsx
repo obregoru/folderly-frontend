@@ -236,7 +236,7 @@ export default function AppV2() {
 
   return (
     <div className="min-h-screen bg-[#f5f4f0] text-ink pb-16" style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-      {/* Top bar */}
+      {/* Top bar — name-only row so the title never gets clipped by actions. */}
       <div className="sticky top-0 bg-white border-b border-[#e5e5e5] z-20 flex items-center gap-2 px-3 py-2">
         <button
           onClick={() => { setMode('drafts'); setActiveDraftId(null); setSettingsOpen(false) }}
@@ -259,37 +259,41 @@ export default function AppV2() {
           />
         )}
         {!inEditor && <div className="flex-1" />}
-        {inEditor && (
-          <>
-            <SaveStatus
-              jobSync={jobSync}
-              files={files}
-              nameSaving={nameSaving}
-              draftId={activeDraftId}
-            />
-            <button
-              onClick={() => setActiveDraftId(null)}
-              className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0"
-            >← Drafts</button>
-            <button
-              onClick={() => setAiLogOpen(true)}
-              className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0"
-              title="Every AI prompt + response for this draft — copy out and paste into ChatGPT or Gemini for a second opinion"
-              aria-label="AI activity log"
-            >🤖 AI log</button>
-          </>
-        )}
         <button
           onClick={() => setSettingsOpen(true)}
-          className="text-[18px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none"
+          className="text-[18px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none flex-shrink-0"
           aria-label="Settings menu"
         >☰</button>
       </div>
 
+      {/* Editor action row — sits below the name so nothing gets clipped
+          on narrow screens. Back to Drafts, save status, and AI log. */}
+      {inEditor && (
+        <div className="sticky top-[44px] bg-white border-b border-[#e5e5e5] z-20 flex items-center gap-2 px-3 py-1.5">
+          <button
+            onClick={() => setActiveDraftId(null)}
+            className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0"
+          >← Drafts</button>
+          <SaveStatus
+            jobSync={jobSync}
+            files={files}
+            nameSaving={nameSaving}
+            draftId={activeDraftId}
+          />
+          <div className="flex-1" />
+          <button
+            onClick={() => setAiLogOpen(true)}
+            className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0"
+            title="Every AI prompt + response for this draft — copy out and paste into ChatGPT or Gemini for a second opinion"
+            aria-label="AI activity log"
+          >🤖 AI log</button>
+        </div>
+      )}
+
       {/* Job ID sub-bar — short ID on the left, Auto-name on the right
           when the draft hasn't been named yet. */}
       {inEditor && activeDraftId && (
-        <div className="sticky top-[44px] bg-white border-b border-[#e5e5e5] z-20 flex items-center gap-2 px-3 py-1">
+        <div className="sticky top-[80px] bg-white border-b border-[#e5e5e5] z-20 flex items-center gap-2 px-3 py-1">
           <button
             onClick={async () => {
               try { await navigator.clipboard.writeText(activeDraftId) } catch {}
