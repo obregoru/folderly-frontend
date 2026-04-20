@@ -55,16 +55,22 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       .catch(() => {})
   }, [hasElevenLabs])
 
-  // Restore segments on draft load — wait one tick so jobSync has run
+  // Restore segments + default voice on draft load.
   useEffect(() => {
     if (!draftId) { setSegLoaded(true); return }
     api.getJob(draftId).then(job => {
-      const segs = Array.isArray(job?.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
+      const vo = job?.voiceover_settings || {}
+      // Per-job voice choice overrides the tenant default. Falls back to
+      // the settings value so existing drafts without a saved choice
+      // keep the same behavior they had before.
+      if (vo.voiceId) setVoiceId(vo.voiceId)
+      const segs = Array.isArray(vo.segments) ? vo.segments : []
+      const nextDefault = vo.voiceId || voiceId
       setSegments(segs.map(s => ({
         id: s.id,
         text: s.text || '',
         startTime: Number(s.startTime) || 0,
-        voiceId: s.voiceId || voiceId,
+        voiceId: s.voiceId || nextDefault,
         speed: Number(s.speed) || 1.0,
         audioKey: s.audioKey || null,
         audioUrl: s.audioUrl || null,
@@ -76,7 +82,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId])
 
-  // Persist segments (debounced by jobSync) whenever they change meaningfully
+  // Persist segments + the default voice whenever either changes.
   useEffect(() => {
     if (!segLoaded || !jobSync?.saveVoiceoverSettings) return
     const clean = segments.map(s => ({
@@ -84,8 +90,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       voiceId: s.voiceId || null, speed: Number(s.speed) || 1.0,
       audioKey: s.audioKey || null, duration: Number(s.duration) || null,
     }))
-    jobSync.saveVoiceoverSettings({ segments: clean })
-  }, [segments, segLoaded, jobSync])
+    jobSync.saveVoiceoverSettings({ segments: clean, voiceId: voiceId || null })
+  }, [segments, voiceId, segLoaded, jobSync])
 
   // Keep primary audio URL in sync with its blob
   useEffect(() => {
