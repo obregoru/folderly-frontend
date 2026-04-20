@@ -517,46 +517,33 @@ export function DownloadButton({ url, label: idleLabel = '⬇ Download' }) {
 }
 
 // Download the "final" composition — merged video with overlays, closed
-// captions, and voiceover all burned in. Calls POST /post/render-final to
-// produce the mp4 on the server, then feeds the result into the same
-// mobile-share / desktop-save flow as DownloadButton.
+// captions, and voiceover all burned in.
+//
+// Two-tap flow so the mobile share sheet gets a live user gesture:
+//   Tap 1 (idle → rendering → ready): call /post/render-final, fetch the
+//          resulting mp4 into a Blob, stash it in state.
+//   Tap 2 (ready → saving → done):   call navigator.share (mobile) or
+//          trigger an <a download> (desktop) *synchronously* inside the
+//          click handler. iOS Safari otherwise rejects the share because
+//          the 4–6s render would expire the original user activation.
 export function DownloadFinalButton({ draftId }) {
-  const [state, setState] = useState('idle') // idle | rendering | saving | done | error
+  const [state, setState] = useState('idle') // idle | rendering | ready | saving | done | error
   const [msg, setMsg] = useState('')
+  const blobRef = useRef(null)
+  const filenameRef = useRef(null)
 
-  const saveBlob = async (blob, filename) => {
-    const type = blob.type || 'video/mp4'
-    const file = new File([blob], filename, { type })
-    const canShareFiles = typeof navigator !== 'undefined'
-      && typeof navigator.canShare === 'function'
-      && navigator.canShare({ files: [file] })
-    if (canShareFiles) {
-      try {
-        await navigator.share({ files: [file], title: 'Posty video' })
-        return 'done'
-      } catch (shareErr) {
-        if (shareErr?.name === 'AbortError') return 'idle'
-      }
-    }
-    const objUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = objUrl
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    setTimeout(() => { try { URL.revokeObjectURL(objUrl); a.remove() } catch {} }, 1500)
-    return 'done'
-  }
+  const supportsShare = typeof navigator !== 'undefined'
+    && typeof navigator.canShare === 'function'
+    && (() => {
+      try { return navigator.canShare({ files: [new File([new Blob()], 'x.mp4', { type: 'video/mp4' })] }) }
+      catch { return false }
+    })()
 
-  const handle = async () => {
-    if (state === 'rendering' || state === 'saving') return
+  const renderAndStage = async () => {
     setState('rendering'); setMsg('')
     try {
-      // Try to grab the in-memory primary voice (if the user generated it
-      // this session but hasn't posted yet). If the backend has a persisted
-      // primary via voiceover_audio_key, the server picks that up on its own.
+      // Grab in-memory primary voice if the user generated it this session.
       let primaryBase64 = null
-      let primaryStartTime = 0
       try {
         const primaryEl = document.querySelector('audio[data-posty-primary-voice]')
         if (primaryEl?.src) {
@@ -567,37 +554,90 @@ export function DownloadFinalButton({ draftId }) {
           for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
           primaryBase64 = btoa(bin)
         }
-      } catch { /* ignore — server-side primary will still work */ }
+      } catch { /* server-side primary still works */ }
 
-      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64, primaryAudioStartTime: primaryStartTime })
+      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
       if (!r?.final_url) throw new Error('Server returned no final URL')
-      setState('saving')
+
       const vres = await fetch(r.final_url, { credentials: 'omit' })
       if (!vres.ok) throw new Error(`Download failed (${vres.status})`)
       const blob = await vres.blob()
-      const filename = `posty-final-${Date.now()}.mp4`
-      const next = await saveBlob(blob, filename)
-      setState(next)
-      if (next === 'done') setTimeout(() => setState('idle'), 1500)
+      blobRef.current = blob
+      filenameRef.current = `posty-final-${Date.now()}.mp4`
+      setState('ready')
     } catch (e) {
       setMsg(e.message || String(e))
       setState('error')
-      setTimeout(() => { setState('idle'); setMsg('') }, 3500)
+      setTimeout(() => { setState('idle'); setMsg('') }, 4000)
     }
   }
 
+  // Runs synchronously inside the click handler so the user gesture
+  // survives. navigator.share is called directly; anchor downloads fire
+  // via the same click path.
+  const shareOrSave = () => {
+    const blob = blobRef.current
+    const filename = filenameRef.current
+    if (!blob || !filename) { setState('idle'); return }
+    const type = blob.type || 'video/mp4'
+    const file = new File([blob], filename, { type })
+
+    if (supportsShare) {
+      setState('saving')
+      navigator.share({ files: [file], title: 'Posty video' })
+        .then(() => { setState('done'); setTimeout(() => setState('idle'), 1500) })
+        .catch(err => {
+          if (err?.name === 'AbortError') {
+            // User cancelled the share sheet — keep the blob so they can
+            // re-tap without re-rendering.
+            setState('ready')
+          } else {
+            setMsg(err?.message || 'Share failed'); setState('error')
+            setTimeout(() => { setState('ready'); setMsg('') }, 3000)
+          }
+        })
+      return
+    }
+
+    // Desktop: anchor-click save dialog, inside the live gesture.
+    try {
+      const objUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => { try { URL.revokeObjectURL(objUrl); a.remove() } catch {} }, 1500)
+      setState('done')
+      setTimeout(() => setState('idle'), 1500)
+    } catch (e) {
+      setMsg(e.message || 'Save failed'); setState('error')
+      setTimeout(() => { setState('ready'); setMsg('') }, 3000)
+    }
+  }
+
+  const handleClick = () => {
+    if (state === 'rendering' || state === 'saving') return
+    if (state === 'ready') { shareOrSave(); return }
+    // idle, error, done — kick off a fresh render
+    blobRef.current = null
+    filenameRef.current = null
+    renderAndStage()
+  }
+
   const label = state === 'rendering' ? 'Rendering final video…'
-    : state === 'saving' ? 'Saving…'
-    : state === 'done' ? 'Ready'
-    : state === 'error' ? (msg ? `Error: ${msg.slice(0, 60)}` : 'Error')
+    : state === 'saving' ? (supportsShare ? 'Opening share sheet…' : 'Saving…')
+    : state === 'ready' ? (supportsShare ? '📤 Tap again to share / save' : '⬇ Tap again to save')
+    : state === 'done' ? '✓ Saved'
+    : state === 'error' ? (msg ? `Error: ${msg.slice(0, 80)} — tap to retry` : 'Error — tap to retry')
     : '⬇ Download final video'
   const disabled = state === 'rendering' || state === 'saving'
   return (
     <button
-      onClick={handle}
+      onClick={handleClick}
       disabled={disabled}
       className="w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
-      title="Render and download the final video with overlays, closed captions, and voiceover all burned in. Takes 10–30s."
+      title="Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share."
     >{label}</button>
   )
 }
