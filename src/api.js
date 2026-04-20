@@ -632,8 +632,12 @@ export const getCalendar = (start, end) =>
   fetch(api(`/schedule/calendar?start=${start}&end=${end}`), { credentials: 'include' }).then(r => r.json())
 export const backfillJobNames = () =>
   fetch(api('/schedule/backfill-names'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
-export const cancelScheduledPost = (uuid) =>
-  fetch(api(`/schedule/${uuid}/cancel`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+export const cancelScheduledPost = (uuid, { group = false } = {}) =>
+  fetch(api(`/schedule/${uuid}/cancel${group ? '?group=true' : ''}`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+// User-entered analytics for a scheduled/posted row. Merges with any
+// existing values server-side — pass only the fields you're updating.
+export const saveScheduledPostAnalytics = (uuid, patch) =>
+  fetch(api(`/schedule/${uuid}/analytics`), { method: 'PATCH', headers: h(), credentials: 'include', body: JSON.stringify(patch) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const retryScheduledPost = (uuid, scheduledAt) =>
   fetch(api(`/schedule/${uuid}/retry`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ scheduled_at: scheduledAt }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const deleteScheduledPost = (uuid) =>

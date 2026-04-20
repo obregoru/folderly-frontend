@@ -316,8 +316,14 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
       const isVideoMedia = (media.media_type || '').startsWith('video/')
       const primaryFile = files[0]
       const jobName = primaryFile?.job_name || primaryFile?.file?.name?.replace(/\.[^.]+$/, '') || 'v2 post'
+
+      // Build ALL posts first, then send them in a single /schedule call
+      // so every row gets the same group_uuid. Previously we looped and
+      // fired one call per channel, which gave each channel its own
+      // group and broke "cancel all platforms I scheduled together".
       const skipped = []
-      const results = []
+      const postsBatch = []
+      const labelsByPlatform = new Map() // for the success message
       for (const ch of enabledChannels) {
         if (ch.requiresVideo && !isVideoMedia) { skipped.push(`${ch.label} (needs video)`); continue }
         const { caption, title } = captionFor(ch)
@@ -333,21 +339,29 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
           media_type:   media.media_type,
           job_name:     jobName,
           job_uuid:     draftId || null,
+          scheduled_at: when.toISOString(),
         }
         if ((ch.key === 'blog' || ch.key === 'yt_short') && title) post.title = title
-
-        try {
-          const res = await api.schedulePosts([post], when.toISOString())
-          const n = res?.scheduled?.length || 1
-          results.push(`${ch.label} @ ${when.toLocaleString()}`)
-        } catch (e) {
-          skipped.push(`${ch.label} (${e.message})`)
-        }
+        postsBatch.push(post)
+        labelsByPlatform.set(ch.platform, `${ch.label} @ ${when.toLocaleString()}`)
       }
-      if (results.length === 0) {
+
+      if (postsBatch.length === 0) {
         setSchedErr(skipped.length ? `Nothing scheduled — ${skipped.join(', ')}` : 'Nothing scheduled.')
-      } else {
-        setSchedMsg(`Scheduled ${results.length} post${results.length === 1 ? '' : 's'}: ${results.join(' · ')}${skipped.length ? ` · skipped ${skipped.join(', ')}` : ''}`)
+        return
+      }
+
+      try {
+        const res = await api.schedulePosts(postsBatch, fallback.toISOString())
+        const rows = Array.isArray(res?.scheduled) ? res.scheduled : []
+        const results = rows.map(r => labelsByPlatform.get(r.platform) || r.platform)
+        const groupId = res?.group_uuid
+        setSchedMsg(
+          `Scheduled ${rows.length} post${rows.length === 1 ? '' : 's'} as one batch${groupId ? ` (group ${groupId.slice(0, 8)})` : ''}: ` +
+          `${results.join(' · ')}${skipped.length ? ` · skipped ${skipped.join(', ')}` : ''}`
+        )
+      } catch (e) {
+        setSchedErr(`Schedule failed: ${e.message}${skipped.length ? ` · plus skipped ${skipped.join(', ')}` : ''}`)
       }
     } catch (e) {
       setSchedErr(e.message || String(e))
@@ -521,6 +535,20 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
             >Next Sat 11am</button>
           </div>
         </div>
+
+        {enabledCount > 1 && (
+          <div className="text-[10px] bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 space-y-0.5">
+            <div className="font-medium">Scheduling batch: {enabledCount} platforms</div>
+            <div className="text-muted">
+              All rows share one group, so you can cancel the whole batch at once from the Schedule screen.
+            </div>
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {enabledChannels.map(c => (
+                <span key={c.key} className="text-[9px] bg-white border border-[#6C5CE7]/30 rounded px-1.5 py-0.5">{c.label}</span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <button
           onClick={scheduleAll}

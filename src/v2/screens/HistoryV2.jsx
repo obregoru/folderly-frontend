@@ -34,6 +34,16 @@ function engagementFromResult(p) {
   if (r.views != null) parts.push(`${r.views} views`)
   return parts.length ? parts.join(' · ') : null
 }
+// User-entered analytics (separate from platform-API's post_result) —
+// what the user pasted from IG Insights / TikTok Studio etc.
+function analyticsSummary(p) {
+  const a = p?.analytics
+  if (!a || typeof a !== 'object') return null
+  const fields = ['views', 'impressions', 'reach', 'likes', 'comments', 'shares', 'saves', 'link_clicks']
+  const parts = []
+  for (const f of fields) if (a[f] != null && a[f] !== '') parts.push(`${a[f]} ${f.replace('_', ' ')}`)
+  return parts.length ? parts.join(' · ') : null
+}
 
 export default function HistoryV2() {
   const [posts, setPosts] = useState([])
@@ -148,18 +158,29 @@ export default function HistoryV2() {
 
       {!loading && !error && filtered.length > 0 && (
         <div className="space-y-1.5">
-          {filtered.map(p => <HistoryRow key={p.uuid} p={p} onRetry={retry} onDelete={remove} retrying={retrying === p.uuid} />)}
+          {filtered.map(p => (
+            <HistoryRow
+              key={p.uuid}
+              p={p}
+              onRetry={retry}
+              onDelete={remove}
+              retrying={retrying === p.uuid}
+              onAnalyticsSaved={(updated) => setPosts(prev => prev.map(x => x.uuid === updated.uuid ? { ...x, analytics: updated.analytics } : x))}
+            />
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-function HistoryRow({ p, onRetry, onDelete, retrying }) {
+function HistoryRow({ p, onRetry, onDelete, retrying, onAnalyticsSaved }) {
   const when = p.posted_at || p.scheduled_at
   const whenLabel = when ? new Date(when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
   const url = postUrlFromResult(p)
   const eng = engagementFromResult(p)
+  const userStats = analyticsSummary(p)
+  const [editingAnalytics, setEditingAnalytics] = useState(false)
   const statusColor = {
     posted:    { dot: 'bg-[#2D9A5E]', text: 'text-[#2D9A5E]', bg: 'bg-[#f0faf4]' },
     failed:    { dot: 'bg-[#c0392b]', text: 'text-[#c0392b]', bg: 'bg-[#fdf2f1]' },
@@ -190,7 +211,18 @@ function HistoryRow({ p, onRetry, onDelete, retrying }) {
       )}
 
       {eng && (
-        <div className="mt-1 pl-4 text-[9px] text-[#2D9A5E] font-medium">{eng}</div>
+        <div className="mt-1 pl-4 text-[9px] text-[#2D9A5E] font-medium">API: {eng}</div>
+      )}
+      {userStats && (
+        <div className="mt-1 pl-4 text-[9px] text-[#6C5CE7] font-medium">Mine: {userStats}</div>
+      )}
+
+      {editingAnalytics && (
+        <AnalyticsEditor
+          row={p}
+          onCancel={() => setEditingAnalytics(false)}
+          onSaved={(updated) => { setEditingAnalytics(false); onAnalyticsSaved?.(updated) }}
+        />
       )}
 
       {p.status === 'failed' && p.error_message && (
@@ -210,10 +242,115 @@ function HistoryRow({ p, onRetry, onDelete, retrying }) {
             className="text-[9px] bg-[#6C5CE7] text-white border-none rounded py-0.5 px-1.5 cursor-pointer disabled:opacity-50"
           >{retrying ? 'Retrying…' : 'Retry in 1 min'}</button>
         )}
+        {p.status === 'posted' && (
+          <button
+            onClick={() => setEditingAnalytics(v => !v)}
+            className="text-[9px] text-[#6C5CE7] bg-white border border-[#6C5CE7] rounded py-0.5 px-1.5 cursor-pointer"
+            title="Paste engagement numbers from the platform (views, likes, comments) so you can compare real reach later."
+          >{editingAnalytics ? 'Close' : (userStats ? '📊 Edit analytics' : '📊 Add analytics')}</button>
+        )}
         <button
           onClick={() => onDelete(p)}
           className="text-[9px] text-muted bg-white border border-[#e5e5e5] rounded py-0.5 px-1.5 cursor-pointer ml-auto"
         >Delete row</button>
+      </div>
+    </div>
+  )
+}
+
+// Inline analytics form — paste numbers from the platform's own analytics
+// screen (IG Insights, TikTok Studio, YT Analytics). Merges with any
+// existing values so a second visit doesn't wipe earlier numbers.
+function AnalyticsEditor({ row, onCancel, onSaved }) {
+  const existing = (row.analytics && typeof row.analytics === 'object') ? row.analytics : {}
+  const [views, setViews] = useState(existing.views ?? '')
+  const [likes, setLikes] = useState(existing.likes ?? '')
+  const [comments, setComments] = useState(existing.comments ?? '')
+  const [shares, setShares] = useState(existing.shares ?? '')
+  const [saves, setSaves] = useState(existing.saves ?? '')
+  const [reach, setReach] = useState(existing.reach ?? '')
+  const [impressions, setImpressions] = useState(existing.impressions ?? '')
+  const [linkClicks, setLinkClicks] = useState(existing.link_clicks ?? '')
+  const [notes, setNotes] = useState(existing.notes ?? '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const save = async () => {
+    setSaving(true); setErr(null)
+    try {
+      const toNum = (v) => v === '' || v == null ? undefined : Number(String(v).replace(/[^\d.-]/g, '')) || 0
+      const patch = {
+        views:        toNum(views),
+        likes:        toNum(likes),
+        comments:     toNum(comments),
+        shares:       toNum(shares),
+        saves:        toNum(saves),
+        reach:        toNum(reach),
+        impressions:  toNum(impressions),
+        link_clicks:  toNum(linkClicks),
+        notes:        notes || undefined,
+      }
+      // Strip undefined so the server keeps old values the user didn't edit.
+      Object.keys(patch).forEach(k => patch[k] === undefined && delete patch[k])
+      const res = await api.saveScheduledPostAnalytics(row.uuid, patch)
+      onSaved({ uuid: row.uuid, analytics: res.analytics })
+    } catch (e) {
+      setErr(e.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const Field = ({ label, value, setValue }) => (
+    <label className="flex flex-col gap-0.5">
+      <span className="text-[8px] uppercase tracking-wide text-muted">{label}</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white w-full"
+      />
+    </label>
+  )
+
+  return (
+    <div className="mt-1.5 pl-4 pr-2 pb-1">
+      <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 space-y-1.5">
+        <div className="text-[10px] font-medium">Paste engagement from the platform</div>
+        <div className="grid grid-cols-4 gap-1.5">
+          <Field label="Views" value={views} setValue={setViews} />
+          <Field label="Reach" value={reach} setValue={setReach} />
+          <Field label="Impressions" value={impressions} setValue={setImpressions} />
+          <Field label="Link clicks" value={linkClicks} setValue={setLinkClicks} />
+          <Field label="Likes" value={likes} setValue={setLikes} />
+          <Field label="Comments" value={comments} setValue={setComments} />
+          <Field label="Shares" value={shares} setValue={setShares} />
+          <Field label="Saves" value={saves} setValue={setSaves} />
+        </div>
+        <label className="flex flex-col gap-0.5">
+          <span className="text-[8px] uppercase tracking-wide text-muted">Notes (optional)</span>
+          <input
+            type="text"
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="e.g. posted while #Sephora was trending"
+            className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+          />
+        </label>
+        {err && <div className="text-[9px] text-[#c0392b]">{err}</div>}
+        <div className="flex gap-1">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex-1 text-[10px] py-1 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          >{saving ? 'Saving…' : 'Save analytics'}</button>
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="text-[10px] py-1 px-2 border border-[#e5e5e5] bg-white text-muted rounded cursor-pointer"
+          >Cancel</button>
+        </div>
       </div>
     </div>
   )
