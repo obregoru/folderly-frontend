@@ -24,6 +24,8 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
   const [fontColor, setFontColor] = useState('#ffffff')
   const [fontOutline, setFontOutline] = useState(true)
   const [outlineWidth, setOutlineWidth] = useState(3)
+  const [lineHeight, setLineHeight] = useState(1.3)
+  const [letterSpacing, setLetterSpacing] = useState(0)
   // Y position 0-100% within the platform-safe center band (same scale
   // as ResultCard's overlayYPct). 70 is a common default — near-bottom
   // but clear of the platform's reserved caption/UI zone.
@@ -49,6 +51,8 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
         if (o.storyFontColor) setFontColor(o.storyFontColor)
         if (o.storyFontOutline != null) setFontOutline(o.storyFontOutline)
         if (o.storyFontOutlineWidth) setOutlineWidth(o.storyFontOutlineWidth)
+        if (o.lineHeight != null) setLineHeight(Number(o.lineHeight) || 1.3)
+        if (o.letterSpacing != null) setLetterSpacing(Number(o.letterSpacing) || 0)
         if (o.overlayYPct != null) setOverlayYPct(Number(o.overlayYPct))
         setLoaded(true)
       }).catch(() => setLoaded(true))
@@ -66,6 +70,8 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
       storyFontColor: fontColor,
       storyFontOutline: fontOutline,
       storyFontOutlineWidth: Number(outlineWidth) || 3,
+      lineHeight: Number(lineHeight) || 1.3,
+      letterSpacing: Number(letterSpacing) || 0,
       overlayYPct: Number(overlayYPct),
     }
     jobSync.saveOverlaySettings?.(payload)
@@ -80,7 +86,7 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, overlayYPct, loaded])
+  }, [openingText, middleText, closingText, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, loaded])
 
   return (
     <div className="space-y-3">
@@ -232,6 +238,39 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
               <span>px</span>
             </>
           )}
+        </div>
+
+        <div className="flex items-center gap-2 text-[10px] flex-wrap">
+          <label className="flex items-center gap-1 text-muted">
+            <span>Line height:</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={lineHeight}
+              onChange={e => setLineHeight(e.target.value.replace(/[^0-9.]/g, ''))}
+              onBlur={e => {
+                const n = parseFloat(e.target.value)
+                setLineHeight(Number.isFinite(n) && n > 0 ? n : 1.3)
+              }}
+              className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+              title="Space between lines as a multiplier of font size (e.g. 1.3)"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-muted">
+            <span>Letter spacing:</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={letterSpacing}
+              onChange={e => setLetterSpacing(e.target.value.replace(/[^0-9.-]/g, ''))}
+              onBlur={e => {
+                const n = parseFloat(e.target.value)
+                setLetterSpacing(Number.isFinite(n) ? n : 0)
+              }}
+              className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+              title="Character spacing (0 = normal, positive = wider)"
+            />
+          </label>
         </div>
 
         <div className="pt-1">

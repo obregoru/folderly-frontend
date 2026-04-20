@@ -400,6 +400,10 @@ function OverlayText({ text, style }) {
   const family = style?.storyFontFamily || 'sans-serif'
   const rawOutline = style?.storyFontOutline === false ? 0 : Math.max(0, Number(style?.storyFontOutlineWidth) || 3)
   const outlineWidth = rawOutline * scale
+  const lineHeight = Number(style?.lineHeight) > 0 ? Number(style.lineHeight) : 1.1
+  // Letter-spacing saved as a 0..5 step in the burn-in path; CSS uses em.
+  // 0.05em per step matches the legacy ResultCard preview (see v1).
+  const letterSpacingEm = (Number(style?.letterSpacing) || 0) * 0.05
   const shadow = outlineWidth > 0
     ? Array.from({ length: 8 }).map((_, i) => {
         const ang = (i / 8) * Math.PI * 2
@@ -429,7 +433,8 @@ function OverlayText({ text, style }) {
           fontFamily: family,
           textShadow: shadow,
           fontWeight: 700,
-          lineHeight: 1.1,
+          lineHeight,
+          letterSpacing: letterSpacingEm ? `${letterSpacingEm}em` : 'normal',
           maxWidth: '95%',
           whiteSpace: 'pre-wrap',
         }}
