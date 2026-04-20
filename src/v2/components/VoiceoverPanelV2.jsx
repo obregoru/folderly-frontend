@@ -295,7 +295,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     setSegments(prev => [...prev, {
       id: nextSegId(),
       text: '',
-      startTime: Math.max(1, Math.round(lastStart + 5)),
+      startTime: Math.max(1, Number((lastStart + 5).toFixed(2))),
       voiceId: voiceId || '',
       speed: 1.0,
       audioKey: null, audioUrl: null, duration: null, generating: false,
@@ -829,6 +829,20 @@ function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay,
   const hasAudio = !!seg.audioUrl
   const speed = Number(seg.speed) || 1.0
   const estSec = wordsToSeconds(seg.text, speed)
+
+  // Keep a local string draft so the user can type "1.4" naturally. If
+  // we derive the displayed value from the numeric prop, typing "1."
+  // gets coerced to Number(1) and the trailing dot disappears before
+  // the user can finish typing. Commit to the numeric segment state
+  // on blur or Enter.
+  const [startDraft, setStartDraft] = useState(() => String(seg.startTime ?? 0))
+  // Sync when the segment is reordered/auto-updated externally.
+  useEffect(() => { setStartDraft(String(seg.startTime ?? 0)) }, [seg.startTime])
+  const commitStart = () => {
+    const n = parseFloat(startDraft)
+    onChange({ startTime: Number.isFinite(n) && n >= 0 ? n : 0 })
+  }
+
   return (
     <div className={`border rounded p-2 space-y-1.5 ${hasAudio ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
       <div className="flex items-center gap-1.5 text-[10px]">
@@ -836,9 +850,12 @@ function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay,
         <input
           type="text"
           inputMode="decimal"
-          value={seg.startTime}
-          onChange={e => onChange({ startTime: Number(e.target.value.replace(/[^0-9.]/g, '')) || 0 })}
+          value={startDraft}
+          onChange={e => setStartDraft(e.target.value.replace(/[^0-9.]/g, ''))}
+          onBlur={commitStart}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
           className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+          title="Start time in seconds (decimals OK, e.g. 1.4)"
         />
         <span className="text-muted">s</span>
         <select
