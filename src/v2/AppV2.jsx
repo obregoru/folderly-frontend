@@ -129,6 +129,15 @@ export default function AppV2() {
     }))
     setFiles(prev => [...prev, ...entries])
 
+    // Instant filename-based placeholder so the header stops reading
+    // "(no name)" the moment a file lands. Upgraded to the vision-based
+    // AI name below once /describe-media + /auto-name resolve.
+    let placeholderName = null
+    if (!((nameDraft || '').trim())) {
+      placeholderName = quickNameFromFiles(picked)
+      if (placeholderName) setNameDraft(placeholderName)
+    }
+
     // Eager upload — persist each file to the server immediately so draft
     // survives tab close / refresh / crash. Uploads happen serially to
     // avoid iOS memory pressure with large clips; parallelism can come
@@ -140,6 +149,11 @@ export default function AppV2() {
       // Mark them as errored so the user sees something's wrong
       setFiles(prev => prev.map(f => entries.find(e => e.id === f.id) ? { ...f, status: 'error' } : f))
       return
+    }
+
+    // Persist the placeholder name once we have a job id. Non-fatal.
+    if (placeholderName) {
+      try { await api.updateJob(activeJobId, { job_name: placeholderName }) } catch {}
     }
 
     const describePromises = []
@@ -175,41 +189,65 @@ export default function AppV2() {
       try { await jobSync.refreshJobList() } catch {}
     }
 
-    // Silent auto-name — only runs when the user hasn't typed a name.
-    // Waits for the vision describes to resolve (so the /auto-name
-    // endpoint's uploads.visual_description cache is populated), then
-    // polls up to 6× with a short backoff. Polling covers the case where
-    // one of the describe calls rejected OR the visual-description
-    // persist hadn't committed when auto-name was first hit.
+    // Silent vision-based auto-name — upgrades the placeholder set above.
+    // Overwrites only when the current name is still empty OR matches the
+    // placeholder we set (so a user-typed name is never clobbered).
     try {
-      if (!((nameDraft || '').trim()) && activeJobId) {
-        await Promise.allSettled(describePromises)
-        let attempt = 0
-        while (attempt < 6) {
-          attempt++
-          try {
-            const r = await api.autoNameJob(activeJobId)
-            if (r?.job_name) {
-              setNameDraft(prev => (prev && prev.trim()) ? prev : r.job_name)
-              if (jobSync.refreshJobList) await jobSync.refreshJobList()
-              console.log(`[addFiles] auto-named "${r.job_name}" on attempt ${attempt}`)
-              break
-            }
-            // 400 with "no visuals yet" → wait + retry
-            if (r?.error && /visual|description/i.test(r.error)) {
-              await new Promise(res => setTimeout(res, 1500))
-              continue
-            }
-            break // any other error — give up quietly
-          } catch (e) {
-            console.log('[addFiles] auto-name attempt', attempt, 'failed:', e?.message || e)
-            await new Promise(res => setTimeout(res, 1500))
+      const isOwnedByUs = (v) => !v || !v.trim() || v === placeholderName
+      await Promise.allSettled(describePromises)
+      let attempt = 0
+      while (attempt < 6) {
+        attempt++
+        try {
+          const r = await api.autoNameJob(activeJobId)
+          if (r?.job_name) {
+            setNameDraft(prev => isOwnedByUs(prev) ? r.job_name : prev)
+            try { await api.updateJob(activeJobId, { job_name: r.job_name }) } catch {}
+            if (jobSync.refreshJobList) await jobSync.refreshJobList()
+            console.log(`[addFiles] auto-named "${r.job_name}" on attempt ${attempt}`)
+            break
           }
+          if (r?.error && /visual|description/i.test(r.error)) {
+            await new Promise(res => setTimeout(res, 1500))
+            continue
+          }
+          break
+        } catch (e) {
+          console.log('[addFiles] auto-name attempt', attempt, 'failed:', e?.message || e)
+          await new Promise(res => setTimeout(res, 1500))
         }
       }
     } catch (e) {
       console.log('[addFiles] silent auto-name skipped:', e?.message || e)
     }
+  }
+
+  // Instant filename-based draft name. Strips extensions, camera-app
+  // prefixes (IMG_, VID_, DSC_, MVI_, MOV_), trailing timestamps, and
+  // collapses underscores to spaces. If the filename is just a camera
+  // artifact (e.g. "IMG_9452"), we fall back to a dated placeholder
+  // rather than persisting a meaningless name.
+  function quickNameFromFiles(picked) {
+    const first = picked?.[0]
+    if (!first) return null
+    const raw = (first.name || '').replace(/\.[^.]+$/, '').trim()
+    if (!raw) return dateFallback()
+    // Strip common camera prefixes, then trailing -YYYYMMDD / _123456
+    const stripped = raw
+      .replace(/^(IMG|VID|DSC|MVI|MOV|PXL|FILE|SIGNAL)[_-]?/i, '')
+      .replace(/[_-]\d{6,}$/, '')
+      .replace(/[_-]/g, ' ')
+      .trim()
+    // "9452" or "00001" etc — just a number from a camera. Not useful.
+    if (!stripped || /^\d+$/.test(stripped)) return dateFallback()
+    const count = picked.length
+    const base = stripped.slice(0, 40)
+    const suffix = count > 1 ? ` +${count - 1}` : ''
+    return `${base}${suffix}`
+  }
+  function dateFallback() {
+    const d = new Date()
+    return `Draft · ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
   }
   const removeFile = (id) => {
     setFiles(prev => prev.filter(f => f.id !== id))
