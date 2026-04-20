@@ -339,6 +339,27 @@ export default function AppV2() {
               // editor panels as data arrives (each panel has its own
               // loading state). Awaiting before the transition made the
               // draft list feel frozen for 1–2s.
+              //
+              // Reset per-draft window globals *before* mounting so
+              // FinalPreviewV2 doesn't initialize from the previous
+              // draft's stale blob URL (which was revoked on unmount →
+              // black preview when the new draft hasn't finished loading
+              // yet).
+              if (typeof window !== 'undefined') {
+                try {
+                  if (window._postyMergedVideo?.url) URL.revokeObjectURL(window._postyMergedVideo.url)
+                } catch {}
+                window._postyMergedVideo = null
+                window._postyOverlays = null
+                window._postyCaptions = null
+                window._postyTeleprompter = null
+                window._postyPreviewPlaylist = null
+                try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: null })) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-captions-change', { detail: null })) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-teleprompter-change', { detail: null })) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-preview-playlist-change', { detail: null })) } catch {}
+              }
               setActiveDraftId(id)
               jobSync.loadJob(id).catch(e => console.warn('[loadJob] failed:', e.message))
             }}
