@@ -117,6 +117,15 @@ export default function ScheduleV2() {
       reload()
     } catch (e) { alert('Cancel failed: ' + e.message) }
   }
+  // Bulk-cancel every pending sibling that shares this row's group_uuid.
+  // Used by the batch card's "Cancel batch" button.
+  const cancelGroup = async (uuid, count) => {
+    if (!confirm(`Cancel all ${count} platforms in this batch?`)) return
+    try {
+      await api.cancelScheduledPost(uuid, { group: true })
+      reload()
+    } catch (e) { alert('Cancel batch failed: ' + e.message) }
+  }
 
   const startEdit = (p) => {
     setEditingUuid(p.uuid)
@@ -180,6 +189,7 @@ export default function ScheduleV2() {
               commitEdit={commitEdit}
               cancelEdit={() => setEditingUuid(null)}
               onCancel={cancel}
+              onCancelGroup={cancelGroup}
             />
           )}
           {view === 'week' && <WeekView byDate={byDateCalendar} anchor={anchor} setAnchor={setAnchor} />}
@@ -190,7 +200,7 @@ export default function ScheduleV2() {
   )
 }
 
-function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, startEdit, commitEdit, cancelEdit, onCancel }) {
+function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, startEdit, commitEdit, cancelEdit, onCancel, onCancelGroup }) {
   const dates = Object.keys(byDate).sort()
   if (dates.length === 0) {
     return <div className="text-[11px] text-muted italic text-center py-8 bg-white border border-[#e5e5e5] rounded-lg">No scheduled posts in this window.</div>
@@ -200,11 +210,51 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
       {dates.map(d => {
         const dayPosts = byDate[d].sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))
         const label = new Date(d).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+
+        // Collapse same-group rows into batch cards. Single-row groups
+        // drop back to the solo card path since there's nothing to
+        // batch.
+        const groupsMap = new Map()
+        const solos = []
+        for (const p of dayPosts) {
+          if (p.group_uuid) {
+            const arr = groupsMap.get(p.group_uuid) || []
+            arr.push(p)
+            groupsMap.set(p.group_uuid, arr)
+          } else {
+            solos.push(p)
+          }
+        }
+        const blocks = []
+        for (const [gid, rows] of groupsMap.entries()) {
+          if (rows.length === 1) { solos.push(rows[0]); continue }
+          blocks.push({ type: 'group', gid, rows, key: rows[0].scheduled_at || '' })
+        }
+        for (const s of solos) blocks.push({ type: 'solo', row: s, key: s.scheduled_at || '' })
+        blocks.sort((a, b) => (a.key || '').localeCompare(b.key || ''))
+
         return (
           <div key={d}>
             <div className="text-[10px] font-medium text-muted uppercase tracking-wide px-1 pb-1">{label}</div>
             <div className="space-y-1">
-              {dayPosts.map(p => {
+              {blocks.map((block) => {
+                if (block.type === 'group') {
+                  return (
+                    <BatchCard
+                      key={block.gid}
+                      rows={block.rows}
+                      onCancel={onCancel}
+                      onCancelGroup={onCancelGroup}
+                      onEdit={startEdit}
+                      editingUuid={editingUuid}
+                      editingCaption={editingCaption}
+                      setEditingCaption={setEditingCaption}
+                      commitEdit={commitEdit}
+                      cancelEdit={cancelEdit}
+                    />
+                  )
+                }
+                const p = block.row
                 const time = p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'
                 const isEditing = editingUuid === p.uuid
                 return (
@@ -243,6 +293,86 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// Card for N same-group schedule rows (one "Schedule N destinations"
+// click). Shows jobName, time range, and child chips per platform with
+// per-platform edit + cancel. Top-right "Cancel batch" bulk-cancels via
+// /schedule/:uuid/cancel?group=true.
+function BatchCard({ rows, onCancel, onCancelGroup, onEdit, editingUuid, editingCaption, setEditingCaption, commitEdit, cancelEdit }) {
+  const first = rows[0]
+  const jobName = first.job_name || first.title || '(no title)'
+  const times = rows
+    .map(r => r.scheduled_at ? new Date(r.scheduled_at) : null)
+    .filter(Boolean)
+    .sort((a, b) => a - b)
+  const timeLabel = times.length === 0 ? '—'
+    : times.length === 1
+      ? times[0].toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+      : `${times[0].toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} – ${times[times.length - 1].toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+  return (
+    <div className="bg-white border border-[#6C5CE7]/30 rounded p-2 text-[10px] space-y-1.5">
+      <div className="flex items-center gap-2">
+        <div className="w-1 h-10 rounded-full flex-shrink-0 bg-[#6C5CE7]" />
+        <div className="font-mono text-muted flex-shrink-0">{timeLabel}</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium truncate">{jobName}</div>
+          <div className="text-[9px] text-muted">Batch · {rows.length} platforms</div>
+        </div>
+        <button
+          onClick={() => onCancelGroup(first.uuid, rows.length)}
+          className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer flex-shrink-0"
+          title="Cancel every pending platform in this batch"
+        >Cancel batch</button>
+      </div>
+      <div className="space-y-1 border-t border-[#e5e5e5] pt-1.5">
+        {rows.map(p => {
+          const t = p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'
+          const isEditing = editingUuid === p.uuid
+          const c = chipColors(p)
+          return (
+            <div key={p.uuid} className="pl-3">
+              {isEditing ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+                    <span className="font-mono text-muted">{t}</span>
+                    <span className="text-[9px] font-medium uppercase">{p.platform}</span>
+                  </div>
+                  <textarea
+                    value={editingCaption}
+                    onChange={e => setEditingCaption(e.target.value)}
+                    rows={3}
+                    className="w-full text-[10px] border border-[#e5e5e5] rounded p-1 bg-white resize-y"
+                  />
+                  <div className="flex gap-1.5">
+                    <button onClick={() => commitEdit(p)} className="text-[9px] py-0.5 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer">Save</button>
+                    <button onClick={cancelEdit} className="text-[9px] py-0.5 px-2 bg-white border border-[#e5e5e5] rounded cursor-pointer">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot}`} />
+                  <span className="font-mono text-muted w-10 flex-shrink-0">{t}</span>
+                  <span className="text-[9px] font-medium uppercase flex-1 truncate">{p.platform}</span>
+                  <button
+                    onClick={() => onEdit(p)}
+                    className="text-[9px] text-muted bg-transparent border-none cursor-pointer"
+                    title="Edit this platform's caption"
+                  >✎</button>
+                  <button
+                    onClick={() => onCancel(p.uuid)}
+                    className="text-[9px] text-[#c0392b] bg-transparent border-none cursor-pointer"
+                    title="Cancel only this platform"
+                  >✕</button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
