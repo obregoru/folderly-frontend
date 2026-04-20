@@ -370,11 +370,36 @@ function TeleprompterText({ text }) {
 }
 
 function OverlayText({ text, style }) {
-  const fontSize = Math.max(10, Math.round((Number(style?.storyFontSize) || 48) * 0.45))
+  // Scale font/outline by the container's actual width so the preview
+  // matches the 1080p burn-in. Hardcoded 0.45 was only right at ~480px;
+  // any other preview width made the text look bigger or smaller than
+  // the final ffmpeg render. We measure the wrapper via ResizeObserver
+  // and recompute scale on every layout change.
+  const wrapRef = useRef(null)
+  const [scale, setScale] = useState(0.45)
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const update = () => {
+      const w = el.clientWidth || el.getBoundingClientRect().width
+      if (w > 0) setScale(w / 1080)
+    }
+    update()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+    if (ro) ro.observe(el)
+    window.addEventListener('resize', update)
+    return () => {
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [])
+
+  const rawFont = Number(style?.storyFontSize) || 48
+  const fontSize = Math.max(8, rawFont * scale)
   const color = style?.storyFontColor || '#ffffff'
   const family = style?.storyFontFamily || 'sans-serif'
-  const outlineWidth = style?.storyFontOutline === false ? 0 : Math.max(0, Number(style?.storyFontOutlineWidth) || 3)
-  // Emulate SSA outline with a multi-direction text-shadow.
+  const rawOutline = style?.storyFontOutline === false ? 0 : Math.max(0, Number(style?.storyFontOutlineWidth) || 3)
+  const outlineWidth = rawOutline * scale
   const shadow = outlineWidth > 0
     ? Array.from({ length: 8 }).map((_, i) => {
         const ang = (i / 8) * Math.PI * 2
@@ -393,6 +418,7 @@ function OverlayText({ text, style }) {
 
   return (
     <div
+      ref={wrapRef}
       className="absolute inset-x-0 flex items-center justify-center pointer-events-none px-4 text-center"
       style={{ top: `${topPct}%`, transform: 'translateY(-50%)' }}
     >
