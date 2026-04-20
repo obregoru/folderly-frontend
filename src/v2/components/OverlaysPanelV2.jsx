@@ -347,10 +347,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           </label>
         </div>
 
-        <div className="pt-1">
-          <label className="text-[10px] text-muted flex items-center gap-2">
-            <span>Y position (within platform safe zone)</span>
-            <span className="font-mono text-ink ml-auto">{overlayYPct}%</span>
+        <div className="bg-[#f8f7f3] border border-[#e5e5e5] rounded p-2 space-y-1">
+          <label className="text-[10px] font-medium flex items-center gap-2">
+            <span>↕ Vertical position</span>
+            <span className="font-mono text-[#6C5CE7] ml-auto">{overlayYPct}%</span>
           </label>
           <input
             type="range"
@@ -359,7 +359,8 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             step={1}
             value={overlayYPct}
             onChange={e => setOverlayYPct(Number(e.target.value))}
-            className="w-full"
+            className="w-full h-5 accent-[#6C5CE7]"
+            aria-label="Vertical overlay position"
           />
           <div className="flex items-center justify-between text-[8px] text-muted">
             <span>top</span>

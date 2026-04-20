@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
 
 /**
@@ -287,7 +287,7 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
             </div>
           )}
           {activeOverlayText && (
-            <OverlayText text={activeOverlayText} style={overlays} />
+            <OverlayText text={activeOverlayText} style={overlays} videoRef={videoRef} />
           )}
           {activeCaptionText && !teleprompter && (
             <CaptionText text={activeCaptionText} />
@@ -369,37 +369,75 @@ function TeleprompterText({ text }) {
   )
 }
 
-function OverlayText({ text, style }) {
-  // Scale font/outline by the container's actual width so the preview
-  // matches the 1080p burn-in. Hardcoded 0.45 was only right at ~480px;
-  // any other preview width made the text look bigger or smaller than
-  // the final ffmpeg render. We measure the wrapper via ResizeObserver
-  // and recompute scale on every layout change.
+function OverlayText({ text, style, videoRef }) {
+  // Scale font/outline by the video's ACTUAL displayed rectangle (after
+  // object-contain letterboxing) so the preview text size matches what
+  // ffmpeg will burn into the 1080-wide output frame. Measuring the
+  // container width is only correct when the video fills the container
+  // exactly; for letterboxed sources (e.g. a 16:9 clip inside the 9:16
+  // container before merge), we'd otherwise overshoot by the letterbox
+  // margin.
   const wrapRef = useRef(null)
-  const [scale, setScale] = useState(0.45)
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
+  const [scale, setScale] = useState(null)
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current
+    const video = videoRef?.current
+    if (!wrap) return
+
     const update = () => {
-      const w = el.clientWidth || el.getBoundingClientRect().width
-      if (w > 0) setScale(w / 1080)
+      // Container bounds (OverlayText's absolute wrapper spans the full
+      // container width).
+      const containerW = wrap.clientWidth || wrap.getBoundingClientRect().width
+      if (!containerW) return
+
+      // Intrinsic video dims — falls back to container size if the video
+      // hasn't loaded metadata yet.
+      const vw = Number(video?.videoWidth) || 0
+      const vh = Number(video?.videoHeight) || 0
+      const containerH = wrap.parentElement?.clientHeight || containerW * (16 / 9)
+
+      let displayedW = containerW
+      if (vw > 0 && vh > 0) {
+        // object-contain: fit the video inside the container preserving
+        // aspect. displayedW is the smaller of (containerW, containerH * aspect).
+        const aspect = vw / vh
+        const widthIfHeightBound = containerH * aspect
+        displayedW = Math.min(containerW, widthIfHeightBound)
+      }
+      setScale(displayedW / 1080)
     }
+
     update()
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
-    if (ro) ro.observe(el)
+    if (ro) {
+      ro.observe(wrap)
+      if (wrap.parentElement) ro.observe(wrap.parentElement)
+    }
     window.addEventListener('resize', update)
+    if (video) {
+      video.addEventListener('loadedmetadata', update)
+      video.addEventListener('resize', update)
+    }
     return () => {
       if (ro) ro.disconnect()
       window.removeEventListener('resize', update)
+      if (video) {
+        video.removeEventListener('loadedmetadata', update)
+        video.removeEventListener('resize', update)
+      }
     }
-  }, [])
+  }, [videoRef])
 
   const rawFont = Number(style?.storyFontSize) || 48
-  const fontSize = Math.max(8, rawFont * scale)
+  // Before first measurement, use a conservative fallback so text doesn't
+  // flash at a wrong size on mount.
+  const effectiveScale = scale != null ? scale : 0.3
+  const fontSize = Math.max(8, rawFont * effectiveScale)
   const color = style?.storyFontColor || '#ffffff'
   const family = style?.storyFontFamily || 'sans-serif'
   const rawOutline = style?.storyFontOutline === false ? 0 : Math.max(0, Number(style?.storyFontOutlineWidth) || 3)
-  const outlineWidth = rawOutline * scale
+  const outlineWidth = rawOutline * effectiveScale
   const lineHeight = Number(style?.lineHeight) > 0 ? Number(style.lineHeight) : 1.1
   // Letter-spacing saved as a 0..5 step in the burn-in path; CSS uses em.
   // 0.05em per step matches the legacy ResultCard preview (see v1).
