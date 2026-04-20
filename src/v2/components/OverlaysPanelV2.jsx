@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
  * Live preview of the overlays ON the shared FinalPreview video lands in
  * a later sub-phase; for now the text just saves.
  */
-export default function OverlaysPanelV2({ jobSync, draftId }) {
+export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [openingText, setOpeningText] = useState('')
   const [middleText, setMiddleText] = useState('')
   const [closingText, setClosingText] = useState('')
@@ -88,11 +88,85 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openingText, middleText, closingText, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, loaded])
 
+  // Scrub the shared FinalPreview <video> so the user can see their
+  // overlays rendered in sync with the clip. No server re-render —
+  // OverlayText already reads window._postyOverlays on every timeupdate,
+  // so playing the merged video shows the current settings burned on top.
+  const getVideo = () => previewRef?.current?.getVideo?.() || null
+  const scheduleStop = (video, stopAt) => {
+    // Pauses the video when it reaches `stopAt` seconds. We poll via
+    // timeupdate + a safety timeout so we stop even if the event is slow.
+    const onTick = () => {
+      if (video.currentTime >= stopAt - 0.05) {
+        try { video.pause() } catch {}
+        video.removeEventListener('timeupdate', onTick)
+      }
+    }
+    video.addEventListener('timeupdate', onTick)
+    const ms = Math.max(200, (stopAt - video.currentTime) * 1000 + 200)
+    setTimeout(() => {
+      video.removeEventListener('timeupdate', onTick)
+      if (!video.paused && video.currentTime >= stopAt - 0.1) {
+        try { video.pause() } catch {}
+      }
+    }, ms)
+  }
+  const playAll = () => {
+    const v = getVideo(); if (!v) return
+    try { v.currentTime = 0; v.play() } catch {}
+  }
+  const playOpening = () => {
+    const v = getVideo(); if (!v) return
+    const stopAt = Math.max(0.3, Number(openingDuration) || 3) + 0.3
+    try { v.currentTime = 0; v.play(); scheduleStop(v, stopAt) } catch {}
+  }
+  const playMiddle = () => {
+    const v = getVideo(); if (!v) return
+    const start = Math.max(0, Number(middleStartTime) || 0)
+    const stopAt = start + Math.max(0.3, Number(middleDuration) || 3) + 0.3
+    try { v.currentTime = start; v.play(); scheduleStop(v, stopAt) } catch {}
+  }
+  const playClosing = () => {
+    const v = getVideo(); if (!v) return
+    const dur = Number(v.duration) || 0
+    if (!dur) return
+    const closeDur = Math.max(0.3, Number(closingDuration) || 3)
+    try { v.currentTime = Math.max(0, dur - closeDur); v.play() } catch {}
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <div className="text-[12px] font-medium flex-1">On-screen captions</div>
         {saved && <span className="text-[9px] text-[#2D9A5E]">✓ Saved</span>}
+      </div>
+
+      <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 space-y-1.5">
+        <div className="text-[10px] text-muted">
+          Preview overlays on the video above. Plays locally — no re-render needed.
+        </div>
+        <div className="flex gap-1 flex-wrap">
+          <button
+            onClick={playAll}
+            className="flex-1 min-w-[80px] text-[10px] py-1 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+            title="Play the whole clip with current overlays applied"
+          >▶ Play all</button>
+          <button
+            onClick={playOpening}
+            disabled={!openingText?.trim()}
+            className="flex-1 min-w-[80px] text-[10px] py-1 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-40"
+          >▶ Opening</button>
+          <button
+            onClick={playMiddle}
+            disabled={!middleText?.trim()}
+            className="flex-1 min-w-[80px] text-[10px] py-1 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-40"
+          >▶ Middle</button>
+          <button
+            onClick={playClosing}
+            disabled={!closingText?.trim()}
+            className="flex-1 min-w-[80px] text-[10px] py-1 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-40"
+          >▶ Closing</button>
+        </div>
       </div>
 
       <div className="space-y-2">
