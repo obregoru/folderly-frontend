@@ -126,12 +126,14 @@ export async function describeUpload(item, { force = false, jobUuid = null } = {
     if (r?.error) throw new Error(r.error)
     if (!r?.summary) throw new Error('missing summary')
     item._visualDescription = r
-    // Persist to backend when we have a server-side uuid. Non-fatal if it fails.
-    const uuid = item.uuid || item.id
+    // Persist to backend when we have a server-side uuid. Non-fatal if it
+    // fails, but we AWAIT the write so callers can rely on the server
+    // seeing the cached description immediately after describeUpload
+    // resolves (e.g. auto-name reads `uploads.visual_description`).
+    const uuid = item.uuid || item.uploadResult?.uuid || item.id
     if (uuid && typeof uuid === 'string' && uuid.length >= 32) {
-      api.saveUploadVisualDescription(uuid, r).catch(e => {
-        console.warn('[visualContext] persist failed:', e.message)
-      })
+      try { await api.saveUploadVisualDescription(uuid, r) }
+      catch (e) { console.warn('[visualContext] persist failed:', e.message) }
     }
     return r
   } catch (e) {

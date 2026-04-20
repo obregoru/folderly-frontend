@@ -382,6 +382,13 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
         Each channel uses the shared video / photo + its per-platform caption from the Captions tab.
       </div>
 
+      {!canProduceVideo && CHANNELS.some(c => c.requiresVideo && !destinations[c.key]) && (
+        <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-2 text-[10px] text-[#92400e]">
+          <span className="font-medium">TikTok, Reels, and Shorts need a video.</span> Upload a video clip
+          (or merge 2+ clips) to enable those destinations — the others accept photos.
+        </div>
+      )}
+
       <div className="space-y-1.5">
         {CHANNELS.map(c => {
           const enabled = !!destinations[c.key]
@@ -391,16 +398,16 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
           return (
             <div
               key={c.key}
-              className={`border rounded-lg p-2.5 ${enabled ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'} ${blocked ? 'opacity-60' : ''}`}
+              className={`border rounded-lg p-2.5 ${enabled ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : blocked ? 'border-dashed border-[#d97706]/40 bg-[#fffbeb]' : 'border-[#e5e5e5] bg-white'}`}
             >
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded bg-[#6C5CE7]/10 flex items-center justify-center text-[9px] font-bold text-[#6C5CE7] flex-shrink-0">
                   {c.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[12px] font-medium">{c.label}</div>
-                  <div className="text-[9px] text-muted">
-                    {blocked ? 'needs a video' : (c.requiresVideo ? 'video required' : 'photo or video')}
+                  <div className={`text-[12px] font-medium ${blocked ? 'text-muted' : ''}`}>{c.label}</div>
+                  <div className={`text-[9px] ${blocked ? 'text-[#d97706]' : 'text-muted'}`}>
+                    {blocked ? '🔒 needs a video clip' : (c.requiresVideo ? 'video required' : 'photo or video')}
                   </div>
                 </div>
                 <label className="relative inline-block w-10 h-6 cursor-pointer flex-shrink-0">

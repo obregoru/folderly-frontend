@@ -175,26 +175,39 @@ export default function AppV2() {
       try { await jobSync.refreshJobList() } catch {}
     }
 
-    // Silent auto-name — fire-and-forget. Only runs when the user hasn't
-    // typed a name yet AND this is the first batch of files for the job
-    // (empty name + first upload is a reliable "user wants a name" signal).
-    // Waits for the vision describes so the endpoint has real content to
-    // name from; falls back silently on any failure.
+    // Silent auto-name — only runs when the user hasn't typed a name.
+    // Waits for the vision describes to resolve (so the /auto-name
+    // endpoint's uploads.visual_description cache is populated), then
+    // polls up to 6× with a short backoff. Polling covers the case where
+    // one of the describe calls rejected OR the visual-description
+    // persist hadn't committed when auto-name was first hit.
     try {
-      const currentName = (nameDraft || '').trim()
-      if (!currentName && activeJobId) {
+      if (!((nameDraft || '').trim()) && activeJobId) {
         await Promise.allSettled(describePromises)
-        const r = await api.autoNameJob(activeJobId)
-        if (r?.job_name) {
-          // Only apply if the user STILL hasn't typed anything (they may
-          // have named the draft while vision was running).
-          setNameDraft(prev => (prev && prev.trim()) ? prev : r.job_name)
-          if (jobSync.refreshJobList) await jobSync.refreshJobList()
+        let attempt = 0
+        while (attempt < 6) {
+          attempt++
+          try {
+            const r = await api.autoNameJob(activeJobId)
+            if (r?.job_name) {
+              setNameDraft(prev => (prev && prev.trim()) ? prev : r.job_name)
+              if (jobSync.refreshJobList) await jobSync.refreshJobList()
+              console.log(`[addFiles] auto-named "${r.job_name}" on attempt ${attempt}`)
+              break
+            }
+            // 400 with "no visuals yet" → wait + retry
+            if (r?.error && /visual|description/i.test(r.error)) {
+              await new Promise(res => setTimeout(res, 1500))
+              continue
+            }
+            break // any other error — give up quietly
+          } catch (e) {
+            console.log('[addFiles] auto-name attempt', attempt, 'failed:', e?.message || e)
+            await new Promise(res => setTimeout(res, 1500))
+          }
         }
       }
     } catch (e) {
-      // Expected on first upload if visuals haven't finished — the user
-      // can still hit the header's ✨ Auto-name button manually.
       console.log('[addFiles] silent auto-name skipped:', e?.message || e)
     }
   }
