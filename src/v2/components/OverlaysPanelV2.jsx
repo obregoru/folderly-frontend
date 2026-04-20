@@ -174,11 +174,31 @@ export default function OverlaysPanelV2({ jobSync, draftId }) {
             value={fontFamily}
             onChange={e => setFontFamily(e.target.value)}
             className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            style={{ fontFamily }}
           >
-            <option value="sans-serif">Sans</option>
-            <option value="serif">Serif</option>
-            <option value="Permanent Marker">Permanent Marker</option>
-            <option value="Bangers">Bangers</option>
+            <optgroup label="Basic">
+              <option value="sans-serif" style={{ fontFamily: 'sans-serif' }}>Sans Serif</option>
+              <option value="serif" style={{ fontFamily: 'serif' }}>Serif</option>
+              <option value="Impact, sans-serif" style={{ fontFamily: 'Impact, sans-serif' }}>Impact</option>
+            </optgroup>
+            <optgroup label="Bubbly">
+              <option value="Fredoka One" style={{ fontFamily: 'Fredoka One' }}>Fredoka One</option>
+              <option value="Lilita One" style={{ fontFamily: 'Lilita One' }}>Lilita One</option>
+              <option value="Paytone One" style={{ fontFamily: 'Paytone One' }}>Paytone One</option>
+              <option value="Shrikhand" style={{ fontFamily: 'Shrikhand' }}>Shrikhand</option>
+              <option value="Bungee" style={{ fontFamily: 'Bungee' }}>Bungee</option>
+              <option value="Righteous" style={{ fontFamily: 'Righteous' }}>Righteous</option>
+            </optgroup>
+            <optgroup label="Script">
+              <option value="Lobster" style={{ fontFamily: 'Lobster' }}>Lobster</option>
+              <option value="Pacifico" style={{ fontFamily: 'Pacifico' }}>Pacifico</option>
+              <option value="Dancing Script" style={{ fontFamily: 'Dancing Script' }}>Dancing Script</option>
+              <option value="Caveat" style={{ fontFamily: 'Caveat' }}>Caveat</option>
+              <option value="Permanent Marker" style={{ fontFamily: 'Permanent Marker' }}>Permanent Marker</option>
+            </optgroup>
+            <optgroup label="Fun">
+              <option value="Bangers" style={{ fontFamily: 'Bangers' }}>Bangers</option>
+            </optgroup>
           </select>
           <label>Size:</label>
           <input
