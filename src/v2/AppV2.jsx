@@ -333,9 +333,14 @@ export default function AppV2() {
         {mode === 'drafts' && !activeDraftId && (
           <DraftsV2
             jobSync={jobSync}
-            onOpen={async (id) => {
-              await jobSync.loadJob(id)
+            onOpen={(id) => {
+              // Switch to the editor immediately so the user gets feedback
+              // on tap. loadJob runs in the background and populates the
+              // editor panels as data arrives (each panel has its own
+              // loading state). Awaiting before the transition made the
+              // draft list feel frozen for 1–2s.
               setActiveDraftId(id)
+              jobSync.loadJob(id).catch(e => console.warn('[loadJob] failed:', e.message))
             }}
             onNew={async () => {
               const id = await jobSync.ensureJob()
