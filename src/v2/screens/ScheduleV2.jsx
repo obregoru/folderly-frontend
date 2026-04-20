@@ -15,6 +15,17 @@ import * as api from '../../api'
  * real data). For now List view gives the core bird's-eye.
  */
 
+// Colors for calendar chips — separate posted (green), pending (purple),
+// failed (red), cancelled (grey). Used by week + month cell chips and by
+// the month day-detail list.
+function chipColors(p) {
+  const s = p?.status || 'pending'
+  if (s === 'posted') return { bg: 'bg-[#2D9A5E]/10', border: 'border-[#2D9A5E]', dot: 'bg-[#2D9A5E]', textClass: 'text-[#2D9A5E]' }
+  if (s === 'failed') return { bg: 'bg-[#c0392b]/10', border: 'border-[#c0392b]', dot: 'bg-[#c0392b]', textClass: 'text-[#c0392b]' }
+  if (s === 'cancelled') return { bg: 'bg-[#e5e5e5]', border: 'border-muted', dot: 'bg-muted', textClass: 'text-muted' }
+  return { bg: 'bg-[#6C5CE7]/10', border: 'border-[#6C5CE7]', dot: 'bg-[#6C5CE7]', textClass: 'text-[#6C5CE7]' }
+}
+
 const DAY_LABELS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 const MONTH_DAY_LABELS = ['S', 'S', 'M', 'T', 'W', 'T', 'F']
 
@@ -37,6 +48,7 @@ export default function ScheduleV2() {
   const [view, setView] = useState('list')
   const [anchor, setAnchor] = useState(new Date())
   const [posts, setPosts] = useState([])
+  const [calendarPosts, setCalendarPosts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [editingUuid, setEditingUuid] = useState(null)
@@ -44,18 +56,39 @@ export default function ScheduleV2() {
 
   const reload = () => {
     setLoading(true); setError(null)
-    // 60-day window centered on anchor
-    const from = new Date(anchor); from.setDate(from.getDate() - 30)
-    const to = new Date(anchor); to.setDate(to.getDate() + 30)
-    api.getScheduledPosts({
+    // 60-day window centered on anchor. List view still wants only
+    // pending (actionable) posts; week/month views use the calendar
+    // endpoint which returns scheduled + posted history so the user can
+    // see what shipped on each day alongside what's queued.
+    const from = new Date(anchor); from.setDate(from.getDate() - 30); from.setHours(0, 0, 0, 0)
+    const to = new Date(anchor); to.setDate(to.getDate() + 30); to.setHours(23, 59, 59, 999)
+    const listCall = api.getScheduledPosts({
       status: 'pending',
       from: from.toISOString(),
       to: to.toISOString(),
       limit: 200,
-    })
+    }).then(r => Array.isArray(r) ? r : (r?.posts || r?.rows || []))
+    const calCall = api.getCalendar(from.toISOString(), to.toISOString())
       .then(r => {
-        const rows = Array.isArray(r) ? r : (r?.posts || r?.rows || [])
-        setPosts(rows)
+        // calendar returns { scheduled: [...], history: [...] } — merge
+        // into a single list with a source marker.
+        const sched = (r?.scheduled || []).map(p => ({ ...p, _source: 'scheduled' }))
+        const hist = (r?.history || []).map(p => ({
+          ...p,
+          _source: 'history',
+          // history uses `posted_at` for its timestamp; normalize to
+          // scheduled_at so the grouping + rendering paths are shared.
+          scheduled_at: p.posted_at,
+          status: 'posted',
+          uuid: `h-${p.id}`,
+        }))
+        return [...sched, ...hist]
+      })
+      .catch(() => [])
+    Promise.all([listCall, calCall])
+      .then(([pending, all]) => {
+        setPosts(pending)
+        setCalendarPosts(all)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -63,7 +96,14 @@ export default function ScheduleV2() {
 
   useEffect(() => { reload() }, [anchor])
 
+  // List view: pending only. Calendar views: scheduled + posted history.
   const byDate = posts.reduce((acc, p) => {
+    const date = p.scheduled_at ? p.scheduled_at.slice(0, 10) : 'unknown'
+    if (!acc[date]) acc[date] = []
+    acc[date].push(p)
+    return acc
+  }, {})
+  const byDateCalendar = calendarPosts.reduce((acc, p) => {
     const date = p.scheduled_at ? p.scheduled_at.slice(0, 10) : 'unknown'
     if (!acc[date]) acc[date] = []
     acc[date].push(p)
@@ -118,6 +158,16 @@ export default function ScheduleV2() {
             <span className="bg-[#6C5CE7]/10 text-[#6C5CE7] rounded-full px-2 py-0.5">
               {posts.length} scheduled
             </span>
+            {view !== 'list' && (
+              <>
+                <span className="bg-[#2D9A5E]/10 text-[#2D9A5E] rounded-full px-2 py-0.5">
+                  {calendarPosts.filter(p => p._source === 'history' || p.status === 'posted').length} posted
+                </span>
+                <span className="bg-muted/10 text-muted rounded-full px-2 py-0.5">
+                  ±30 days from {anchor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </span>
+              </>
+            )}
           </div>
 
           {view === 'list' && (
@@ -132,8 +182,8 @@ export default function ScheduleV2() {
               onCancel={cancel}
             />
           )}
-          {view === 'week' && <WeekView byDate={byDate} anchor={anchor} setAnchor={setAnchor} />}
-          {view === 'month' && <MonthView byDate={byDate} anchor={anchor} setAnchor={setAnchor} />}
+          {view === 'week' && <WeekView byDate={byDateCalendar} anchor={anchor} setAnchor={setAnchor} />}
+          {view === 'month' && <MonthView byDate={byDateCalendar} anchor={anchor} setAnchor={setAnchor} />}
         </>
       )}
     </div>
@@ -228,11 +278,12 @@ function WeekView({ byDate, anchor, setAnchor }) {
               <div className="space-y-0.5">
                 {posts.map(p => {
                   const time = p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''
+                  const color = chipColors(p)
                   return (
                     <div
                       key={p.uuid}
-                      className="text-[8px] rounded px-1 py-0.5 overflow-hidden bg-[#6C5CE7]/10 border-l-2 border-[#6C5CE7]"
-                      title={`${time} · ${p.platform} · ${p.job_name || p.title || ''}`}
+                      className={`text-[8px] rounded px-1 py-0.5 overflow-hidden ${color.bg} border-l-2 ${color.border}`}
+                      title={`${time} · ${p.platform} · ${p.status} · ${p.job_name || p.title || ''}`}
                     >
                       <div className="font-mono text-muted">{time}</div>
                       <div className="truncate font-medium">{p.platform}</div>
@@ -287,10 +338,11 @@ function MonthView({ byDate, anchor, setAnchor }) {
               <div className={`text-[11px] ${isToday ? 'text-[#6C5CE7] font-bold' : 'text-ink'}`}>{d.getDate()}</div>
               {posts.length > 0 && (
                 <div className="flex gap-0.5 mt-0.5">
-                  {posts.slice(0, 3).map((_, j) => (
-                    <span key={j} className="w-1 h-1 rounded-full bg-[#6C5CE7]" />
-                  ))}
-                  {posts.length > 3 && <span className="text-[7px] text-muted">+{posts.length - 3}</span>}
+                  {posts.slice(0, 4).map((p, j) => {
+                    const c = chipColors(p)
+                    return <span key={j} className={`w-1 h-1 rounded-full ${c.dot}`} />
+                  })}
+                  {posts.length > 4 && <span className="text-[7px] text-muted">+{posts.length - 4}</span>}
                 </div>
               )}
             </button>
@@ -302,18 +354,25 @@ function MonthView({ byDate, anchor, setAnchor }) {
           <div className="text-[10px] font-medium text-muted uppercase tracking-wide">
             {new Date(sel).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
           </div>
-          {byDate[sel].map(p => (
-            <div key={p.uuid} className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 text-[10px]">
-              <div className="w-1 h-10 rounded-full flex-shrink-0 bg-[#6C5CE7]" />
-              <div className="text-[11px] font-mono text-muted w-12 flex-shrink-0">
-                {p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'}
+          {byDate[sel].map(p => {
+            const c = chipColors(p)
+            return (
+              <div key={p.uuid} className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded p-2 text-[10px]">
+                <div className={`w-1 h-10 rounded-full flex-shrink-0 ${c.dot}`} />
+                <div className="text-[11px] font-mono text-muted w-12 flex-shrink-0">
+                  {p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{p.job_name || p.title || '(no title)'}</div>
+                  <div className="text-[9px] text-muted">
+                    <span className="uppercase">{p.platform}</span>
+                    <span> · </span>
+                    <span className={c.textClass}>{p.status}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium truncate">{p.job_name || p.title || '(no title)'}</div>
-                <div className="text-[9px] text-muted">{p.platform}</div>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

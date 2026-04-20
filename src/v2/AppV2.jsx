@@ -142,12 +142,27 @@ export default function AppV2() {
       return
     }
 
+    const describePromises = []
     for (const item of entries) {
       try {
         const uploadResult = await api.uploadFile(item.file, '', null, item.parsed, null, activeJobId)
         item.uploadResult = uploadResult
         setFiles(prev => prev.map(f => f.id === item.id ? { ...f, uploadResult, status: 'done' } : f))
         await jobSync.saveFileToJob({ ...item, uploadResult })
+        // Kick off vision description in the background — it feeds the
+        // auto-name step below and the content-generation prompts later.
+        // describeUpload is idempotent; if the upload was already seen
+        // (same file_hash), the backend short-circuits without another
+        // vision call.
+        item.uuid = uploadResult?.uuid || item.uuid
+        item._jobUuid = activeJobId
+        const { describeUpload } = await import('../lib/visualContext')
+        describePromises.push(
+          describeUpload(item, { jobUuid: activeJobId }).catch(e => {
+            console.warn('[addFiles] describe failed:', e.message)
+            return null
+          })
+        )
       } catch (e) {
         console.error('[addFiles] upload failed:', e.message)
         setFiles(prev => prev.map(f => f.id === item.id ? { ...f, status: 'error' } : f))
@@ -158,6 +173,29 @@ export default function AppV2() {
     // updated file_count / status for the active draft.
     if (jobSync.refreshJobList) {
       try { await jobSync.refreshJobList() } catch {}
+    }
+
+    // Silent auto-name — fire-and-forget. Only runs when the user hasn't
+    // typed a name yet AND this is the first batch of files for the job
+    // (empty name + first upload is a reliable "user wants a name" signal).
+    // Waits for the vision describes so the endpoint has real content to
+    // name from; falls back silently on any failure.
+    try {
+      const currentName = (nameDraft || '').trim()
+      if (!currentName && activeJobId) {
+        await Promise.allSettled(describePromises)
+        const r = await api.autoNameJob(activeJobId)
+        if (r?.job_name) {
+          // Only apply if the user STILL hasn't typed anything (they may
+          // have named the draft while vision was running).
+          setNameDraft(prev => (prev && prev.trim()) ? prev : r.job_name)
+          if (jobSync.refreshJobList) await jobSync.refreshJobList()
+        }
+      }
+    } catch (e) {
+      // Expected on first upload if visuals haven't finished — the user
+      // can still hit the header's ✨ Auto-name button manually.
+      console.log('[addFiles] silent auto-name skipped:', e?.message || e)
     }
   }
   const removeFile = (id) => {
