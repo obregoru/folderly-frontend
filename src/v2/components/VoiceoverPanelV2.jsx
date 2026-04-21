@@ -864,6 +864,14 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           Each segment fires on top of the primary at its start time. Order is by start time.
         </div>
 
+        {/* Phase 7.2 — segment transition. Only meaningful with 2+
+            segments, so hidden otherwise. Applies to the final
+            rendered video — the in-editor preview still plays as
+            separate tracks. */}
+        {draftId && segments.length >= 2 && (
+          <SegmentTransitionControl draftId={draftId} />
+        )}
+
         {(() => {
           // Summary: estimate uses words/sec when audio isn't generated, actual
           // duration otherwise. Longest arm wins: the voiceover ends at
@@ -938,6 +946,31 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
   const hasAudio = !!seg.audioUrl
   const speed = Number(seg.speed) || 1.0
   const estSec = wordsToSeconds(seg.text, speed)
+
+  // Phase 7.1 — emoji injection state. We don't auto-apply the
+  // enriched text; we show it as a preview so the user can accept or
+  // edit. Clicking "Apply" writes it to the segment (invalidating any
+  // existing audio because the text changed).
+  const [enriching, setEnriching] = useState(false)
+  const [enrichErr, setEnrichErr] = useState(null)
+  const enrichWithEmoji = async () => {
+    if (!seg.text?.trim() || !draftId) return
+    setEnriching(true); setEnrichErr(null)
+    try {
+      const r = await api.enrichSegmentText(draftId, seg.id)
+      if (r?.enriched && r.enriched !== seg.text) {
+        // Replace text + invalidate audio (text changed so TTS needs
+        // to re-run next time). Word timings are orphaned until re-
+        // generation; harmless because the renderer gracefully falls
+        // back when timings don't match the text.
+        onChange({ text: r.enriched, audioUrl: null, audioKey: null, duration: null })
+      }
+    } catch (e) {
+      setEnrichErr(e.message || String(e))
+    } finally {
+      setEnriching(false)
+    }
+  }
 
   // Keep a local string draft so the user can type "1.4" naturally. If
   // we derive the displayed value from the numeric prop, typing "1."
@@ -1019,6 +1052,18 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
         {hasAudio && (
           <button onClick={onPlay} className="text-[10px] py-0.5 px-2 border border-[#2D9A5E] text-[#2D9A5E] bg-white rounded cursor-pointer">▶ Test</button>
         )}
+        {/* Phase 7.1 — emoji injection. Idempotent: if the text
+            already contains emoji, the backend returns noop:true and
+            nothing changes. Applying invalidates existing audio so
+            Generate needs to run again. */}
+        {draftId && seg.text?.trim() && (
+          <button
+            onClick={enrichWithEmoji}
+            disabled={enriching}
+            className="text-[10px] py-0.5 px-2 border border-[#f59e0b]/50 text-[#d97706] bg-white rounded cursor-pointer disabled:opacity-50"
+            title="AI adds tasteful emoji at sentence boundaries. Invalidates existing audio."
+          >{enriching ? '…' : '✨ +emoji'}</button>
+        )}
         <span
           className="font-mono text-[9px] rounded px-1.5 py-0.5 border ml-auto"
           style={{
@@ -1032,6 +1077,7 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
         </span>
         {hasAudio && seg.audioKey && <span className="text-[8px] text-muted italic">persisted</span>}
       </div>
+      {enrichErr && <div className="text-[9px] text-[#c0392b]">Emoji enrich failed: {enrichErr}</div>}
 
       {/* Phase 4.5 — Caption style editor entry point. Only shown for
           segments that have audio (meaningless to style a not-yet-
@@ -1100,6 +1146,78 @@ function formatSec(n) {
 // --- Script tab -----------------------------------------------------------
 // One pasted script drives three outputs: AI voice (primary + segments),
 // human recording with teleprompter, and on-screen captions (overlays).
+// Phase 7.2 — transition between adjacent voiceover segments. Read-
+// write against /jobs/:id/segment-transition. Debounces the save on
+// slider change so every keypress doesn't hit the API.
+function SegmentTransitionControl({ draftId }) {
+  const [type, setType] = useState('cut')
+  const [ms, setMs] = useState(400)
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    api.getSegmentTransition(draftId).then(r => {
+      if (cancelled) return
+      const t = r?.transition
+      if (t?.type === 'crossfade') {
+        setType('crossfade')
+        setMs(Number(t.crossfadeMs) || 400)
+      } else {
+        setType('cut')
+      }
+    }).finally(() => { if (!cancelled) setLoaded(true) })
+    return () => { cancelled = true }
+  }, [draftId])
+
+  // Debounce saves while the slider drags.
+  useEffect(() => {
+    if (!loaded || !draftId) return
+    const handle = setTimeout(() => {
+      setSaving(true)
+      const body = type === 'crossfade' ? { type: 'crossfade', crossfadeMs: ms } : { type: 'cut' }
+      api.saveSegmentTransition(draftId, body).catch(() => {}).finally(() => setSaving(false))
+    }, 350)
+    return () => clearTimeout(handle)
+  }, [type, ms, loaded, draftId])
+
+  return (
+    <div className="bg-[#f8f7f3] border border-[#e5e5e5] rounded p-2 space-y-1.5">
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className="font-medium flex-1">Segment transition</span>
+        {saving && <span className="text-[9px] text-muted italic">saving…</span>}
+      </div>
+      <div className="flex items-center gap-3 text-[10px]">
+        <label className="flex items-center gap-1 cursor-pointer">
+          <input type="radio" checked={type === 'cut'} onChange={() => setType('cut')} />
+          Hard cut
+        </label>
+        <label className="flex items-center gap-1 cursor-pointer">
+          <input type="radio" checked={type === 'crossfade'} onChange={() => setType('crossfade')} />
+          Crossfade
+        </label>
+      </div>
+      {type === 'crossfade' && (
+        <div className="flex items-center gap-2 text-[10px]">
+          <label className="text-muted">Duration</label>
+          <input
+            type="range" min={100} max={1200} step={50}
+            value={ms}
+            onChange={e => setMs(Number(e.target.value))}
+            className="flex-1"
+          />
+          <span className="font-mono text-muted w-12 text-right">{ms}ms</span>
+        </div>
+      )}
+      <div className="text-[9px] text-muted">
+        Applies to the final rendered video — adjacent segments fade
+        their audio and captions in/out over the chosen duration.
+      </div>
+    </div>
+  )
+}
+
 function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGenerateAll, onRecordWithTeleprompter, onApplyAsCaptions }) {
   const parsed = parseScript(text)
   const lineCount = (parsed.primary ? 1 : 0) + parsed.segments.length

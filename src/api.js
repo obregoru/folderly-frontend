@@ -742,6 +742,30 @@ export const saveJobDefaultCaptionStyle = (jobUuid, body) =>
     body: JSON.stringify(body),
   }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 
+// Phase 7.1 — emoji injection. Returns { original, enriched, noop }.
+// Stateless — caller decides whether to replace the segment's text
+// with the enriched version.
+export const enrichSegmentText = (jobUuid, segmentId) =>
+  fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/enrich-text`), {
+    method: 'POST',
+    headers: csrf(),
+    credentials: 'include',
+  }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
+// Phase 7.2 — segment transition (crossfade vs cut between segments).
+// Body { type: 'cut' } or { type: 'crossfade', crossfadeMs: 400 }.
+export const getSegmentTransition = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/segment-transition`), { credentials: 'include' })
+    .then(r => r.json())
+
+export const saveSegmentTransition = (jobUuid, body) =>
+  fetch(api(`/jobs/${jobUuid}/segment-transition`), {
+    method: 'PUT',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify(body),
+  }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
 // User-entered analytics for a scheduled/posted row. Merges with any
 // existing values server-side — pass only the fields you're updating.
 // POST (not PATCH) because Railway's proxy strips PATCH.
