@@ -536,6 +536,29 @@ export const addVoiceoverSegments = (videoBase64, segments, mode = 'mix', origin
     }),
   }).then(r => r.json())
 
+// Preview render for a single voiceover segment via the Remotion
+// pipeline. Renders half-res 4s at 24fps so round-trips are ~5-8s
+// instead of ~30. Used by the caption-style editor to show a live
+// preview the moment the user saves.
+export const renderSegmentPreview = ({ jobUuid, segmentId, videoUrl, audioUrl, text, platform = 'vertical' }) =>
+  fetch(api('/video/render'), {
+    method: 'POST',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify({
+      jobUuid, segmentId, videoUrl, audioUrl, text,
+      platform,
+      preview: true,
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `Preview render failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
+
 // Compose a single "final" mp4 for the job: merged video → overlays →
 // caption timeline → primary+timed voiceovers. Server reads all the pieces
 // off the job record. Optional `primaryAudioBase64` lets the client pass

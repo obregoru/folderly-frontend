@@ -52,6 +52,11 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   }
   const [pendingConfig, setPendingConfig] = useState(null)
 
+  // Preview state — small Remotion-rendered clip we fetch after save.
+  const [previewUrl, setPreviewUrl] = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewErr, setPreviewErr] = useState(null)
+
   useEffect(() => {
     if (!jobUuid || !segmentId) return
     setLoading(true)
@@ -81,11 +86,43 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
         active_word_font_family: activeFontEnabled && activeFont ? activeFont : null,
       }
       await api.saveCaptionStyle(jobUuid, segmentId, body)
-      onClose?.()
+      // Fire a preview render in the background — don't block the close.
+      triggerPreview()
     } catch (e) {
       setErr(e.message || String(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Trigger a short Remotion preview of this segment via /video/render
+  // with preview=true. Runs after save (or on demand via the Preview
+  // button) so the user can check that their configured style actually
+  // looks right before rendering the full 30s clip.
+  const triggerPreview = async () => {
+    setPreviewLoading(true); setPreviewErr(null)
+    try {
+      // Look up this segment's video + audio URLs so we can feed them
+      // into the preview endpoint. Uses the getJob we already load
+      // caption styles from, so this extra fetch stays cheap.
+      const job = await api.getJob(jobUuid)
+      const seg = (job?.voiceover_settings?.segments || []).find(s => s?.id === segmentId)
+      if (!job?.merged_video_url || !seg?.audioUrl) {
+        throw new Error('preview needs a merged video + segment audio')
+      }
+      const r = await api.renderSegmentPreview({
+        jobUuid,
+        segmentId,
+        videoUrl: job.merged_video_url,
+        audioUrl: seg.audioUrl,
+        text: seg.text || 'preview',
+        platform: 'vertical',
+      })
+      if (r?.video_url) setPreviewUrl(r.video_url)
+    } catch (e) {
+      setPreviewErr(e.message || String(e))
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -111,6 +148,45 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
       {presetsOpen && (
         <CaptionPresetPicker onApply={applyPreset} />
       )}
+
+      {/* Preview — 4-second Remotion render at half-res. Shows up after
+          the first Save, so the user sees their style as it will ship
+          (active-word effects, animations, reveals, fonts). Re-renders
+          on every subsequent Save. */}
+      <div className="bg-black rounded overflow-hidden relative aspect-[9/16] max-h-[40vh] mx-auto">
+        {previewLoading && (
+          <div className="absolute inset-0 flex items-center justify-center text-white/80 text-[11px] bg-black/60">
+            <div className="text-center">
+              <div className="text-[10px] animate-pulse">Rendering preview…</div>
+              <div className="text-[9px] text-white/50 mt-1">~5–8 seconds</div>
+            </div>
+          </div>
+        )}
+        {previewUrl ? (
+          <video
+            key={previewUrl}
+            src={previewUrl}
+            controls
+            playsInline
+            autoPlay
+            muted={false}
+            className="w-full h-full object-contain bg-black"
+          />
+        ) : !previewLoading ? (
+          <div className="flex items-center justify-center h-full text-white/50 text-[11px] px-4 text-center">
+            Save caption style to render a 4-second preview here.
+          </div>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={triggerPreview}
+          disabled={previewLoading}
+          className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+        >{previewLoading ? 'Rendering…' : '▶ Preview now'}</button>
+        {previewErr && <span className="text-[9px] text-[#c0392b]">{previewErr}</span>}
+      </div>
 
       {/* Base font */}
       <div className="space-y-1">
