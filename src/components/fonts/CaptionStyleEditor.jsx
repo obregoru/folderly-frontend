@@ -256,12 +256,57 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
 
   if (loading) return <div className="text-[11px] text-muted italic text-center py-4">Loading caption style…</div>
 
+  // Current-selection pill shown next to the preset button so users
+  // can see what's active without opening the picker. Priority:
+  //   1. Applied preset matches form (appliedPresetId) → show its name.
+  //   2. Segment is inheriting the job default → show "default: <name>"
+  //      so the user knows what's rendering even though there's no
+  //      per-segment row yet.
+  //   3. Form has been edited off any preset → "custom".
+  //   4. Nothing yet → null (no pill).
+  const activePresetPill = (() => {
+    if (appliedPresetId) {
+      const p = CAPTION_PRESETS.find(x => x.id === appliedPresetId)
+      return p ? { label: p.displayName, tone: 'applied', emoji: p.thumbnailEmoji } : null
+    }
+    if (!isDefault && inheriting && defaultPresetId) {
+      const p = CAPTION_PRESETS.find(x => x.id === defaultPresetId)
+      return p ? { label: `default: ${p.displayName}`, tone: 'inherited', emoji: p.thumbnailEmoji } : null
+    }
+    // Only show "custom" when the form actually has content — avoid
+    // flashing on the loading→empty transition.
+    if (pendingConfig || baseFont !== 'Inter' || baseColor !== '#ffffff') {
+      return { label: 'custom', tone: 'custom', emoji: null }
+    }
+    return null
+  })()
+
   return (
     <div className="bg-[#fafafa] border border-[#e5e5e5] rounded-lg p-3 space-y-2.5">
-      <div className="flex items-center gap-2">
-        <div className="text-[12px] font-medium flex-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-[12px] font-medium">
           {isDefault ? 'Default caption style' : 'Caption style'}
         </div>
+        {activePresetPill && (
+          <span
+            className={`text-[10px] py-0.5 px-1.5 rounded border flex items-center gap-1 ${
+              activePresetPill.tone === 'applied'
+                ? 'bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7]'
+                : activePresetPill.tone === 'inherited'
+                  ? 'bg-[#2D9A5E]/10 border-[#2D9A5E]/40 text-[#2D9A5E]'
+                  : 'bg-[#fafafa] border-[#e5e5e5] text-muted'
+            }`}
+            title={
+              activePresetPill.tone === 'applied' ? 'This preset is currently applied.'
+                : activePresetPill.tone === 'inherited' ? 'Segment has no override — rendering with the job default.'
+                : 'Form fields no longer match any preset.'
+            }
+          >
+            {activePresetPill.emoji && <span className="text-[11px] leading-none">{activePresetPill.emoji}</span>}
+            {activePresetPill.label}
+          </span>
+        )}
+        <div className="flex-1" />
         <button
           onClick={() => setPresetsOpen(v => !v)}
           className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"

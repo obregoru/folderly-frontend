@@ -1005,6 +1005,40 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
     import('../../components/fonts/CaptionStyleEditor').then(m => setCaptionStyleEditor(() => m.default))
   }, [styleOpen, CaptionStyleEditor])
 
+  // Current caption-style state for THIS segment, summarized for the
+  // button pill. 'override': has its own row, show preset name / "custom".
+  // 'inherit': no row, shows the job-default preset name (if any).
+  // null: neither row nor default set. Fetched on mount + refreshed
+  // when the editor closes so the pill reflects saves made in-session.
+  const [segStyleState, setSegStyleState] = useState(null)
+  useEffect(() => {
+    if (!hasAudio || !draftId) return
+    let cancelled = false
+    if (styleOpen) return
+    ;(async () => {
+      try {
+        const [segRes, defRes, mod] = await Promise.all([
+          api.getCaptionStyle(draftId, seg.id).catch(() => ({ caption_style: null })),
+          api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
+          import('../../lib/captionPresets/catalog'),
+        ])
+        if (cancelled) return
+        const segCs = segRes?.caption_style || null
+        const defCs = defRes?.caption_style || null
+        if (segCs) {
+          const p = findPresetByConfig(segCs, mod.CAPTION_PRESETS)
+          setSegStyleState({ kind: 'override', name: p?.displayName || 'custom', emoji: p?.thumbnailEmoji })
+        } else if (defCs) {
+          const p = findPresetByConfig(defCs, mod.CAPTION_PRESETS)
+          setSegStyleState({ kind: 'inherit', name: p?.displayName || 'custom', emoji: p?.thumbnailEmoji })
+        } else {
+          setSegStyleState(null)
+        }
+      } catch { /* swallow — pill just won't show */ }
+    })()
+    return () => { cancelled = true }
+  }, [hasAudio, draftId, seg.id, styleOpen])
+
   return (
     <div className={`border rounded p-2 space-y-1.5 ${hasAudio ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
       <div className="flex items-center gap-1.5 text-[10px]">
@@ -1094,12 +1128,35 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
           saved row on. */}
       {hasAudio && draftId && (
         <>
-          <button
-            type="button"
-            onClick={() => setStyleOpen(v => !v)}
-            className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
-            title="Choose fonts + colors for the rendered caption"
-          >{styleOpen ? '✕ close caption style' : '🎨 caption style'}</button>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setStyleOpen(v => !v)}
+              className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+              title="Choose fonts + colors for the rendered caption"
+            >{styleOpen ? '✕ close caption style' : '🎨 caption style'}</button>
+            {/* State pill — shows applied preset, "inherit: <default>",
+                or "custom" so the user sees current state without
+                opening the editor. Purple for override, green for
+                inherit. Matches the editor-header pill semantics. */}
+            {!styleOpen && segStyleState && (
+              <span
+                className={`text-[9px] py-0.5 px-1.5 rounded border flex items-center gap-1 ${
+                  segStyleState.kind === 'override'
+                    ? 'bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7]'
+                    : 'bg-[#2D9A5E]/10 border-[#2D9A5E]/40 text-[#2D9A5E]'
+                }`}
+                title={
+                  segStyleState.kind === 'override'
+                    ? 'This segment overrides the job default.'
+                    : 'No per-segment override — rendering with the job default.'
+                }
+              >
+                {segStyleState.emoji && <span className="text-[10px] leading-none">{segStyleState.emoji}</span>}
+                {segStyleState.kind === 'inherit' ? `default: ${segStyleState.name}` : segStyleState.name}
+              </span>
+            )}
+          </div>
           {styleOpen && CaptionStyleEditor && (
             <CaptionStyleEditor
               jobUuid={draftId}
@@ -1163,10 +1220,43 @@ function formatSec(n) {
 function DefaultCaptionStyleFold({ draftId }) {
   const [open, setOpen] = useState(false)
   const [CaptionStyleEditor, setCaptionStyleEditor] = useState(null)
+  // Live preset name on the fold button, so users see which preset
+  // (if any) is set as default without opening the fold. Fetched on
+  // mount + refreshed when the fold closes (to pick up changes the
+  // user made during the session). Matches by deep-compare against
+  // CAPTION_PRESETS configs.
+  const [defaultPresetName, setDefaultPresetName] = useState(null)
+  const [defaultPresetEmoji, setDefaultPresetEmoji] = useState(null)
+  const [loadedOnce, setLoadedOnce] = useState(false)
   useEffect(() => {
     if (!open || CaptionStyleEditor) return
     import('../../components/fonts/CaptionStyleEditor').then(m => setCaptionStyleEditor(() => m.default))
   }, [open, CaptionStyleEditor])
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    // Refresh only when the fold CLOSES (or first mount) — no need to
+    // poll while the editor is open since the editor owns the state.
+    if (open && loadedOnce) return
+    Promise.all([
+      api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
+      import('../../lib/captionPresets/catalog'),
+    ]).then(([r, mod]) => {
+      if (cancelled) return
+      const cs = r?.caption_style
+      if (!cs) { setDefaultPresetName(null); setDefaultPresetEmoji(null); return }
+      const matched = findPresetByConfig(cs, mod.CAPTION_PRESETS)
+      if (matched) {
+        setDefaultPresetName(matched.displayName)
+        setDefaultPresetEmoji(matched.thumbnailEmoji)
+      } else {
+        setDefaultPresetName('custom')
+        setDefaultPresetEmoji(null)
+      }
+      setLoadedOnce(true)
+    })
+    return () => { cancelled = true }
+  }, [draftId, open, loadedOnce])
 
   return (
     <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
@@ -1177,7 +1267,17 @@ function DefaultCaptionStyleFold({ draftId }) {
         title="Style that applies to every segment unless the segment has its own custom style"
       >
         <span className="text-[14px] leading-none">🎨</span>
-        <span className="text-[11px] font-medium flex-1 text-left">Default caption style</span>
+        <span className="text-[11px] font-medium text-left">Default caption style</span>
+        {defaultPresetName && !open && (
+          <span
+            className="text-[10px] py-0.5 px-1.5 rounded border bg-white border-[#6C5CE7]/40 text-[#6C5CE7] flex items-center gap-1"
+            title="Current default preset"
+          >
+            {defaultPresetEmoji && <span className="text-[11px] leading-none">{defaultPresetEmoji}</span>}
+            {defaultPresetName}
+          </span>
+        )}
+        <div className="flex-1" />
         <span className="text-[9px] text-muted">{open ? 'close' : 'open'}</span>
         <span className="text-[11px] text-muted">{open ? '▾' : '▸'}</span>
       </button>
@@ -1185,7 +1285,7 @@ function DefaultCaptionStyleFold({ draftId }) {
         <CaptionStyleEditor
           mode="default"
           jobUuid={draftId}
-          onClose={() => setOpen(false)}
+          onClose={() => { setOpen(false); setLoadedOnce(false) }}
         />
       )}
       {open && !CaptionStyleEditor && (
@@ -1193,6 +1293,40 @@ function DefaultCaptionStyleFold({ draftId }) {
       )}
     </div>
   )
+}
+
+// Deep-compare a caption_styles-shaped config against each preset's
+// config. Returns the matching preset or null. Duplicates the same
+// matcher logic used by CaptionStyleEditor's findMatchingPresetId so
+// the fold button can identify presets without importing the editor.
+function findPresetByConfig(cs, presets) {
+  if (!cs) return null
+  const norm = (v) => v == null ? null : JSON.stringify(sortedKeys(v))
+  const scalarFields = ['base_font_family', 'base_font_color', 'active_word_color', 'active_word_font_family']
+  const jsonFields = [
+    'active_word_outline_config', 'active_word_scale_pulse',
+    'layout_config',
+    'entry_animation', 'exit_animation', 'reveal_config',
+    'continuous_motion',
+  ]
+  for (const preset of presets) {
+    const c = preset.config
+    let match = true
+    for (const f of scalarFields) if ((cs[f] || null) !== (c[f] || null)) { match = false; break }
+    if (!match) continue
+    for (const f of jsonFields) if (norm(cs[f]) !== norm(c[f])) { match = false; break }
+    if (match) return preset
+  }
+  return null
+}
+function sortedKeys(v) {
+  if (Array.isArray(v)) return v.map(sortedKeys)
+  if (v && typeof v === 'object') {
+    const out = {}
+    for (const k of Object.keys(v).sort()) out[k] = sortedKeys(v[k])
+    return out
+  }
+  return v
 }
 
 // Phase 7.2 — transition between adjacent voiceover segments. Read-
