@@ -263,7 +263,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       recordedChunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
       mr.onstop = async () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
+        // Use the recorder's actual mimeType — hardcoding 'audio/webm'
+        // when Safari records audio/mp4 (or Chrome records
+        // audio/webm;codecs=opus) produces a blob whose declared type
+        // doesn't match its bytes and <audio> refuses to play it.
+        const mime = mr.mimeType || 'audio/webm'
+        const blob = new Blob(recordedChunksRef.current, { type: mime })
         if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
         const url = URL.createObjectURL(blob)
         setAudioBlob(blob); setAudioUrl(url)
@@ -467,7 +472,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       recordedChunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) recordedChunksRef.current.push(e.data) }
       mr.onstop = async () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' })
+        const mime = mr.mimeType || 'audio/webm'
+        const blob = new Blob(recordedChunksRef.current, { type: mime })
         if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
         const url = URL.createObjectURL(blob)
         setAudioBlob(blob); setAudioUrl(url)
@@ -600,8 +606,20 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
 
   const playSegment = (seg) => {
     if (!seg.audioUrl) return
-    const a = new Audio(seg.audioUrl)
-    try { a.play().catch(() => {}) } catch {}
+    // Prefer the already-preloaded audio element from segAudioMapRef —
+    // it has preload="auto" and is more likely to be ready than a
+    // freshly-constructed Audio(). Fall back to a new Audio + load()
+    // if the pool doesn't have one yet (shouldn't happen post-effect).
+    const preloaded = segAudioMapRef.current.get(seg.id)
+    const a = preloaded || new Audio(seg.audioUrl)
+    try {
+      a.currentTime = 0
+      if (!preloaded) { try { a.load() } catch {} }
+      const p = a.play()
+      if (p && p.catch) p.catch(err => console.warn('[playSegment] play failed:', err?.message || err))
+    } catch (err) {
+      console.warn('[playSegment] sync error:', err?.message || err)
+    }
   }
 
   const sortedSegments = useMemo(
@@ -790,7 +808,14 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-[#2D9A5E] font-medium">Primary ready</span>
-            <audio ref={audioElRef} src={audioUrl} controls preload="metadata" data-posty-primary-voice className="h-7 flex-1 min-w-[140px] max-w-[280px]" style={{ maxHeight: 28 }} />
+            {/* key={audioUrl} forces a full remount when the blob URL swaps
+                (e.g. AI voice → user recording). Without it React only
+                updates the src attribute, and most browsers leave the
+                element bound to the old (already-revoked) blob URL so the
+                play button silently does nothing. preload="auto" makes
+                sure the newly-set blob actually buffers before the user
+                hits play. */}
+            <audio key={audioUrl} ref={audioElRef} src={audioUrl} controls preload="auto" data-posty-primary-voice className="h-7 flex-1 min-w-[140px] max-w-[280px]" style={{ maxHeight: 28 }} />
             <button onClick={discard} className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer">Discard</button>
           </div>
 
