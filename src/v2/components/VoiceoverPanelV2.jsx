@@ -294,6 +294,61 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     setAudioBlob(null); setAudioUrl(null); setPrimaryDuration(null); primaryFiredRef.current = false
   }
 
+  // Transcribe a recorded primary voice via ElevenLabs Scribe → turn
+  // it into a full voiceover segment (text + word_timings) so the
+  // Remotion caption pipeline (active-word highlight, reveals, etc.)
+  // works with user-recorded voice.
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcribeErr, setTranscribeErr] = useState(null)
+  const transcribeRecording = async () => {
+    if (!audioBlob || !draftId) return
+    setTranscribing(true); setTranscribeErr(null)
+    try {
+      // blob → base64 (same pattern used by DownloadFinalButton for
+      // the primary voice → base64 upload).
+      const buf = new Uint8Array(await audioBlob.arrayBuffer())
+      let bin = ''
+      for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
+      const audioBase64 = btoa(bin)
+      const mediaType = audioBlob.type || 'audio/webm'
+      const stt = await api.speechToText({ audioBase64, mediaType })
+      if (!stt?.word_timings?.length) throw new Error('No words detected')
+
+      // Build a new segment at t=0 with the transcribed text. The
+      // recorded audio itself is what plays during its window, so we
+      // send the audio bytes to /save-voiceover-segment along with
+      // word_timings so a single PUT persists both.
+      const segId = nextSegId()
+      const duration = await readAudioDuration(audioUrl)
+      const newSeg = {
+        id: segId,
+        text: stt.text || '',
+        startTime: 0,
+        voiceId: 'recorded',
+        speed: 1.0,
+        audioKey: null,
+        audioUrl,
+        duration,
+        generating: false,
+      }
+
+      const saveRes = await api.saveVoiceoverSegment(
+        audioBase64, draftId, segId, mediaType, stt.word_timings
+      )
+      if (saveRes?.audio_key) newSeg.audioKey = saveRes.audio_key
+
+      setSegments(prev => [...prev, newSeg])
+      // Clear the primary so the user doesn't see the same audio
+      // in two places. They can re-record if they want a new one.
+      setAudioBlob(null); setAudioUrl(null); setPrimaryDuration(null)
+      primaryFiredRef.current = false
+    } catch (e) {
+      setTranscribeErr(e.message || String(e))
+    } finally {
+      setTranscribing(false)
+    }
+  }
+
   // --- Segments ---
   const nextSegId = () => `seg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   const addSegment = () => {
@@ -737,6 +792,23 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             <span className="text-[10px] text-[#2D9A5E] font-medium">Primary ready</span>
             <audio ref={audioElRef} src={audioUrl} controls preload="metadata" data-posty-primary-voice className="h-7 flex-1 min-w-[140px] max-w-[280px]" style={{ maxHeight: 28 }} />
             <button onClick={discard} className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer">Discard</button>
+          </div>
+
+          {/* Transcribe-to-captions. Converts the primary recording into
+              a timed segment so the Remotion caption pipeline can
+              highlight each word as it's spoken. */}
+          <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 space-y-1.5">
+            <div className="text-[10px] font-medium">📝 Turn recording into synced captions</div>
+            <div className="text-[10px] text-muted">
+              Sends audio to ElevenLabs Scribe for speech-to-text + word timings, then creates a segment so each word highlights with the voice.
+            </div>
+            <button
+              type="button"
+              onClick={transcribeRecording}
+              disabled={transcribing || !draftId}
+              className="w-full py-1.5 bg-[#6C5CE7] text-white text-[10px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
+            >{transcribing ? 'Transcribing…' : '🎙️ → 📝 Transcribe recording'}</button>
+            {transcribeErr && <div className="text-[9px] text-[#c0392b]">{transcribeErr}</div>}
           </div>
           <div className="flex items-center gap-3 text-[10px]">
             <label className="flex items-center gap-1 cursor-pointer">

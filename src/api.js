@@ -582,6 +582,45 @@ export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime
     return r.json()
   })
 
+// ElevenLabs Scribe STT — transcribes a recorded audio blob into
+// { text, word_timings }. Used to unlock the Remotion caption pipeline
+// (active-word highlight + reveals) on user-recorded voice, not just
+// TTS-generated audio.
+export const speechToText = ({ audioBase64, mediaType, language } = {}) =>
+  fetch(api('/generate/speech-to-text'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      audio_base64: audioBase64,
+      media_type: mediaType || 'audio/webm',
+      language: language || undefined,
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `STT failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
+
+// Bulk-replace word_timings on a segment without re-uploading audio.
+export const saveSegmentWordTimings = (jobUuid, segmentId, wordTimings) =>
+  fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/word-timings`), {
+    method: 'PUT',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify({ word_timings: wordTimings }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `save word-timings failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
+
 // ElevenLabs TTS
 export const textToSpeech = (text, voiceId, voiceSettings = {}) =>
   fetch(api('/generate/text-to-speech'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, voice_id: voiceId, ...voiceSettings }) }).then(r => r.json())
