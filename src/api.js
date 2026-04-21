@@ -643,6 +643,21 @@ export const backfillJobNames = () =>
   fetch(api('/schedule/backfill-names'), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const cancelScheduledPost = (uuid, { group = false } = {}) =>
   fetch(api(`/schedule/${uuid}/cancel${group ? '?group=true' : ''}`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+// Per-segment caption style (Phase 2.3 / Phase 3 layout). The backend
+// whitelists fields and ON CONFLICT (job_uuid, segment_id) preserves
+// unset values, so you can PUT a partial patch.
+export const saveCaptionStyle = (jobUuid, segmentId, patch) =>
+  fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/caption-style`), {
+    method: 'PUT',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify(patch),
+  }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
+export const getCaptionStyle = (jobUuid, segmentId) =>
+  fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/caption-style`), { credentials: 'include' })
+    .then(r => r.json())
+
 // User-entered analytics for a scheduled/posted row. Merges with any
 // existing values server-side — pass only the fields you're updating.
 // POST (not PATCH) because Railway's proxy strips PATCH.

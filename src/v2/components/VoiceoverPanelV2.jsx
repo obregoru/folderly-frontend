@@ -804,6 +804,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             seg={seg}
             voices={voices}
             defaultVoiceId={voiceId}
+            draftId={draftId}
             onChange={patch => updateSegment(seg.id, patch)}
             onGenerate={() => generateSegment(seg)}
             onPlay={() => playSegment(seg)}
@@ -836,7 +837,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   )
 }
 
-function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay, onRemove }) {
+function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate, onPlay, onRemove }) {
   const hasAudio = !!seg.audioUrl
   const speed = Number(seg.speed) || 1.0
   const estSec = wordsToSeconds(seg.text, speed)
@@ -853,6 +854,17 @@ function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay,
     const n = parseFloat(startDraft)
     onChange({ startTime: Number.isFinite(n) && n >= 0 ? n : 0 })
   }
+
+  // Phase 4.5 — collapsible caption-style editor lives inline with each
+  // segment so users can style only the segments they care about. We
+  // lazy-load the component so the font picker + its fonts aren't
+  // pulled until a user actually opens the editor.
+  const [styleOpen, setStyleOpen] = useState(false)
+  const [CaptionStyleEditor, setCaptionStyleEditor] = useState(null)
+  useEffect(() => {
+    if (!styleOpen || CaptionStyleEditor) return
+    import('../../components/fonts/CaptionStyleEditor').then(m => setCaptionStyleEditor(() => m.default))
+  }, [styleOpen, CaptionStyleEditor])
 
   return (
     <div className={`border rounded p-2 space-y-1.5 ${hasAudio ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
@@ -923,6 +935,28 @@ function SegmentRow({ seg, voices, defaultVoiceId, onChange, onGenerate, onPlay,
         </span>
         {hasAudio && seg.audioKey && <span className="text-[8px] text-muted italic">persisted</span>}
       </div>
+
+      {/* Phase 4.5 — Caption style editor entry point. Only shown for
+          segments that have audio (meaningless to style a not-yet-
+          generated segment) and when we have a draftId to key the
+          saved row on. */}
+      {hasAudio && draftId && (
+        <>
+          <button
+            type="button"
+            onClick={() => setStyleOpen(v => !v)}
+            className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+            title="Choose fonts + colors for the rendered caption"
+          >{styleOpen ? '✕ close caption style' : '🎨 caption style'}</button>
+          {styleOpen && CaptionStyleEditor && (
+            <CaptionStyleEditor
+              jobUuid={draftId}
+              segmentId={seg.id}
+              onClose={() => setStyleOpen(false)}
+            />
+          )}
+        </>
+      )}
     </div>
   )
 }
