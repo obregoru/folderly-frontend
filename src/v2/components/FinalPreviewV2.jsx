@@ -601,7 +601,25 @@ export function DownloadFinalButton({ draftId }) {
   const blobRef = useRef(null)
   const filenameRef = useRef(null)
 
-  const supportsShare = typeof navigator !== 'undefined'
+  // Pick share vs save by DEVICE (touch-primary = mobile → share sheet;
+  // everything else → save dialog). Desktop Chrome's canShare({files})
+  // returns true on macOS/Win10+ because the OS has a share sheet, so a
+  // capability check incorrectly routes desktop users into share mode.
+  // The UX we want: "save a file on computer, share sheet on phone."
+  const isMobileDevice = typeof navigator !== 'undefined' && (
+    // Chrome's UA-CH — cleanest signal when available
+    navigator.userAgentData?.mobile === true
+    // Touch-primary + small screen: covers iOS Safari + Android non-Chromium
+    || (typeof window !== 'undefined'
+        && window.matchMedia('(pointer: coarse)').matches
+        && Math.min(window.innerWidth, window.innerHeight) < 900)
+    // UA substring fallback for older WebKit reporting
+    || /iPhone|iPad|iPod|Android|Mobile/i.test(navigator.userAgent || '')
+  );
+  // Share path still needs the API to exist on mobile. If the OS/browser
+  // doesn't support file-share (ancient Android), fall through to save.
+  const canMobileShare = isMobileDevice
+    && typeof navigator !== 'undefined'
     && typeof navigator.canShare === 'function'
     && (() => {
       try { return navigator.canShare({ files: [new File([new Blob()], 'x.mp4', { type: 'video/mp4' })] }) }
@@ -651,7 +669,7 @@ export function DownloadFinalButton({ draftId }) {
     const type = blob.type || 'video/mp4'
     const file = new File([blob], filename, { type })
 
-    if (supportsShare) {
+    if (canMobileShare) {
       setState('saving')
       navigator.share({ files: [file], title: 'Posty video' })
         .then(() => { setState('done'); setTimeout(() => setState('idle'), 1500) })
@@ -695,8 +713,8 @@ export function DownloadFinalButton({ draftId }) {
   }
 
   const label = state === 'rendering' ? 'Rendering final video…'
-    : state === 'saving' ? (supportsShare ? 'Opening share sheet…' : 'Saving…')
-    : state === 'ready' ? (supportsShare ? '📤 Tap again to share / save' : '⬇ Tap again to save')
+    : state === 'saving' ? (canMobileShare ? 'Opening share sheet…' : 'Saving…')
+    : state === 'ready' ? (canMobileShare ? '📤 Tap again to share' : '⬇ Tap again to save')
     : state === 'done' ? '✓ Saved'
     : state === 'error' ? (msg ? `Error: ${msg.slice(0, 80)} — tap to retry` : 'Error — tap to retry')
     : '⬇ Download final video'
