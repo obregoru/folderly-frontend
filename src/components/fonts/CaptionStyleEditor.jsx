@@ -118,6 +118,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
     // Keep JSONB side-fields so Save doesn't drop them.
     setPendingConfig({
       active_word_outline_config: cs.active_word_outline_config || null,
+      active_word_scale_pulse: cs.active_word_scale_pulse || null,
       layout_config: cs.layout_config || null,
       entry_animation: cs.entry_animation || null,
       exit_animation: cs.exit_animation || null,
@@ -448,7 +449,8 @@ function findMatchingPresetId(cs) {
     'active_word_color', 'active_word_font_family',
   ]
   const jsonFields = [
-    'active_word_outline_config', 'layout_config',
+    'active_word_outline_config', 'active_word_scale_pulse',
+    'layout_config',
     'entry_animation', 'exit_animation', 'reveal_config',
   ]
   for (const preset of CAPTION_PRESETS) {

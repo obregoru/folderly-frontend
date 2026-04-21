@@ -96,6 +96,26 @@ export const CAPTION_PRESETS = [
     },
   },
   {
+    id: 'karaoke-pop',
+    displayName: 'Karaoke Pop',
+    description: 'All four active-word effects stacked: color + font + outline + scale pulse. Big and bouncy.',
+    thumbnailEmoji: '🎉',
+    config: {
+      // Phase 2.7 reference preset — composes every active-word effect
+      // so the combined-effect render path is exercised end-to-end.
+      base_font_family: 'Inter',
+      base_font_color: '#ffffff',
+      active_word_color: '#facc15',
+      active_word_font_family: 'Bangers',
+      active_word_outline_config: { type: 'outline', color: '#000000', width: 3 },
+      active_word_scale_pulse: { peakScale: 1.18, attackMs: 80, releaseMs: 140 },
+      layout_config: null,
+      entry_animation: null,
+      exit_animation: null,
+      reveal_config: null,
+    },
+  },
+  {
     id: 'bounce-reveal',
     displayName: 'Bounce Reveal',
     description: 'Words bounce in one after another. Playful, energetic.',
