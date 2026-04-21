@@ -330,7 +330,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       let audioKey = null
       if (draftId) {
         try {
-          const saveRes = await api.saveVoiceoverSegment(r.audio_base64, draftId, seg.id, r.media_type || 'audio/mpeg')
+          // r.word_timings comes from ElevenLabs' with-timestamps response
+          // (Phase 1.2). Legacy TTS responses lack the field; the save
+          // endpoint tolerates null and skips writing word_timings rows.
+          const saveRes = await api.saveVoiceoverSegment(
+            r.audio_base64, draftId, seg.id, r.media_type || 'audio/mpeg', r.word_timings
+          )
           if (saveRes?.audio_key) audioKey = saveRes.audio_key
         } catch (e) { console.warn('[segment persist] failed:', e.message) }
       }

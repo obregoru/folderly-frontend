@@ -499,13 +499,22 @@ export const photoToVideo = (imageBase64, mediaType, duration = 7, motion = 'zoo
 export const saveVoiceover = (audioBase64, jobId, mediaType) =>
   fetch(api('/post/save-voiceover'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ audio_base64: audioBase64, job_id: jobId, media_type: mediaType }) }).then(r => r.json())
 
-// Save a single timed voiceover segment to job storage so it survives draft resume
-export const saveVoiceoverSegment = (audioBase64, jobId, segmentId, mediaType) =>
+// Save a single timed voiceover segment to job storage so it survives
+// draft resume. `wordTimings` (from api.textToSpeech's response) carries
+// the Phase-1 per-word alignment; the backend persists it for the
+// Remotion renderer. Omitting it falls back to static text.
+export const saveVoiceoverSegment = (audioBase64, jobId, segmentId, mediaType, wordTimings) =>
   fetch(api('/post/save-voiceover-segment'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ audio_base64: audioBase64, job_id: jobId, segment_id: segmentId, media_type: mediaType }),
+    body: JSON.stringify({
+      audio_base64: audioBase64,
+      job_id: jobId,
+      segment_id: segmentId,
+      media_type: mediaType,
+      word_timings: Array.isArray(wordTimings) ? wordTimings : null,
+    }),
   }).then(r => r.json())
 
 // Voiceover — mix audio onto video
