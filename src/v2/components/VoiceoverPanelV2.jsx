@@ -864,6 +864,15 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         <DefaultCaptionStyleFold draftId={draftId} />
       )}
 
+      {/* Full-video caption preview. The in-editor preview above uses
+          DOM overlays for captions (static), so animations/reveals/
+          active-word effects only appear in the Remotion final pass.
+          This button runs that final pass and plays the result
+          inline — same pipeline as Download, just no download. */}
+      {draftId && (
+        <CaptionedPreviewFold draftId={draftId} hasSegments={segments.length > 0 || !!audioUrl} />
+      )}
+
       <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
         <div className="flex items-center gap-2">
           <div className="text-[12px] font-medium flex-1">Timed segments</div>
@@ -1325,6 +1334,128 @@ function DefaultCaptionStyleFold({ draftId }) {
       )}
       {open && !CaptionStyleEditor && (
         <div className="text-[10px] text-muted italic text-center py-2">Loading…</div>
+      )}
+    </div>
+  )
+}
+
+// Full-video captioned preview — runs /post/render-final so the user
+// sees actual Remotion animations/reveals/active-word effects, which
+// the DOM preview above can't show (it only paints static overlay
+// text). Same endpoint as Download Final Video; we just skip the
+// save/share handoff and play inline.
+//
+// Render takes 30–60s on Railway, so we cache the URL client-side and
+// only re-render when the user explicitly hits "Re-render" after
+// tweaking styles.
+function CaptionedPreviewFold({ draftId, hasSegments }) {
+  const [open, setOpen] = useState(false)
+  const [state, setState] = useState('idle') // idle | rendering | ready | error
+  const [previewUrl, setPreviewUrl] = useState(null)
+  const [err, setErr] = useState(null)
+
+  const renderPreview = async () => {
+    setState('rendering'); setErr(null)
+    try {
+      // Same primary-voice base64 pickup as DownloadFinalButton — so
+      // an in-session-recorded primary voice gets included in the
+      // preview without needing a separate persist step.
+      let primaryBase64 = null
+      try {
+        const primaryEl = document.querySelector('audio[data-posty-primary-voice]')
+        if (primaryEl?.src) {
+          const r = await fetch(primaryEl.src)
+          const b = await r.blob()
+          const buf = new Uint8Array(await b.arrayBuffer())
+          let bin = ''
+          for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
+          primaryBase64 = btoa(bin)
+        }
+      } catch { /* server-side primary still works if persisted */ }
+
+      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
+      if (!r?.final_url) throw new Error('Server returned no final URL')
+      setPreviewUrl(r.final_url)
+      setState('ready')
+    } catch (e) {
+      setErr(e.message || String(e))
+      setState('error')
+    }
+  }
+
+  return (
+    <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 bg-[#fff7ed] border border-[#f59e0b]/30 rounded p-2 cursor-pointer hover:border-[#f59e0b]/60"
+        title="Render the full video with captions, animations, reveals — exactly what Download produces"
+      >
+        <span className="text-[14px] leading-none">🎬</span>
+        <span className="text-[11px] font-medium text-left">Preview captioned video</span>
+        <div className="flex-1" />
+        {state === 'ready' && !open && (
+          <span className="text-[9px] py-0.5 px-1.5 rounded border bg-[#f0faf4] border-[#2D9A5E]/40 text-[#2D9A5E] shrink-0">
+            rendered
+          </span>
+        )}
+        <span className="text-[11px] text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div className="space-y-2">
+          {!hasSegments && state === 'idle' && (
+            <div className="text-[10px] text-muted italic px-2 py-1">
+              Generate or record a voiceover first — there's nothing to caption yet.
+            </div>
+          )}
+
+          {state === 'idle' && hasSegments && (
+            <button
+              type="button"
+              onClick={renderPreview}
+              className="w-full py-2 bg-[#f59e0b] text-white text-[11px] font-medium border-none rounded cursor-pointer"
+            >▶ Render preview (30–60 s)</button>
+          )}
+
+          {state === 'rendering' && (
+            <div className="bg-black text-white/80 text-[10px] rounded p-3 text-center">
+              <div className="animate-pulse">Rendering…</div>
+              <div className="text-[9px] text-white/50 mt-1">
+                Full pipeline: merge → voiceover mix → Remotion caption pass
+              </div>
+            </div>
+          )}
+
+          {state === 'ready' && previewUrl && (
+            <>
+              <video
+                key={previewUrl}
+                src={previewUrl}
+                controls
+                playsInline
+                className="w-full aspect-[9/16] max-h-[60vh] bg-black rounded object-contain mx-auto"
+              />
+              <button
+                type="button"
+                onClick={renderPreview}
+                className="w-full py-1.5 bg-white border border-[#f59e0b] text-[#f59e0b] text-[10px] font-medium rounded cursor-pointer"
+                title="Re-render after tweaking caption styles or segments"
+              >↻ Re-render preview</button>
+            </>
+          )}
+
+          {state === 'error' && (
+            <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">
+              Render failed: {err}
+              <button
+                type="button"
+                onClick={renderPreview}
+                className="ml-2 text-[10px] underline cursor-pointer"
+              >retry</button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
