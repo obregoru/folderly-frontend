@@ -123,6 +123,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
       entry_animation: cs.entry_animation || null,
       exit_animation: cs.exit_animation || null,
       reveal_config: cs.reveal_config || null,
+      continuous_motion: cs.continuous_motion || null,
     })
   }
 
@@ -452,6 +453,7 @@ function findMatchingPresetId(cs) {
     'active_word_outline_config', 'active_word_scale_pulse',
     'layout_config',
     'entry_animation', 'exit_animation', 'reveal_config',
+    'continuous_motion',
   ]
   for (const preset of CAPTION_PRESETS) {
     const c = preset.config
