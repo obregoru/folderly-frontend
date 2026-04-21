@@ -1,4 +1,9 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
+
+// Lazy-load the font picker chunk so the 52-font catalog isn't pulled
+// on initial panel mount — only when the user actually opens the
+// picker panel from the Style row.
+const FontPicker = lazy(() => import('../../components/fonts/FontPicker'))
 
 /**
  * OverlaysPanelV2 — on-screen text overlays burned into the final video.
@@ -32,6 +37,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [overlayYPct, setOverlayYPct] = useState(70)
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [fontPickerOpen, setFontPickerOpen] = useState(false)
 
   // Seed state from the job's overlay_settings once on mount.
   useEffect(() => {
@@ -250,36 +256,19 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         <div className="text-[11px] font-medium">Style</div>
         <div className="flex items-center gap-2 text-[10px] flex-wrap">
           <label>Font:</label>
-          <select
-            value={fontFamily}
-            onChange={e => setFontFamily(e.target.value)}
-            className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            style={{ fontFamily }}
+          <button
+            type="button"
+            onClick={() => setFontPickerOpen(v => !v)}
+            className="flex-1 min-w-[140px] text-left flex items-center gap-2 bg-white border border-[#e5e5e5] hover:border-[#6C5CE7]/50 rounded py-1 px-2 cursor-pointer"
+            title="Pick an overlay font — preview tiles show the real face"
           >
-            <optgroup label="Basic">
-              <option value="sans-serif" style={{ fontFamily: 'sans-serif' }}>Sans Serif</option>
-              <option value="serif" style={{ fontFamily: 'serif' }}>Serif</option>
-              <option value="Impact, sans-serif" style={{ fontFamily: 'Impact, sans-serif' }}>Impact</option>
-            </optgroup>
-            <optgroup label="Bubbly">
-              <option value="Fredoka One" style={{ fontFamily: 'Fredoka One' }}>Fredoka One</option>
-              <option value="Lilita One" style={{ fontFamily: 'Lilita One' }}>Lilita One</option>
-              <option value="Paytone One" style={{ fontFamily: 'Paytone One' }}>Paytone One</option>
-              <option value="Shrikhand" style={{ fontFamily: 'Shrikhand' }}>Shrikhand</option>
-              <option value="Bungee" style={{ fontFamily: 'Bungee' }}>Bungee</option>
-              <option value="Righteous" style={{ fontFamily: 'Righteous' }}>Righteous</option>
-            </optgroup>
-            <optgroup label="Script">
-              <option value="Lobster" style={{ fontFamily: 'Lobster' }}>Lobster</option>
-              <option value="Pacifico" style={{ fontFamily: 'Pacifico' }}>Pacifico</option>
-              <option value="Dancing Script" style={{ fontFamily: 'Dancing Script' }}>Dancing Script</option>
-              <option value="Caveat" style={{ fontFamily: 'Caveat' }}>Caveat</option>
-              <option value="Permanent Marker" style={{ fontFamily: 'Permanent Marker' }}>Permanent Marker</option>
-            </optgroup>
-            <optgroup label="Fun">
-              <option value="Bangers" style={{ fontFamily: 'Bangers' }}>Bangers</option>
-            </optgroup>
-          </select>
+            <span
+              className="text-[12px] truncate flex-1"
+              style={{ fontFamily: `'${fontFamily}', system-ui, sans-serif` }}
+            >The quick brown fox</span>
+            <span className="text-[9px] text-muted truncate">{fontFamily}</span>
+            <span className="text-[10px] text-muted">{fontPickerOpen ? '▾' : '▸'}</span>
+          </button>
           <label>Size:</label>
           <input
             type="text"
@@ -313,6 +302,16 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             </>
           )}
         </div>
+
+        {fontPickerOpen && (
+          <Suspense fallback={<div className="text-[11px] text-muted italic py-4 text-center">Loading fonts…</div>}>
+            <FontPicker
+              value={fontFamily}
+              purpose="base"
+              onChange={(fam) => { setFontFamily(fam); setFontPickerOpen(false) }}
+            />
+          </Suspense>
+        )}
 
         <div className="flex items-center gap-2 text-[10px] flex-wrap">
           <label className="flex items-center gap-1 text-muted">
