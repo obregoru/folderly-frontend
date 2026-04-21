@@ -720,6 +720,28 @@ export const getCaptionStyle = (jobUuid, segmentId) =>
   fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/caption-style`), { credentials: 'include' })
     .then(r => r.json())
 
+// Drop the per-segment override so it inherits the job default_caption_style.
+// Idempotent on the backend.
+export const clearSegmentCaptionStyle = (jobUuid, segmentId) =>
+  fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/caption-style`), {
+    method: 'DELETE', headers: csrf(), credentials: 'include',
+  }).then(r => r.json())
+
+// Job-level default caption style. Applies to every segment that doesn't
+// have its own caption_styles row. Replaces wholesale; pass { clear: true }
+// to wipe.
+export const getJobDefaultCaptionStyle = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/default-caption-style`), { credentials: 'include' })
+    .then(r => r.json())
+
+export const saveJobDefaultCaptionStyle = (jobUuid, body) =>
+  fetch(api(`/jobs/${jobUuid}/default-caption-style`), {
+    method: 'PUT',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify(body),
+  }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
 // User-entered analytics for a scheduled/posted row. Merges with any
 // existing values server-side — pass only the fields you're updating.
 // POST (not PATCH) because Railway's proxy strips PATCH.

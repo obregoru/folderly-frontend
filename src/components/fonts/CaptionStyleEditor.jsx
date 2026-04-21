@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import * as api from '../../api'
 import FontPicker from './FontPicker'
 import CaptionPresetPicker from './CaptionPresetPicker'
+import { CAPTION_PRESETS } from '../../lib/captionPresets/catalog'
 
 /**
  * Minimal caption-style authoring UI (Phase 4.5). Wired to a single
@@ -12,6 +13,15 @@ import CaptionPresetPicker from './CaptionPresetPicker'
  * Shape matches the caption_styles row / PUT body: we send
  * camelCase → snake_case at the boundary since the backend's
  * whitelist expects column names.
+ *
+ * Default inheritance (Phase 6.4.1):
+ *   - Segments without their own caption_styles row inherit from
+ *     jobs.default_caption_style.
+ *   - "Set as default" button in the preset picker writes the preset
+ *     to the job default via PUT /jobs/:id/default-caption-style.
+ *   - "Use job default" button drops THIS segment's override via
+ *     DELETE /jobs/:id/voiceover/:segmentId/caption-style so the
+ *     segment starts inheriting again.
  */
 export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   const [loading, setLoading] = useState(true)
@@ -25,6 +35,21 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   const [activeFontEnabled, setActiveFontEnabled] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(null) // 'base' | 'active' | null
   const [presetsOpen, setPresetsOpen] = useState(false)
+
+  // Which preset (if any) is currently applied to THIS segment. Set when
+  // a preset is clicked; cleared whenever the user edits a field so the
+  // picker only shows the "applied" ring when the form actually matches
+  // a preset. On load, infer from the saved config via deep compare.
+  const [appliedPresetId, setAppliedPresetId] = useState(null)
+
+  // Which preset is the job-level default. Applied on top of every
+  // segment that lacks its own row. Loaded on mount, updated whenever
+  // the user presses "Set as default" on a preset.
+  const [defaultPresetId, setDefaultPresetId] = useState(null)
+  // Whether this segment currently has no per-segment caption_styles row
+  // and is therefore inheriting from the job default. Controls the
+  // "Inheriting job default" banner + the "Use job default" button.
+  const [inheriting, setInheriting] = useState(false)
 
   // Apply a preset: overwrite every local state field with the preset's
   // config. Skips the PUT — the user still has to click "Save caption
@@ -48,6 +73,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
     // reveal / outline / layout too (this UI doesn't yet surface those
     // fields for direct editing; they ride along from the preset).
     setPendingConfig(c)
+    setAppliedPresetId(preset.id)
     setPresetsOpen(false)
   }
   const [pendingConfig, setPendingConfig] = useState(null)
@@ -60,34 +86,104 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   useEffect(() => {
     if (!jobUuid || !segmentId) return
     setLoading(true)
-    api.getCaptionStyle(jobUuid, segmentId).then(r => {
-      const cs = r?.caption_style
-      if (cs) {
-        if (cs.base_font_family) setBaseFont(cs.base_font_family)
-        if (cs.base_font_color) setBaseColor(cs.base_font_color)
-        if (cs.active_word_color) { setActiveColor(cs.active_word_color); setActiveEnabled(true) }
-        if (cs.active_word_font_family) { setActiveFont(cs.active_word_font_family); setActiveFontEnabled(true) }
-      }
+    // Load the per-segment caption_styles row AND the job's
+    // default_caption_style in parallel. If the segment has no row,
+    // hydrate the form from the default so the user sees what they'd
+    // be inheriting before they customize.
+    Promise.all([
+      api.getCaptionStyle(jobUuid, segmentId).catch(() => ({ caption_style: null })),
+      api.getJobDefaultCaptionStyle(jobUuid).catch(() => ({ caption_style: null })),
+    ]).then(([segRes, defRes]) => {
+      const segCs = segRes?.caption_style || null
+      const defCs = defRes?.caption_style || null
+      // Pick whichever exists for the form state: segment row wins.
+      const active = segCs || defCs
+      if (active) hydrateFormFromConfig(active)
+      setInheriting(!segCs && !!defCs)
+      // Infer which preset the loaded config matches (if any).
+      setAppliedPresetId(segCs ? findMatchingPresetId(segCs) : (defCs ? findMatchingPresetId(defCs) : null))
+      setDefaultPresetId(defCs ? findMatchingPresetId(defCs) : null)
     }).finally(() => setLoading(false))
   }, [jobUuid, segmentId])
+
+  // Helper: populate every form field from a caption_styles-shaped
+  // config object (works for both segment rows and job defaults).
+  const hydrateFormFromConfig = (cs) => {
+    if (cs.base_font_family) setBaseFont(cs.base_font_family)
+    if (cs.base_font_color) setBaseColor(cs.base_font_color)
+    if (cs.active_word_color) { setActiveColor(cs.active_word_color); setActiveEnabled(true) }
+    else { setActiveEnabled(false) }
+    if (cs.active_word_font_family) { setActiveFont(cs.active_word_font_family); setActiveFontEnabled(true) }
+    else { setActiveFontEnabled(false) }
+    // Keep JSONB side-fields so Save doesn't drop them.
+    setPendingConfig({
+      active_word_outline_config: cs.active_word_outline_config || null,
+      layout_config: cs.layout_config || null,
+      entry_animation: cs.entry_animation || null,
+      exit_animation: cs.exit_animation || null,
+      reveal_config: cs.reveal_config || null,
+    })
+  }
+
+  // Build a caption_styles-shaped body from the current form state +
+  // pendingConfig ride-alongs. Used by both Save (per-segment PUT) and
+  // Set-as-default (job-level PUT) so both paths send the same shape.
+  const currentConfigBody = () => ({
+    ...(pendingConfig || {}),
+    base_font_family: baseFont,
+    base_font_color: baseColor,
+    active_word_color: activeEnabled ? activeColor : null,
+    active_word_font_family: activeFontEnabled && activeFont ? activeFont : null,
+  })
 
   const save = async () => {
     setSaving(true); setErr(null)
     try {
-      // If the user clicked a preset, ride its full config through
-      // (outline, layout, animation, reveal) so the backend gets
-      // everything the preset intends. The individual font/color
-      // fields the user tweaked after applying the preset still win.
-      const body = {
-        ...(pendingConfig || {}),
-        base_font_family: baseFont,
-        base_font_color: baseColor,
-        active_word_color: activeEnabled ? activeColor : null,
-        active_word_font_family: activeFontEnabled && activeFont ? activeFont : null,
-      }
-      await api.saveCaptionStyle(jobUuid, segmentId, body)
+      await api.saveCaptionStyle(jobUuid, segmentId, currentConfigBody())
+      setInheriting(false) // segment now has its own row
       // Fire a preview render in the background — don't block the close.
       triggerPreview()
+    } catch (e) {
+      setErr(e.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Save the passed preset as the job's default_caption_style. Does NOT
+  // touch the per-segment row — existing customized segments keep their
+  // own style; only segments without a row start inheriting the new
+  // default. If THIS segment has no row, we also reflect the new
+  // default in the form so the preview matches.
+  const setAsDefault = async (preset) => {
+    setSaving(true); setErr(null)
+    try {
+      await api.saveJobDefaultCaptionStyle(jobUuid, preset.config)
+      setDefaultPresetId(preset.id)
+      // If this segment was inheriting, snap the form to the new default
+      // so the editor reflects what would render.
+      if (inheriting) {
+        hydrateFormFromConfig(preset.config)
+        setAppliedPresetId(preset.id)
+      }
+    } catch (e) {
+      setErr(e.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Drop this segment's per-segment row so it inherits the job default.
+  const useJobDefault = async () => {
+    setSaving(true); setErr(null)
+    try {
+      await api.clearSegmentCaptionStyle(jobUuid, segmentId)
+      setInheriting(true)
+      // Refresh the form from the default (or clear if no default set).
+      const defRes = await api.getJobDefaultCaptionStyle(jobUuid).catch(() => ({ caption_style: null }))
+      const defCs = defRes?.caption_style || null
+      if (defCs) hydrateFormFromConfig(defCs)
+      setAppliedPresetId(defCs ? findMatchingPresetId(defCs) : null)
     } catch (e) {
       setErr(e.message || String(e))
     } finally {
@@ -126,6 +222,10 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
     }
   }
 
+  // Any manual edit invalidates the "applied preset" ring since the
+  // form no longer matches the preset.
+  const markDirty = () => { if (appliedPresetId) setAppliedPresetId(null) }
+
   if (loading) return <div className="text-[11px] text-muted italic text-center py-4">Loading caption style…</div>
 
   return (
@@ -145,8 +245,38 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
         )}
       </div>
 
+      {/* Inheritance banner — shown when this segment has no per-segment
+          caption_styles row and is rendering with whatever is in the
+          job default. Clicking Save creates an override; clicking any
+          field also creates one on save. */}
+      {inheriting && (
+        <div className="bg-[#f0faf4] border border-[#2D9A5E]/30 rounded px-2 py-1.5 text-[10px] text-[#2D9A5E] flex items-center gap-2">
+          <span className="flex-1">
+            <span className="font-medium">Inheriting job default.</span>{' '}
+            Edit any field and save to override, or keep it to inherit future default changes.
+          </span>
+        </div>
+      )}
+      {!inheriting && defaultPresetId && (
+        <div className="flex items-center justify-between bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] text-muted gap-2">
+          <span>This segment overrides the job default.</span>
+          <button
+            type="button"
+            onClick={useJobDefault}
+            disabled={saving}
+            className="text-[10px] py-0.5 px-2 border border-[#2D9A5E]/40 text-[#2D9A5E] bg-white rounded cursor-pointer disabled:opacity-50"
+            title="Drop this segment's custom style so it follows the job default"
+          >Use job default</button>
+        </div>
+      )}
+
       {presetsOpen && (
-        <CaptionPresetPicker onApply={applyPreset} />
+        <CaptionPresetPicker
+          onApply={applyPreset}
+          onSetDefault={setAsDefault}
+          selectedId={appliedPresetId}
+          defaultId={defaultPresetId}
+        />
       )}
 
       {/* Preview — 4-second Remotion render at half-res. Shows up after
@@ -207,7 +337,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
           <FontPicker
             value={baseFont}
             purpose="base"
-            onChange={f => { setBaseFont(f); setPickerOpen(null) }}
+            onChange={f => { setBaseFont(f); setPickerOpen(null); markDirty() }}
           />
         )}
       </div>
@@ -218,7 +348,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
         <input
           type="color"
           value={baseColor}
-          onChange={e => setBaseColor(e.target.value)}
+          onChange={e => { setBaseColor(e.target.value); markDirty() }}
           className="w-8 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0"
           aria-label="Base caption color"
         />
@@ -231,14 +361,14 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
           <input
             type="checkbox"
             checked={activeEnabled}
-            onChange={e => setActiveEnabled(e.target.checked)}
+            onChange={e => { setActiveEnabled(e.target.checked); markDirty() }}
           />
           <span className="font-medium">Active-word color</span>
         </label>
         <input
           type="color"
           value={activeColor}
-          onChange={e => setActiveColor(e.target.value)}
+          onChange={e => { setActiveColor(e.target.value); markDirty() }}
           disabled={!activeEnabled}
           className="w-8 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0 disabled:opacity-40"
           aria-label="Active-word color"
@@ -252,7 +382,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
           <input
             type="checkbox"
             checked={activeFontEnabled}
-            onChange={e => setActiveFontEnabled(e.target.checked)}
+            onChange={e => { setActiveFontEnabled(e.target.checked); markDirty() }}
           />
           <span>Active-word font</span>
         </label>
@@ -274,7 +404,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
               <FontPicker
                 value={activeFont}
                 purpose="active"
-                onChange={f => { setActiveFont(f); setPickerOpen(null) }}
+                onChange={f => { setActiveFont(f); setPickerOpen(null); markDirty() }}
               />
             )}
           </>
@@ -301,4 +431,49 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
       </div>
     </div>
   )
+}
+
+// Find the preset whose config matches the given caption_styles-shaped
+// object. Returns the preset id or null. Uses JSON.stringify for deep
+// compare — key-order differences between backend JSONB round-trip and
+// the static preset config can produce false negatives on the JSONB
+// sub-fields (layout_config etc), so we normalize by re-stringifying
+// through an object literal per key. Simple enough for this many
+// presets; if we grow past ~50 we'd want a hash.
+function findMatchingPresetId(cs) {
+  if (!cs) return null
+  const norm = (v) => v == null ? null : JSON.stringify(sortedKeys(v))
+  const fields = [
+    'base_font_family', 'base_font_color',
+    'active_word_color', 'active_word_font_family',
+  ]
+  const jsonFields = [
+    'active_word_outline_config', 'layout_config',
+    'entry_animation', 'exit_animation', 'reveal_config',
+  ]
+  for (const preset of CAPTION_PRESETS) {
+    const c = preset.config
+    let match = true
+    for (const f of fields) {
+      if ((cs[f] || null) !== (c[f] || null)) { match = false; break }
+    }
+    if (!match) continue
+    for (const f of jsonFields) {
+      if (norm(cs[f]) !== norm(c[f])) { match = false; break }
+    }
+    if (match) return preset.id
+  }
+  return null
+}
+
+// Recursively sort object keys so deep-compare is order-insensitive.
+// Arrays preserve order. Primitives pass through.
+function sortedKeys(v) {
+  if (Array.isArray(v)) return v.map(sortedKeys)
+  if (v && typeof v === 'object') {
+    const out = {}
+    for (const k of Object.keys(v).sort()) out[k] = sortedKeys(v[k])
+    return out
+  }
+  return v
 }
