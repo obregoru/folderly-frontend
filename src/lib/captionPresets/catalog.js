@@ -96,6 +96,34 @@ export const CAPTION_PRESETS = [
     },
   },
   {
+    id: 'podcast-typewriter',
+    displayName: 'Podcast Typewriter',
+    description: 'Characters appear in lockstep with the voice, with a blinking cursor. Clean and minimal.',
+    thumbnailEmoji: '⌨️',
+    config: {
+      base_font_family: 'JetBrains Mono',
+      base_font_color: '#ffffff',
+      active_word_color: '#facc15',
+      active_word_font_family: null,
+      active_word_outline_config: null,
+      layout_config: {
+        backgroundType: 'blurredBackdrop',
+        blurredBackdrop: {
+          blurPx: 16,
+          tintColor: '#000000',
+          tintOpacity: 0.35,
+          paddingX: 24,
+          paddingY: 12,
+          cornerRadius: 10,
+        },
+        maxWidthFraction: 0.86,
+      },
+      entry_animation: null,
+      exit_animation: null,
+      reveal_config: { mode: 'typewriterSynced', showCursor: true },
+    },
+  },
+  {
     id: 'slide-left-bold',
     displayName: 'Slide Left Bold',
     description: 'Bold sans slides in from the left. Simple, confident.',
@@ -345,17 +373,39 @@ export function getCaptionPreset(id) {
 
 // Check a proposed config against the composition matrix. Returns an
 // array of human-readable warnings, or [] if all good.
+//
+// Matrix authority: catalog-level documentation lives here. The
+// backend renderer enforces the hard rules (e.g., active color
+// suppresses text fill) as behavior, not warnings.
 export function validateCompositionMatrix(config) {
   const warnings = [];
   const entryPreset = config?.entry_animation?.preset;
   const revealMode = config?.reveal_config?.mode;
+  const bgType = config?.layout_config?.backgroundType;
+  const hasTextFill = !!config?.layout_config?.textFill;
+  const continuousPreset = config?.continuous_motion?.preset;
 
   if (entryPreset === 'letterSpacingCollapse' && revealMode === 'perLetter') {
     warnings.push('Letter-collapse entry + perLetter reveal do similar things. Pick one — combining them looks busy.');
   }
 
-  if (revealMode === 'perWordSynced' && !config?.active_word_color && !config?.active_word_font_family) {
-    warnings.push('Spoken reveal usually pairs with an active-word color for extra emphasis.');
+  if ((revealMode === 'perWordSynced' || revealMode === 'typewriterSynced')
+      && !config?.active_word_color && !config?.active_word_font_family) {
+    warnings.push('Speech-synced reveal usually pairs with an active-word color for extra emphasis.');
+  }
+
+  // Phase 6.5 matrix rules.
+  if (bgType === 'box' && config?.layout_config?.highlighter) {
+    warnings.push('Background is "box" but highlighter config is set. Only one background type renders; switch backgroundType to "highlighter" to use it.');
+  }
+  if (bgType === 'box' && config?.layout_config?.blurredBackdrop) {
+    warnings.push('Background is "box" but blurredBackdrop config is set. Only one background type renders; switch backgroundType to "blurredBackdrop" to use it.');
+  }
+  if (hasTextFill && config?.active_word_color) {
+    warnings.push('Text fill + active-word color: the active color overrides the fill on the spoken word (intentional, but worth knowing).');
+  }
+  if (continuousPreset === 'waveSine' && revealMode === 'perLetter') {
+    warnings.push('Continuous wave motion + per-letter reveal can look jittery as letters fade in during the bob. Consider perWord or no reveal.');
   }
 
   return warnings;
