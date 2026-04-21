@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api'
 import FontPicker from './FontPicker'
+import CaptionPresetPicker from './CaptionPresetPicker'
 
 /**
  * Minimal caption-style authoring UI (Phase 4.5). Wired to a single
@@ -23,6 +24,33 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   const [activeFont, setActiveFont] = useState('')
   const [activeFontEnabled, setActiveFontEnabled] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(null) // 'base' | 'active' | null
+  const [presetsOpen, setPresetsOpen] = useState(false)
+
+  // Apply a preset: overwrite every local state field with the preset's
+  // config. Skips the PUT — the user still has to click "Save caption
+  // style" so they can tweak first. This mirrors the "customize from
+  // preset" flow in the Phase 6.4 spec.
+  const applyPreset = (preset) => {
+    const c = preset.config
+    if (c.base_font_family) setBaseFont(c.base_font_family)
+    if (c.base_font_color) setBaseColor(c.base_font_color)
+    if (c.active_word_color) {
+      setActiveColor(c.active_word_color); setActiveEnabled(true)
+    } else {
+      setActiveEnabled(false)
+    }
+    if (c.active_word_font_family) {
+      setActiveFont(c.active_word_font_family); setActiveFontEnabled(true)
+    } else {
+      setActiveFontEnabled(false)
+    }
+    // Keep the preset's full config in memory so Save sends animation /
+    // reveal / outline / layout too (this UI doesn't yet surface those
+    // fields for direct editing; they ride along from the preset).
+    setPendingConfig(c)
+    setPresetsOpen(false)
+  }
+  const [pendingConfig, setPendingConfig] = useState(null)
 
   useEffect(() => {
     if (!jobUuid || !segmentId) return
@@ -41,12 +69,18 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   const save = async () => {
     setSaving(true); setErr(null)
     try {
-      await api.saveCaptionStyle(jobUuid, segmentId, {
+      // If the user clicked a preset, ride its full config through
+      // (outline, layout, animation, reveal) so the backend gets
+      // everything the preset intends. The individual font/color
+      // fields the user tweaked after applying the preset still win.
+      const body = {
+        ...(pendingConfig || {}),
         base_font_family: baseFont,
         base_font_color: baseColor,
         active_word_color: activeEnabled ? activeColor : null,
         active_word_font_family: activeFontEnabled && activeFont ? activeFont : null,
-      })
+      }
+      await api.saveCaptionStyle(jobUuid, segmentId, body)
       onClose?.()
     } catch (e) {
       setErr(e.message || String(e))
@@ -61,6 +95,11 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
     <div className="bg-[#fafafa] border border-[#e5e5e5] rounded-lg p-3 space-y-2.5">
       <div className="flex items-center gap-2">
         <div className="text-[12px] font-medium flex-1">Caption style</div>
+        <button
+          onClick={() => setPresetsOpen(v => !v)}
+          className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+          title="Start from a preset — you can still customize below"
+        >{presetsOpen ? '✕' : '🎭'} presets</button>
         {onClose && (
           <button
             onClick={onClose}
@@ -68,6 +107,10 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
           >✕ close</button>
         )}
       </div>
+
+      {presetsOpen && (
+        <CaptionPresetPicker onApply={applyPreset} />
+      )}
 
       {/* Base font */}
       <div className="space-y-1">
