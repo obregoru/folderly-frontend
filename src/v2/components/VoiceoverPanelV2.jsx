@@ -1220,72 +1220,107 @@ function formatSec(n) {
 function DefaultCaptionStyleFold({ draftId }) {
   const [open, setOpen] = useState(false)
   const [CaptionStyleEditor, setCaptionStyleEditor] = useState(null)
-  // Live preset name on the fold button, so users see which preset
-  // (if any) is set as default without opening the fold. Fetched on
-  // mount + refreshed when the fold closes (to pick up changes the
-  // user made during the session). Matches by deep-compare against
-  // CAPTION_PRESETS configs.
-  const [defaultPresetName, setDefaultPresetName] = useState(null)
-  const [defaultPresetEmoji, setDefaultPresetEmoji] = useState(null)
-  const [loadedOnce, setLoadedOnce] = useState(false)
+  // Full caption_style config for the job default — used to drive the
+  // closed-state preview below the fold toggle, so users see WHAT the
+  // default actually looks like (font / color / preset name) without
+  // opening the editor.
+  const [defaultCs, setDefaultCs] = useState(null)
+  const [defaultPreset, setDefaultPreset] = useState(null) // { name, emoji } | null
+  // Bumped by the editor's onClose to force a re-fetch after the user
+  // saves. Tracking closed-transitions via a counter rather than a
+  // boolean is simpler than threading "did anything change".
+  const [reloadKey, setReloadKey] = useState(0)
+
   useEffect(() => {
     if (!open || CaptionStyleEditor) return
     import('../../components/fonts/CaptionStyleEditor').then(m => setCaptionStyleEditor(() => m.default))
   }, [open, CaptionStyleEditor])
+
   useEffect(() => {
     if (!draftId) return
     let cancelled = false
-    // Refresh only when the fold CLOSES (or first mount) — no need to
-    // poll while the editor is open since the editor owns the state.
-    if (open && loadedOnce) return
     Promise.all([
       api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
       import('../../lib/captionPresets/catalog'),
     ]).then(([r, mod]) => {
       if (cancelled) return
-      const cs = r?.caption_style
-      if (!cs) { setDefaultPresetName(null); setDefaultPresetEmoji(null); return }
+      const cs = r?.caption_style || null
+      setDefaultCs(cs)
+      if (!cs) { setDefaultPreset(null); return }
       const matched = findPresetByConfig(cs, mod.CAPTION_PRESETS)
-      if (matched) {
-        setDefaultPresetName(matched.displayName)
-        setDefaultPresetEmoji(matched.thumbnailEmoji)
-      } else {
-        setDefaultPresetName('custom')
-        setDefaultPresetEmoji(null)
-      }
-      setLoadedOnce(true)
+      setDefaultPreset(matched ? { name: matched.displayName, emoji: matched.thumbnailEmoji } : null)
     })
     return () => { cancelled = true }
-  }, [draftId, open, loadedOnce])
+  }, [draftId, reloadKey])
 
   return (
     <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
       <button
         type="button"
-        onClick={() => setOpen(v => !v)}
+        onClick={() => {
+          // Closing via the outer toggle → refetch on next render so
+          // any in-editor saves show up in the closed-state preview.
+          if (open) setReloadKey(k => k + 1)
+          setOpen(v => !v)
+        }}
         className="w-full flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 cursor-pointer hover:border-[#6C5CE7]/60"
         title="Style that applies to every segment unless the segment has its own custom style"
       >
         <span className="text-[14px] leading-none">🎨</span>
         <span className="text-[11px] font-medium text-left">Default caption style</span>
-        {defaultPresetName && !open && (
-          <span
-            className="text-[10px] py-0.5 px-1.5 rounded border bg-white border-[#6C5CE7]/40 text-[#6C5CE7] flex items-center gap-1"
-            title="Current default preset"
-          >
-            {defaultPresetEmoji && <span className="text-[11px] leading-none">{defaultPresetEmoji}</span>}
-            {defaultPresetName}
-          </span>
-        )}
         <div className="flex-1" />
-        <span className="text-[9px] text-muted">{open ? 'close' : 'open'}</span>
         <span className="text-[11px] text-muted">{open ? '▾' : '▸'}</span>
       </button>
+
+      {/* Always-visible current-state row. When a default is set, show a
+          styled sample ("The quick brown fox") rendered in the actual
+          default font/color with a pill noting whether it matches a
+          named preset. When no default is set, show a nudge. Hidden
+          while the editor fold is open so the editor's own header is
+          authoritative. */}
+      {!open && (
+        defaultCs ? (
+          <div className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded px-2 py-1.5">
+            <span
+              className="text-[13px] flex-1 truncate"
+              style={{
+                fontFamily: `'${defaultCs.base_font_family || 'Inter'}', system-ui, sans-serif`,
+                color: defaultCs.base_font_color || '#111827',
+                fontWeight: 700,
+                // Show outline color as a drop shadow so the sample is
+                // legible on white even when the text color is light.
+                textShadow: defaultCs.active_word_outline_config?.color
+                  ? `0 0 2px ${defaultCs.active_word_outline_config.color}`
+                  : undefined,
+              }}
+            >The quick brown fox</span>
+            {defaultPreset ? (
+              <span
+                className="text-[10px] py-0.5 px-1.5 rounded border bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7] flex items-center gap-1 shrink-0"
+                title={`Matches the "${defaultPreset.name}" preset`}
+              >
+                {defaultPreset.emoji && <span className="text-[11px] leading-none">{defaultPreset.emoji}</span>}
+                {defaultPreset.name}
+              </span>
+            ) : (
+              <span
+                className="text-[9px] py-0.5 px-1.5 rounded border bg-[#fafafa] border-[#e5e5e5] text-muted shrink-0"
+                title="Custom — doesn't match any preset"
+              >custom</span>
+            )}
+          </div>
+        ) : (
+          <div className="text-[10px] text-muted italic px-2 py-1">
+            No default set. Every segment renders with its own style (or the app's minimal fallback).
+          </div>
+        )
+      )}
+
       {open && CaptionStyleEditor && (
         <CaptionStyleEditor
           mode="default"
           jobUuid={draftId}
-          onClose={() => { setOpen(false); setLoadedOnce(false) }}
+          onClose={() => { setOpen(false); setReloadKey(k => k + 1) }}
         />
       )}
       {open && !CaptionStyleEditor && (
