@@ -1373,7 +1373,7 @@ function CaptionedPreviewFold({ draftId, hasSegments }) {
         }
       } catch { /* server-side primary still works if persisted */ }
 
-      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
+      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64, preview: true })
       if (!r?.final_url) throw new Error('Server returned no final URL')
       setPreviewUrl(r.final_url)
       setState('ready')
@@ -1415,14 +1415,15 @@ function CaptionedPreviewFold({ draftId, hasSegments }) {
               type="button"
               onClick={renderPreview}
               className="w-full py-2 bg-[#f59e0b] text-white text-[11px] font-medium border-none rounded cursor-pointer"
-            >▶ Render preview (30–60 s)</button>
+              title="Half-resolution render with all animations. Full-quality rendering happens at Download."
+            >▶ Render preview (~15 s)</button>
           )}
 
           {state === 'rendering' && (
             <div className="bg-black text-white/80 text-[10px] rounded p-3 text-center">
-              <div className="animate-pulse">Rendering…</div>
+              <div className="animate-pulse">Rendering preview…</div>
               <div className="text-[9px] text-white/50 mt-1">
-                Full pipeline: merge → voiceover mix → Remotion caption pass
+                Half-res caption pass. Download runs full-res separately.
               </div>
             </div>
           )}
