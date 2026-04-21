@@ -855,6 +855,15 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         </div>
       )}
 
+      {/* Job-level default caption style. Foldable section — edits
+          jobs.default_caption_style, which every segment inherits
+          unless it has its own row. Kept outside of SegmentRow so it
+          doesn't live under any one segment; lazy-loaded so the font
+          picker isn't pulled until a user opens it. */}
+      {draftId && (
+        <DefaultCaptionStyleFold draftId={draftId} />
+      )}
+
       <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
         <div className="flex items-center gap-2">
           <div className="text-[12px] font-medium flex-1">Timed segments</div>
@@ -1146,6 +1155,46 @@ function formatSec(n) {
 // --- Script tab -----------------------------------------------------------
 // One pasted script drives three outputs: AI voice (primary + segments),
 // human recording with teleprompter, and on-screen captions (overlays).
+// Job-level default caption style — foldable panel that mounts
+// CaptionStyleEditor in 'default' mode. Lazy-loaded so the font
+// picker + ~50 Google Fonts aren't pulled when the panel stays
+// closed. Mirrors the lazy-load pattern used per-segment in
+// SegmentRow below.
+function DefaultCaptionStyleFold({ draftId }) {
+  const [open, setOpen] = useState(false)
+  const [CaptionStyleEditor, setCaptionStyleEditor] = useState(null)
+  useEffect(() => {
+    if (!open || CaptionStyleEditor) return
+    import('../../components/fonts/CaptionStyleEditor').then(m => setCaptionStyleEditor(() => m.default))
+  }, [open, CaptionStyleEditor])
+
+  return (
+    <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 cursor-pointer hover:border-[#6C5CE7]/60"
+        title="Style that applies to every segment unless the segment has its own custom style"
+      >
+        <span className="text-[14px] leading-none">🎨</span>
+        <span className="text-[11px] font-medium flex-1 text-left">Default caption style</span>
+        <span className="text-[9px] text-muted">{open ? 'close' : 'open'}</span>
+        <span className="text-[11px] text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && CaptionStyleEditor && (
+        <CaptionStyleEditor
+          mode="default"
+          jobUuid={draftId}
+          onClose={() => setOpen(false)}
+        />
+      )}
+      {open && !CaptionStyleEditor && (
+        <div className="text-[10px] text-muted italic text-center py-2">Loading…</div>
+      )}
+    </div>
+  )
+}
+
 // Phase 7.2 — transition between adjacent voiceover segments. Read-
 // write against /jobs/:id/segment-transition. Debounces the save on
 // slider change so every keypress doesn't hit the API.

@@ -5,25 +5,25 @@ import CaptionPresetPicker from './CaptionPresetPicker'
 import { CAPTION_PRESETS } from '../../lib/captionPresets/catalog'
 
 /**
- * Minimal caption-style authoring UI (Phase 4.5). Wired to a single
- * voiceover segment via its (jobUuid, segmentId) pair. The point is
- * to unblock end-to-end testing of the Phase 1–3 pipeline with the
- * new visual font picker — not to be a final authoring experience.
+ * Caption-style authoring UI. Two modes:
  *
- * Shape matches the caption_styles row / PUT body: we send
- * camelCase → snake_case at the boundary since the backend's
- * whitelist expects column names.
+ *   mode='segment'  — (default) edits ONE segment's caption_styles row.
+ *                     Shows inheritance banner + "Use job default"
+ *                     button + "Set as default" on preset picker +
+ *                     preview render tied to the segment's audio.
  *
- * Default inheritance (Phase 6.4.1):
- *   - Segments without their own caption_styles row inherit from
- *     jobs.default_caption_style.
- *   - "Set as default" button in the preset picker writes the preset
- *     to the job default via PUT /jobs/:id/default-caption-style.
- *   - "Use job default" button drops THIS segment's override via
- *     DELETE /jobs/:id/voiceover/:segmentId/caption-style so the
- *     segment starts inheriting again.
+ *   mode='default'  — edits the JOB-LEVEL default_caption_style that
+ *                     applies to every segment without its own row.
+ *                     No inheritance banner, no preview (not tied to
+ *                     any single segment's audio), and the Save button
+ *                     writes to PUT /jobs/:id/default-caption-style.
+ *
+ * Shape matches the caption_styles row / PUT body: we send camelCase
+ * → snake_case at the boundary since the backend's whitelist expects
+ * column names.
  */
-export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
+export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode = 'segment' }) {
+  const isDefault = mode === 'default'
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
@@ -84,12 +84,26 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   const [previewErr, setPreviewErr] = useState(null)
 
   useEffect(() => {
-    if (!jobUuid || !segmentId) return
+    if (!jobUuid) return
+    if (mode === 'segment' && !segmentId) return
     setLoading(true)
-    // Load the per-segment caption_styles row AND the job's
-    // default_caption_style in parallel. If the segment has no row,
-    // hydrate the form from the default so the user sees what they'd
-    // be inheriting before they customize.
+    if (isDefault) {
+      // Default-mode: only the job default matters. Inheritance banner
+      // is meaningless here (this IS what other segments inherit).
+      api.getJobDefaultCaptionStyle(jobUuid).catch(() => ({ caption_style: null }))
+        .then(defRes => {
+          const defCs = defRes?.caption_style || null
+          if (defCs) hydrateFormFromConfig(defCs)
+          setInheriting(false)
+          setAppliedPresetId(defCs ? findMatchingPresetId(defCs) : null)
+          setDefaultPresetId(defCs ? findMatchingPresetId(defCs) : null)
+        }).finally(() => setLoading(false))
+      return
+    }
+    // Segment-mode: load the per-segment caption_styles row AND the
+    // job's default_caption_style in parallel. If the segment has no
+    // row, hydrate the form from the default so the user sees what
+    // they'd be inheriting before they customize.
     Promise.all([
       api.getCaptionStyle(jobUuid, segmentId).catch(() => ({ caption_style: null })),
       api.getJobDefaultCaptionStyle(jobUuid).catch(() => ({ caption_style: null })),
@@ -104,7 +118,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
       setAppliedPresetId(segCs ? findMatchingPresetId(segCs) : (defCs ? findMatchingPresetId(defCs) : null))
       setDefaultPresetId(defCs ? findMatchingPresetId(defCs) : null)
     }).finally(() => setLoading(false))
-  }, [jobUuid, segmentId])
+  }, [jobUuid, segmentId, mode, isDefault])
 
   // Helper: populate every form field from a caption_styles-shaped
   // config object (works for both segment rows and job defaults).
@@ -141,10 +155,22 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   const save = async () => {
     setSaving(true); setErr(null)
     try {
-      await api.saveCaptionStyle(jobUuid, segmentId, currentConfigBody())
-      setInheriting(false) // segment now has its own row
-      // Fire a preview render in the background — don't block the close.
-      triggerPreview()
+      if (isDefault) {
+        // Default mode — writes to the job-level default. No preview
+        // because there's no specific segment audio to pair with.
+        const body = currentConfigBody()
+        await api.saveJobDefaultCaptionStyle(jobUuid, body)
+        setDefaultPresetId(findMatchingPresetId(
+          // Snake-case the body for matcher consistency (the matcher
+          // compares against preset.config which is snake-cased).
+          body
+        ))
+      } else {
+        await api.saveCaptionStyle(jobUuid, segmentId, currentConfigBody())
+        setInheriting(false) // segment now has its own row
+        // Fire a preview render in the background — don't block the close.
+        triggerPreview()
+      }
     } catch (e) {
       setErr(e.message || String(e))
     } finally {
@@ -233,7 +259,9 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
   return (
     <div className="bg-[#fafafa] border border-[#e5e5e5] rounded-lg p-3 space-y-2.5">
       <div className="flex items-center gap-2">
-        <div className="text-[12px] font-medium flex-1">Caption style</div>
+        <div className="text-[12px] font-medium flex-1">
+          {isDefault ? 'Default caption style' : 'Caption style'}
+        </div>
         <button
           onClick={() => setPresetsOpen(v => !v)}
           className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
@@ -247,11 +275,10 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
         )}
       </div>
 
-      {/* Inheritance banner — shown when this segment has no per-segment
-          caption_styles row and is rendering with whatever is in the
-          job default. Clicking Save creates an override; clicking any
-          field also creates one on save. */}
-      {inheriting && (
+      {/* Segment-mode inheritance UI. Hidden in default-mode because
+          the default IS the thing being inherited — it can't inherit
+          from itself. */}
+      {!isDefault && inheriting && (
         <div className="bg-[#f0faf4] border border-[#2D9A5E]/30 rounded px-2 py-1.5 text-[10px] text-[#2D9A5E] flex items-center gap-2">
           <span className="flex-1">
             <span className="font-medium">Inheriting job default.</span>{' '}
@@ -259,7 +286,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
           </span>
         </div>
       )}
-      {!inheriting && defaultPresetId && (
+      {!isDefault && !inheriting && defaultPresetId && (
         <div className="flex items-center justify-between bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] text-muted gap-2">
           <span>This segment overrides the job default.</span>
           <button
@@ -275,50 +302,61 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
       {presetsOpen && (
         <CaptionPresetPicker
           onApply={applyPreset}
-          onSetDefault={setAsDefault}
+          // In default-mode, the "Set as default" action is meaningless
+          // (the whole editor is already editing the default). Hiding
+          // onSetDefault suppresses the per-tile action in the picker.
+          onSetDefault={isDefault ? undefined : setAsDefault}
           selectedId={appliedPresetId}
           defaultId={defaultPresetId}
         />
       )}
 
-      {/* Preview — 4-second Remotion render at half-res. Shows up after
-          the first Save, so the user sees their style as it will ship
-          (active-word effects, animations, reveals, fonts). Re-renders
-          on every subsequent Save. */}
-      <div className="bg-black rounded overflow-hidden relative aspect-[9/16] max-h-[40vh] mx-auto">
-        {previewLoading && (
-          <div className="absolute inset-0 flex items-center justify-center text-white/80 text-[11px] bg-black/60">
-            <div className="text-center">
-              <div className="text-[10px] animate-pulse">Rendering preview…</div>
-              <div className="text-[9px] text-white/50 mt-1">~5–8 seconds</div>
-            </div>
+      {/* Preview — 4-second Remotion render at half-res. Segment mode
+          only — the default-style editor has no specific segment audio
+          to pair with, so the preview block is hidden there. */}
+      {!isDefault && (
+        <>
+          <div className="bg-black rounded overflow-hidden relative aspect-[9/16] max-h-[40vh] mx-auto">
+            {previewLoading && (
+              <div className="absolute inset-0 flex items-center justify-center text-white/80 text-[11px] bg-black/60">
+                <div className="text-center">
+                  <div className="text-[10px] animate-pulse">Rendering preview…</div>
+                  <div className="text-[9px] text-white/50 mt-1">~5–8 seconds</div>
+                </div>
+              </div>
+            )}
+            {previewUrl ? (
+              <video
+                key={previewUrl}
+                src={previewUrl}
+                controls
+                playsInline
+                autoPlay
+                muted={false}
+                className="w-full h-full object-contain bg-black"
+              />
+            ) : !previewLoading ? (
+              <div className="flex items-center justify-center h-full text-white/50 text-[11px] px-4 text-center">
+                Save caption style to render a 4-second preview here.
+              </div>
+            ) : null}
           </div>
-        )}
-        {previewUrl ? (
-          <video
-            key={previewUrl}
-            src={previewUrl}
-            controls
-            playsInline
-            autoPlay
-            muted={false}
-            className="w-full h-full object-contain bg-black"
-          />
-        ) : !previewLoading ? (
-          <div className="flex items-center justify-center h-full text-white/50 text-[11px] px-4 text-center">
-            Save caption style to render a 4-second preview here.
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={triggerPreview}
+              disabled={previewLoading}
+              className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+            >{previewLoading ? 'Rendering…' : '▶ Preview now'}</button>
+            {previewErr && <span className="text-[9px] text-[#c0392b]">{previewErr}</span>}
           </div>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={triggerPreview}
-          disabled={previewLoading}
-          className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
-        >{previewLoading ? 'Rendering…' : '▶ Preview now'}</button>
-        {previewErr && <span className="text-[9px] text-[#c0392b]">{previewErr}</span>}
-      </div>
+        </>
+      )}
+      {isDefault && (
+        <div className="text-[10px] text-muted italic">
+          Applies to every segment that hasn't been customized. Individual segments can still override it.
+        </div>
+      )}
 
       {/* Base font */}
       <div className="space-y-1">
@@ -421,7 +459,24 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose }) {
           onClick={save}
           disabled={saving}
           className="flex-1 text-[11px] py-1.5 bg-[#2D9A5E] text-white border-none rounded cursor-pointer font-medium disabled:opacity-50"
-        >{saving ? 'Saving…' : 'Save caption style'}</button>
+        >{saving ? 'Saving…' : (isDefault ? 'Save as job default' : 'Save caption style')}</button>
+        {isDefault && defaultPresetId && (
+          <button
+            type="button"
+            onClick={async () => {
+              setSaving(true); setErr(null)
+              try {
+                await api.saveJobDefaultCaptionStyle(jobUuid, { clear: true })
+                setDefaultPresetId(null)
+                setAppliedPresetId(null)
+              } catch (e) { setErr(e.message || String(e)) }
+              finally { setSaving(false) }
+            }}
+            disabled={saving}
+            className="text-[11px] py-1.5 px-3 bg-white border border-[#c0392b]/40 text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
+            title="Remove the job default. Segments without their own style will render with the app's built-in minimal style."
+          >Clear</button>
+        )}
         {onClose && (
           <button
             type="button"
