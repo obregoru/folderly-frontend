@@ -563,7 +563,7 @@ export const renderSegmentPreview = ({ jobUuid, segmentId, videoUrl, audioUrl, t
 // caption timeline → primary+timed voiceovers. Server reads all the pieces
 // off the job record. Optional `primaryAudioBase64` lets the client pass
 // an in-memory primary voice that hasn't been persisted yet.
-export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime, preview } = {}) =>
+export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime, preview, previewSeconds } = {}) =>
   fetch(api('/post/render-final'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -572,9 +572,12 @@ export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime
       job_id: jobUuid,
       primary_audio_base64: primaryAudioBase64 || null,
       primary_audio_start_time: primaryAudioStartTime != null ? Number(primaryAudioStartTime) : 0,
-      // Preview mode: half-res + lower crf + lower JPEG quality on
-      // the Remotion caption pass. Cuts a 60s render to ~15s.
+      // Preview mode: renders only the first previewSeconds of frames
+      // at FULL resolution (defaults to 5s server-side). Dropping the
+      // frame count is the only lever that meaningfully moves preview
+      // time — scale/crf tweaks capped at ~12% savings in benchmarks.
       preview: preview === true,
+      preview_seconds: typeof previewSeconds === 'number' ? previewSeconds : undefined,
     }),
   }).then(async r => {
     if (!r.ok) {

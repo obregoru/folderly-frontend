@@ -1415,15 +1415,15 @@ function CaptionedPreviewFold({ draftId, hasSegments }) {
               type="button"
               onClick={renderPreview}
               className="w-full py-2 bg-[#f59e0b] text-white text-[11px] font-medium border-none rounded cursor-pointer"
-              title="Half-resolution render with all animations. Full-quality rendering happens at Download."
-            >▶ Render preview (~15 s)</button>
+              title="Renders the first 5 seconds at full resolution with every effect enabled. Download renders the full clip."
+            >▶ Render 5-sec preview</button>
           )}
 
           {state === 'rendering' && (
             <div className="bg-black text-white/80 text-[10px] rounded p-3 text-center">
               <div className="animate-pulse">Rendering preview…</div>
               <div className="text-[9px] text-white/50 mt-1">
-                Half-res caption pass. Download runs full-res separately.
+                First 5 seconds at full resolution. Download renders the full clip.
               </div>
             </div>
           )}
