@@ -4,6 +4,9 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 // on initial panel mount — only when the user actually opens the
 // picker panel from the Style row.
 const FontPicker = lazy(() => import('../../components/fonts/FontPicker'))
+// Same lazy pattern for the caption preset picker — presets only
+// matter when the user opens the "Apply caption preset" fold below.
+const CaptionPresetPicker = lazy(() => import('../../components/fonts/CaptionPresetPicker'))
 
 /**
  * OverlaysPanelV2 — on-screen text overlays burned into the final video.
@@ -313,6 +316,28 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           </Suspense>
         )}
 
+        {/* Caption preset picker — applies only the overlay-compatible
+            fields from a preset (font + color + outline). Word-timing
+            effects, reveals, entry animations, text fills, and
+            backdrop-filter backgrounds don't apply to static FFmpeg
+            drawtext overlays and are silently ignored. */}
+        <OverlayPresetFold
+          onApply={(preset) => {
+            const c = preset.config || {}
+            if (c.base_font_family) setFontFamily(c.base_font_family)
+            if (c.base_font_color) setFontColor(c.base_font_color)
+            if (c.active_word_outline_config?.type === 'outline') {
+              setFontOutline(true)
+              if (Number(c.active_word_outline_config.width) > 0) {
+                setOutlineWidth(Math.round(c.active_word_outline_config.width))
+              }
+            } else if (c.active_word_outline_config === null || c.active_word_outline_config === undefined) {
+              // Leave existing outline choice alone when preset doesn't
+              // specify one — user may have set it explicitly.
+            }
+          }}
+        />
+
         <div className="flex items-center gap-2 text-[10px] flex-wrap">
           <label className="flex items-center gap-1 text-muted">
             <span>Line height:</span>
@@ -372,6 +397,47 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">
         Preview shown live on the video above. Y position avoids the platform's reserved zones (top status bar / bottom caption & UI bar).
       </div>
+    </div>
+  )
+}
+
+// Foldable "Apply caption preset" UI. Only the overlay-compatible
+// fields flow through — word timings, active-word effects, reveals,
+// and animations are caption-layer concepts that don't map onto
+// FFmpeg drawtext burn-in. Rendered as an advisory line under the
+// picker so users aren't surprised when their "Floating Wave"
+// preset doesn't actually wave on the overlay.
+function OverlayPresetFold({ onApply }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border border-[#e5e5e5] rounded bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 p-2 cursor-pointer hover:bg-[#fafafa]"
+        title="Apply a caption preset — only font/color/outline flow through"
+      >
+        <span className="text-[14px] leading-none">🎭</span>
+        <span className="text-[11px] font-medium flex-1 text-left">Apply caption preset</span>
+        <span className="text-[11px] text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="px-2 pb-2 space-y-1.5">
+          <div className="text-[9px] text-muted italic bg-[#fdf2f1] border border-[#c0392b]/20 rounded px-2 py-1">
+            Overlays are burned statically by FFmpeg. Word timings,
+            active-word effects, reveals, animations, text fills, and
+            blurred/highlighter backgrounds don't apply here — only
+            font, color, and outline transfer.
+          </div>
+          <Suspense fallback={<div className="text-[10px] text-muted italic py-2 text-center">Loading presets…</div>}>
+            <CaptionPresetPicker
+              onApply={(preset) => { onApply(preset); setOpen(false) }}
+              selectedId={null}
+              defaultId={null}
+            />
+          </Suspense>
+        </div>
+      )}
     </div>
   )
 }
