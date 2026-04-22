@@ -151,84 +151,111 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     }
   }, [previewRef])
 
-  // Wire playback sync: primary audio + segment firing on timeupdate
+  // Wire playback sync: primary audio + segment firing on timeupdate.
+  //
+  // This panel now stays mounted across every editor tab (so audio
+  // plays on Overlays / Captions / Channels), but that means the
+  // effect can fire BEFORE FinalPreviewV2's <video> element exists
+  // (first paint, or before a source resolves). Poll via rAF until
+  // the element appears, then attach listeners once.
   useEffect(() => {
-    const video = previewRef?.current?.getVideo?.()
-    if (!video) return
+    let cancelled = false
+    let rafId = null
+    let detach = () => {}
 
-    const resetAll = () => {
-      primaryFiredRef.current = false
-      segFiredRef.current.clear()
-      for (const a of segAudioMapRef.current.values()) {
-        try { a.pause(); a.currentTime = 0 } catch {}
+    const attachListeners = (video) => {
+      const resetAll = () => {
+        primaryFiredRef.current = false
+        segFiredRef.current.clear()
+        for (const a of segAudioMapRef.current.values()) {
+          try { a.pause(); a.currentTime = 0 } catch {}
+        }
+        const primary = audioEl()
+        if (primary) try { primary.pause(); primary.currentTime = 0 } catch {}
       }
-      const primary = audioEl()
-      if (primary) try { primary.pause(); primary.currentTime = 0 } catch {}
-    }
 
-    const onPlay = () => {
-      // Primary fires immediately when video starts (t >= 0)
-      const primary = audioEl()
-      if (primary && audioUrl && !primaryFiredRef.current) {
-        try {
-          primary.currentTime = Math.max(0, video.currentTime)
-          primary.volume = 1.0
-          const p = primary.play()
-          if (p && p.catch) p.catch(() => {})
-          primaryFiredRef.current = true
-        } catch {}
-      }
-      // Dim / mute video track based on mix mode (only if we have any VO)
-      const hasVo = !!audioUrl || segments.some(s => s.audioUrl)
-      if (hasVo) {
-        if (mixMode === 'mix') { try { video.volume = origVolume / 100; video.muted = false } catch {} }
-        else                   { try { video.muted = true } catch {} }
-      }
-    }
-    const onPause = () => {
-      const primary = audioEl()
-      if (primary) try { primary.pause() } catch {}
-      for (const a of segAudioMapRef.current.values()) try { a.pause() } catch {}
-    }
-    const onSeek = () => {
-      const t = video.currentTime
-      const primary = audioEl()
-      if (primary) try { primary.currentTime = Math.max(0, t) } catch {}
-      // Segments whose startTime is AFTER current time should refire later
-      for (const s of segments) {
-        if ((Number(s.startTime) || 0) > t) segFiredRef.current.delete(s.id)
-      }
-      // Segments already past: mark fired and stop
-      for (const s of segments) {
-        if ((Number(s.startTime) || 0) <= t) segFiredRef.current.add(s.id)
-      }
-    }
-    const onTimeUpdate = () => {
-      const t = video.currentTime
-      for (const s of segments) {
-        if (segFiredRef.current.has(s.id)) continue
-        const start = Number(s.startTime) || 0
-        if (t >= start) {
-          const a = segAudioMapRef.current.get(s.id)
-          if (!a) continue
-          segFiredRef.current.add(s.id)
-          try { a.currentTime = 0; a.play().catch(() => {}) } catch {}
+      const onPlay = () => {
+        const primary = audioEl()
+        if (primary && audioUrl && !primaryFiredRef.current) {
+          try {
+            primary.currentTime = Math.max(0, video.currentTime)
+            primary.volume = 1.0
+            const p = primary.play()
+            if (p && p.catch) p.catch(() => {})
+            primaryFiredRef.current = true
+          } catch {}
+        }
+        // Dim / mute video track based on mix mode (only if we have any VO).
+        const hasVo = !!audioUrl || segments.some(s => s.audioUrl)
+        if (hasVo) {
+          if (mixMode === 'mix') { try { video.volume = origVolume / 100; video.muted = false } catch {} }
+          else                   { try { video.muted = true } catch {} }
         }
       }
-    }
-    const onEnded = () => resetAll()
+      const onPause = () => {
+        const primary = audioEl()
+        if (primary) try { primary.pause() } catch {}
+        for (const a of segAudioMapRef.current.values()) try { a.pause() } catch {}
+      }
+      const onSeek = () => {
+        const t = video.currentTime
+        const primary = audioEl()
+        if (primary) try { primary.currentTime = Math.max(0, t) } catch {}
+        for (const s of segments) {
+          if ((Number(s.startTime) || 0) > t) segFiredRef.current.delete(s.id)
+        }
+        for (const s of segments) {
+          if ((Number(s.startTime) || 0) <= t) segFiredRef.current.add(s.id)
+        }
+      }
+      const onTimeUpdate = () => {
+        const t = video.currentTime
+        for (const s of segments) {
+          if (segFiredRef.current.has(s.id)) continue
+          const start = Number(s.startTime) || 0
+          if (t >= start) {
+            const a = segAudioMapRef.current.get(s.id)
+            if (!a) continue
+            segFiredRef.current.add(s.id)
+            try { a.currentTime = 0; a.play().catch(() => {}) } catch {}
+          }
+        }
+      }
+      const onEnded = () => resetAll()
 
-    video.addEventListener('play', onPlay)
-    video.addEventListener('pause', onPause)
-    video.addEventListener('seeking', onSeek)
-    video.addEventListener('timeupdate', onTimeUpdate)
-    video.addEventListener('ended', onEnded)
+      video.addEventListener('play', onPlay)
+      video.addEventListener('pause', onPause)
+      video.addEventListener('seeking', onSeek)
+      video.addEventListener('timeupdate', onTimeUpdate)
+      video.addEventListener('ended', onEnded)
+      detach = () => {
+        video.removeEventListener('play', onPlay)
+        video.removeEventListener('pause', onPause)
+        video.removeEventListener('seeking', onSeek)
+        video.removeEventListener('timeupdate', onTimeUpdate)
+        video.removeEventListener('ended', onEnded)
+      }
+    }
+
+    const tryAttach = () => {
+      if (cancelled) return
+      const video = previewRef?.current?.getVideo?.()
+      if (!video) {
+        rafId = requestAnimationFrame(tryAttach)
+        return
+      }
+      attachListeners(video)
+    }
+
+    tryAttach()
     return () => {
-      video.removeEventListener('play', onPlay)
-      video.removeEventListener('pause', onPause)
-      video.removeEventListener('seeking', onSeek)
-      video.removeEventListener('timeupdate', onTimeUpdate)
-      video.removeEventListener('ended', onEnded)
+      cancelled = true
+      if (rafId != null) cancelAnimationFrame(rafId)
+      detach()
+      try { audioElRef.current?.pause() } catch {}
+      for (const a of segAudioMapRef.current.values()) try { a.pause() } catch {}
+      primaryFiredRef.current = false
+      segFiredRef.current.clear()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioUrl, mixMode, origVolume, segments, previewRef])
