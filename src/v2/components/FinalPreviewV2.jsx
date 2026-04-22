@@ -425,11 +425,61 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
             onChange={setCaptionFontSizeOverride}
           />
         )}
+        {showCaptionSlider && (
+          <ApplyCaptionToAllButton
+            draftId={draftId}
+            fontSize={captionFontSizeOverride}
+            verticalPosition={vpOverride}
+          />
+        )}
       </div>
     )}
     </div>
   )
 })
+
+// Cascade the caption font + vertical-position slider values into
+// every segment's caption_styles row. Without this, segments that
+// had a preset applied earlier kept their row's baseFontSize /
+// verticalPosition, so the slider looked like a no-op in the
+// downloaded video even though the live preview showed the override.
+// One POST handles both the default save and the cascade atomically.
+function ApplyCaptionToAllButton({ draftId, fontSize, verticalPosition }) {
+  const [state, setState] = useState('idle') // idle | working | done | error
+  const [msg, setMsg] = useState('')
+  const handle = async () => {
+    if (state === 'working' || !draftId) return
+    setState('working'); setMsg('')
+    try {
+      const body = {}
+      if (typeof fontSize === 'number') body.base_font_size = fontSize
+      if (typeof verticalPosition === 'number') body.vertical_position = verticalPosition
+      const r = await api.cascadeJobDefaultCaptionStyle(draftId, body)
+      const n = Number(r?.updated) || 0
+      setMsg(n === 0
+        ? 'No per-segment rows to update — default already applies to all'
+        : `Applied to ${n} segment${n === 1 ? '' : 's'}`)
+      setState('done')
+      setTimeout(() => { setState('idle'); setMsg('') }, 2500)
+    } catch (e) {
+      setMsg(e?.message || 'Failed')
+      setState('error')
+      setTimeout(() => { setState('idle'); setMsg('') }, 3500)
+    }
+  }
+  const label = state === 'working' ? 'Applying…'
+    : state === 'done' ? `✓ ${msg}`
+    : state === 'error' ? `Error: ${msg.slice(0, 60)}`
+    : 'Apply to all segments'
+  return (
+    <button
+      onClick={handle}
+      disabled={state === 'working'}
+      className="text-[10px] bg-[#f59e0b]/15 border border-[#f59e0b]/40 text-[#b45309] rounded px-2.5 py-1.5 cursor-pointer disabled:opacity-60 hover:bg-[#f59e0b]/25"
+      title="Apply the caption font + vertical position sliders to every voiceover segment, including those with a preset row that would otherwise shadow the default."
+    >{label}</button>
+  )
+}
 
 // Closed-caption text — YouTube-style subtitle band at the very bottom.
 // Distinct from OverlayText (three-block story text in the middle) and

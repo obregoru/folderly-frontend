@@ -780,6 +780,19 @@ export const saveJobDefaultCaptionStyle = (jobUuid, body) =>
     body: JSON.stringify(body),
   }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 
+// Propagate the job default's base_font_size and
+// layout_config.verticalPosition to every segment's caption_styles
+// row. Body lets the caller flush the sliders' current values to the
+// default in the same round-trip: { base_font_size?, vertical_position? }.
+// Returns { ok, updated, applied }.
+export const cascadeJobDefaultCaptionStyle = (jobUuid, body = {}) =>
+  fetch(api(`/jobs/${jobUuid}/default-caption-style/cascade`), {
+    method: 'POST',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify(body),
+  }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
 // Phase 7.1 — emoji injection. Returns { original, enriched, noop }.
 // Stateless — caller decides whether to replace the segment's text
 // with the enriched version.
