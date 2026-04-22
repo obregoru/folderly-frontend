@@ -15,6 +15,34 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
   const [assets, setAssets] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  // Bumped by `posty-voiceover-change` so editor toggles (segment
+  // hideCaption, job-level hideCaptions, add/remove segments, etc.)
+  // force a refetch without having to reach into this hook's caller.
+  const [refetchKey, setRefetchKey] = useState(0)
+
+  // Listen for voiceover edits dispatched by VoiceoverPanelV2. The
+  // hook otherwise only refetches on draftId change — a toggle would
+  // save to the DB but the preview would keep rendering the stale
+  // cues snapshot taken at first mount.
+  //
+  // The 1000ms delay is load-bearing: saveVoiceoverSettings goes
+  // through jobSync.debouncedSaveJob (800ms), so refetching any
+  // sooner would read the DB BEFORE the save lands and pull the
+  // stale rows back in. 1000ms gives the debounce + network
+  // round-trip enough slack. Rapid successive events collapse via
+  // the timeout clear so only the last toggle triggers a refetch.
+  useEffect(() => {
+    let timeoutId = null
+    const onChange = () => {
+      if (timeoutId) clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => setRefetchKey(k => k + 1), 1000)
+    }
+    window.addEventListener('posty-voiceover-change', onChange)
+    return () => {
+      window.removeEventListener('posty-voiceover-change', onChange)
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [])
 
   useEffect(() => {
     if (!enabled || !draftId) {
@@ -117,7 +145,7 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
       }
     })()
     return () => { cancelled = true }
-  }, [draftId, enabled])
+  }, [draftId, enabled, refetchKey])
 
   return { assets, loading, error }
 }

@@ -114,6 +114,15 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // doesn't silently creep back in.
       hideCaptions: !!hideCaptions,
     })
+    // Tell the live preview to refetch its cues. Same pattern
+    // OverlaysPanelV2 uses with 'posty-overlay-change'. Without this,
+    // useLivePreviewAssets only refetches on draftId change and the
+    // preview keeps showing stale cues after a toggle.
+    try {
+      window.dispatchEvent(new CustomEvent('posty-voiceover-change', {
+        detail: { segments: clean, hideCaptions: !!hideCaptions },
+      }))
+    } catch { /* fine — browser without CustomEvent */ }
   }, [segments, voiceId, hideCaptions, segLoaded, jobSync])
 
   // Keep primary audio URL in sync with its blob
