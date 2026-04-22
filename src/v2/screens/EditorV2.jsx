@@ -132,7 +132,7 @@ export default function EditorV2({
           <div className="text-[10px] text-muted">
             Bakes overlays, closed captions, and voiceover into the merged video. Takes 10–30s. On phone, opens the share sheet so you can Save to Photos.
           </div>
-          <DownloadFinalButton draftId={draftId} />
+          <DownloadFinalButton draftId={draftId} jobSync={jobSync} />
         </div>
       )}
     </div>

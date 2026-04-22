@@ -782,7 +782,7 @@ export function DownloadButton({ url, label: idleLabel = '⬇ Download' }) {
 //          trigger an <a download> (desktop) *synchronously* inside the
 //          click handler. iOS Safari otherwise rejects the share because
 //          the 4–6s render would expire the original user activation.
-export function DownloadFinalButton({ draftId }) {
+export function DownloadFinalButton({ draftId, jobSync }) {
   const [state, setState] = useState('idle') // idle | rendering | ready | saving | done | error
   const [msg, setMsg] = useState('')
   const blobRef = useRef(null)
@@ -816,6 +816,14 @@ export function DownloadFinalButton({ draftId }) {
   const renderAndStage = async () => {
     setState('rendering'); setMsg('')
     try {
+      // Flush the 800ms debounced overlay/voiceover/hint saves BEFORE
+      // the render reads the job from the DB. Without this, a user who
+      // dragged the overlay font/position sliders and clicked Download
+      // within 800 ms would render against stale overlay_settings and
+      // the download would show the old values despite the preview
+      // showing the new ones.
+      try { await jobSync?.flushPendingSave?.() } catch { /* render anyway */ }
+
       // Grab in-memory primary voice if the user generated it this session.
       let primaryBase64 = null
       try {
