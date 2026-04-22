@@ -1,0 +1,130 @@
+// Assembles the cue + audio-track shape LivePreviewPlayer /
+// InlineCaptionOverlay expects. Mirrors the server-side cue-build
+// logic in routes/social-post.js so the browser sees what Download
+// will render.
+//
+// Loaded lazily by the editor overlay, so the fetch cascade (job
+// shell + default style + segment-transition, then per-segment
+// caption_style + word_timings fanned out) only happens when a
+// preview is being shown.
+
+import { useEffect, useState } from 'react'
+import * as api from '../../api'
+
+export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
+  const [assets, setAssets] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!enabled || !draftId) {
+      setAssets(null)
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true); setError(null)
+    ;(async () => {
+      try {
+        const [job, defRes, transRes] = await Promise.all([
+          api.getJob(draftId),
+          api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
+          api.getSegmentTransition(draftId).catch(() => ({ transition: null })),
+        ])
+        if (cancelled) return
+        const mergedVideoUrl = job?.merged_video_url || null
+        // Overlay only needs segments that have audio + a style/word
+        // timings. Absent merged video → no overlay to render (caller
+        // handles this via null assets).
+        const defaultCs = defRes?.caption_style || null
+        const transition = transRes?.transition || null
+        const crossfadeMs = (transition?.type === 'crossfade' && Number(transition.crossfadeMs) > 0)
+          ? Math.min(2000, Math.max(50, Math.round(Number(transition.crossfadeMs))))
+          : 0
+
+        const segs = Array.isArray(job?.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
+        const ordered = [...segs]
+          .filter(s => s && s.id && s.audioUrl)
+          .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
+
+        const perSegment = await Promise.all(ordered.map(async (seg) => {
+          const [csRes, wtRes] = await Promise.all([
+            api.getCaptionStyle(draftId, seg.id).catch(() => ({ caption_style: null })),
+            api.getSegmentWordTimings(draftId, seg.id).catch(() => ({ word_timings: [] })),
+          ])
+          return { seg, cs: csRes?.caption_style || null, wt: wtRes?.word_timings || [] }
+        }))
+        if (cancelled) return
+
+        const segmentAudioUrls = perSegment.map(({ seg }) => {
+          const startMs = Math.max(0, Math.round((Number(seg.startTime) || 0) * 1000))
+          const durMs = Number(seg.duration) > 0
+            ? Math.round(Number(seg.duration) * 1000)
+            : 3000
+          return { src: seg.audioUrl, startMs, durationMs: durMs, volume: 1 }
+        })
+
+        const lastIdx = perSegment.length - 1
+        const cues = perSegment.map(({ seg, cs, wt }, idx) => {
+          const startMs = Math.max(0, Math.round((Number(seg.startTime) || 0) * 1000))
+          const lastWordEnd = wt.length ? wt[wt.length - 1].endMs : 0
+          const durMs = Number(seg.duration) > 0
+            ? Math.round(Number(seg.duration) * 1000)
+            : (lastWordEnd > 0 ? lastWordEnd + 300 : 3000)
+          const resolvedStyle = cs ? snakeToCamelCaptionStyle(cs)
+            : (defaultCs ? snakeToCamelCaptionStyle(defaultCs) : null)
+          const isFirst = idx === 0
+          const isLast = idx === lastIdx
+          return {
+            _segmentId: seg.id,
+            startMs,
+            endMs: startMs + durMs,
+            text: seg.text || '',
+            wordTimings: wt,
+            captionStyle: resolvedStyle,
+            fadeInMs: crossfadeMs && !isFirst ? crossfadeMs : 0,
+            fadeOutMs: crossfadeMs && !isLast ? crossfadeMs : 0,
+          }
+        }).filter(c => c.text || c.wordTimings?.length)
+
+        setAssets({
+          mergedVideoUrl,
+          segmentAudioUrls,
+          cues,
+          defaultCs,
+          rawSegmentStyles: perSegment.map(({ cs }) => cs),  // for styleFp
+          transition,
+        })
+        setLoading(false)
+      } catch (e) {
+        if (!cancelled) {
+          setError(e.message || String(e))
+          setLoading(false)
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [draftId, enabled])
+
+  return { assets, loading, error }
+}
+
+// Matches the same helper inline in VoiceoverPanelV2 — caption_styles
+// rows are snake_case on the wire, the composition expects camelCase.
+function snakeToCamelCaptionStyle(cs) {
+  if (!cs || typeof cs !== 'object') return null
+  return {
+    baseFontFamily: cs.base_font_family,
+    baseFontColor: cs.base_font_color,
+    baseFontSize: cs.base_font_size,
+    activeWordColor: cs.active_word_color,
+    activeWordFontFamily: cs.active_word_font_family,
+    activeWordOutlineConfig: cs.active_word_outline_config,
+    activeWordScalePulse: cs.active_word_scale_pulse || null,
+    layoutConfig: cs.layout_config || null,
+    entryAnimation: cs.entry_animation || null,
+    exitAnimation: cs.exit_animation || null,
+    revealConfig: cs.reveal_config || null,
+    continuousMotion: cs.continuous_motion || null,
+  }
+}

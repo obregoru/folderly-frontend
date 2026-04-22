@@ -118,3 +118,21 @@ export const VideoElementClockProvider: React.FC<{
 
   return <CaptionClockContext.Provider value={value}>{children}</CaptionClockContext.Provider>;
 };
+
+/** Subtract `offsetMs` from the parent context's nowMs. Used by the
+ *  editor overlay path to give each cue its own cue-local clock —
+ *  the moral equivalent of what Remotion's <Sequence> does
+ *  automatically to useCurrentFrame on the server path. Inside the
+ *  provider, components see `nowMs = 0` at `offsetMs` into the parent
+ *  clock, matching word-timing and fade-envelope expectations. */
+export const OffsetClockProvider: React.FC<{
+  offsetMs: number;
+  children: React.ReactNode;
+}> = ({ offsetMs, children }) => {
+  const parent = useCaptionClock();
+  const value = useMemo<CaptionClock>(() => ({
+    ...parent,
+    nowMs: parent.nowMs - offsetMs,
+  }), [parent, offsetMs]);
+  return <CaptionClockContext.Provider value={value}>{children}</CaptionClockContext.Provider>;
+};

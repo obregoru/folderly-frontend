@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "sync-caption": "rsync -a --delete ../folderly-backend/remotion/ src/captionEngine/ && echo '✓ caption engine synced from ../folderly-backend/remotion'"
+    "sync-caption": "rsync -a --delete --exclude=SOURCE_OF_TRUTH.md ../folderly-backend/remotion/ src/captionEngine/ && echo '✓ caption engine synced from ../folderly-backend/remotion'"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

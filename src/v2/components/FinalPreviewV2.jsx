@@ -1,5 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, lazy, Suspense, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
+import { useLivePreviewAssets } from '../lib/useLivePreviewAssets'
+// Lazy-load the overlay so the caption-engine chunk (Remotion-era
+// effect framework + preset registries) only loads for users who
+// actually open a draft with voiceover — not on first paint.
+const InlineCaptionOverlay = lazy(() => import('./InlineCaptionOverlay'))
 
 /**
  * Final output preview — the single video/photo surface every v2 tool
@@ -294,6 +299,16 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           )}
           {activeTeleprompterText && (
             <TeleprompterText text={activeTeleprompterText} />
+          )}
+          {/* Animated captions rendered directly over the merged video —
+              no separate Player mount. Only activates when we have a
+              merged video + a draftId + cues. Gracefully null-renders
+              during the async fetch and when the job has no voiceover
+              segments yet. */}
+          {draftId && mergedUrl && (
+            <Suspense fallback={null}>
+              <InlineCaptionOverlayWrapper draftId={draftId} videoRef={videoRef} />
+            </Suspense>
           )}
         </>
       ) : (
@@ -726,6 +741,32 @@ export function DownloadFinalButton({ draftId }) {
       className="w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
       title="Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share."
     >{label}</button>
+  )
+}
+
+// Thin shell: pulls caption assets for the current draft, then mounts
+// InlineCaptionOverlay over the main <video> (via videoRef.current).
+// Split out so the assets fetch only runs when this sub-tree mounts,
+// and so the Suspense boundary at the caller only covers the lazy
+// InlineCaptionOverlay chunk (assets fetch uses regular React state).
+function InlineCaptionOverlayWrapper({ draftId, videoRef }) {
+  const { assets } = useLivePreviewAssets(draftId, { enabled: true })
+  const videoEl = videoRef.current
+  // No cues → nothing to paint. Don't even mount the overlay, so the
+  // caption-engine chunk stays idle (still lazy-loaded at module
+  // level — it's reached the network but no clock runs yet).
+  if (!assets?.cues?.length || !videoEl) return null
+  return (
+    <InlineCaptionOverlay
+      videoEl={videoEl}
+      cues={assets.cues}
+      // Use video intrinsic dimensions when available, else default to
+      // the canonical 1080×1920 FinalRender uses server-side. The
+      // composition's width/height affect text sizing; same values on
+      // both paths keep preview visually equal to download.
+      width={videoEl.videoWidth || 1080}
+      height={videoEl.videoHeight || 1920}
+    />
   )
 }
 
