@@ -55,6 +55,14 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
   // row's verticalPosition once the override clears on next fetch.
   const [vpOverride, setVpOverride] = useState(null)
 
+  // Caption font-size override (px) — same pattern as vpOverride but
+  // for default_caption_style.base_font_size. null before the slider
+  // seeds itself from the saved default, a number once dragging. The
+  // override gets injected into every cue's captionStyle.baseFontSize
+  // by InlineCaptionOverlayWrapper so drag updates the overlay live
+  // without waiting for a refetch.
+  const [captionFontSizeOverride, setCaptionFontSizeOverride] = useState(null)
+
   // Sequential-playback preview mode. Array of { url, trimStart, trimEnd,
   // speed } — when set (and no real merged url exists), the video element
   // walks the list clip-by-clip, respecting trims + speed. Instant, no
@@ -379,6 +387,7 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
                   draftId={draftId}
                   videoRef={videoRef}
                   verticalPositionOverride={vpOverride}
+                  baseFontSizeOverride={captionFontSizeOverride}
                 />
               </Suspense>
             </>
@@ -410,7 +419,11 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           />
         )}
         {showCaptionSlider && (
-          <CaptionFontSizeSlider draftId={draftId} />
+          <CaptionFontSizeSlider
+            draftId={draftId}
+            value={captionFontSizeOverride}
+            onChange={setCaptionFontSizeOverride}
+          />
         )}
       </div>
     )}
@@ -849,7 +862,7 @@ export function DownloadFinalButton({ draftId }) {
 // Split out so the assets fetch only runs when this sub-tree mounts,
 // and so the Suspense boundary at the caller only covers the lazy
 // InlineCaptionOverlay chunk (assets fetch uses regular React state).
-function InlineCaptionOverlayWrapper({ draftId, videoRef, verticalPositionOverride }) {
+function InlineCaptionOverlayWrapper({ draftId, videoRef, verticalPositionOverride, baseFontSizeOverride }) {
   const { assets } = useLivePreviewAssets(draftId, { enabled: true })
   const videoEl = videoRef.current
   // Step-4 telemetry — fires [preview-log] with preview:"live" each
@@ -862,21 +875,28 @@ function InlineCaptionOverlayWrapper({ draftId, videoRef, verticalPositionOverri
   // level — it's reached the network but no clock runs yet).
   if (!assets?.cues?.length || !videoEl) return null
 
-  // Override each cue's layoutConfig.verticalPosition with the
-  // slider's current value when one is set. Purely visual — the
-  // saved per-segment styles are untouched until the slider's
-  // debounced save runs against the job default.
-  const cues = verticalPositionOverride != null
-    ? assets.cues.map(cue => ({
-        ...cue,
-        captionStyle: {
-          ...(cue.captionStyle || {}),
-          layoutConfig: {
-            ...(cue.captionStyle?.layoutConfig || {}),
-            verticalPosition: verticalPositionOverride,
+  // Inject live overrides from the in-video sliders into every cue's
+  // captionStyle so dragging updates the overlay immediately. Purely
+  // visual — the saved per-segment styles are untouched until the
+  // slider's debounced save runs against the job default.
+  const hasOverrides = verticalPositionOverride != null || baseFontSizeOverride != null
+  const cues = hasOverrides
+    ? assets.cues.map(cue => {
+        const nextLayout = verticalPositionOverride != null
+          ? {
+              ...(cue.captionStyle?.layoutConfig || {}),
+              verticalPosition: verticalPositionOverride,
+            }
+          : cue.captionStyle?.layoutConfig
+        return {
+          ...cue,
+          captionStyle: {
+            ...(cue.captionStyle || {}),
+            ...(baseFontSizeOverride != null ? { baseFontSize: baseFontSizeOverride } : {}),
+            layoutConfig: nextLayout,
           },
-        },
-      }))
+        }
+      })
     : assets.cues
 
   return <InlineCaptionOverlay videoEl={videoEl} cues={cues} />
@@ -1293,17 +1313,18 @@ function OverlayFontSizeSlider({ overlays, onChange, jobSync }) {
 }
 
 // Horizontal slider for the job-level default caption base font
-// size. Writes to default_caption_style.base_font_size, so every
-// segment that doesn't have its own caption_styles row picks up the
-// new size. Segments with their own row keep their own explicit
-// size (or their null → aspect-ratio default).
-function CaptionFontSizeSlider({ draftId }) {
+// size. Controlled component: the parent (FinalPreviewV2) owns the
+// override value so the overlay can re-render live during drag.
+// Writes to default_caption_style.base_font_size, so every segment
+// that doesn't have its own caption_styles row picks up the new
+// size. Segments with their own row keep their own explicit size
+// (or null → aspect-ratio default).
+function CaptionFontSizeSlider({ draftId, value, onChange }) {
   // Fetch the current default on mount so the slider seeds with
   // whatever was previously saved. baseConfig holds the full default
   // object so the save call preserves every other field (font
   // family, color, effects, vertical position, etc.).
   const [baseConfig, setBaseConfig] = useState(null)
-  const [current, setCurrent] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const saveTimerRef = useRef(null)
 
@@ -1315,10 +1336,16 @@ function CaptionFontSizeSlider({ draftId }) {
       const cs = r?.caption_style || null
       setBaseConfig(cs)
       const px = cs?.base_font_size
-      setCurrent(typeof px === 'number' ? px : null)
+      // Seed the parent override only if the job has a saved value
+      // AND the parent hasn't been touched yet. Matches the pattern
+      // in VerticalPositionSlider.
+      if (typeof px === 'number' && value == null) {
+        onChange(px)
+      }
       setLoaded(true)
     }).catch(() => setLoaded(true))
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId])
 
   useEffect(() => () => {
@@ -1330,10 +1357,11 @@ function CaptionFontSizeSlider({ draftId }) {
   // Default visual: 60px (close to the 1080×0.055 derivation most
   // tenants see) when no value is saved. Slider always shows a
   // number so users can grab it and drag, even from the null state.
-  const displayValue = current != null ? current : 60
+  const displayValue = value != null ? value : 60
 
   const scheduleSave = (nextPx) => {
-    setCurrent(nextPx)
+    // Immediate parent update so the overlay re-renders this frame.
+    onChange(nextPx)
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       const body = {
