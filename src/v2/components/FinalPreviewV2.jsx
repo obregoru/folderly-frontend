@@ -884,6 +884,34 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
   }, [])
 
+  // The rotated slider uses its parent's HEIGHT as its effective
+  // "length" after the CSS transform rotates it 90°. Because the
+  // input element keeps its own pre-rotation dimensions (width=the
+  // long edge, height=the thumb thickness), we set its width to
+  // equal the available vertical space — a ResizeObserver on the
+  // flex cell tells us how much that is. Without this, the slider
+  // renders at its default ~100px length no matter how tall the
+  // video is.
+  //
+  // Hooks must run unconditionally on every render (rules of hooks),
+  // so this block sits ABOVE the `if (!defaultLoaded) return null`
+  // early-return below. Ordering by hook call order — not by when
+  // the effect is visually used — is what React requires.
+  const sliderHostRef = useRef(null)
+  const [sliderLengthPx, setSliderLengthPx] = useState(0)
+  useEffect(() => {
+    const el = sliderHostRef.current
+    if (!el) return
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      if (r.height > 0) setSliderLengthPx(r.height)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [defaultLoaded])
+
   const scheduleSave = (nextValue) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
@@ -919,29 +947,6 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
   if (!defaultLoaded) return null
 
   const current = value != null ? value : 72
-
-  // The rotated slider uses its parent's HEIGHT as its effective
-  // "length" after the CSS transform rotates it 90°. Because the
-  // input element keeps its own pre-rotation dimensions (width=the
-  // long edge, height=the thumb thickness), we set its width to
-  // equal the available vertical space — a ResizeObserver on the
-  // flex cell tells us how much that is. Without this, the slider
-  // renders at its default ~100px length no matter how tall the
-  // video is.
-  const sliderHostRef = useRef(null)
-  const [sliderLengthPx, setSliderLengthPx] = useState(0)
-  useEffect(() => {
-    const el = sliderHostRef.current
-    if (!el) return
-    const measure = () => {
-      const r = el.getBoundingClientRect()
-      if (r.height > 0) setSliderLengthPx(r.height)
-    }
-    measure()
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [defaultLoaded])
 
   return (
     <div
