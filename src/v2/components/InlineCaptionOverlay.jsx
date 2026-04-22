@@ -90,9 +90,17 @@ export default function InlineCaptionOverlay({ videoEl, cues, width = 1080, heig
           // so caption math (pixel-sized effects, font sizes computed
           // from width/height) operates in the dimensions Download
           // renders at. transform:scale fits it visually to the DOM.
+          //
+          // position: relative matters — CaptionLayer renders
+          // <AbsoluteFill> (position: absolute; inset: 0) and without
+          // a positioned ancestor those descendants escape up to the
+          // outer `inset: 0` overlay div, rendering at DOM size
+          // without the scale. Making THIS div the positioning
+          // context traps AbsoluteFill inside the scaled stage.
           style={{
             width,
             height,
+            position: 'relative',
             transformOrigin: '0 0',
             transform: `scale(${scale})`,
           }}
