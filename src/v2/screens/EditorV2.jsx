@@ -126,11 +126,14 @@ export default function EditorV2({
         {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} files={files} settings={settings} />}
       </div>
 
-      {hasMerge && draftId && (
+      {(hasMerge || (onlyPhotos && photoFiles.length === 1 && !combinePhotosAsVideo)) && draftId && (
         <div className="bg-white border border-[#e5e5e5] rounded-lg p-3 space-y-2">
           <div className="text-[12px] font-medium">Export</div>
           <div className="text-[10px] text-muted">
-            Bakes overlays, closed captions, and voiceover into the merged video. Takes 10–30s. On phone, opens the share sheet so you can Save to Photos.
+            {hasMerge
+              ? 'Bakes overlays, closed captions, and voiceover into the merged video. Takes 10–30s. On phone, opens the share sheet so you can Save to Photos.'
+              : 'Bakes the overlay caption onto the photo. Static — no animation. Takes a few seconds.'
+            }
           </div>
           <DownloadFinalButton draftId={draftId} jobSync={jobSync} />
         </div>

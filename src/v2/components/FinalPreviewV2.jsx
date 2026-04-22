@@ -845,7 +845,17 @@ export function DownloadFinalButton({ draftId, jobSync }) {
       if (!vres.ok) throw new Error(`Download failed (${vres.status})`)
       const blob = await vres.blob()
       blobRef.current = blob
-      filenameRef.current = `posty-final-${Date.now()}.mp4`
+      // Pick extension from the blob's actual MIME so image renders get
+      // a .jpg filename and video renders get .mp4. Falls back to .mp4
+      // when the server doesn't tell us a useful type (keeps legacy
+      // behavior for existing video downloads).
+      const t = (blob.type || '').toLowerCase()
+      const ext = t.includes('jpeg') || t.includes('jpg') ? 'jpg'
+        : t.includes('png') ? 'png'
+        : t.includes('webm') ? 'webm'
+        : t.includes('quicktime') ? 'mov'
+        : 'mp4'
+      filenameRef.current = `posty-final-${Date.now()}.${ext}`
       setState('ready')
     } catch (e) {
       setMsg(e.message || String(e))
@@ -866,7 +876,7 @@ export function DownloadFinalButton({ draftId, jobSync }) {
 
     if (canMobileShare) {
       setState('saving')
-      navigator.share({ files: [file], title: 'Posty video' })
+      navigator.share({ files: [file], title: 'Posty' })
         .then(() => { setState('done'); setTimeout(() => setState('idle'), 1500) })
         .catch(err => {
           if (err?.name === 'AbortError') {
@@ -912,7 +922,7 @@ export function DownloadFinalButton({ draftId, jobSync }) {
     : state === 'ready' ? (canMobileShare ? '📤 Tap again to share' : '⬇ Tap again to save')
     : state === 'done' ? '✓ Saved'
     : state === 'error' ? (msg ? `Error: ${msg.slice(0, 80)} — tap to retry` : 'Error — tap to retry')
-    : '⬇ Download final video'
+    : '⬇ Download final'
   const disabled = state === 'rendering' || state === 'saving'
   return (
     <button
