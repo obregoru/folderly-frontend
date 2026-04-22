@@ -113,15 +113,15 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
           width: '88%',
           maxWidth: '88%',
           pointerEvents: 'none',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          // DEBUG: temporary outline to confirm the wrapper is actually
-          // centered. If this dashed rectangle is centered but the
-          // visible caption text isn't, the shift is from reveal/
-          // animation state (e.g., perWordSynced leaves later words at
-          // opacity 0 while the box reserves their layout space), not
-          // from container positioning.
+          // textAlign: center on a block-level wrapper centers EACH
+          // line independently within the wrapper's inline formatting
+          // context. The previous flex+align-items:center path shrunk
+          // the inner block to its max-line width and then centered
+          // that shrunk block — which caused shorter lines (line 1)
+          // to appear left/right-biased relative to the visible wrapper
+          // (because they were only centered within the shrunk block,
+          // not within the full wrapper).
+          textAlign: 'center',
           outline: '1px dashed rgba(255, 80, 80, 0.8)',
           outlineOffset: '-1px',
         }}
@@ -137,6 +137,14 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
             textAlign: 'center',
             lineHeight: 1.2,
             maxWidth: `${(layout?.maxWidthFraction ?? 0.92) * 100}%`,
+            // margin:0 auto centers this block within its parent when
+            // maxWidth makes it narrower than the parent. Without
+            // this, a block with maxWidth:X% is left-aligned, so the
+            // textAlign:center here was centering text within a LEFT-
+            // ANCHORED box — producing the slight leftward bias the
+            // user saw.
+            marginLeft: 'auto',
+            marginRight: 'auto',
             whiteSpace: layout?.lineBreak === 'manual' ? 'pre-wrap' : 'normal',
           }}
         >
