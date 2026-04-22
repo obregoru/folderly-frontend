@@ -3,7 +3,8 @@ import * as api from '../../api'
 import { useLivePreviewAssets } from '../lib/useLivePreviewAssets'
 // Lazy-load the overlay so the caption-engine chunk (Remotion-era
 // effect framework + preset registries) only loads for users who
-// actually open a draft with voiceover — not on first paint.
+// actually open a draft with voiceover — not on first paint. Plus
+// the styleFp helper, loaded on-demand by useLivePreviewTelemetry.
 const InlineCaptionOverlay = lazy(() => import('./InlineCaptionOverlay'))
 
 /**
@@ -752,6 +753,11 @@ export function DownloadFinalButton({ draftId }) {
 function InlineCaptionOverlayWrapper({ draftId, videoRef }) {
   const { assets } = useLivePreviewAssets(draftId, { enabled: true })
   const videoEl = videoRef.current
+  // Step-4 telemetry — fires [preview-log] with preview:"live" each
+  // time the assembled config fingerprint changes. Replaces the log
+  // that used to fire from LivePreviewPlayer's onReady in
+  // CaptionedPreviewFold (retired in this commit).
+  useLivePreviewTelemetry(draftId, assets)
   // No cues → nothing to paint. Don't even mount the overlay, so the
   // caption-engine chunk stays idle (still lazy-loaded at module
   // level — it's reached the network but no clock runs yet).
@@ -768,6 +774,38 @@ function InlineCaptionOverlayWrapper({ draftId, videoRef }) {
       height={videoEl.videoHeight || 1920}
     />
   )
+}
+
+// Posts [preview-log] with preview:"live" via /log/preview-view when
+// the assembled style config fingerprint changes. Lives here (not in
+// useLivePreviewAssets) so assets can be consumed by components that
+// don't need telemetry and so test-page mounts don't ping the log.
+function useLivePreviewTelemetry(draftId, assets) {
+  const lastFpRef = useRef(null)
+  useEffect(() => {
+    if (!draftId || !assets?.cues?.length) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { hashStyleSet } = await import('../lib/styleFp')
+        const styleFp = await hashStyleSet(
+          assets.rawSegmentStyles || [],
+          assets.defaultCs || null,
+          { segmentTransition: assets.transition || null },
+        )
+        if (cancelled) return
+        if (lastFpRef.current === styleFp) return  // same config, already logged
+        lastFpRef.current = styleFp
+        api.logPreviewView({
+          jobUuid: draftId,
+          styleFp,
+          cueCount: assets.cues.length,
+          latencyMs: 0,
+        })
+      } catch { /* telemetry never breaks preview */ }
+    })()
+    return () => { cancelled = true }
+  }, [draftId, assets])
 }
 
 export default FinalPreviewV2

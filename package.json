@@ -14,7 +14,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@remotion/google-fonts": "4.0.448",
-    "@remotion/player": "4.0.448",
     "face-api.js": "^0.22.2",
     "jszip": "^3.10.1",
     "react": "^18.3.1",
