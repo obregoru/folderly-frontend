@@ -999,6 +999,47 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
   // existing audio because the text changed).
   const [enriching, setEnriching] = useState(false)
   const [enrichErr, setEnrichErr] = useState(null)
+
+  // Backfill word timings for a segment whose audio was generated
+  // before spoken-word highlighting existed — the audio is fine, but
+  // no word_timings rows exist, so active-word styling / perWordSynced
+  // reveals have nothing to sync to. Runs the existing audio back
+  // through ElevenLabs Scribe STT to recover the alignment without
+  // regenerating the voice. Does NOT touch the audio bytes or audioKey.
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillMsg, setBackfillMsg] = useState(null)
+  const [backfillErr, setBackfillErr] = useState(null)
+  const backfillTimings = async () => {
+    if (!draftId || !seg?.id || !seg?.audioUrl) {
+      setBackfillErr('Segment has no audio to transcribe')
+      return
+    }
+    setBackfilling(true); setBackfillMsg(null); setBackfillErr(null)
+    try {
+      // Fetch the existing audio bytes (either Supabase public URL or
+      // a local blob URL — fetch handles both).
+      const res = await fetch(seg.audioUrl, { credentials: 'omit' })
+      if (!res.ok) throw new Error(`Audio fetch failed (${res.status})`)
+      const blob = await res.blob()
+      const buf = new Uint8Array(await blob.arrayBuffer())
+      let bin = ''
+      for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
+      const audioBase64 = btoa(bin)
+      const mediaType = blob.type || 'audio/mpeg'
+      const stt = await api.speechToText({ audioBase64, mediaType })
+      const timings = Array.isArray(stt?.word_timings) ? stt.word_timings : []
+      if (timings.length === 0) {
+        setBackfillErr('Scribe returned 0 words — audio may be silent or unintelligible')
+        return
+      }
+      await api.saveSegmentWordTimings(draftId, seg.id, timings)
+      setBackfillMsg(`✓ Backfilled ${timings.length} word timings`)
+    } catch (e) {
+      setBackfillErr(e?.message || String(e))
+    } finally {
+      setBackfilling(false)
+    }
+  }
   const enrichWithEmoji = async () => {
     if (!seg.text?.trim() || !draftId) return
     setEnriching(true); setEnrichErr(null)
@@ -1144,6 +1185,19 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
             title="AI adds tasteful emoji at sentence boundaries. Invalidates existing audio."
           >{enriching ? '…' : '✨ +emoji'}</button>
         )}
+        {/* Backfill word timings on an EXISTING audio segment so
+            spoken-word highlighting / perWordSynced reveals work on
+            older jobs that were TTS-generated before Scribe STT was
+            wired in. Runs the audio through ElevenLabs Scribe; does
+            NOT regenerate or modify the audio itself. */}
+        {draftId && hasAudio && (
+          <button
+            onClick={backfillTimings}
+            disabled={backfilling}
+            className="text-[10px] py-0.5 px-2 border border-[#2D9A5E]/50 text-[#2D9A5E] bg-white rounded cursor-pointer disabled:opacity-50"
+            title="Re-run ElevenLabs Scribe on this segment's existing audio to recover word-level timings. Use for older jobs where the active-word highlight isn't working because word_timings was never written."
+          >{backfilling ? '…' : '🔤 timings'}</button>
+        )}
         <span
           className="font-mono text-[9px] rounded px-1.5 py-0.5 border ml-auto"
           style={{
@@ -1158,6 +1212,8 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
         {hasAudio && seg.audioKey && <span className="text-[8px] text-muted italic">persisted</span>}
       </div>
       {enrichErr && <div className="text-[9px] text-[#c0392b]">Emoji enrich failed: {enrichErr}</div>}
+      {backfillMsg && <div className="text-[9px] text-[#2D9A5E]">{backfillMsg}</div>}
+      {backfillErr && <div className="text-[9px] text-[#c0392b]">Backfill failed: {backfillErr}</div>}
 
       {/* Phase 4.5 — Caption style editor entry point. Only shown for
           segments that have audio (meaningless to style a not-yet-
