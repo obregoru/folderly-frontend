@@ -785,13 +785,29 @@ export const saveJobDefaultCaptionStyle = (jobUuid, body) =>
 // row. Body lets the caller flush the sliders' current values to the
 // default in the same round-trip: { base_font_size?, vertical_position? }.
 // Returns { ok, updated, applied }.
-export const cascadeJobDefaultCaptionStyle = (jobUuid, body = {}) =>
-  fetch(api(`/jobs/${jobUuid}/default-caption-style/cascade`), {
+export const cascadeJobDefaultCaptionStyle = async (jobUuid, body = {}) => {
+  const r = await fetch(api(`/jobs/${jobUuid}/default-caption-style/cascade`), {
     method: 'POST',
     headers: h(),
     credentials: 'include',
+    cache: 'no-store',
     body: JSON.stringify(body),
-  }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  })
+  // Handle HTML responses (browser-cached 404s, CDN error pages, etc.)
+  // by trying JSON and falling back to a friendlier message — the
+  // "Unexpected token '<'" parse error was unhelpful in production.
+  const text = await r.text()
+  let parsed = null
+  try { parsed = JSON.parse(text) } catch { /* HTML or plain-text body */ }
+  if (!r.ok) {
+    const msg = parsed?.error
+      || (text.startsWith('<') ? `Server returned HTML (status ${r.status}) — try a hard reload` : text.slice(0, 160))
+      || `Request failed (${r.status})`
+    throw new Error(msg)
+  }
+  if (!parsed) throw new Error('Server returned a non-JSON response — try a hard reload')
+  return parsed
+}
 
 // Phase 7.1 — emoji injection. Returns { original, enriched, noop }.
 // Stateless — caller decides whether to replace the segment's text
