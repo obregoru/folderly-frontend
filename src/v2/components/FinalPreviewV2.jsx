@@ -26,7 +26,7 @@ const InlineCaptionOverlay = lazy(() => import('./InlineCaptionOverlay'))
  *   3. Photo carousel (all photos, onlyPhotos == true)
  *   4. Empty state
  */
-const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMergeUrl, draftId }, ref) {
+const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMergeUrl, draftId, jobSync }, ref) {
   const videoRef = useRef(null)
   const [mergedUrl, setMergedUrl] = useState(
     restoredMergeUrl || (typeof window !== 'undefined' ? window._postyMergedVideo?.url : null) || null
@@ -365,6 +365,18 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
                 />
               </Suspense>
             </>
+          )}
+          {/* Overlay position slider — mirrors the caption slider but
+              on the LEFT edge, so the two controls are distinct.
+              Shows only when some overlay text is configured; during
+              playback the overlay itself shows/hides based on time
+              windows, but the slider stays available the whole time. */}
+          {draftId && jobSync && (overlays?.openingText || overlays?.middleText || overlays?.closingText) && (
+            <OverlayPositionSlider
+              overlays={overlays}
+              onChange={next => setOverlays(next)}
+              jobSync={jobSync}
+            />
           )}
         </>
       ) : (
@@ -1083,6 +1095,136 @@ function useLivePreviewTelemetry(draftId, assets) {
     })()
     return () => { cancelled = true }
   }, [draftId, assets])
+}
+
+// Same UX as VerticalPositionSlider (right edge, for captions) but
+// wired to overlay_settings.overlayYPct and mounted on the LEFT
+// edge so the two controls are visually distinct. Persists via
+// jobSync.saveOverlaySettings (which debounces internally) and
+// updates FinalPreviewV2's overlays state optimistically so the
+// OverlayText component re-renders with the new Y during drag.
+function OverlayPositionSlider({ overlays, onChange, jobSync }) {
+  // Measure vertical space available for the rotated slider so it
+  // actually spans top-to-bottom. Same ResizeObserver pattern as the
+  // caption slider. Hooks must run unconditionally — put them ABOVE
+  // any early return.
+  const sliderHostRef = useRef(null)
+  const [sliderLengthPx, setSliderLengthPx] = useState(0)
+  useEffect(() => {
+    const el = sliderHostRef.current
+    if (!el) return
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      if (r.height > 0) setSliderLengthPx(r.height)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const current = Number(overlays?.overlayYPct ?? 70)
+  const handleChange = (nextPct) => {
+    // Update FinalPreviewV2's local overlays state so OverlayText re-
+    // renders immediately at the new Y. Also mirror to the global
+    // broadcast so any other listener stays consistent.
+    const nextOverlays = { ...(overlays || {}), overlayYPct: nextPct }
+    onChange(nextOverlays)
+    try {
+      if (typeof window !== 'undefined') {
+        window._postyOverlays = nextOverlays
+        window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: nextOverlays }))
+      }
+    } catch { /* fine */ }
+    // Persist via jobSync (already debounced internally).
+    jobSync?.saveOverlaySettings?.(nextOverlays)
+  }
+
+  return (
+    <div
+      // Left-edge companion to the caption slider's right-edge home.
+      style={{
+        position: 'absolute',
+        left: 6,
+        top: 0,
+        bottom: 0,
+        width: 30,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '8px 0',
+        background: 'rgba(0,0,0,0.32)',
+        borderRadius: 15,
+        zIndex: 3,
+        userSelect: 'none',
+      }}
+      title={`Overlay text vertical position — ${Math.round(current)}%`}
+    >
+      <div style={{
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 10,
+        lineHeight: 1,
+        fontFamily: 'system-ui, sans-serif',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 1,
+        flexShrink: 0,
+      }}>
+        <span style={{ fontSize: 12 }}>▲</span>
+        <span style={{ fontSize: 7, letterSpacing: 0.5 }}>TOP</span>
+      </div>
+
+      <div
+        ref={sliderHostRef}
+        style={{
+          flex: 1,
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+        }}
+      >
+        {sliderLengthPx > 0 && (
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={current}
+            onChange={e => handleChange(Number(e.target.value))}
+            style={{
+              transform: 'rotate(90deg)',
+              transformOrigin: 'center center',
+              width: sliderLengthPx,
+              height: 8,
+              cursor: 'ns-resize',
+              // Violet to distinguish from the caption slider's amber.
+              accentColor: '#6C5CE7',
+            }}
+            aria-label="Overlay text vertical position"
+          />
+        )}
+      </div>
+
+      <div style={{
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 10,
+        lineHeight: 1,
+        fontFamily: 'system-ui, sans-serif',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 1,
+        flexShrink: 0,
+      }}>
+        <span style={{ fontSize: 7, letterSpacing: 0.5 }}>BOT</span>
+        <span style={{ fontSize: 12 }}>▼</span>
+      </div>
+    </div>
+  )
 }
 
 export default FinalPreviewV2

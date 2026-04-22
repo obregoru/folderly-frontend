@@ -96,7 +96,7 @@ export default function EditorV2({
 
   return (
     <div className="p-3 space-y-3">
-      <FinalPreviewV2 ref={previewRef} files={files} draftId={draftId} />
+      <FinalPreviewV2 ref={previewRef} files={files} draftId={draftId} jobSync={jobSync} />
 
       <ToolMenuV2
         active={safeActiveTool}
