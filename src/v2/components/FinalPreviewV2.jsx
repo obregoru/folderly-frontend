@@ -317,6 +317,41 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
               segments yet. */}
           {draftId && mergedUrl && (
             <>
+              {/* Platform-safe caption zone. Captions inside this dashed
+                  rectangle are visible on TikTok / Reels / Shorts
+                  across their platform UIs. The slider can still travel
+                  beyond these bounds if a tenant knows their platform
+                  doesn't reserve that space. */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '15%',
+                  bottom: '28%',
+                  left: '8%',
+                  right: '8%',
+                  border: '1.5px dashed rgba(255, 255, 255, 0.55)',
+                  borderRadius: 4,
+                  pointerEvents: 'none',
+                  zIndex: 2,
+                }}
+                aria-hidden="true"
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    left: 8,
+                    padding: '0 6px',
+                    fontSize: 9,
+                    letterSpacing: 0.5,
+                    color: 'rgba(255, 255, 255, 0.75)',
+                    background: 'rgba(0, 0, 0, 0.55)',
+                    borderRadius: 3,
+                    fontFamily: 'system-ui, sans-serif',
+                    lineHeight: '12px',
+                  }}
+                >SAFE AREA</div>
+              </div>
               <VerticalPositionSlider
                 draftId={draftId}
                 value={vpOverride}
@@ -885,34 +920,58 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
 
   const current = value != null ? value : 72
 
+  // The rotated slider uses its parent's HEIGHT as its effective
+  // "length" after the CSS transform rotates it 90°. Because the
+  // input element keeps its own pre-rotation dimensions (width=the
+  // long edge, height=the thumb thickness), we set its width to
+  // equal the available vertical space — a ResizeObserver on the
+  // flex cell tells us how much that is. Without this, the slider
+  // renders at its default ~100px length no matter how tall the
+  // video is.
+  const sliderHostRef = useRef(null)
+  const [sliderLengthPx, setSliderLengthPx] = useState(0)
+  useEffect(() => {
+    const el = sliderHostRef.current
+    if (!el) return
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      if (r.height > 0) setSliderLengthPx(r.height)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [defaultLoaded])
+
   return (
     <div
-      // Absolutely positioned on the right edge of the video container.
-      // The container is `position: relative` so absolute children
-      // anchor to it. Flex-column so the top/bottom labels sit at the
-      // ends and the rotated slider fills the middle.
+      // Absolutely positioned along the right edge of the video
+      // container — spans the full video height so the thumb's
+      // physical position on screen corresponds directly to the
+      // caption's vertical position on screen. Flex-column so the
+      // top/bottom labels sit at the ends and the rotated slider
+      // fills the middle.
       style={{
         position: 'absolute',
-        right: 8,
-        top: '8%',
-        bottom: '8%',
-        width: 28,
+        right: 6,
+        top: 0,
+        bottom: 0,
+        width: 30,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '6px 0',
+        padding: '8px 0',
         // Slight dark backing so the slider reads against any video.
-        background: 'rgba(0,0,0,0.35)',
-        borderRadius: 14,
+        background: 'rgba(0,0,0,0.32)',
+        borderRadius: 15,
         zIndex: 3,
         userSelect: 'none',
       }}
       title={`Caption vertical position — ${Math.round(current)}%`}
     >
-      {/* Top marker: dragging the thumb here moves captions to the
-          top of the frame. Same character set used in all other
-          video-preview hover controls in the app. */}
+      {/* Top marker: drag the thumb here to move captions toward the
+          top of the frame. */}
       <div style={{
         color: 'rgba(255,255,255,0.9)',
         fontSize: 10,
@@ -922,44 +981,52 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
         flexDirection: 'column',
         alignItems: 'center',
         gap: 1,
+        flexShrink: 0,
       }}>
         <span style={{ fontSize: 12 }}>▲</span>
         <span style={{ fontSize: 7, letterSpacing: 0.5 }}>TOP</span>
       </div>
 
-      {/* Rotated slider fills the middle. flex:1 lets it take all
-          remaining vertical space between the labels. */}
-      <div style={{
-        flex: 1,
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}>
-        <input
-          type="range"
-          min={5}
-          max={95}
-          step={1}
-          value={current}
-          onChange={e => {
-            const v = Number(e.target.value)
-            onChange(v)
-            scheduleSave(v)
-          }}
-          // rotate 90deg renders the natural left→right slider as
-          // top→bottom. Keeps the min (5) at the top and max (95) at
-          // the bottom, matching "drag up = caption up" intent.
-          style={{
-            transform: 'rotate(90deg)',
-            transformOrigin: 'center center',
-            width: '90%',
-            height: 8,
-            cursor: 'ns-resize',
-            accentColor: '#f59e0b',
-          }}
-          aria-label="Caption vertical position"
-        />
+      {/* Rotated slider fills all remaining vertical space. We measure
+          its host's pixel height and set the input's width to that so
+          the rotated element actually spans top-to-bottom. */}
+      <div
+        ref={sliderHostRef}
+        style={{
+          flex: 1,
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+        }}
+      >
+        {sliderLengthPx > 0 && (
+          <input
+            type="range"
+            min={5}
+            max={95}
+            step={1}
+            value={current}
+            onChange={e => {
+              const v = Number(e.target.value)
+              onChange(v)
+              scheduleSave(v)
+            }}
+            // rotate 90deg renders the natural left→right slider as
+            // top→bottom. Min (5) ends up at the top, max (95) at
+            // the bottom — matching "drag up = caption up" intent.
+            style={{
+              transform: 'rotate(90deg)',
+              transformOrigin: 'center center',
+              width: sliderLengthPx,
+              height: 8,
+              cursor: 'ns-resize',
+              accentColor: '#f59e0b',
+            }}
+            aria-label="Caption vertical position"
+          />
+        )}
       </div>
 
       {/* Bottom marker — drag thumb here = captions at the bottom. */}
@@ -972,6 +1039,7 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
         flexDirection: 'column',
         alignItems: 'center',
         gap: 1,
+        flexShrink: 0,
       }}>
         <span style={{ fontSize: 7, letterSpacing: 0.5 }}>BOT</span>
         <span style={{ fontSize: 12 }}>▼</span>
