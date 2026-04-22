@@ -93,15 +93,39 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
   }
 
   return (
-    <AbsoluteFill
-      style={{
-        top: `${finalTopPct}%`,
-        alignItems: 'center',
-        justifyContent: 'flex-start',
-        padding: '0 6%',
-        pointerEvents: 'none',
-      }}
-    >
+    <AbsoluteFill style={{ pointerEvents: 'none' }}>
+      {/*
+        Horizontal centering uses left:50% + translateX(-50%) rather
+        than flex alignItems:center + padding. The flex path depended
+        on a right-edge constraint (right:0 on AbsoluteFill's default
+        style) competing with width:100% + percentage padding, and in
+        some layouts (flex-1 video container with max-h-clamped aspect
+        ratio) it resolved to a small left bias. Explicit 50%/-50%
+        centering sidesteps all of that and is independent of the
+        AbsoluteFill style order.
+      */}
+      <div
+        style={{
+          position: 'absolute',
+          top: `${finalTopPct}%`,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '88%',
+          maxWidth: '88%',
+          pointerEvents: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          // DEBUG: temporary outline to confirm the wrapper is actually
+          // centered. If this dashed rectangle is centered but the
+          // visible caption text isn't, the shift is from reveal/
+          // animation state (e.g., perWordSynced leaves later words at
+          // opacity 0 while the box reserves their layout space), not
+          // from container positioning.
+          outline: '1px dashed rgba(255, 80, 80, 0.8)',
+          outlineOffset: '-1px',
+        }}
+      >
       <AnimationWrapper
         entry={captionStyle?.entryAnimation}
         exit={captionStyle?.exitAnimation}
@@ -163,6 +187,7 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
           })()}
         </div>
       </AnimationWrapper>
+      </div>
     </AbsoluteFill>
   );
 };
