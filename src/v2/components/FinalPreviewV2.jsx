@@ -762,18 +762,10 @@ function InlineCaptionOverlayWrapper({ draftId, videoRef }) {
   // caption-engine chunk stays idle (still lazy-loaded at module
   // level — it's reached the network but no clock runs yet).
   if (!assets?.cues?.length || !videoEl) return null
-  return (
-    <InlineCaptionOverlay
-      videoEl={videoEl}
-      cues={assets.cues}
-      // Use video intrinsic dimensions when available, else default to
-      // the canonical 1080×1920 FinalRender uses server-side. The
-      // composition's width/height affect text sizing; same values on
-      // both paths keep preview visually equal to download.
-      width={videoEl.videoWidth || 1080}
-      height={videoEl.videoHeight || 1920}
-    />
-  )
+  // Overlay measures the video's DOM box itself via ResizeObserver and
+  // passes those dimensions down to the caption tree — so font sizes
+  // and layout match the preview box, not the 1080×1920 source.
+  return <InlineCaptionOverlay videoEl={videoEl} cues={assets.cues} />
 }
 
 // Posts [preview-log] with preview:"live" via /log/preview-view when

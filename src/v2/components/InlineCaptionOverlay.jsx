@@ -4,11 +4,13 @@
 // same visual output as the server's download mp4, but driven by the
 // existing video element's currentTime via requestAnimationFrame.
 //
-// Caption component tree is imported via @caption (the Vite alias
-// set up by build config). Since the refactor that decoupled caption
-// components from Remotion's runtime (backend commit 45dd9c9), those
-// components read clock values from CaptionClockContext — populated
-// here by VideoElementClockProvider instead of RemotionClockProvider.
+// Sizing model: pass the video's DOM-displayed dimensions as the
+// composition width/height. CaptionLayer derives font size from
+// min(width, height) × 0.055, so a 400px-wide preview shows ~22px
+// fonts — proportionally the same as a 1080×1920 download showing
+// 59px fonts (both ~5.5% of width). Absolute-px effects like waveSine
+// amplitude don't scale perfectly, but font size is the dominant
+// visual and this keeps the overlay simple enough to not break.
 
 import { useEffect, useState } from 'react'
 import { VideoElementClockProvider, OffsetClockProvider, useCaptionClock } from '@caption/runtime/captionClock'
@@ -18,41 +20,16 @@ import { CaptionLayer } from '@caption/components/CaptionLayer'
 import '@caption/animation/presets'
 import '@caption/animation/continuous'
 
-/**
- * @param {object} props
- * @param {HTMLVideoElement|null} props.videoEl  — the target element to overlay on.
- * @param {Array} props.cues  — same shape as server render-final cues (startMs, endMs,
- *                              text, wordTimings, captionStyle, fadeInMs, fadeOutMs).
- * @param {number} [props.width=1080]  — composition width. Caption components size
- *                                        fonts / translate offsets / wave amplitudes
- *                                        in THESE composition-space pixels.
- * @param {number} [props.height=1920] — composition height.
- * @param {number} [props.fps=30]      — nominal fps for frame-math effects.
- *
- * Rendering model: identical to Remotion Player. The caption tree
- * lays out at the composition's native resolution (e.g. 1080×1920),
- * then a CSS transform scales the entire block to match the video
- * element's DOM-displayed size. Keeps every absolute-px effect
- * (waveSine amplitude, scalePulse translate, outline widths) visually
- * proportional to the video content, matching what Download renders
- * frame-for-frame.
- */
-export default function InlineCaptionOverlay({ videoEl, cues, width = 1080, height = 1920, fps = 30 }) {
-  // Track the video's DOM-displayed size so we can scale the
-  // composition-space overlay to match it. ResizeObserver updates on
-  // layout changes (panel resize, window resize, video metadata load
-  // changing its aspect ratio).
-  const [displayRect, setDisplayRect] = useState({ width: 0, height: 0 })
+export default function InlineCaptionOverlay({ videoEl, cues, fps = 30 }) {
+  // Track the video's DOM-displayed size. Caption components receive
+  // these as the composition dimensions, so fontSize calculations
+  // match the preview box rather than the 1080×1920 source.
+  const [rect, setRect] = useState({ width: 0, height: 0 })
   useEffect(() => {
     if (!videoEl) return
     const measure = () => {
       const r = videoEl.getBoundingClientRect()
-      // Avoid churn on 0×0 (happens briefly during unmount). React
-      // will re-measure on the next resize event once a real size
-      // lands.
-      if (r.width > 0 && r.height > 0) {
-        setDisplayRect({ width: r.width, height: r.height })
-      }
+      if (r.width > 0 && r.height > 0) setRect({ width: r.width, height: r.height })
     }
     measure()
     const ro = new ResizeObserver(measure)
@@ -61,23 +38,11 @@ export default function InlineCaptionOverlay({ videoEl, cues, width = 1080, heig
   }, [videoEl])
 
   if (!videoEl || !Array.isArray(cues) || cues.length === 0) return null
-  if (displayRect.width === 0) return null  // wait for first measurement
-
-  // Scale the composition-resolution overlay down to the displayed
-  // video size. Uses the width ratio only — assumes display and video
-  // share an aspect ratio, which is true for our 9:16 merges sitting
-  // in their own 9:16 container. If aspect ratios diverge, fonts stay
-  // proportional to width; vertical position adjusts via percentage
-  // in CaptionLayer.
-  const scale = displayRect.width / width
+  if (rect.width === 0) return null
 
   return (
-    <VideoElementClockProvider videoEl={videoEl} width={width} height={height} fps={fps}>
+    <VideoElementClockProvider videoEl={videoEl} width={rect.width} height={rect.height} fps={fps}>
       <div
-        // Captions paint over the video element but must not swallow
-        // clicks — the <video controls> underneath needs its own
-        // pointer events. CaptionLayer's AbsoluteFill already sets
-        // pointerEvents:'none'; this outer div matches that.
         style={{
           position: 'absolute',
           inset: 0,
@@ -85,28 +50,7 @@ export default function InlineCaptionOverlay({ videoEl, cues, width = 1080, heig
           overflow: 'hidden',
         }}
       >
-        <div
-          // Composition-space stage. Fixed at the source resolution
-          // so caption math (pixel-sized effects, font sizes computed
-          // from width/height) operates in the dimensions Download
-          // renders at. transform:scale fits it visually to the DOM.
-          //
-          // position: relative matters — CaptionLayer renders
-          // <AbsoluteFill> (position: absolute; inset: 0) and without
-          // a positioned ancestor those descendants escape up to the
-          // outer `inset: 0` overlay div, rendering at DOM size
-          // without the scale. Making THIS div the positioning
-          // context traps AbsoluteFill inside the scaled stage.
-          style={{
-            width,
-            height,
-            position: 'relative',
-            transformOrigin: '0 0',
-            transform: `scale(${scale})`,
-          }}
-        >
-          <ActiveCuesRenderer cues={cues} width={width} height={height} />
-        </div>
+        <ActiveCuesRenderer cues={cues} width={rect.width} height={rect.height} />
       </div>
     </VideoElementClockProvider>
   )
