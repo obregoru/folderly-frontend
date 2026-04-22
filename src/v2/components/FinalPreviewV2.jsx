@@ -577,20 +577,32 @@ function OverlayText({ text, style, videoRef }) {
       }).join(', ')
     : 'none'
 
-  // Map the 0–100 overlayYPct into the platform-safe band. Mirrors what the
-  // burn-in pipeline does: skip the top status/UI area (~12%) and the
-  // bottom caption/UI area (~22%); the remaining middle is where overlay
-  // text is guaranteed not to collide with IG / TikTok chrome.
-  const SAFE_TOP = 12   // %
-  const SAFE_BOT = 22   // %
+  // Match the burn-in pipeline's exact positioning math (lib/video.js
+  // processStoryVideo): safeTop=15% of height, safeBottom=75% of
+  // height, textBlock reserved = 2.5× fontSize (at 1080 reference).
+  // yPos is the TOP of the text, not its center — the render uses
+  // drawtext's y= param which anchors top-of-glyph. Preview used to
+  // use 12–78% with a center anchor (translateY(-50%)) which at the
+  // extremes drifted ~7% of frame height away from the download.
+  const SAFE_TOP = 15   // %
+  const SAFE_BOT = 25   // %, so bottom limit = 75%
   const pct = Math.max(0, Math.min(100, Number(style?.overlayYPct ?? 50)))
-  const topPct = SAFE_TOP + (100 - SAFE_TOP - SAFE_BOT) * (pct / 100)
+  // Text-block height as % of container height. The container's
+  // clientHeight is the live video element box; textBlock in PX =
+  // fontSize × 2.5 (fontSize here is already scaled to the preview),
+  // so the ratio matches what render computes against 1080.
+  const containerHPx = wrapRef.current?.parentElement?.clientHeight || 0
+  const textBlockPct = containerHPx > 0
+    ? Math.min(50, (fontSize * 2.5 / containerHPx) * 100)
+    : 10
+  const maxY = Math.max(SAFE_TOP, (100 - SAFE_BOT) - textBlockPct)
+  const topPct = SAFE_TOP + (maxY - SAFE_TOP) * (pct / 100)
 
   return (
     <div
       ref={wrapRef}
-      className="absolute inset-x-0 flex items-center justify-center pointer-events-none px-4 text-center"
-      style={{ top: `${topPct}%`, transform: 'translateY(-50%)' }}
+      className="absolute inset-x-0 flex items-start justify-center pointer-events-none px-4 text-center"
+      style={{ top: `${topPct}%` }}
     >
       <div
         style={{

@@ -45,7 +45,18 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
   text, width, height, wordTimings, captionStyle, topPct,
 }) => {
   const minDim = Math.min(width, height);
-  const baseFontSize = Math.round((captionStyle?.baseFontSize ?? minDim * 0.055));
+  // User-authored baseFontSize is specified "at 1080 reference width".
+  // Scale to the actual composition width so preview (e.g. 400 px) and
+  // server render (1080 px) show the same proportion of the frame.
+  // Without this scale, a user-set 60 px showed as 15% of the preview
+  // width but only 5.5% of the 1080-wide final render — so the preview
+  // looked huge compared to what downloaded.
+  const widthScale = width / 1080;
+  const baseFontSize = Math.round(
+    captionStyle?.baseFontSize != null
+      ? captionStyle.baseFontSize * widthScale
+      : minDim * 0.055
+  );
 
   const layout = normalizeLayoutConfig(captionStyle?.layoutConfig);
   // Vertical position precedence:
