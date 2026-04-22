@@ -9,14 +9,18 @@ import { CAPTION_PRESETS } from '../../lib/captionPresets/catalog'
  *
  *   mode='segment'  — (default) edits ONE segment's caption_styles row.
  *                     Shows inheritance banner + "Use job default"
- *                     button + "Set as default" on preset picker +
- *                     preview render tied to the segment's audio.
+ *                     button + "Set as default" on preset picker.
  *
  *   mode='default'  — edits the JOB-LEVEL default_caption_style that
  *                     applies to every segment without its own row.
- *                     No inheritance banner, no preview (not tied to
- *                     any single segment's audio), and the Save button
+ *                     No inheritance banner, and the Save button
  *                     writes to PUT /jobs/:id/default-caption-style.
+ *
+ * Preview: this editor used to mount a small Remotion-rendered clip
+ * after Save so users could check the style. That preview got retired
+ * once InlineCaptionOverlay started painting live captions directly
+ * on the main editor video — the video at the top of the form IS the
+ * preview now, so saving the style immediately reflects there.
  *
  * Shape matches the caption_styles row / PUT body: we send camelCase
  * → snake_case at the boundary since the backend's whitelist expects
@@ -86,11 +90,6 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     setPresetsOpen(false)
   }
   const [pendingConfig, setPendingConfig] = useState(null)
-
-  // Preview state — small Remotion-rendered clip we fetch after save.
-  const [previewUrl, setPreviewUrl] = useState(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [previewErr, setPreviewErr] = useState(null)
 
   useEffect(() => {
     if (!jobUuid) return
@@ -196,8 +195,8 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
       } else {
         await api.saveCaptionStyle(jobUuid, segmentId, currentConfigBody())
         setInheriting(false) // segment now has its own row
-        // Fire a preview render in the background — don't block the close.
-        triggerPreview()
+        // Preview happens inline on the main editor video via
+        // InlineCaptionOverlay — no separate render needed here.
       }
     } catch (e) {
       setErr(e.message || String(e))
@@ -244,37 +243,6 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
       setErr(e.message || String(e))
     } finally {
       setSaving(false)
-    }
-  }
-
-  // Trigger a short Remotion preview of this segment via /video/render
-  // with preview=true. Runs after save (or on demand via the Preview
-  // button) so the user can check that their configured style actually
-  // looks right before rendering the full 30s clip.
-  const triggerPreview = async () => {
-    setPreviewLoading(true); setPreviewErr(null)
-    try {
-      // Look up this segment's video + audio URLs so we can feed them
-      // into the preview endpoint. Uses the getJob we already load
-      // caption styles from, so this extra fetch stays cheap.
-      const job = await api.getJob(jobUuid)
-      const seg = (job?.voiceover_settings?.segments || []).find(s => s?.id === segmentId)
-      if (!job?.merged_video_url || !seg?.audioUrl) {
-        throw new Error('preview needs a merged video + segment audio')
-      }
-      const r = await api.renderSegmentPreview({
-        jobUuid,
-        segmentId,
-        videoUrl: job.merged_video_url,
-        audioUrl: seg.audioUrl,
-        text: seg.text || 'preview',
-        platform: 'vertical',
-      })
-      if (r?.video_url) setPreviewUrl(r.video_url)
-    } catch (e) {
-      setPreviewErr(e.message || String(e))
-    } finally {
-      setPreviewLoading(false)
     }
   }
 
@@ -384,47 +352,6 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
         />
       )}
 
-      {/* Preview — 4-second Remotion render at half-res. Segment mode
-          only — the default-style editor has no specific segment audio
-          to pair with, so the preview block is hidden there. */}
-      {!isDefault && (
-        <>
-          <div className="bg-black rounded overflow-hidden relative aspect-[9/16] max-h-[40vh] mx-auto">
-            {previewLoading && (
-              <div className="absolute inset-0 flex items-center justify-center text-white/80 text-[11px] bg-black/60">
-                <div className="text-center">
-                  <div className="text-[10px] animate-pulse">Rendering preview…</div>
-                  <div className="text-[9px] text-white/50 mt-1">~5–8 seconds</div>
-                </div>
-              </div>
-            )}
-            {previewUrl ? (
-              <video
-                key={previewUrl}
-                src={previewUrl}
-                controls
-                playsInline
-                autoPlay
-                muted={false}
-                className="w-full h-full object-contain bg-black"
-              />
-            ) : !previewLoading ? (
-              <div className="flex items-center justify-center h-full text-white/50 text-[11px] px-4 text-center">
-                Save caption style to render a 4-second preview here.
-              </div>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={triggerPreview}
-              disabled={previewLoading}
-              className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
-            >{previewLoading ? 'Rendering…' : '▶ Preview now'}</button>
-            {previewErr && <span className="text-[9px] text-[#c0392b]">{previewErr}</span>}
-          </div>
-        </>
-      )}
       {isDefault && (
         <div className="text-[10px] text-muted italic">
           Applies to every segment that hasn't been customized. Individual segments can still override it.
