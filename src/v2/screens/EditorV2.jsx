@@ -120,7 +120,20 @@ export default function EditorV2({
           />
         )}
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} settings={settings} />}
-        {safeActiveTool === 'voiceover' && <VoiceoverPanelV2 previewRef={previewRef} settings={settings} jobSync={jobSync} draftId={draftId} />}
+        {/*
+          VoiceoverPanelV2 stays MOUNTED on every tab — only its
+          visibility toggles. Its playback-sync useEffect owns the
+          primary-audio <audio> element and the per-segment Audio()
+          pool, and attaches timeupdate/play/pause listeners to the
+          shared preview video. Unmounting the panel detached all
+          that, so the Overlays / Captions / Channels tabs' preview
+          played video + captions but silent voiceover. Captions
+          didn't break because InlineCaptionOverlay lives in
+          FinalPreviewV2 (always mounted).
+        */}
+        <div style={{ display: safeActiveTool === 'voiceover' ? 'block' : 'none' }}>
+          <VoiceoverPanelV2 previewRef={previewRef} settings={settings} jobSync={jobSync} draftId={draftId} />
+        </div>
         {safeActiveTool === 'overlays' && <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} previewRef={previewRef} />}
         {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} settings={settings} />}
         {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} jobSync={jobSync} files={files} settings={settings} />}
