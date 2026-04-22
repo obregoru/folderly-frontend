@@ -627,15 +627,12 @@ function OverlayText({ text, style, videoRef }) {
       }).join(', ')
     : 'none'
 
-  // Match the burn-in pipeline's exact positioning math (lib/video.js
-  // processStoryVideo): safeTop=15% of height, safeBottom=75% of
-  // height, textBlock reserved = 2.5× fontSize (at 1080 reference).
-  // yPos is the TOP of the text, not its center — the render uses
-  // drawtext's y= param which anchors top-of-glyph. Preview used to
-  // use 12–78% with a center anchor (translateY(-50%)) which at the
-  // extremes drifted ~7% of frame height away from the download.
-  const SAFE_TOP = 15   // %
-  const SAFE_BOT = 25   // %, so bottom limit = 75%
+  // Match the burn-in pipeline's positioning math (lib/video.js
+  // processStoryVideo). No platform-safe clamping — slider spans the
+  // full frame so users can place overlays wherever they want. Only
+  // the textBlock (fontSize×2.5) is subtracted at the bottom so long
+  // captions don't fall off. yPos is the TOP of the text — render
+  // uses drawtext's y= param which anchors top-of-glyph.
   const pct = Math.max(0, Math.min(100, Number(style?.overlayYPct ?? 50)))
   // Text-block height as % of container height. The container's
   // clientHeight is the live video element box; textBlock in PX =
@@ -645,8 +642,8 @@ function OverlayText({ text, style, videoRef }) {
   const textBlockPct = containerHPx > 0
     ? Math.min(50, (fontSize * 2.5 / containerHPx) * 100)
     : 10
-  const maxY = Math.max(SAFE_TOP, (100 - SAFE_BOT) - textBlockPct)
-  const topPct = SAFE_TOP + (maxY - SAFE_TOP) * (pct / 100)
+  const maxY = Math.max(0, 100 - textBlockPct)
+  const topPct = maxY * (pct / 100)
 
   return (
     <div
