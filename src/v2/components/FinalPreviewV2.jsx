@@ -265,8 +265,29 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     return active?.text || teleprompter.primary || null
   }, [teleprompter, currentTime])
 
+  // Sliders live OUTSIDE the video container now — they were
+  // overlapping the <video controls> click surface and swallowing
+  // play/pause/seek. Flex row with items-stretch makes both sliders
+  // match the video's height without absolute positioning on top
+  // of the video element. Visibility guards mirror where the
+  // sliders' data paths apply (captions need a merged video + cues;
+  // overlay slider needs some overlay text configured).
+  const isVideoSource = source?.type === 'video' || source?.type === 'playlist'
+  const showCaptionSlider = isVideoSource && draftId && mergedUrl
+  const showOverlaySlider = isVideoSource && draftId && jobSync && (
+    overlays?.openingText || overlays?.middleText || overlays?.closingText
+  )
+
   return (
-    <div className="bg-black rounded-lg overflow-hidden relative aspect-[9/16] max-h-[56vh] w-[80%] mx-auto">
+    <div className="flex items-stretch gap-2 w-[80%] mx-auto">
+      {showOverlaySlider && (
+        <OverlayPositionSlider
+          overlays={overlays}
+          onChange={next => setOverlays(next)}
+          jobSync={jobSync}
+        />
+      )}
+    <div className="bg-black rounded-lg overflow-hidden relative aspect-[9/16] max-h-[56vh] flex-1 min-w-0">
       {!source ? (
         <div className="w-full h-full flex flex-col items-center justify-center text-white/70 p-6 text-center">
           <div className="text-[36px] mb-2">{onlyPhotos ? '📸' : '🎬'}</div>
@@ -352,11 +373,6 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
                   }}
                 >SAFE AREA</div>
               </div>
-              <VerticalPositionSlider
-                draftId={draftId}
-                value={vpOverride}
-                onChange={setVpOverride}
-              />
               <Suspense fallback={null}>
                 <InlineCaptionOverlayWrapper
                   draftId={draftId}
@@ -366,21 +382,17 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
               </Suspense>
             </>
           )}
-          {/* Overlay position slider — mirrors the caption slider but
-              on the LEFT edge, so the two controls are distinct.
-              Shows only when some overlay text is configured; during
-              playback the overlay itself shows/hides based on time
-              windows, but the slider stays available the whole time. */}
-          {draftId && jobSync && (overlays?.openingText || overlays?.middleText || overlays?.closingText) && (
-            <OverlayPositionSlider
-              overlays={overlays}
-              onChange={next => setOverlays(next)}
-              jobSync={jobSync}
-            />
-          )}
         </>
       ) : (
         <PhotoCarousel urls={source.urls} />
+      )}
+    </div>
+      {showCaptionSlider && (
+        <VerticalPositionSlider
+          draftId={draftId}
+          value={vpOverride}
+          onChange={setVpOverride}
+        />
       )}
     </div>
   )
@@ -962,27 +974,22 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
 
   return (
     <div
-      // Absolutely positioned along the right edge of the video
-      // container — spans the full video height so the thumb's
-      // physical position on screen corresponds directly to the
-      // caption's vertical position on screen. Flex-column so the
-      // top/bottom labels sit at the ends and the rotated slider
-      // fills the middle.
+      // Flex sibling of the video (caller wraps everything in an
+      // items-stretch flex row). alignSelf:stretch makes the slider
+      // match the video's height; flexShrink:0 keeps its 30px width
+      // stable. No position:absolute — this used to overlay the
+      // video and block the native <video controls> click surface.
       style={{
-        position: 'absolute',
-        right: 6,
-        top: 0,
-        bottom: 0,
         width: 30,
+        alignSelf: 'stretch',
+        flexShrink: 0,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '8px 0',
-        // Slight dark backing so the slider reads against any video.
         background: 'rgba(0,0,0,0.32)',
         borderRadius: 15,
-        zIndex: 3,
         userSelect: 'none',
       }}
       title={`Caption vertical position — ${Math.round(current)}%`}
@@ -1142,13 +1149,13 @@ function OverlayPositionSlider({ overlays, onChange, jobSync }) {
 
   return (
     <div
-      // Left-edge companion to the caption slider's right-edge home.
+      // Left-edge flex sibling of the video. Same layout as the
+      // caption slider — match the video's height via alignSelf,
+      // fixed 30px width, no absolute positioning.
       style={{
-        position: 'absolute',
-        left: 6,
-        top: 0,
-        bottom: 0,
         width: 30,
+        alignSelf: 'stretch',
+        flexShrink: 0,
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -1156,7 +1163,6 @@ function OverlayPositionSlider({ overlays, onChange, jobSync }) {
         padding: '8px 0',
         background: 'rgba(0,0,0,0.32)',
         borderRadius: 15,
-        zIndex: 3,
         userSelect: 'none',
       }}
       title={`Overlay text vertical position — ${Math.round(current)}%`}
