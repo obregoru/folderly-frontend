@@ -611,6 +611,14 @@ export const speechToText = ({ audioBase64, mediaType, language } = {}) =>
     return r.json()
   })
 
+// Read word_timings for one segment. Used by the browser-side
+// LivePreviewPlayer to feed timings through to the FinalRender
+// composition without a server-side render round-trip.
+export const getSegmentWordTimings = (jobUuid, segmentId) =>
+  fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/word-timings`), {
+    credentials: 'include',
+  }).then(r => r.json())
+
 // Bulk-replace word_timings on a segment without re-uploading audio.
 export const saveSegmentWordTimings = (jobUuid, segmentId, wordTimings) =>
   fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/word-timings`), {

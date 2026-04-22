@@ -870,7 +870,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           This button runs that final pass and plays the result
           inline — same pipeline as Download, just no download. */}
       {draftId && (
-        <CaptionedPreviewFold draftId={draftId} hasSegments={segments.length > 0 || !!audioUrl} />
+        <CaptionedPreviewFold draftId={draftId} />
       )}
 
       <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
@@ -1339,49 +1339,118 @@ function DefaultCaptionStyleFold({ draftId }) {
   )
 }
 
-// Full-video captioned preview — runs /post/render-final so the user
-// sees actual Remotion animations/reveals/active-word effects, which
-// the DOM preview above can't show (it only paints static overlay
-// text). Same endpoint as Download Final Video; we just skip the
-// save/share handoff and play inline.
+// Live browser-side preview. Previously fired /post/render-final and
+// waited ~3.6s for an mp4 to download. Now mounts <LivePreviewPlayer>
+// directly — the @remotion/player component runs the same FinalRender
+// composition client-side against the tenant's merged-video URL and
+// per-segment voiceover URLs, so caption styles, animations, reveals,
+// and active-word effects play live with zero server round-trip on
+// every style tweak.
 //
-// Render takes 30–60s on Railway, so we cache the URL client-side and
-// only re-render when the user explicitly hits "Re-render" after
-// tweaking styles.
-function CaptionedPreviewFold({ draftId, hasSegments }) {
+// Data assembly mirrors the server's cue-build in /post/render-final.
+// Fallback chain for caption styles: per-segment row → job default →
+// null. Word timings fetched per segment in parallel.
+//
+// Removed:
+//   - Server-rendered 5-sec preview mp4 + its <video> playback.
+//     Download button still hits /post/render-final for full-res mp4.
+//   - "Re-render" button — Player re-renders in the browser as
+//     caption styles change; refetch happens on fold close/reopen.
+//   - "Download preview mp4" fallback — redundant with the Download
+//     button, which produces the authoritative full-quality artifact.
+function CaptionedPreviewFold({ draftId }) {
   const [open, setOpen] = useState(false)
-  const [state, setState] = useState('idle') // idle | rendering | ready | error
-  const [previewUrl, setPreviewUrl] = useState(null)
+  // Lazy-load the Player component so its ~200KB gz runtime doesn't
+  // land in the first-paint bundle — users who never open this fold
+  // never pay for it.
+  const [LivePreviewPlayer, setLivePreviewPlayer] = useState(null)
+  useEffect(() => {
+    if (!open || LivePreviewPlayer) return
+    import('./LivePreviewPlayer').then(m => setLivePreviewPlayer(() => m.default))
+  }, [open, LivePreviewPlayer])
+
+  // Assets assembled client-side into the shape LivePreviewPlayer
+  // expects. Loaded on every fold-open so style edits made in the
+  // session show up in the preview — Player re-renders internally on
+  // inputProps changes, so refetching is the refresh signal.
+  const [assets, setAssets] = useState(null) // { mergedVideoUrl, segmentAudioUrls, cues } | null
+  const [loading, setLoading] = useState(false)
   const [err, setErr] = useState(null)
 
-  const renderPreview = async () => {
-    setState('rendering'); setErr(null)
-    try {
-      // Same primary-voice base64 pickup as DownloadFinalButton — so
-      // an in-session-recorded primary voice gets included in the
-      // preview without needing a separate persist step.
-      let primaryBase64 = null
+  useEffect(() => {
+    if (!open || !draftId) return
+    let cancelled = false
+    setLoading(true); setErr(null)
+    ;(async () => {
       try {
-        const primaryEl = document.querySelector('audio[data-posty-primary-voice]')
-        if (primaryEl?.src) {
-          const r = await fetch(primaryEl.src)
-          const b = await r.blob()
-          const buf = new Uint8Array(await b.arrayBuffer())
-          let bin = ''
-          for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
-          primaryBase64 = btoa(bin)
+        // Phase 1: job shell + default style. Phase 2: per-segment
+        // caption-style rows + word timings, fanned out in parallel.
+        const [job, defRes] = await Promise.all([
+          api.getJob(draftId),
+          api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
+        ])
+        if (cancelled) return
+        if (!job?.merged_video_url) {
+          throw new Error('This job has no merged video yet. Click Merge first.')
         }
-      } catch { /* server-side primary still works if persisted */ }
-
-      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64, preview: true })
-      if (!r?.final_url) throw new Error('Server returned no final URL')
-      setPreviewUrl(r.final_url)
-      setState('ready')
-    } catch (e) {
-      setErr(e.message || String(e))
-      setState('error')
-    }
-  }
+        const defaultCs = defRes?.caption_style || null
+        const segs = Array.isArray(job.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
+        // Sort by startTime so fade-in/out and cue ordering match what
+        // the server does in /post/render-final.
+        const ordered = [...segs]
+          .filter(s => s && s.id && s.audioUrl)
+          .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
+        // Fan-out: each segment needs its own style row + word timings.
+        const perSegment = await Promise.all(ordered.map(async (seg) => {
+          const [csRes, wtRes] = await Promise.all([
+            api.getCaptionStyle(draftId, seg.id).catch(() => ({ caption_style: null })),
+            api.getSegmentWordTimings(draftId, seg.id).catch(() => ({ word_timings: [] })),
+          ])
+          return { seg, cs: csRes?.caption_style || null, wt: wtRes?.word_timings || [] }
+        }))
+        if (cancelled) return
+        // Assemble audioTracks + cues in the exact shape the server
+        // passes to remotionCaptionPass + LivePreviewPlayer expects.
+        const segmentAudioUrls = perSegment.map(({ seg }) => {
+          const startMs = Math.max(0, Math.round((Number(seg.startTime) || 0) * 1000))
+          const durMs = Number(seg.duration) > 0
+            ? Math.round(Number(seg.duration) * 1000)
+            : 3000
+          return { src: seg.audioUrl, startMs, durationMs: durMs, volume: 1 }
+        })
+        const cues = perSegment.map(({ seg, cs, wt }, idx) => {
+          const startMs = Math.max(0, Math.round((Number(seg.startTime) || 0) * 1000))
+          const lastWordEnd = wt.length ? wt[wt.length - 1].endMs : 0
+          const durMs = Number(seg.duration) > 0
+            ? Math.round(Number(seg.duration) * 1000)
+            : (lastWordEnd > 0 ? lastWordEnd + 300 : 3000)
+          const resolvedStyle = cs ? snakeToCamelCaptionStyle(cs) : (defaultCs ? snakeToCamelCaptionStyle(defaultCs) : null)
+          return {
+            startMs,
+            endMs: startMs + durMs,
+            text: seg.text || '',
+            wordTimings: wt,
+            captionStyle: resolvedStyle,
+            // No crossfade on live preview for now — the job's
+            // segment_transition flag would apply here if we wanted
+            // to mirror the server's behavior exactly.
+            fadeInMs: 0,
+            fadeOutMs: 0,
+            _segmentId: seg.id, // carried only for styleFp telemetry
+          }
+        }).filter(c => c.text || c.wordTimings?.length)
+        setAssets({
+          mergedVideoUrl: job.merged_video_url,
+          segmentAudioUrls,
+          cues,
+        })
+        setLoading(false)
+      } catch (e) {
+        if (!cancelled) { setErr(e.message || String(e)); setLoading(false) }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [open, draftId])
 
   return (
     <div className="border-t border-[#e5e5e5] pt-3 space-y-2">
@@ -1389,77 +1458,71 @@ function CaptionedPreviewFold({ draftId, hasSegments }) {
         type="button"
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-2 bg-[#fff7ed] border border-[#f59e0b]/30 rounded p-2 cursor-pointer hover:border-[#f59e0b]/60"
-        title="Render the full video with captions, animations, reveals — exactly what Download produces"
+        title="Live preview — plays in the browser with every animation and effect, no server render"
       >
         <span className="text-[14px] leading-none">🎬</span>
         <span className="text-[11px] font-medium text-left">Preview captioned video</span>
         <div className="flex-1" />
-        {state === 'ready' && !open && (
-          <span className="text-[9px] py-0.5 px-1.5 rounded border bg-[#f0faf4] border-[#2D9A5E]/40 text-[#2D9A5E] shrink-0">
-            rendered
-          </span>
-        )}
+        <span className="text-[9px] py-0.5 px-1.5 rounded border bg-[#f0faf4] border-[#2D9A5E]/40 text-[#2D9A5E] shrink-0">
+          live
+        </span>
         <span className="text-[11px] text-muted">{open ? '▾' : '▸'}</span>
       </button>
 
       {open && (
         <div className="space-y-2">
-          {!hasSegments && state === 'idle' && (
-            <div className="text-[10px] text-muted italic px-2 py-1">
-              Generate or record a voiceover first — there's nothing to caption yet.
+          {loading && (
+            <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-3 text-center text-[10px] text-muted">
+              <div className="animate-pulse">Loading preview assets…</div>
             </div>
           )}
-
-          {state === 'idle' && hasSegments && (
-            <button
-              type="button"
-              onClick={renderPreview}
-              className="w-full py-2 bg-[#f59e0b] text-white text-[11px] font-medium border-none rounded cursor-pointer"
-              title="Renders the first 5 seconds at full resolution with every effect enabled. Download renders the full clip."
-            >▶ Render 5-sec preview</button>
-          )}
-
-          {state === 'rendering' && (
-            <div className="bg-black text-white/80 text-[10px] rounded p-3 text-center">
-              <div className="animate-pulse">Rendering preview…</div>
-              <div className="text-[9px] text-white/50 mt-1">
-                First 5 seconds at full resolution. Download renders the full clip.
-              </div>
+          {err && (
+            <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">
+              {err}
             </div>
           )}
-
-          {state === 'ready' && previewUrl && (
+          {!loading && !err && assets && LivePreviewPlayer && (
             <>
-              <video
-                key={previewUrl}
-                src={previewUrl}
-                controls
-                playsInline
-                className="w-full aspect-[9/16] max-h-[60vh] bg-black rounded object-contain mx-auto"
+              <LivePreviewPlayer
+                mergedVideoUrl={assets.mergedVideoUrl}
+                segmentAudioUrls={assets.segmentAudioUrls}
+                cues={assets.cues}
               />
-              <button
-                type="button"
-                onClick={renderPreview}
-                className="w-full py-1.5 bg-white border border-[#f59e0b] text-[#f59e0b] text-[10px] font-medium rounded cursor-pointer"
-                title="Re-render after tweaking caption styles or segments"
-              >↻ Re-render preview</button>
+              <div className="text-[9px] text-muted italic px-1">
+                Plays live in your browser. Download produces the authoritative full-res mp4.
+              </div>
             </>
           )}
-
-          {state === 'error' && (
-            <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">
-              Render failed: {err}
-              <button
-                type="button"
-                onClick={renderPreview}
-                className="ml-2 text-[10px] underline cursor-pointer"
-              >retry</button>
-            </div>
+          {!loading && !err && assets && !LivePreviewPlayer && (
+            <div className="text-[10px] text-muted italic text-center py-2">Loading player…</div>
           )}
         </div>
       )}
     </div>
   )
+}
+
+// The render-pipeline caption_style objects are snake_case on the wire
+// but the Remotion composition expects camelCase. Server paths build
+// this translation in routes/social-post.js; live preview does it
+// client-side so LivePreviewPlayer's cues match what FinalRender sees
+// on the server download path.
+function snakeToCamelCaptionStyle(cs) {
+  if (!cs || typeof cs !== 'object') return null
+  return {
+    baseFontFamily: cs.base_font_family,
+    baseFontColor: cs.base_font_color,
+    baseFontSize: cs.base_font_size,
+    activeWordColor: cs.active_word_color,
+    activeWordFontFamily: cs.active_word_font_family,
+    activeWordOutlineConfig: cs.active_word_outline_config,
+    activeWordScalePulse: cs.active_word_scale_pulse || null,
+    layoutConfig: cs.layout_config || null,
+    entryAnimation: cs.entry_animation || null,
+    exitAnimation: cs.exit_animation || null,
+    revealConfig: cs.reveal_config || null,
+    continuousMotion: cs.continuous_motion || null,
+  }
 }
 
 // Deep-compare a caption_styles-shaped config against each preset's

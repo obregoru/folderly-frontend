@@ -1,11 +1,14 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
 import { HelmetProvider } from 'react-helmet-async'
 import App from './App'
 import MockApp from './ux-v2/MockApp'
 import AppV2 from './v2/AppV2'
-import LivePreviewTestPage from './v2/LivePreviewTestPage'
 import './index.css'
+// LivePreviewTestPage lazy-loaded so the Remotion/Player runtime
+// only ships to users who open ?preview-test=1 (dev-only route).
+// Keeps the main bundle unchanged for normal users.
+const LivePreviewTestPage = lazy(() => import('./v2/LivePreviewTestPage'))
 
 // Routing:
 //   default       → v2 rebuild (the shipped product)
@@ -32,7 +35,9 @@ else Mount = AppV2 // v2 is the default prod experience
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <HelmetProvider>
-      <Mount />
+      <Suspense fallback={<div style={{ padding: 24, fontFamily: 'system-ui' }}>Loading…</div>}>
+        <Mount />
+      </Suspense>
     </HelmetProvider>
   </React.StrictMode>
 )
