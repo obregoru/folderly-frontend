@@ -42,6 +42,11 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
           ? Math.min(2000, Math.max(50, Math.round(Number(transition.crossfadeMs))))
           : 0
 
+        // Job-level master switch for spoken-word captions. When
+        // true, the preview renders no caption cues at all — matches
+        // the /post/render-final short-circuit so what you see is
+        // what downloads.
+        const jobHideCaptions = !!job?.voiceover_settings?.hideCaptions
         const segs = Array.isArray(job?.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
         const ordered = [...segs]
           .filter(s => s && s.id && s.audioUrl)
@@ -85,11 +90,15 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
             fadeInMs: crossfadeMs && !isFirst ? crossfadeMs : 0,
             fadeOutMs: crossfadeMs && !isLast ? crossfadeMs : 0,
           }
-        }).filter(c => (c.text || c.wordTimings?.length)
-          // Honor the per-segment hideCaption flag: drop the cue so
-          // no caption renders in the preview. Voiceover audio still
-          // plays because segmentAudioUrls above doesn't filter.
-          && !perSegment.find(p => p.seg.id === c._segmentId)?.seg?.hideCaption)
+        }).filter(c => {
+          // Job-level master switch wins — no cues regardless of
+          // per-segment state.
+          if (jobHideCaptions) return false
+          if (!(c.text || c.wordTimings?.length)) return false
+          // Per-segment hideCaption suppresses just that cue.
+          const owner = perSegment.find(p => p.seg.id === c._segmentId)
+          return !owner?.seg?.hideCaption
+        })
 
         setAssets({
           mergedVideoUrl,

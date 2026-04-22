@@ -29,6 +29,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
 
   // Timed segments: rehydrated from job.voiceover_settings.segments
   const [segments, setSegments] = useState([])
+  // Job-level master switch for spoken-word captions. When true, no
+  // caption cues render (preview + final). Overrides any per-segment
+  // hideCaption=false setting. When false (default), per-segment
+  // toggles govern each segment individually. Persisted on
+  // voiceover_settings.hideCaptions.
+  const [hideCaptions, setHideCaptions] = useState(false)
   // Write-from-content flow state
   const [scriptMode, setScriptMode] = useState('complement')
   const [scriptLen, setScriptLen] = useState('medium')
@@ -65,6 +71,9 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // the settings value so existing drafts without a saved choice
       // keep the same behavior they had before.
       if (vo.voiceId) setVoiceId(vo.voiceId)
+      // Seed the job-level hideCaptions switch from saved state. Old
+      // jobs that never set it get the default (false = captions on).
+      if (typeof vo.hideCaptions === 'boolean') setHideCaptions(vo.hideCaptions)
       const segs = Array.isArray(vo.segments) ? vo.segments : []
       const nextDefault = vo.voiceId || voiceId
       setSegments(segs.map(s => ({
@@ -96,8 +105,16 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // bloat the voiceover_settings JSONB on existing rows.
       ...(s.hideCaption ? { hideCaption: true } : {}),
     }))
-    jobSync.saveVoiceoverSettings({ segments: clean, voiceId: voiceId || null })
-  }, [segments, voiceId, segLoaded, jobSync])
+    jobSync.saveVoiceoverSettings({
+      segments: clean,
+      voiceId: voiceId || null,
+      // Include the job-level master switch so it persists alongside
+      // the segments. Same wholesale-replace semantics — explicit
+      // false saves the "captions on" choice so the legacy default
+      // doesn't silently creep back in.
+      hideCaptions: !!hideCaptions,
+    })
+  }, [segments, voiceId, hideCaptions, segLoaded, jobSync])
 
   // Keep primary audio URL in sync with its blob
   useEffect(() => {
@@ -676,6 +693,37 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         )}
       </div>
 
+      {/* Job-level master switch for spoken-word captions. OFF here
+          overrides every per-segment toggle below — no caption
+          renders anywhere in the final video or the preview. ON (the
+          default) lets each segment be individually suppressed via
+          its own toggle. Independent from the voiceover audio mix:
+          turning this off never mutes the voice track. */}
+      <label
+        className={`flex items-start gap-2 rounded border p-2 cursor-pointer text-[11px] ${
+          hideCaptions
+            ? 'bg-[#fdf2f1] border-[#c0392b]/40'
+            : 'bg-[#f0faf4] border-[#2D9A5E]/30'
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={!hideCaptions}
+          onChange={e => setHideCaptions(!e.target.checked)}
+          className="mt-0.5"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">
+            {hideCaptions ? '🚫 Spoken-word captions OFF for this job' : '👁 Spoken-word captions ON for this job'}
+          </div>
+          <div className="text-[9px] text-muted mt-0.5">
+            {hideCaptions
+              ? 'No voiceover captions will render in the preview or final video. Per-segment toggles are disabled while this is off.'
+              : 'Each voiceover segment shows its caption by default. You can still hide individual segments with the per-segment toggle below.'}
+          </div>
+        </div>
+      </label>
+
       <div className="flex items-center gap-1 bg-[#f8f7f3] rounded-lg p-0.5">
         {[
           { key: 'ai',     label: 'AI voice',    enabled: hasElevenLabs },
@@ -961,6 +1009,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             voices={voices}
             defaultVoiceId={voiceId}
             draftId={draftId}
+            jobHideCaptions={hideCaptions}
             onChange={patch => updateSegment(seg.id, patch)}
             onGenerate={() => generateSegment(seg)}
             onPlay={() => playSegment(seg)}
@@ -993,7 +1042,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   )
 }
 
-function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate, onPlay, onRemove }) {
+function SegmentRow({ seg, voices, defaultVoiceId, draftId, jobHideCaptions, onChange, onGenerate, onPlay, onRemove }) {
   const hasAudio = !!seg.audioUrl
   const speed = Number(seg.speed) || 1.0
   const estSec = wordsToSeconds(seg.text, speed)
@@ -1219,13 +1268,20 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
         {draftId && hasAudio && (
           <button
             onClick={toggleHideCaption}
-            className={`text-[10px] py-0.5 px-2 border rounded cursor-pointer ${
-              seg.hideCaption
-                ? 'border-[#c0392b]/50 text-[#c0392b] bg-[#fdf2f1]'
-                : 'border-[#e5e5e5] text-muted bg-white'
+            disabled={jobHideCaptions}
+            className={`text-[10px] py-0.5 px-2 border rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+              jobHideCaptions
+                ? 'border-[#c0392b]/40 text-[#c0392b] bg-[#fdf2f1]'
+                : seg.hideCaption
+                  ? 'border-[#c0392b]/50 text-[#c0392b] bg-[#fdf2f1]'
+                  : 'border-[#e5e5e5] text-muted bg-white'
             }`}
-            title="Toggle whether this segment's caption text shows up in the preview + final video. The voiceover audio keeps playing either way. Word_timings stay in the DB so you can re-enable any time."
-          >{seg.hideCaption ? '🚫 caption off' : '👁 caption on'}</button>
+            title={
+              jobHideCaptions
+                ? 'Job-level "spoken-word captions OFF" overrides per-segment settings. Turn the job-level toggle at the top of the panel ON to enable per-segment overrides.'
+                : 'Toggle whether this segment\'s caption text shows up in the preview + final video. The voiceover audio keeps playing either way. Word_timings stay in the DB so you can re-enable any time.'
+            }
+          >{(jobHideCaptions || seg.hideCaption) ? '🚫 caption off' : '👁 caption on'}</button>
         )}
         <span
           className="font-mono text-[9px] rounded px-1.5 py-0.5 border ml-auto"
