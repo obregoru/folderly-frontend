@@ -14,7 +14,7 @@
 // explicit frame math (sweep fires at caption entry, once).
 
 import React from 'react';
-import { useCurrentFrame, useVideoConfig } from 'remotion';
+import { useCaptionClock } from '../runtime/captionClock';
 import type { HighlighterConfig } from './styleTypes';
 
 export interface CaptionHighlighterProps {
@@ -23,9 +23,7 @@ export interface CaptionHighlighterProps {
 }
 
 export const CaptionHighlighter: React.FC<CaptionHighlighterProps> = ({ config, children }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const nowMs = (frame / fps) * 1000;
+  const { nowMs } = useCaptionClock();
 
   const heightFraction = clamp01(config.heightFraction ?? 0.55);
   const offsetFraction = clamp01(config.verticalOffsetFraction ?? 0.15);

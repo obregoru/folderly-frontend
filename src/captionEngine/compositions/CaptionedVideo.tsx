@@ -13,6 +13,7 @@ import { useActiveWord } from '../hooks/useActiveWord';
 import type { WordTiming } from '../hooks/useActiveWord';
 import { CaptionLayer } from '../components/CaptionLayer';
 import type { CaptionStyle } from '../components/styleTypes';
+import { RemotionClockProvider } from '../runtime/captionClock';
 
 export type { WordTiming };
 
@@ -36,6 +37,27 @@ export const CaptionedVideo: React.FC<CaptionedVideoProps> = ({
   wordTimings,
   debug,
   captionStyle,
+}) => {
+  return (
+    <RemotionClockProvider width={width} height={height}>
+      <CaptionedVideoInner
+        videoUrl={videoUrl}
+        audioUrl={audioUrl}
+        text={text}
+        width={width}
+        height={height}
+        wordTimings={wordTimings}
+        debug={debug}
+        captionStyle={captionStyle}
+      />
+    </RemotionClockProvider>
+  );
+};
+
+// useActiveWord needs to run INSIDE the provider, so split inner body
+// into a child component that the provider wraps.
+const CaptionedVideoInner: React.FC<CaptionedVideoProps> = ({
+  videoUrl, audioUrl, text, width, height, wordTimings, debug, captionStyle,
 }) => {
   const activeIdx = useActiveWord(wordTimings);
   const activeWord =

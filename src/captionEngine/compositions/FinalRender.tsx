@@ -19,10 +19,11 @@
 // Durations are frame-aligned at composition mount via framesFromMs.
 
 import React from 'react';
-import { AbsoluteFill, Audio, OffthreadVideo, Sequence, useVideoConfig, useCurrentFrame, interpolate } from 'remotion';
+import { AbsoluteFill, Audio, OffthreadVideo, Sequence, useVideoConfig } from 'remotion';
 import type { WordTiming } from '../hooks/useActiveWord';
 import type { CaptionStyle } from '../components/styleTypes';
 import { CaptionLayer } from '../components/CaptionLayer';
+import { RemotionClockProvider, useCaptionClock } from '../runtime/captionClock';
 
 export interface FinalRenderCue {
   startMs: number;
@@ -79,20 +80,21 @@ const FadedCaption: React.FC<{
   cue: FinalRenderCue;
   width: number;
   height: number;
-  durationFrames: number;
-}> = ({ cue, width, height, durationFrames }) => {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const fadeInFrames = cue.fadeInMs ? Math.max(1, Math.round((cue.fadeInMs / 1000) * fps)) : 0;
-  const fadeOutFrames = cue.fadeOutMs ? Math.max(1, Math.round((cue.fadeOutMs / 1000) * fps)) : 0;
+  durationMs: number;
+}> = ({ cue, width, height, durationMs }) => {
+  // Clock is Sequence-local here — FinalRender nests a
+  // RemotionClockProvider inside each Sequence so nowMs starts at 0
+  // when this cue enters view. Cue-relative math (fade envelopes,
+  // word timings inside WordTrack) all key off the same zero.
+  const { nowMs } = useCaptionClock();
+  const fadeInMs = cue.fadeInMs || 0;
+  const fadeOutMs = cue.fadeOutMs || 0;
 
   let opacity = 1;
-  if (fadeInFrames > 0 && frame < fadeInFrames) {
-    opacity = interpolate(frame, [0, fadeInFrames], [0, 1]);
-  } else if (fadeOutFrames > 0 && frame > durationFrames - fadeOutFrames) {
-    opacity = interpolate(frame, [durationFrames - fadeOutFrames, durationFrames], [1, 0], {
-      extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
-    });
+  if (fadeInMs > 0 && nowMs < fadeInMs) {
+    opacity = Math.max(0, Math.min(1, nowMs / fadeInMs));
+  } else if (fadeOutMs > 0 && nowMs > durationMs - fadeOutMs) {
+    opacity = Math.max(0, Math.min(1, (durationMs - nowMs) / fadeOutMs));
   }
   return (
     <div style={{ opacity, width: '100%', height: '100%' }}>
@@ -147,11 +149,20 @@ export const FinalRender: React.FC<FinalRenderProps> = ({ videoUrl, width, heigh
         const fadeOutMs = cue.fadeOutMs || 0;
         const effectiveStartMs = Math.max(0, cue.startMs - fadeInMs);
         const effectiveEndMs = cue.endMs + fadeOutMs;
+        const effectiveDurationMs = effectiveEndMs - effectiveStartMs;
         const from = framesFromMs(effectiveStartMs);
-        const dur = Math.max(1, framesFromMs(effectiveEndMs - effectiveStartMs));
+        const dur = Math.max(1, framesFromMs(effectiveDurationMs));
+        // Sequence rebases useCurrentFrame to 0 at `from`, and the
+        // nested RemotionClockProvider picks that up — so caption
+        // components below see cue-local nowMs. Word timings and fade
+        // envelopes match the cue's own time origin whether rendered
+        // on the server (this path) or in the editor overlay (which
+        // uses OffsetClockProvider to achieve the same rebase).
         return (
           <Sequence key={i} from={from} durationInFrames={dur} layout="none">
-            <FadedCaption cue={cue} width={width} height={height} durationFrames={dur} />
+            <RemotionClockProvider width={width} height={height}>
+              <FadedCaption cue={cue} width={width} height={height} durationMs={effectiveDurationMs} />
+            </RemotionClockProvider>
           </Sequence>
         );
       })}

@@ -25,7 +25,8 @@
 // reversal: "progress 0 = start of exit, progress 1 = fully exited".
 
 import React from 'react';
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { interpolate, spring } from 'remotion';
+import { useCaptionClock } from '../runtime/captionClock';
 
 export type AnimationScope = 'block' | 'per-word' | 'per-char';
 
@@ -120,28 +121,32 @@ function applyEasing(progress: number, easing: AnimationEasing, fps: number): nu
  * Progress for an ENTRY animation starting at composition frame 0.
  * Returns 1 once the entry is complete (subsequent frames are past-
  * settled and presets should return the empty/hand-off CSS).
+ *
+ * Clock source: CaptionClockContext. Same hook in server render
+ * (backed by useCurrentFrame) and editor overlay (backed by the
+ * main video element's currentTime via rAF).
  */
 export function useEntryProgress(durationMs: number, easing: AnimationEasing = 'spring'): number {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const durationFrames = Math.max(1, Math.round((durationMs / 1000) * fps));
-  if (frame >= durationFrames) return 1;
-  return applyEasing(frame / durationFrames, easing, fps);
+  const { nowMs, fps } = useCaptionClock();
+  if (nowMs >= durationMs) return 1;
+  if (nowMs <= 0) return 0;
+  return applyEasing(nowMs / durationMs, easing, fps);
 }
 
 /**
  * Progress for an EXIT animation in the last `durationMs` of the
  * composition. Returns 0 until the window starts, then 0..1 through
- * the window.
+ * the window. Exit needs totalDurationMs to know where the window
+ * begins — the CaptionClockContext provides it on both server and
+ * editor paths.
  */
 export function useExitProgress(durationMs: number, easing: AnimationEasing = 'easeIn'): number {
-  const frame = useCurrentFrame();
-  const { fps, durationInFrames } = useVideoConfig();
-  const durationFrames = Math.max(1, Math.round((durationMs / 1000) * fps));
-  const exitStart = durationInFrames - durationFrames;
-  if (frame < exitStart) return 0;
-  const raw = (frame - exitStart) / durationFrames;
-  return applyEasing(raw, easing, fps);
+  const { nowMs, fps, totalDurationMs } = useCaptionClock();
+  if (totalDurationMs <= 0) return 0;
+  const exitStartMs = totalDurationMs - durationMs;
+  if (nowMs < exitStartMs) return 0;
+  const raw = (nowMs - exitStartMs) / durationMs;
+  return applyEasing(Math.min(1, Math.max(0, raw)), easing, fps);
 }
 
 /**

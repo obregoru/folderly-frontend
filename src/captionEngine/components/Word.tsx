@@ -4,7 +4,7 @@
 // <Word> stays trivially testable.
 
 import React from 'react';
-import { useCurrentFrame, useVideoConfig } from 'remotion';
+import { useCaptionClock } from '../runtime/captionClock';
 import type { WordStyle, ActiveWordStyle, ActiveWordScalePulse, TextFillConfig } from './styleTypes';
 import { composeShadows } from './textEffects';
 
@@ -35,11 +35,11 @@ export interface WordProps {
 
 export const Word: React.FC<WordProps> = ({ word, startMs, isActive, baseStyle, activeStyle, scalePulse, textFill, children }) => {
   // Hooks must run unconditionally, so always read the clock here
-  // even when there's no scalePulse to drive. Cheap — Remotion memoizes
-  // useCurrentFrame internally and this renders at most once per frame.
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const nowMs = (frame / fps) * 1000;
+  // even when there's no scalePulse to drive. The clock comes from
+  // CaptionClockContext — either Remotion's (server render) or the
+  // editor video's currentTime (live overlay), both present nowMs
+  // in the same units.
+  const { nowMs } = useCaptionClock();
 
   // Precedence (Phase 2.6 contract):
   //   1. base          — color / fontFamily / fontSize / drop shadow

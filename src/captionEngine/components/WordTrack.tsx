@@ -21,7 +21,8 @@ import { continuousMotionStyle } from '../animation/continuous';
 // Side-effect import to register built-in continuous-motion presets
 // (waveSine). Same pattern as animation/presets.
 import '../animation/continuous';
-import { useVideoConfig, useCurrentFrame, interpolate } from 'remotion';
+import { interpolate } from 'remotion';
+import { useCaptionClock } from '../runtime/captionClock';
 
 export interface WordTrackProps {
   wordTimings?: WordTiming[];
@@ -57,9 +58,7 @@ export const WordTrack: React.FC<WordTrackProps> = ({
   compositionHeight,
 }) => {
   const activeIdx = useActiveWord(wordTimings);
-  const { fps } = useVideoConfig();
-  const frame = useCurrentFrame();
-  const nowMs = (frame / fps) * 1000;
+  const { nowMs, fps } = useCaptionClock();
 
   // Phase 5 — look up per-word / per-char scope presets; block scope
   // (handled by AnimationWrapper) returns no value here.
