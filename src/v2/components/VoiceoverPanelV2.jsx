@@ -1384,17 +1384,25 @@ function CaptionedPreviewFold({ draftId }) {
     setLoading(true); setErr(null)
     ;(async () => {
       try {
-        // Phase 1: job shell + default style. Phase 2: per-segment
-        // caption-style rows + word timings, fanned out in parallel.
-        const [job, defRes] = await Promise.all([
+        // Phase 1: job shell + default style + segment transition.
+        // Phase 2: per-segment caption-style rows + word timings.
+        const [job, defRes, transRes] = await Promise.all([
           api.getJob(draftId),
           api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
+          api.getSegmentTransition(draftId).catch(() => ({ transition: null })),
         ])
         if (cancelled) return
         if (!job?.merged_video_url) {
           throw new Error('This job has no merged video yet. Click Merge first.')
         }
         const defaultCs = defRes?.caption_style || null
+        // Crossfade matches the server's rule in social-post.js:
+        // [50, 2000]ms range; first segment gets no fade-in, last gets
+        // no fade-out; intermediate segments get both sides.
+        const transition = transRes?.transition || null
+        const crossfadeMs = (transition?.type === 'crossfade' && Number(transition.crossfadeMs) > 0)
+          ? Math.min(2000, Math.max(50, Math.round(Number(transition.crossfadeMs))))
+          : 0
         const segs = Array.isArray(job.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
         // Sort by startTime so fade-in/out and cue ordering match what
         // the server does in /post/render-final.
@@ -1419,6 +1427,7 @@ function CaptionedPreviewFold({ draftId }) {
             : 3000
           return { src: seg.audioUrl, startMs, durationMs: durMs, volume: 1 }
         })
+        const lastIdx = perSegment.length - 1
         const cues = perSegment.map(({ seg, cs, wt }, idx) => {
           const startMs = Math.max(0, Math.round((Number(seg.startTime) || 0) * 1000))
           const lastWordEnd = wt.length ? wt[wt.length - 1].endMs : 0
@@ -1426,17 +1435,23 @@ function CaptionedPreviewFold({ draftId }) {
             ? Math.round(Number(seg.duration) * 1000)
             : (lastWordEnd > 0 ? lastWordEnd + 300 : 3000)
           const resolvedStyle = cs ? snakeToCamelCaptionStyle(cs) : (defaultCs ? snakeToCamelCaptionStyle(defaultCs) : null)
+          const isFirst = idx === 0
+          const isLast = idx === lastIdx
           return {
             startMs,
             endMs: startMs + durMs,
             text: seg.text || '',
             wordTimings: wt,
             captionStyle: resolvedStyle,
-            // No crossfade on live preview for now — the job's
-            // segment_transition flag would apply here if we wanted
-            // to mirror the server's behavior exactly.
-            fadeInMs: 0,
-            fadeOutMs: 0,
+            // Caption crossfade — matches social-post.js /render-final
+            // so live preview and Download produce the same caption
+            // fade envelope. Note: audio still hard-cuts in the live
+            // path (server uses FFmpeg afade; Remotion <Audio> with a
+            // volume envelope would close that gap but isn't worth it
+            // for a preview — audio crossfades at 200-400ms are
+            // barely perceptible).
+            fadeInMs: crossfadeMs && !isFirst ? crossfadeMs : 0,
+            fadeOutMs: crossfadeMs && !isLast ? crossfadeMs : 0,
             _segmentId: seg.id, // carried only for styleFp telemetry
           }
         }).filter(c => c.text || c.wordTimings?.length)
@@ -1447,9 +1462,15 @@ function CaptionedPreviewFold({ draftId }) {
         // SNAKE-case (pre-resolve) so server's fingerprint for an
         // inherited segment matches ours even before
         // snakeToCamelCaptionStyle runs.
+        // Include transition in extras so toggling crossfade counts
+        // as a distinct iteration in the preview-log stream. Extras
+        // shape must match the backend's hashStyleSet call in
+        // routes/social-post.js or server + client fingerprints
+        // diverge for the same config.
         const styleFp = await hashStyleSet(
           perSegment.map(({ cs }) => cs),
           defaultCs,
+          { segmentTransition: transition || null },
         )
         setAssets({
           mergedVideoUrl: job.merged_video_url,

@@ -17,13 +17,14 @@ export function stableStringify(v) {
 // Async because Web Crypto's SubtleCrypto.digest returns a Promise.
 // Backend's sync crypto.createHash produces the same hex string —
 // same bytes in, same bytes out.
-export async function hashStyleSet(segmentStyles, defaultStyle) {
+export async function hashStyleSet(segmentStyles, defaultStyle, extras) {
   const resolved = (segmentStyles || []).map(s => s || defaultStyle || null)
   const serialized = resolved.map(stableStringify)
   const unique = Array.from(new Set(serialized)).sort()
   const payload = JSON.stringify({
     default: stableStringify(defaultStyle || null),
     styles: unique,
+    extras: extras ? stableStringify(extras) : null,
   })
   const bytes = new TextEncoder().encode(payload)
   const digest = await crypto.subtle.digest('SHA-256', bytes)
