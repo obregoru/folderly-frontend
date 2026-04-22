@@ -65,7 +65,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   // Restore segments + default voice on draft load.
   useEffect(() => {
     if (!draftId) { setSegLoaded(true); return }
-    api.getJob(draftId).then(job => {
+    api.getJob(draftId).then(async job => {
       const vo = job?.voiceover_settings || {}
       // Per-job voice choice overrides the tenant default. Falls back to
       // the settings value so existing drafts without a saved choice
@@ -87,6 +87,32 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         duration: Number(s.duration) || null,
         generating: false,
       })))
+      // Hydrate the persisted primary voice (job.voiceover_audio_key)
+      // into panel state so the user can SEE and DISCARD it. Without
+      // this, a job that has a saved primary (legacy v1 flow, or a
+      // previous /post/save-voiceover round-trip) keeps that audio
+      // hidden — but the render pipeline still falls back to it when
+      // no in-session primary is present, so the user's download
+      // contains voice they can't account for (job 1c558075 symptom).
+      if (job?.voiceover_audio_key || job?.voiceover_audio_url) {
+        try {
+          const url = job.voiceover_audio_url
+            || `${import.meta.env.VITE_API_URL || ''}/api/t/${api.tenantSlug?.() || ''}/upload/serve?key=${encodeURIComponent(job.voiceover_audio_key)}`
+          const res = await fetch(url, { credentials: 'include' })
+          if (res.ok) {
+            const blob = await res.blob()
+            const localUrl = URL.createObjectURL(blob)
+            setAudioBlob(blob); setAudioUrl(localUrl)
+            primaryFiredRef.current = false
+            try {
+              const dur = await readAudioDuration(localUrl)
+              setPrimaryDuration(dur)
+            } catch { /* readAudioDuration itself logs */ }
+          }
+        } catch (e) {
+          console.warn('[VoiceoverPanelV2] hydrate persisted primary failed:', e?.message)
+        }
+      }
       setSegLoaded(true)
     }).catch(() => setSegLoaded(true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -353,9 +379,19 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     setRecording(false)
     setTeleprompterOn(false)
   }
-  const discard = () => {
+  const discard = async () => {
     if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
     setAudioBlob(null); setAudioUrl(null); setPrimaryDuration(null); primaryFiredRef.current = false
+    // Also NULL the persisted voiceover_audio_key so a page reload
+    // doesn't resurrect the discarded primary — and, more importantly,
+    // so the render pipeline doesn't silently keep mixing in the old
+    // audio under "primary_audio_base64 not passed → fall back to
+    // job.voiceover_audio_key". Local-only discard without this DB
+    // clear was the root of the "mystery voice in the final" bug.
+    if (draftId) {
+      try { await api.updateJob(draftId, { clear_voiceover_audio: true }) }
+      catch (e) { console.warn('[discard] clear persisted primary failed:', e?.message) }
+    }
   }
 
   // Transcribe a recorded primary voice via ElevenLabs Scribe → turn
