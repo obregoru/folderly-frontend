@@ -105,7 +105,11 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           const url = job.voiceover_audio_url
             || `${import.meta.env.VITE_API_URL || ''}/api/t/${api.tenantSlug?.() || ''}/upload/serve?key=${encodeURIComponent(job.voiceover_audio_key)}`
           console.log('[VoiceoverPanelV2] fetching persisted primary from', url)
-          const res = await fetch(url, { credentials: 'include' })
+          // credentials:'omit' — Supabase public bucket returns
+          // Access-Control-Allow-Origin:* which browsers reject for
+          // credentialed requests. The object is publicly readable so
+          // no cookie / session auth is needed anyway.
+          const res = await fetch(url, { credentials: 'omit' })
           console.log('[VoiceoverPanelV2] persisted primary fetch →', res.status)
           if (res.ok) {
             const blob = await res.blob()
