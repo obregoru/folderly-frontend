@@ -91,6 +91,10 @@ export interface LayoutConfig {
   box?: BoxConfig | null;
   lineBreak?: 'auto' | 'manual';
   maxWidthFraction?: number;           // 0..1 of composition width
+  // Caption block's vertical anchor as a percentage down the
+  // composition (0 = top, 100 = bottom). Null/undefined falls back
+  // to 72% on 9:16, 78% on 1:1 — the original Phase 0 lower-third.
+  verticalPosition?: number;
   verticalBox?: VerticalBoxConfig | null;
   perWordFontOverrides?: Record<string, string> | null; // wordIndex(string) → family
   // 3.6 / 3.7 / 3.8 additions — all additive + nullable.
@@ -125,6 +129,11 @@ export function normalizeLayoutConfig(raw: unknown): LayoutConfig | null {
   if (r.lineBreak === 'auto' || r.lineBreak === 'manual') out.lineBreak = r.lineBreak;
   if (typeof r.maxWidthFraction === 'number') {
     out.maxWidthFraction = Math.min(1, Math.max(0.2, r.maxWidthFraction));
+  }
+  if (typeof r.verticalPosition === 'number' && Number.isFinite(r.verticalPosition)) {
+    // Clamp to safe-visible range: 5% from edges leaves room for
+    // the caption text itself plus any box/background treatment.
+    out.verticalPosition = Math.min(95, Math.max(0, r.verticalPosition));
   }
   if (r.verticalBox && typeof r.verticalBox === 'object') {
     const v = r.verticalBox as Record<string, unknown>;

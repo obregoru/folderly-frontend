@@ -33,6 +33,11 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
   const [activeEnabled, setActiveEnabled] = useState(false)
   const [activeFont, setActiveFont] = useState('')
   const [activeFontEnabled, setActiveFontEnabled] = useState(false)
+  // Vertical anchor as % from top of composition. null means "use the
+  // aspect-ratio default" (72% on 9:16, 78% on 1:1). User interaction
+  // with the slider replaces null with a concrete number; the label
+  // shows "default (72%)" while null.
+  const [verticalPosition, setVerticalPosition] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(null) // 'base' | 'active' | null
   const [presetsOpen, setPresetsOpen] = useState(false)
 
@@ -69,6 +74,10 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     } else {
       setActiveFontEnabled(false)
     }
+    // Sync the slider to whatever the preset specifies (or null to
+    // fall back to the aspect-ratio default).
+    const vp = c.layout_config?.verticalPosition
+    setVerticalPosition(typeof vp === 'number' ? vp : null)
     // Keep the preset's full config in memory so Save sends animation /
     // reveal / outline / layout too (this UI doesn't yet surface those
     // fields for direct editing; they ride along from the preset).
@@ -129,6 +138,11 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     else { setActiveEnabled(false) }
     if (cs.active_word_font_family) { setActiveFont(cs.active_word_font_family); setActiveFontEnabled(true) }
     else { setActiveFontEnabled(false) }
+    // verticalPosition lives inside layout_config. null means "use
+    // the aspect-ratio default" — preserve that signal (setVertical
+    // Position(null)) rather than coercing to a number.
+    const vp = cs.layout_config?.verticalPosition
+    setVerticalPosition(typeof vp === 'number' ? vp : null)
     // Keep JSONB side-fields so Save doesn't drop them.
     setPendingConfig({
       active_word_outline_config: cs.active_word_outline_config || null,
@@ -144,13 +158,27 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
   // Build a caption_styles-shaped body from the current form state +
   // pendingConfig ride-alongs. Used by both Save (per-segment PUT) and
   // Set-as-default (job-level PUT) so both paths send the same shape.
-  const currentConfigBody = () => ({
-    ...(pendingConfig || {}),
-    base_font_family: baseFont,
-    base_font_color: baseColor,
-    active_word_color: activeEnabled ? activeColor : null,
-    active_word_font_family: activeFontEnabled && activeFont ? activeFont : null,
-  })
+  const currentConfigBody = () => {
+    // Merge verticalPosition into layout_config without clobbering
+    // whatever else the preset put there (textEffect, highlighter,
+    // backgroundType, etc.). When the user hasn't touched the slider
+    // (verticalPosition === null), delete the key entirely so the
+    // render path falls back to the aspect-ratio default.
+    const existingLayout = (pendingConfig?.layout_config) || null
+    const mergedLayout = verticalPosition != null
+      ? { ...(existingLayout || {}), verticalPosition }
+      : existingLayout && 'verticalPosition' in existingLayout
+        ? (() => { const { verticalPosition: _, ...rest } = existingLayout; return Object.keys(rest).length ? rest : null })()
+        : existingLayout
+    return {
+      ...(pendingConfig || {}),
+      layout_config: mergedLayout,
+      base_font_family: baseFont,
+      base_font_color: baseColor,
+      active_word_color: activeEnabled ? activeColor : null,
+      active_word_font_family: activeFontEnabled && activeFont ? activeFont : null,
+    }
+  }
 
   const save = async () => {
     setSaving(true); setErr(null)
@@ -438,6 +466,32 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
           aria-label="Base caption color"
         />
         <span className="font-mono text-[10px] text-muted">{baseColor}</span>
+      </div>
+
+      {/* Vertical position — slider with a "default" null state.
+          0 = top of frame, 100 = bottom. When null, the caption sits
+          at the aspect-ratio default (72% on 9:16, 78% on 1:1). */}
+      <div className="flex items-center gap-2">
+        <label className="text-[10px] font-medium">Vertical</label>
+        <input
+          type="range"
+          min={5} max={95} step={1}
+          value={verticalPosition != null ? verticalPosition : 72}
+          onChange={e => { setVerticalPosition(Number(e.target.value)); markDirty() }}
+          className="flex-1"
+          title="Where the caption sits vertically, 0% = top, 100% = bottom. Default is 72% on vertical video."
+        />
+        <span className="font-mono text-[10px] text-muted w-14 text-right">
+          {verticalPosition != null ? `${verticalPosition}%` : 'default'}
+        </span>
+        {verticalPosition != null && (
+          <button
+            type="button"
+            onClick={() => { setVerticalPosition(null); markDirty() }}
+            className="text-[9px] text-muted border border-[#e5e5e5] rounded px-1.5 py-0.5 bg-white cursor-pointer"
+            title="Reset to the aspect-ratio default (72% on 9:16)"
+          >reset</button>
+        )}
       </div>
 
       {/* Active color */}

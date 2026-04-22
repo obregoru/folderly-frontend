@@ -46,9 +46,16 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
 }) => {
   const minDim = Math.min(width, height);
   const baseFontSize = Math.round((captionStyle?.baseFontSize ?? minDim * 0.055));
-  const finalTopPct = typeof topPct === 'number' ? topPct : (height > width ? 72 : 78);
 
   const layout = normalizeLayoutConfig(captionStyle?.layoutConfig);
+  // Vertical position precedence:
+  //   1. explicit topPct prop (consumer override)
+  //   2. layoutConfig.verticalPosition (authored per caption style)
+  //   3. aspect-ratio default (72% for vertical, 78% for square)
+  const configuredPct = typeof layout?.verticalPosition === 'number'
+    ? layout.verticalPosition : null;
+  const finalTopPct = typeof topPct === 'number' ? topPct
+    : (configuredPct != null ? configuredPct : (height > width ? 72 : 78));
   const boxScale = width / 1080;
 
   // Resolve fonts at root so all referenced families are loaded before
