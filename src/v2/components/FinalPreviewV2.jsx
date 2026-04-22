@@ -394,7 +394,7 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           )}
         </>
       ) : (
-        <PhotoCarousel urls={source.urls} />
+        <PhotoCarousel urls={source.urls} overlays={overlays} />
       )}
     </div>
       {showCaptionSlider && (
@@ -670,12 +670,143 @@ function OverlayText({ text, style, videoRef }) {
   )
 }
 
-function PhotoCarousel({ urls }) {
+// Live preview of lib/image.renderImageFinal — must stay in sync with
+// the backend formula so what the user sees here is what the
+// downloaded JPG looks like. Positions the text with the same full-
+// frame range + top-of-text anchor, scales fontSize by
+// containerWidth/1080, and uses an SVG stroke for outline
+// (paint-order=stroke) matching the backend's stroke-width = 2×
+// outlineWidth rule.
+function PhotoOverlayPreview({ overlays }) {
+  const wrapRef = useRef(null)
+  const [size, setSize] = useState({ w: 0, h: 0 })
+  useEffect(() => {
+    const el = wrapRef.current?.parentElement
+    if (!el) return
+    const measure = () => {
+      const r = el.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const openingText = overlays?.openingText ?? overlays?.opening_text ?? null
+  if (!openingText || !String(openingText).trim()) {
+    return <div ref={wrapRef} style={{ display: 'none' }} />
+  }
+  if (size.w === 0) return <div ref={wrapRef} style={{ display: 'none' }} />
+
+  const widthScale = size.w / 1080
+  const rawFont = Number(overlays?.storyFontSize ?? overlays?.font_size) || 48
+  const scaledFontSize = Math.max(10, rawFont * widthScale)
+  const color = overlays?.storyFontColor ?? overlays?.font_color ?? '#ffffff'
+  const family = overlays?.storyFontFamily ?? overlays?.font_family ?? 'sans-serif'
+  const hasOutline = overlays?.storyFontOutline !== false && overlays?.font_outline !== false
+  const rawOutlineWidth = Number(overlays?.storyFontOutlineWidth ?? overlays?.font_outline_width) || 3
+  const outlineWidth = hasOutline ? Math.max(1, rawOutlineWidth * widthScale) : 0
+  const lineHeightMultiplier = Number(overlays?.lineHeight ?? overlays?.line_height) > 0
+    ? Number(overlays?.lineHeight ?? overlays?.line_height)
+    : 1.3
+  const letterSpacingEm = (Number(overlays?.letterSpacing ?? overlays?.letter_spacing) || 0) * 0.05
+
+  // Match backend line-wrap heuristic (lib/image.renderImageFinal).
+  const approxCharWidth = scaledFontSize * 0.55
+  const usableWidth = size.w * 0.9
+  const maxLineChars = Math.max(14, Math.floor(usableWidth / approxCharWidth))
+  const words = String(openingText).trim().split(/\s+/)
+  const lines = []
+  let cur = ''
+  for (const w of words) {
+    if ((cur + ' ' + w).trim().length > maxLineChars && cur) { lines.push(cur); cur = w }
+    else cur = (cur + ' ' + w).trim()
+  }
+  if (cur) lines.push(cur)
+
+  const lineHeightPx = scaledFontSize * lineHeightMultiplier
+  const textBlockH = lines.length * lineHeightPx
+  const pct = Math.max(0, Math.min(100, Number(overlays?.overlayYPct ?? overlays?.overlay_y_pct) || 70))
+  const maxTop = Math.max(0, size.h - textBlockH)
+  const yTop = maxTop * (pct / 100)
+
+  // SVG stroke for outline so the look matches the downloaded JPG.
+  // Shadow from 8-way text-shadow is the fallback when outline is off.
+  const shadow = outlineWidth === 0
+    ? Array.from({ length: 8 }).map((_, i) => {
+        const ang = (i / 8) * Math.PI * 2
+        return `${Math.cos(ang) * 2}px ${Math.sin(ang) * 2}px 0 rgba(0,0,0,0.55)`
+      }).join(', ')
+    : 'none'
+
+  return (
+    <div
+      ref={wrapRef}
+      className="absolute inset-0 pointer-events-none"
+      aria-hidden="true"
+    >
+      <div
+        style={{
+          position: 'absolute',
+          top: `${yTop}px`,
+          left: 0,
+          right: 0,
+          textAlign: 'center',
+          fontFamily: family,
+          fontWeight: 700,
+          lineHeight: lineHeightMultiplier,
+        }}
+      >
+        {lines.map((line, i) => (
+          <div key={i} style={{ position: 'relative', height: `${lineHeightPx}px`, lineHeight: `${lineHeightPx}px` }}>
+            {outlineWidth > 0 && (
+              <svg
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible' }}
+              >
+                <text
+                  x="50%"
+                  y={scaledFontSize}
+                  textAnchor="middle"
+                  fontFamily={family}
+                  fontWeight="700"
+                  fontSize={scaledFontSize}
+                  fill={color}
+                  stroke="#000"
+                  strokeWidth={outlineWidth * 2}
+                  paintOrder="stroke"
+                  strokeLinejoin="round"
+                  letterSpacing={letterSpacingEm ? `${letterSpacingEm}em` : undefined}
+                >{line}</text>
+              </svg>
+            )}
+            {outlineWidth === 0 && (
+              <span style={{
+                position: 'absolute', top: 0, left: 0, right: 0,
+                fontSize: `${scaledFontSize}px`, color, textShadow: shadow,
+                letterSpacing: letterSpacingEm ? `${letterSpacingEm}em` : 'normal',
+              }}>{line}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PhotoCarousel({ urls, overlays }) {
   const [idx, setIdx] = useState(0)
   if (urls.length === 0) return null
   return (
     <>
       <img src={urls[idx]} alt="" className="w-full h-full object-cover" />
+      {/* Preview the same openingText burn-in that renderImageFinal
+          produces on download — per-photo, matches the backend
+          formula exactly (full-frame Y range, fontSize at 1080 ref
+          width, SVG stroke outline). Only renders when there's
+          opening text; middle/closing are time-based and don't apply
+          to static photos. */}
+      <PhotoOverlayPreview overlays={overlays} />
       {urls.length > 1 && (
         <>
           <button
@@ -785,8 +916,10 @@ export function DownloadButton({ url, label: idleLabel = '⬇ Download' }) {
 export function DownloadFinalButton({ draftId, jobSync }) {
   const [state, setState] = useState('idle') // idle | rendering | ready | saving | done | error
   const [msg, setMsg] = useState('')
-  const blobRef = useRef(null)
-  const filenameRef = useRef(null)
+  // Stores EACH final as a {blob, filename} pair so multi-photo
+  // carousels (N JPGs) can save/share all items, not just the first.
+  // Single-video / single-photo jobs end up with a 1-element array.
+  const filesRef = useRef([])
 
   // Pick share vs save by DEVICE (touch-primary = mobile → share sheet;
   // everything else → save dialog). Desktop Chrome's canShare({files})
@@ -839,23 +972,35 @@ export function DownloadFinalButton({ draftId, jobSync }) {
       } catch { /* server-side primary still works */ }
 
       const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
-      if (!r?.final_url) throw new Error('Server returned no final URL')
+      const urls = Array.isArray(r?.final_urls) && r.final_urls.length
+        ? r.final_urls
+        : (r?.final_url ? [r.final_url] : [])
+      if (urls.length === 0) throw new Error('Server returned no final URL')
 
-      const vres = await fetch(r.final_url, { credentials: 'omit' })
-      if (!vres.ok) throw new Error(`Download failed (${vres.status})`)
-      const blob = await vres.blob()
-      blobRef.current = blob
-      // Pick extension from the blob's actual MIME so image renders get
-      // a .jpg filename and video renders get .mp4. Falls back to .mp4
-      // when the server doesn't tell us a useful type (keeps legacy
-      // behavior for existing video downloads).
-      const t = (blob.type || '').toLowerCase()
-      const ext = t.includes('jpeg') || t.includes('jpg') ? 'jpg'
-        : t.includes('png') ? 'png'
-        : t.includes('webm') ? 'webm'
-        : t.includes('quicktime') ? 'mov'
-        : 'mp4'
-      filenameRef.current = `posty-final-${Date.now()}.${ext}`
+      // Fetch each render sequentially so a slow first item doesn't
+      // stall the whole thing if it fails mid-way — each success is
+      // appended, errors abort the rest.
+      const ts = Date.now()
+      const collected = []
+      for (let i = 0; i < urls.length; i++) {
+        const u = urls[i]
+        const vres = await fetch(u, { credentials: 'omit' })
+        if (!vres.ok) throw new Error(`Download failed (${vres.status}) for item ${i + 1}/${urls.length}`)
+        const blob = await vres.blob()
+        const t = (blob.type || '').toLowerCase()
+        const ext = t.includes('jpeg') || t.includes('jpg') ? 'jpg'
+          : t.includes('png') ? 'png'
+          : t.includes('webm') ? 'webm'
+          : t.includes('quicktime') ? 'mov'
+          : 'mp4'
+        // Zero-pad the index when multi-item so a file manager sorts
+        // them in order (posty-final-...-01.jpg before -02.jpg).
+        const suffix = urls.length > 1
+          ? `-${String(i + 1).padStart(2, '0')}-of-${String(urls.length).padStart(2, '0')}`
+          : ''
+        collected.push({ blob, filename: `posty-final-${ts}${suffix}.${ext}` })
+      }
+      filesRef.current = collected
       setState('ready')
     } catch (e) {
       setMsg(e.message || String(e))
@@ -865,23 +1010,27 @@ export function DownloadFinalButton({ draftId, jobSync }) {
   }
 
   // Runs synchronously inside the click handler so the user gesture
-  // survives. navigator.share is called directly; anchor downloads fire
-  // via the same click path.
+  // survives. Multi-photo carousels fan out either to a single
+  // multi-file share sheet (iOS/Android both support files: [..N])
+  // or to sequential anchor-click saves on desktop.
   const shareOrSave = () => {
-    const blob = blobRef.current
-    const filename = filenameRef.current
-    if (!blob || !filename) { setState('idle'); return }
-    const type = blob.type || 'video/mp4'
-    const file = new File([blob], filename, { type })
+    const list = filesRef.current
+    if (!list || list.length === 0) { setState('idle'); return }
+    const fileObjects = list.map(({ blob, filename }) => new File([blob], filename, { type: blob.type || 'application/octet-stream' }))
 
     if (canMobileShare) {
       setState('saving')
-      navigator.share({ files: [file], title: 'Posty' })
+      // iOS 15+ and recent Chrome/Android accept multi-file share.
+      // canShare gates compatibility; fall back to the first file if
+      // the OS rejects the whole array.
+      const canMultiShare = typeof navigator.canShare === 'function' && (() => {
+        try { return navigator.canShare({ files: fileObjects }) } catch { return false }
+      })()
+      const payload = canMultiShare ? fileObjects : [fileObjects[0]]
+      navigator.share({ files: payload, title: 'Posty' })
         .then(() => { setState('done'); setTimeout(() => setState('idle'), 1500) })
         .catch(err => {
           if (err?.name === 'AbortError') {
-            // User cancelled the share sheet — keep the blob so they can
-            // re-tap without re-rendering.
             setState('ready')
           } else {
             setMsg(err?.message || 'Share failed'); setState('error')
@@ -891,17 +1040,25 @@ export function DownloadFinalButton({ draftId, jobSync }) {
       return
     }
 
-    // Desktop: anchor-click save dialog, inside the live gesture.
+    // Desktop: anchor-click each file inside the live gesture. Browsers
+    // sometimes bundle rapid same-origin downloads into a single prompt;
+    // stagger by a few ms so each gets its own save dialog entry.
     try {
-      const objUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = objUrl
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      setTimeout(() => { try { URL.revokeObjectURL(objUrl); a.remove() } catch {} }, 1500)
+      list.forEach(({ blob, filename }, i) => {
+        const objUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = objUrl
+        a.download = filename
+        document.body.appendChild(a)
+        // Stagger per-item downloads so the browser doesn't throttle
+        // or coalesce them.
+        setTimeout(() => {
+          try { a.click() } catch {}
+          setTimeout(() => { try { URL.revokeObjectURL(objUrl); a.remove() } catch {} }, 1500)
+        }, i * 250)
+      })
       setState('done')
-      setTimeout(() => setState('idle'), 1500)
+      setTimeout(() => setState('idle'), 1500 + list.length * 250)
     } catch (e) {
       setMsg(e.message || 'Save failed'); setState('error')
       setTimeout(() => { setState('ready'); setMsg('') }, 3000)
@@ -912,14 +1069,15 @@ export function DownloadFinalButton({ draftId, jobSync }) {
     if (state === 'rendering' || state === 'saving') return
     if (state === 'ready') { shareOrSave(); return }
     // idle, error, done — kick off a fresh render
-    blobRef.current = null
-    filenameRef.current = null
+    filesRef.current = []
     renderAndStage()
   }
 
-  const label = state === 'rendering' ? 'Rendering final video…'
+  const count = filesRef.current?.length || 0
+  const countLabel = count > 1 ? ` (${count})` : ''
+  const label = state === 'rendering' ? 'Rendering final…'
     : state === 'saving' ? (canMobileShare ? 'Opening share sheet…' : 'Saving…')
-    : state === 'ready' ? (canMobileShare ? '📤 Tap again to share' : '⬇ Tap again to save')
+    : state === 'ready' ? (canMobileShare ? `📤 Tap again to share${countLabel}` : `⬇ Tap again to save${countLabel}`)
     : state === 'done' ? '✓ Saved'
     : state === 'error' ? (msg ? `Error: ${msg.slice(0, 80)} — tap to retry` : 'Error — tap to retry')
     : '⬇ Download final'
