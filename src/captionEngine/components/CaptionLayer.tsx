@@ -122,8 +122,6 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
           // (because they were only centered within the shrunk block,
           // not within the full wrapper).
           textAlign: 'center',
-          outline: '1px dashed rgba(255, 80, 80, 0.8)',
-          outlineOffset: '-1px',
         }}
       >
       <AnimationWrapper
