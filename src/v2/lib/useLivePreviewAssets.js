@@ -85,7 +85,11 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
             fadeInMs: crossfadeMs && !isFirst ? crossfadeMs : 0,
             fadeOutMs: crossfadeMs && !isLast ? crossfadeMs : 0,
           }
-        }).filter(c => c.text || c.wordTimings?.length)
+        }).filter(c => (c.text || c.wordTimings?.length)
+          // Honor the per-segment hideCaption flag: drop the cue so
+          // no caption renders in the preview. Voiceover audio still
+          // plays because segmentAudioUrls above doesn't filter.
+          && !perSegment.find(p => p.seg.id === c._segmentId)?.seg?.hideCaption)
 
         setAssets({
           mergedVideoUrl,

@@ -90,6 +90,11 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       id: s.id, text: s.text, startTime: Number(s.startTime) || 0,
       voiceId: s.voiceId || null, speed: Number(s.speed) || 1.0,
       audioKey: s.audioKey || null, duration: Number(s.duration) || null,
+      // Optional: when true, server render + live preview skip this
+      // segment from the cue list so no caption appears on screen
+      // (voiceover audio still mixes). Omitted when false so we don't
+      // bloat the voiceover_settings JSONB on existing rows.
+      ...(s.hideCaption ? { hideCaption: true } : {}),
     }))
     jobSync.saveVoiceoverSettings({ segments: clean, voiceId: voiceId || null })
   }, [segments, voiceId, segLoaded, jobSync])
@@ -1009,23 +1014,18 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
   const [backfilling, setBackfilling] = useState(false)
   const [backfillMsg, setBackfillMsg] = useState(null)
   const [backfillErr, setBackfillErr] = useState(null)
-  // Clear word_timings without removing the audio. Reverts the
-  // segment to static caption rendering (whole-text span, no
-  // active-word highlight / perWordSynced reveal) while keeping the
-  // voiceover voice track intact. The render path gracefully falls
-  // back when a segment has text but no word_timings.
-  const clearTimings = async () => {
-    if (!draftId || !seg?.id) return
-    if (!window.confirm("Remove the per-word highlighting for this segment? The voiceover audio stays — only the word-level timings are cleared.")) return
-    setBackfilling(true); setBackfillMsg(null); setBackfillErr(null)
-    try {
-      await api.saveSegmentWordTimings(draftId, seg.id, [])
-      setBackfillMsg("✓ Cleared word timings (voiceover kept)")
-    } catch (e) {
-      setBackfillErr(e?.message || String(e))
-    } finally {
-      setBackfilling(false)
-    }
+  // Toggle whether THIS segment's caption text shows up in the
+  // preview + final render at all. Sets `hideCaption` in
+  // voiceover_settings.segments[i]. When true, both the live preview
+  // (useLivePreviewAssets) and the server render (/post/render-final
+  // cue builder) skip the segment from the cue list — voiceover
+  // audio still mixes in, just no caption on screen.
+  //
+  // Non-destructive: word_timings rows stay in the DB, caption_styles
+  // row stays in the DB. Flip it back any time and the full caption
+  // returns instantly. No STT re-spend.
+  const toggleHideCaption = () => {
+    onChange({ hideCaption: !seg.hideCaption })
   }
   const backfillTimings = async () => {
     if (!draftId || !seg?.id || !seg?.audioUrl) {
@@ -1218,11 +1218,14 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
         )}
         {draftId && hasAudio && (
           <button
-            onClick={clearTimings}
-            disabled={backfilling}
-            className="text-[10px] py-0.5 px-2 border border-[#c0392b]/40 text-[#c0392b] bg-white rounded cursor-pointer disabled:opacity-50"
-            title="Remove word-level timings for this segment. Keeps the voiceover audio — just turns off per-word highlighting and perWordSynced reveals."
-          >✕ timings</button>
+            onClick={toggleHideCaption}
+            className={`text-[10px] py-0.5 px-2 border rounded cursor-pointer ${
+              seg.hideCaption
+                ? 'border-[#c0392b]/50 text-[#c0392b] bg-[#fdf2f1]'
+                : 'border-[#e5e5e5] text-muted bg-white'
+            }`}
+            title="Toggle whether this segment's caption text shows up in the preview + final video. The voiceover audio keeps playing either way. Word_timings stay in the DB so you can re-enable any time."
+          >{seg.hideCaption ? '🚫 caption off' : '👁 caption on'}</button>
         )}
         <span
           className="font-mono text-[9px] rounded px-1.5 py-0.5 border ml-auto"
