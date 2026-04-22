@@ -279,7 +279,8 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
   )
 
   return (
-    <div className="flex items-stretch gap-2 w-[80%] mx-auto">
+    <div className="w-[80%] mx-auto">
+    <div className="flex items-stretch gap-2">
       {showOverlaySlider && (
         <OverlayPositionSlider
           overlays={overlays}
@@ -394,6 +395,25 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           onChange={setVpOverride}
         />
       )}
+    </div>
+    {/* Font-size controls row. Horizontal sliders distinct from the
+        vertical position sliders above — changing font affects the
+        JOB DEFAULT (captions) / job overlay settings, so every
+        un-customized segment picks it up. */}
+    {(showOverlaySlider || showCaptionSlider) && (
+      <div className="flex gap-3 mt-2 items-center flex-wrap">
+        {showOverlaySlider && (
+          <OverlayFontSizeSlider
+            overlays={overlays}
+            onChange={next => setOverlays(next)}
+            jobSync={jobSync}
+          />
+        )}
+        {showCaptionSlider && (
+          <CaptionFontSizeSlider draftId={draftId} />
+        )}
+      </div>
+    )}
     </div>
   )
 })
@@ -1229,6 +1249,128 @@ function OverlayPositionSlider({ overlays, onChange, jobSync }) {
         <span style={{ fontSize: 7, letterSpacing: 0.5 }}>BOT</span>
         <span style={{ fontSize: 12 }}>▼</span>
       </div>
+    </div>
+  )
+}
+
+// Horizontal slider that sets overlay (opening / middle / closing)
+// font size by writing storyFontSize into overlay_settings. Mirrors
+// the OverlayPositionSlider's save path so both controls flow
+// through jobSync.saveOverlaySettings.
+function OverlayFontSizeSlider({ overlays, onChange, jobSync }) {
+  // Default 48 matches the internal default in OverlaysPanelV2. The
+  // OverlayText renderer clamps to Math.max(24, ...) at render time,
+  // so our 24 floor is enforced end-to-end.
+  const current = Number(overlays?.storyFontSize) || 48
+  const handle = (nextPx) => {
+    const nextOverlays = { ...(overlays || {}), storyFontSize: nextPx }
+    onChange(nextOverlays)
+    try {
+      if (typeof window !== 'undefined') {
+        window._postyOverlays = nextOverlays
+        window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: nextOverlays }))
+      }
+    } catch { /* fine */ }
+    jobSync?.saveOverlaySettings?.(nextOverlays)
+  }
+  return (
+    <div
+      className="flex items-center gap-2 text-[10px] bg-[#6C5CE7]/10 border border-[#6C5CE7]/30 rounded px-2 py-1.5 flex-1 min-w-[180px]"
+      title="Default overlay (opening/middle/closing) font size in px"
+    >
+      <span className="font-medium text-[#6C5CE7] w-[60px]">Overlay font</span>
+      <input
+        type="range"
+        min={24} max={120} step={1}
+        value={current}
+        onChange={e => handle(Number(e.target.value))}
+        style={{ accentColor: '#6C5CE7' }}
+        className="flex-1 cursor-pointer"
+      />
+      <span className="font-mono text-[10px] text-muted w-10 text-right">{current}px</span>
+    </div>
+  )
+}
+
+// Horizontal slider for the job-level default caption base font
+// size. Writes to default_caption_style.base_font_size, so every
+// segment that doesn't have its own caption_styles row picks up the
+// new size. Segments with their own row keep their own explicit
+// size (or their null → aspect-ratio default).
+function CaptionFontSizeSlider({ draftId }) {
+  // Fetch the current default on mount so the slider seeds with
+  // whatever was previously saved. baseConfig holds the full default
+  // object so the save call preserves every other field (font
+  // family, color, effects, vertical position, etc.).
+  const [baseConfig, setBaseConfig] = useState(null)
+  const [current, setCurrent] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const saveTimerRef = useRef(null)
+
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    api.getJobDefaultCaptionStyle(draftId).then(r => {
+      if (cancelled) return
+      const cs = r?.caption_style || null
+      setBaseConfig(cs)
+      const px = cs?.base_font_size
+      setCurrent(typeof px === 'number' ? px : null)
+      setLoaded(true)
+    }).catch(() => setLoaded(true))
+    return () => { cancelled = true }
+  }, [draftId])
+
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+  }, [])
+
+  if (!loaded) return null
+
+  // Default visual: 60px (close to the 1080×0.055 derivation most
+  // tenants see) when no value is saved. Slider always shows a
+  // number so users can grab it and drag, even from the null state.
+  const displayValue = current != null ? current : 60
+
+  const scheduleSave = (nextPx) => {
+    setCurrent(nextPx)
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      const body = {
+        base_font_family: baseConfig?.base_font_family,
+        base_font_color: baseConfig?.base_font_color,
+        base_font_size: nextPx,
+        active_word_color: baseConfig?.active_word_color,
+        active_word_font_family: baseConfig?.active_word_font_family,
+        active_word_outline_config: baseConfig?.active_word_outline_config,
+        active_word_scale_pulse: baseConfig?.active_word_scale_pulse,
+        entry_animation: baseConfig?.entry_animation,
+        exit_animation: baseConfig?.exit_animation,
+        reveal_config: baseConfig?.reveal_config,
+        continuous_motion: baseConfig?.continuous_motion,
+        layout_config: baseConfig?.layout_config,
+      }
+      api.saveJobDefaultCaptionStyle(draftId, body)
+        .then(() => setBaseConfig({ ...(baseConfig || {}), base_font_size: nextPx }))
+        .catch(() => { /* silent — local state reflects intent */ })
+    }, 300)
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 text-[10px] bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded px-2 py-1.5 flex-1 min-w-[180px]"
+      title="Default caption base font size in px (applies to all segments without their own font size)"
+    >
+      <span className="font-medium text-[#d97706] w-[60px]">Caption font</span>
+      <input
+        type="range"
+        min={28} max={120} step={1}
+        value={displayValue}
+        onChange={e => scheduleSave(Number(e.target.value))}
+        style={{ accentColor: '#f59e0b' }}
+        className="flex-1 cursor-pointer"
+      />
+      <span className="font-mono text-[10px] text-muted w-10 text-right">{displayValue}px</span>
     </div>
   )
 }
