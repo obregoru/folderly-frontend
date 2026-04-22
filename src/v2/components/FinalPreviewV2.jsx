@@ -889,49 +889,93 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
     <div
       // Absolutely positioned on the right edge of the video container.
       // The container is `position: relative` so absolute children
-      // anchor to it.
+      // anchor to it. Flex-column so the top/bottom labels sit at the
+      // ends and the rotated slider fills the middle.
       style={{
         position: 'absolute',
         right: 8,
-        top: '10%',
-        bottom: '10%',
-        width: 24,
+        top: '8%',
+        bottom: '8%',
+        width: 28,
         display: 'flex',
+        flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: 'center',
+        justifyContent: 'space-between',
+        padding: '6px 0',
         // Slight dark backing so the slider reads against any video.
         background: 'rgba(0,0,0,0.35)',
-        borderRadius: 12,
+        borderRadius: 14,
         zIndex: 3,
+        userSelect: 'none',
       }}
       title={`Caption vertical position — ${Math.round(current)}%`}
     >
-      <input
-        type="range"
-        min={5}
-        max={95}
-        step={1}
-        value={current}
-        onChange={e => {
-          const v = Number(e.target.value)
-          onChange(v)
-          scheduleSave(v)
-        }}
-        // rotate 90deg renders the natural left→right slider as
-        // top→bottom. Keeps the min (5) at the top and max (95) at
-        // the bottom, matching "drag up = caption up" intent.
-        style={{
-          transform: 'rotate(90deg)',
-          transformOrigin: 'center center',
-          width: '80%',
-          // Can't use full parent height because the input element
-          // retains its horizontal dimensions pre-rotation.
-          height: 8,
-          cursor: 'ns-resize',
-          accentColor: '#f59e0b',
-        }}
-        aria-label="Caption vertical position"
-      />
+      {/* Top marker: dragging the thumb here moves captions to the
+          top of the frame. Same character set used in all other
+          video-preview hover controls in the app. */}
+      <div style={{
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 10,
+        lineHeight: 1,
+        fontFamily: 'system-ui, sans-serif',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 1,
+      }}>
+        <span style={{ fontSize: 12 }}>▲</span>
+        <span style={{ fontSize: 7, letterSpacing: 0.5 }}>TOP</span>
+      </div>
+
+      {/* Rotated slider fills the middle. flex:1 lets it take all
+          remaining vertical space between the labels. */}
+      <div style={{
+        flex: 1,
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        <input
+          type="range"
+          min={5}
+          max={95}
+          step={1}
+          value={current}
+          onChange={e => {
+            const v = Number(e.target.value)
+            onChange(v)
+            scheduleSave(v)
+          }}
+          // rotate 90deg renders the natural left→right slider as
+          // top→bottom. Keeps the min (5) at the top and max (95) at
+          // the bottom, matching "drag up = caption up" intent.
+          style={{
+            transform: 'rotate(90deg)',
+            transformOrigin: 'center center',
+            width: '90%',
+            height: 8,
+            cursor: 'ns-resize',
+            accentColor: '#f59e0b',
+          }}
+          aria-label="Caption vertical position"
+        />
+      </div>
+
+      {/* Bottom marker — drag thumb here = captions at the bottom. */}
+      <div style={{
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 10,
+        lineHeight: 1,
+        fontFamily: 'system-ui, sans-serif',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 1,
+      }}>
+        <span style={{ fontSize: 7, letterSpacing: 0.5 }}>BOT</span>
+        <span style={{ fontSize: 12 }}>▼</span>
+      </div>
     </div>
   )
 }
