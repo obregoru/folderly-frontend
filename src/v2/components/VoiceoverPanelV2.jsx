@@ -622,6 +622,47 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       return
     }
     if (!voiceId) { alert('Pick a voice first.'); return }
+
+    // Script is now the single source of truth — wipe every existing
+    // voiceover artifact (primary recording / TTS, all timed segments
+    // and their audio+timings) before building the new set. If any of
+    // that exists, confirm first so the user doesn't accidentally nuke
+    // a take they spent time recording.
+    const hasPrimary = !!audioUrl
+    const hasSegments = segments.length > 0
+    if (hasPrimary || hasSegments) {
+      const parts = []
+      if (hasPrimary) parts.push('the existing primary voice')
+      if (hasSegments) parts.push(`${segments.length} existing segment${segments.length === 1 ? '' : 's'}`)
+      const msg = `Generate from script will REPLACE ${parts.join(' and ')} on this job. This can't be undone.\n\nContinue?`
+      if (!window.confirm(msg)) return
+    }
+
+    // Wipe local state first so the listeners / preview see no primary
+    // and no segments during the regeneration.
+    if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
+    setAudioBlob(null)
+    setAudioUrl(null)
+    setPrimaryDuration(0)
+    primaryFiredRef.current = false
+    setSegments([])
+    // Clear the persisted primary voice on the job row (if any) so a
+    // page reload doesn't resurrect it. clear_voiceover_audio is the
+    // sentinel PUT /jobs/:id honors by setting voiceover_audio_key
+    // back to NULL. Per-segment caption_styles / word_timings rows
+    // are left in place — they get orphaned by the setSegments([])
+    // and will be cleaned up organically when the new segments get
+    // their own rows, or stay untouched if no new segments are
+    // generated (harmless — nothing queries them without a matching
+    // segment id).
+    if (draftId && api.updateJob) {
+      try {
+        await api.updateJob(draftId, { clear_voiceover_audio: true })
+      } catch (e) {
+        console.warn('[generateFromScript] clear primary failed:', e?.message)
+      }
+    }
+
     setRunningScript(true)
     try {
       // 1. Primary: update the AI tab text + generate audio
@@ -631,7 +672,6 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         if (r?.error) throw new Error(r.error)
         const bytes = base64ToBytes(r.audio_base64)
         const blob = new Blob([bytes], { type: r.media_type || 'audio/mpeg' })
-        if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
         const pUrl = URL.createObjectURL(blob)
         setAudioBlob(blob); setAudioUrl(pUrl)
         primaryFiredRef.current = false
