@@ -619,6 +619,30 @@ export const getSegmentWordTimings = (jobUuid, segmentId) =>
     credentials: 'include',
   }).then(r => r.json())
 
+// Step-4 counterpart to the server's [preview-log] line — emitted
+// by the browser when <LivePreviewPlayer> mounts a new style config.
+// Fire-and-forget: never waits for a response, never retries on
+// failure. Telemetry should never break user flow.
+export const logPreviewView = ({ jobUuid, styleFp, cueCount, latencyMs, previewSeconds } = {}) => {
+  if (!jobUuid || !styleFp) return Promise.resolve()
+  return fetch(api('/log/preview-view'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    // Don't keep a connection open on page-nav — keepalive means the
+    // browser still sends the request even if the user closes the
+    // tab or navigates away right after mount.
+    keepalive: true,
+    body: JSON.stringify({
+      job_id: jobUuid,
+      style_fp: styleFp,
+      cue_count: typeof cueCount === 'number' ? cueCount : null,
+      latency_ms: typeof latencyMs === 'number' ? latencyMs : 0,
+      preview_seconds: typeof previewSeconds === 'number' ? previewSeconds : null,
+    }),
+  }).catch(() => { /* telemetry never breaks the preview */ })
+}
+
 // Bulk-replace word_timings on a segment without re-uploading audio.
 export const saveSegmentWordTimings = (jobUuid, segmentId, wordTimings) =>
   fetch(api(`/jobs/${jobUuid}/voiceover/${segmentId}/word-timings`), {

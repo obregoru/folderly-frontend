@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
+import { hashStyleSet } from '../lib/styleFp'
 
 /**
  * VoiceoverPanelV2 — drives the shared FinalPreview <video> via
@@ -1439,10 +1440,23 @@ function CaptionedPreviewFold({ draftId }) {
             _segmentId: seg.id, // carried only for styleFp telemetry
           }
         }).filter(c => c.text || c.wordTimings?.length)
+        // Step-4 telemetry — fingerprint the EXACT style configuration
+        // the Player is about to render. Matches the server-side
+        // algorithm (lib/style-fp.js) so client and server [preview-log]
+        // lines share style_fp values for identical configs. Uses
+        // SNAKE-case (pre-resolve) so server's fingerprint for an
+        // inherited segment matches ours even before
+        // snakeToCamelCaptionStyle runs.
+        const styleFp = await hashStyleSet(
+          perSegment.map(({ cs }) => cs),
+          defaultCs,
+        )
         setAssets({
           mergedVideoUrl: job.merged_video_url,
           segmentAudioUrls,
           cues,
+          styleFp,
+          cueCount: cues.length,
         })
         setLoading(false)
       } catch (e) {
@@ -1487,6 +1501,17 @@ function CaptionedPreviewFold({ draftId }) {
                 mergedVideoUrl={assets.mergedVideoUrl}
                 segmentAudioUrls={assets.segmentAudioUrls}
                 cues={assets.cues}
+                onReady={() => {
+                  // Fires once per distinct inputProps set the Player
+                  // sees — matches what we want to count ("distinct
+                  // style configs the user previewed this session").
+                  api.logPreviewView({
+                    jobUuid: draftId,
+                    styleFp: assets.styleFp,
+                    cueCount: assets.cueCount,
+                    latencyMs: 0,
+                  })
+                }}
               />
               <div className="text-[9px] text-muted italic px-1">
                 Plays live in your browser. Download produces the authoritative full-res mp4.
