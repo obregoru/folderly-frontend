@@ -77,7 +77,7 @@ function topSlotForChannel(scheduleObj, ch) {
   return dated[0]
 }
 
-export default function ChannelsPanelV2({ draftId, files, settings }) {
+export default function ChannelsPanelV2({ draftId, jobSync, files, settings }) {
   const [destinations, setDestinations] = useState({})
   const [captions, setCaptions] = useState({})
   const [firstFileDbId, setFirstFileDbId] = useState(null)
@@ -86,6 +86,11 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
   const [whenInput, setWhenInput] = useState(toLocalInput(defaultScheduledAt()))
   const [overrides, setOverrides] = useState({}) // { [channelKey]: Date }
   const [scheduling, setScheduling] = useState(false)
+  // Distinct "baking" state for the render-final pre-schedule pass so
+  // the button can label "Rendering final…" vs "Scheduling…" — the
+  // render can take 10–30s for videos and we want the user to know
+  // why the click isn't immediately landing.
+  const [baking, setBaking] = useState(false)
   const [schedMsg, setSchedMsg] = useState(null)
   const [schedErr, setSchedErr] = useState(null)
   const [regenKey, setRegenKey] = useState(null) // channel.key while regenerating
@@ -316,6 +321,48 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
       const isVideoMedia = (media.media_type || '').startsWith('video/')
       const primaryFile = files[0]
       const jobName = primaryFile?.job_name || primaryFile?.file?.name?.replace(/\.[^.]+$/, '') || 'v2 post'
+
+      // ── Publish-time final render gate ───────────────────────────
+      // Before building the posts batch, ensure the job has a freshly-
+      // baked final (video with overlays+captions+voiceover, or image
+      // with overlay openingText burned in). If the fingerprint of
+      // the current render-affecting state matches what's already
+      // cached on jobs.final_media_fingerprint, the server returns
+      // the cached key in <500ms. Otherwise it renders and caches.
+      //
+      // Replaces media.upload_key so every platform post in the batch
+      // references the BAKED key instead of the raw merged video /
+      // raw photo / base64. /schedule's existing upload_key path
+      // copies this to scheduled/ unchanged.
+      if (draftId) {
+        setBaking(true)
+        try {
+          // Flush debounced job saves so the render reads the latest
+          // overlay/voiceover/caption state from the DB.
+          try { await jobSync?.flushPendingSave?.() } catch { /* render anyway */ }
+          // NOTE: do NOT pass primary_audio_base64 here — that input
+          // isn't persisted on the job and would bypass the cache.
+          // The in-session Download Final button is the only caller
+          // allowed to pass it.
+          const r = await api.renderFinal({ jobUuid: draftId })
+          const bakedKey = Array.isArray(r?.final_media_keys) && r.final_media_keys.length
+            ? r.final_media_keys[0]
+            : r?.final_key || null
+          if (!bakedKey) {
+            throw new Error('Server did not return a final media key')
+          }
+          // Replace raw bytes / raw upload_key with the baked key so
+          // the schedule endpoint copies the finished file, not the
+          // pre-bake source.
+          media.upload_key = bakedKey
+          media.image_base64 = null
+          if (r?.type === 'image') media.media_type = 'image/jpeg'
+          else if (r?.type === 'video') media.media_type = 'video/mp4'
+          console.log(`[schedule] using baked ${r?.type || 'media'} ${bakedKey} (cached=${!!r?.cached}, fp=${(r?.final_media_fingerprint || '').slice(0, 12)})`)
+        } finally {
+          setBaking(false)
+        }
+      }
 
       // Build ALL posts first, then send them in a single /schedule call
       // so every row gets the same group_uuid. Previously we looped and
@@ -562,7 +609,7 @@ export default function ChannelsPanelV2({ draftId, files, settings }) {
           disabled={!canSchedule || scheduling}
           className="w-full text-[11px] py-2 px-3 bg-[#2D9A5E] text-white border-none rounded cursor-pointer font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {scheduling ? 'Scheduling…' : `Schedule ${enabledCount} destination${enabledCount === 1 ? '' : 's'}`}
+          {baking ? 'Rendering final…' : scheduling ? 'Scheduling…' : `Schedule ${enabledCount} destination${enabledCount === 1 ? '' : 's'}`}
         </button>
 
         {schedMsg && <div className="text-[10px] text-[#2D9A5E] bg-[#f0faf4] border border-[#2D9A5E]/30 rounded p-2">{schedMsg}</div>}

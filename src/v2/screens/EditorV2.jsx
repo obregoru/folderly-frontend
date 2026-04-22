@@ -123,7 +123,7 @@ export default function EditorV2({
         {safeActiveTool === 'voiceover' && <VoiceoverPanelV2 previewRef={previewRef} settings={settings} jobSync={jobSync} draftId={draftId} />}
         {safeActiveTool === 'overlays' && <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} previewRef={previewRef} />}
         {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} settings={settings} />}
-        {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} files={files} settings={settings} />}
+        {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} jobSync={jobSync} files={files} settings={settings} />}
       </div>
 
       {(hasMerge || (onlyPhotos && photoFiles.length === 1 && !combinePhotosAsVideo)) && draftId && (
