@@ -1009,6 +1009,24 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
   const [backfilling, setBackfilling] = useState(false)
   const [backfillMsg, setBackfillMsg] = useState(null)
   const [backfillErr, setBackfillErr] = useState(null)
+  // Clear word_timings without removing the audio. Reverts the
+  // segment to static caption rendering (whole-text span, no
+  // active-word highlight / perWordSynced reveal) while keeping the
+  // voiceover voice track intact. The render path gracefully falls
+  // back when a segment has text but no word_timings.
+  const clearTimings = async () => {
+    if (!draftId || !seg?.id) return
+    if (!window.confirm("Remove the per-word highlighting for this segment? The voiceover audio stays — only the word-level timings are cleared.")) return
+    setBackfilling(true); setBackfillMsg(null); setBackfillErr(null)
+    try {
+      await api.saveSegmentWordTimings(draftId, seg.id, [])
+      setBackfillMsg("✓ Cleared word timings (voiceover kept)")
+    } catch (e) {
+      setBackfillErr(e?.message || String(e))
+    } finally {
+      setBackfilling(false)
+    }
+  }
   const backfillTimings = async () => {
     if (!draftId || !seg?.id || !seg?.audioUrl) {
       setBackfillErr('Segment has no audio to transcribe')
@@ -1197,6 +1215,14 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, onChange, onGenerate
             className="text-[10px] py-0.5 px-2 border border-[#2D9A5E]/50 text-[#2D9A5E] bg-white rounded cursor-pointer disabled:opacity-50"
             title="Re-run ElevenLabs Scribe on this segment's existing audio to recover word-level timings. Use for older jobs where the active-word highlight isn't working because word_timings was never written."
           >{backfilling ? '…' : '🔤 timings'}</button>
+        )}
+        {draftId && hasAudio && (
+          <button
+            onClick={clearTimings}
+            disabled={backfilling}
+            className="text-[10px] py-0.5 px-2 border border-[#c0392b]/40 text-[#c0392b] bg-white rounded cursor-pointer disabled:opacity-50"
+            title="Remove word-level timings for this segment. Keeps the voiceover audio — just turns off per-word highlighting and perWordSynced reveals."
+          >✕ timings</button>
         )}
         <span
           className="font-mono text-[9px] rounded px-1.5 py-0.5 border ml-auto"
