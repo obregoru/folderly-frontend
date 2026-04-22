@@ -94,11 +94,19 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // hidden — but the render pipeline still falls back to it when
       // no in-session primary is present, so the user's download
       // contains voice they can't account for (job 1c558075 symptom).
+      console.log('[VoiceoverPanelV2] hydrate check', {
+        voiceover_audio_key: job?.voiceover_audio_key || null,
+        voiceover_audio_url: job?.voiceover_audio_url || null,
+        segmentCount: segs.length,
+        segmentsWithAudio: segs.filter(s => s?.audioKey || s?.audioUrl).length,
+      })
       if (job?.voiceover_audio_key || job?.voiceover_audio_url) {
         try {
           const url = job.voiceover_audio_url
             || `${import.meta.env.VITE_API_URL || ''}/api/t/${api.tenantSlug?.() || ''}/upload/serve?key=${encodeURIComponent(job.voiceover_audio_key)}`
+          console.log('[VoiceoverPanelV2] fetching persisted primary from', url)
           const res = await fetch(url, { credentials: 'include' })
+          console.log('[VoiceoverPanelV2] persisted primary fetch →', res.status)
           if (res.ok) {
             const blob = await res.blob()
             const localUrl = URL.createObjectURL(blob)
@@ -107,6 +115,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             try {
               const dur = await readAudioDuration(localUrl)
               setPrimaryDuration(dur)
+              console.log('[VoiceoverPanelV2] hydrated persisted primary', { bytes: blob.size, durationSec: dur })
             } catch { /* readAudioDuration itself logs */ }
           }
         } catch (e) {
