@@ -46,6 +46,15 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
 
+  // Live vertical-position override from the slider on the right edge
+  // of the video. null = use whatever each cue's own caption_style
+  // specifies (the saved state). A number = dragging the slider is
+  // overriding every cue's verticalPosition visually. The slider
+  // persists the value to the job default on release (debounced in
+  // VerticalPositionSlider). Segments with their own row keep their
+  // row's verticalPosition once the override clears on next fetch.
+  const [vpOverride, setVpOverride] = useState(null)
+
   // Sequential-playback preview mode. Array of { url, trimStart, trimEnd,
   // speed } — when set (and no real merged url exists), the video element
   // walks the list clip-by-clip, respecting trims + speed. Instant, no
@@ -307,9 +316,20 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
               during the async fetch and when the job has no voiceover
               segments yet. */}
           {draftId && mergedUrl && (
-            <Suspense fallback={null}>
-              <InlineCaptionOverlayWrapper draftId={draftId} videoRef={videoRef} />
-            </Suspense>
+            <>
+              <VerticalPositionSlider
+                draftId={draftId}
+                value={vpOverride}
+                onChange={setVpOverride}
+              />
+              <Suspense fallback={null}>
+                <InlineCaptionOverlayWrapper
+                  draftId={draftId}
+                  videoRef={videoRef}
+                  verticalPositionOverride={vpOverride}
+                />
+              </Suspense>
+            </>
           )}
         </>
       ) : (
@@ -750,7 +770,7 @@ export function DownloadFinalButton({ draftId }) {
 // Split out so the assets fetch only runs when this sub-tree mounts,
 // and so the Suspense boundary at the caller only covers the lazy
 // InlineCaptionOverlay chunk (assets fetch uses regular React state).
-function InlineCaptionOverlayWrapper({ draftId, videoRef }) {
+function InlineCaptionOverlayWrapper({ draftId, videoRef, verticalPositionOverride }) {
   const { assets } = useLivePreviewAssets(draftId, { enabled: true })
   const videoEl = videoRef.current
   // Step-4 telemetry — fires [preview-log] with preview:"live" each
@@ -762,10 +782,158 @@ function InlineCaptionOverlayWrapper({ draftId, videoRef }) {
   // caption-engine chunk stays idle (still lazy-loaded at module
   // level — it's reached the network but no clock runs yet).
   if (!assets?.cues?.length || !videoEl) return null
-  // Overlay measures the video's DOM box itself via ResizeObserver and
-  // passes those dimensions down to the caption tree — so font sizes
-  // and layout match the preview box, not the 1080×1920 source.
-  return <InlineCaptionOverlay videoEl={videoEl} cues={assets.cues} />
+
+  // Override each cue's layoutConfig.verticalPosition with the
+  // slider's current value when one is set. Purely visual — the
+  // saved per-segment styles are untouched until the slider's
+  // debounced save runs against the job default.
+  const cues = verticalPositionOverride != null
+    ? assets.cues.map(cue => ({
+        ...cue,
+        captionStyle: {
+          ...(cue.captionStyle || {}),
+          layoutConfig: {
+            ...(cue.captionStyle?.layoutConfig || {}),
+            verticalPosition: verticalPositionOverride,
+          },
+        },
+      }))
+    : assets.cues
+
+  return <InlineCaptionOverlay videoEl={videoEl} cues={cues} />
+}
+
+// Vertical slider mounted on the right edge of the video container.
+// Drag up = caption moves toward top (low verticalPosition value);
+// drag down = caption moves toward bottom (high value). Keeps the
+// mapping direct, which is the whole point of putting the control
+// next to the preview instead of buried in the CaptionStyleEditor.
+//
+// Fetches the current job default verticalPosition on mount to seed
+// the slider. Writes back to the job default (debounced) via
+// saveJobDefaultCaptionStyle; in-flight value is held in the parent's
+// state so the overlay re-renders live during the drag.
+function VerticalPositionSlider({ draftId, value, onChange }) {
+  const [defaultLoaded, setDefaultLoaded] = useState(false)
+  const [baseConfig, setBaseConfig] = useState(null)  // the other job-default fields we need to preserve when saving
+  const saveTimerRef = useRef(null)
+
+  // Initial load: pull the job default so we know both the starting
+  // verticalPosition AND the rest of the config we need to preserve
+  // when the slider writes back.
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    api.getJobDefaultCaptionStyle(draftId).then(r => {
+      if (cancelled) return
+      const cs = r?.caption_style || null
+      setBaseConfig(cs)
+      const vp = cs?.layout_config?.verticalPosition
+      // Slider starts at either the saved value or the aspect-ratio
+      // default (72% on 9:16). Local value is null until the user
+      // drags, so InlineCaptionOverlayWrapper lets the per-cue
+      // captionStyle values show through unchanged.
+      setDefaultLoaded(true)
+      // Seed the parent state only if the job has a saved vp — don't
+      // stomp local drag state that may already exist.
+      if (typeof vp === 'number') {
+        onChange(vp)
+      }
+    }).catch(() => setDefaultLoaded(true))
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId])
+
+  // Cleanup timer on unmount so we don't fire a stale save.
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+  }, [])
+
+  const scheduleSave = (nextValue) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      // Merge the slider value into the existing default's
+      // layout_config so other fields (textEffect, highlighter,
+      // backgroundType, etc.) survive. When there's no base config
+      // yet (no job default set), create a minimal one.
+      const existingLayout = baseConfig?.layout_config || {}
+      const nextLayout = { ...existingLayout, verticalPosition: nextValue }
+      const body = {
+        // Preserve every other whitelisted field from the current
+        // default, so the save doesn't reset font / color / effects
+        // back to nothing.
+        base_font_family: baseConfig?.base_font_family,
+        base_font_color: baseConfig?.base_font_color,
+        base_font_size: baseConfig?.base_font_size,
+        active_word_color: baseConfig?.active_word_color,
+        active_word_font_family: baseConfig?.active_word_font_family,
+        active_word_outline_config: baseConfig?.active_word_outline_config,
+        active_word_scale_pulse: baseConfig?.active_word_scale_pulse,
+        entry_animation: baseConfig?.entry_animation,
+        exit_animation: baseConfig?.exit_animation,
+        reveal_config: baseConfig?.reveal_config,
+        continuous_motion: baseConfig?.continuous_motion,
+        layout_config: nextLayout,
+      }
+      api.saveJobDefaultCaptionStyle(draftId, body)
+        .then(() => setBaseConfig({ ...(baseConfig || {}), layout_config: nextLayout }))
+        .catch(() => { /* silent — local state still reflects user intent */ })
+    }, 300)
+  }
+
+  if (!defaultLoaded) return null
+
+  const current = value != null ? value : 72
+
+  return (
+    <div
+      // Absolutely positioned on the right edge of the video container.
+      // The container is `position: relative` so absolute children
+      // anchor to it.
+      style={{
+        position: 'absolute',
+        right: 8,
+        top: '10%',
+        bottom: '10%',
+        width: 24,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        // Slight dark backing so the slider reads against any video.
+        background: 'rgba(0,0,0,0.35)',
+        borderRadius: 12,
+        zIndex: 3,
+      }}
+      title={`Caption vertical position — ${Math.round(current)}%`}
+    >
+      <input
+        type="range"
+        min={5}
+        max={95}
+        step={1}
+        value={current}
+        onChange={e => {
+          const v = Number(e.target.value)
+          onChange(v)
+          scheduleSave(v)
+        }}
+        // rotate 90deg renders the natural left→right slider as
+        // top→bottom. Keeps the min (5) at the top and max (95) at
+        // the bottom, matching "drag up = caption up" intent.
+        style={{
+          transform: 'rotate(90deg)',
+          transformOrigin: 'center center',
+          width: '80%',
+          // Can't use full parent height because the input element
+          // retains its horizontal dimensions pre-rotation.
+          height: 8,
+          cursor: 'ns-resize',
+          accentColor: '#f59e0b',
+        }}
+        aria-label="Caption vertical position"
+      />
+    </div>
+  )
 }
 
 // Posts [preview-log] with preview:"live" via /log/preview-view when
