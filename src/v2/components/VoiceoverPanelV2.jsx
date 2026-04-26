@@ -91,8 +91,11 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         startTime: Number(s.startTime) || 0,
         voiceId: s.voiceId || nextDefault,
         speed: Number(s.speed) || 1.0,
-        audioKey: s.audioKey || null,
-        audioUrl: s.audioUrl || null,
+        // Strip stale audioKey on the synthetic primary so the
+        // segment-mix path can never see it as a real segment.
+        // See the matching guard in the persistence effect below.
+        audioKey: s.id === PRIMARY_SEGMENT_ID ? null : (s.audioKey || null),
+        audioUrl: s.id === PRIMARY_SEGMENT_ID ? null : (s.audioUrl || null),
         duration: Number(s.duration) || null,
         generating: false,
       })))
@@ -173,7 +176,15 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     const clean = segments.map(s => ({
       id: s.id, text: s.text, startTime: Number(s.startTime) || 0,
       voiceId: s.voiceId || null, speed: Number(s.speed) || 1.0,
-      audioKey: s.audioKey || null, duration: Number(s.duration) || null,
+      // The synthetic __primary__ entry MUST never carry an audioKey
+      // — primary audio lives on jobs.voiceover_audio_key, and the
+      // BE segment-mix path mixes any segment with audioKey. If
+      // __primary__ accidentally has one (legacy data, race, old
+      // code path), the BE will mix the primary TWICE: once via
+      // voiceover_audio_key, once via the segment list. Force null
+      // here so the stale audioKey gets stripped on the next save.
+      audioKey: s.id === PRIMARY_SEGMENT_ID ? null : (s.audioKey || null),
+      duration: Number(s.duration) || null,
       // Optional: when true, server render + live preview skip this
       // segment from the cue list so no caption appears on screen
       // (voiceover audio still mixes). Omitted when false so we don't
