@@ -40,7 +40,6 @@ export default function AudioMixLog({ draftId }) {
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}KB`
     return `${(n / 1024 / 1024).toFixed(2)}MB`
   }
-  const shortKey = (k) => !k ? '—' : (k.length > 36 ? `…${k.slice(-36)}` : k)
 
   // Detect double-mix of primary so we can flag it visually.
   const primaryRows = (mixLog || []).filter(r => r.source === 'primary')
@@ -91,48 +90,50 @@ export default function AudioMixLog({ draftId }) {
       )}
 
       {mixLog && mixLog.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-[10px] font-mono">
-            <thead className="text-[9px] uppercase text-muted">
-              <tr>
-                <th className="text-left py-1 pr-2">#</th>
-                <th className="text-left py-1 pr-2">source</th>
-                <th className="text-left py-1 pr-2">via</th>
-                <th className="text-left py-1 pr-2">id</th>
-                <th className="text-right py-1 pr-2">start</th>
-                <th className="text-right py-1 pr-2">size</th>
-                <th className="text-right py-1 pr-2">fade</th>
-                <th className="text-left py-1 pr-2">audio key</th>
-                <th className="text-left py-1 pr-2">text</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mixLog.map((r, i) => {
-                const isDupePrimary = r.source === 'primary' && doublePrimary
-                const isDupeSegId = r.source === 'segment' && segIdCounts.get(r.id) > 1
-                const flag = isDupePrimary || isDupeSegId
-                return (
-                  <tr key={i} className={`border-t border-[#e5e5e5] ${flag ? 'bg-[#fdf2f1]' : ''}`}>
-                    <td className="py-1 pr-2">{i + 1}</td>
-                    <td className="py-1 pr-2">{r.source}</td>
-                    <td className="py-1 pr-2">{r.via}</td>
-                    <td className="py-1 pr-2 truncate max-w-[140px]" title={r.id}>{r.id}</td>
-                    <td className="py-1 pr-2 text-right">{fmtTime(r.startTime)}</td>
-                    <td className="py-1 pr-2 text-right">{fmtBytes(r.bytes)}</td>
-                    <td className="py-1 pr-2 text-right">
-                      {(r.fadeInMs || r.fadeOutMs) ? `${r.fadeInMs || 0}/${r.fadeOutMs || 0}` : '—'}
-                    </td>
-                    <td className="py-1 pr-2 truncate max-w-[200px]" title={r.audioKey || ''}>
-                      {r.audioKey ? shortKey(r.audioKey) : <span className="text-muted">in-memory</span>}
-                    </td>
-                    <td className="py-1 pr-2 text-[10px] font-sans truncate max-w-[200px]" title={r.text || ''}>
-                      {r.text || <span className="text-muted italic">—</span>}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-1.5">
+          {mixLog.map((r, i) => {
+            const isDupePrimary = r.source === 'primary' && doublePrimary
+            const isDupeSegId = r.source === 'segment' && segIdCounts.get(r.id) > 1
+            const flag = isDupePrimary || isDupeSegId
+            return (
+              <div
+                key={i}
+                className={`border rounded p-2 text-[10px] font-mono ${flag ? 'bg-[#fdf2f1] border-[#c0392b]/40' : 'bg-white border-[#e5e5e5]'}`}
+              >
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <span className={`font-mono rounded px-1.5 py-0.5 text-white ${r.source === 'primary' ? 'bg-[#6C5CE7]' : 'bg-[#2D9A5E]'}`}>
+                    #{i + 1}
+                  </span>
+                  <span className="font-medium">{r.source}</span>
+                  <span className="text-muted">via</span>
+                  <span>{r.via}</span>
+                  {flag && <span className="ml-auto text-[#c0392b] font-bold">⚠ DUPLICATE</span>}
+                </div>
+                <div className="grid grid-cols-[80px_1fr] gap-x-2 gap-y-0.5 break-all">
+                  <span className="text-muted">id:</span>
+                  <span>{r.id || <span className="text-muted">—</span>}</span>
+                  <span className="text-muted">start:</span>
+                  <span>{fmtTime(r.startTime)}</span>
+                  <span className="text-muted">size:</span>
+                  <span>{fmtBytes(r.bytes)}</span>
+                  {(r.fadeInMs || r.fadeOutMs) ? (
+                    <>
+                      <span className="text-muted">fade:</span>
+                      <span>{r.fadeInMs || 0}ms in / {r.fadeOutMs || 0}ms out</span>
+                    </>
+                  ) : null}
+                  <span className="text-muted">audioKey:</span>
+                  <span className="text-[#6C5CE7]">{r.audioKey || <span className="text-muted">— (in-memory base64)</span>}</span>
+                  {r.text ? (
+                    <>
+                      <span className="text-muted">text:</span>
+                      <span className="font-sans text-[10px]">{r.text}</span>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
