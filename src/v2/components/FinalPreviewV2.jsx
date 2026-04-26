@@ -971,10 +971,17 @@ export function DownloadFinalButton({ draftId, jobSync }) {
         }
       } catch { /* server-side primary still works */ }
 
-      // Tell any audio-mix-log listeners that a render just fired so
-      // they can refetch the job and show what was actually mixed.
-      try { window.dispatchEvent(new CustomEvent('posty-render-final-fired', { detail: { draftId } })) } catch {}
       const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
+      // Tell any audio-mix-log listeners about the response so they
+      // can render the BE's actual mix_log (every audio source the
+      // server pushed into voSegInputs, in order). This is the
+      // ground truth — what the FE THINKS will mix can diverge from
+      // what the server ACTUALLY mixes.
+      try {
+        window.dispatchEvent(new CustomEvent('posty-render-final-result', {
+          detail: { draftId, mixLog: r?.mix_log || [], tookMs: r?.took_ms || null, applied: r?.applied || null },
+        }))
+      } catch {}
       const urls = Array.isArray(r?.final_urls) && r.final_urls.length
         ? r.final_urls
         : (r?.final_url ? [r.final_url] : [])
