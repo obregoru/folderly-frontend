@@ -33,10 +33,23 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
   const [err, setErr] = useState(null)
   const [baseFont, setBaseFont] = useState('Inter')
   const [baseColor, setBaseColor] = useState('#ffffff')
+  // baseFontSize is "1080-reference px" — CaptionLayer scales by
+  // width/1080 so 60 here = ~5.5% of frame width on every render
+  // resolution. null lets the aspect-ratio default win (~5.5% via
+  // the minDim * 0.055 fallback).
+  const [baseFontSize, setBaseFontSize] = useState(null)
   const [activeColor, setActiveColor] = useState('#f59e0b')
   const [activeEnabled, setActiveEnabled] = useState(false)
   const [activeFont, setActiveFont] = useState('')
   const [activeFontEnabled, setActiveFontEnabled] = useState(false)
+  // Outline / glow on the active word. Shape: { type: 'outline' | 'neon',
+  // color: '#hex', width: number, blur?: number }. null = no outline.
+  // Stored on active_word_outline_config (JSONB).
+  const [outlineEnabled, setOutlineEnabled] = useState(false)
+  const [outlineType, setOutlineType] = useState('outline') // 'outline' | 'neon'
+  const [outlineColor, setOutlineColor] = useState('#000000')
+  const [outlineWidth, setOutlineWidth] = useState(3)
+  const [outlineBlur, setOutlineBlur] = useState(8)
   // Vertical anchor as % from top of composition. null means "use the
   // aspect-ratio default" (72% on 9:16, 78% on 1:1). User interaction
   // with the slider replaces null with a concrete number; the label
@@ -68,6 +81,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     const c = preset.config
     if (c.base_font_family) setBaseFont(c.base_font_family)
     if (c.base_font_color) setBaseColor(c.base_font_color)
+    setBaseFontSize(typeof c.base_font_size === 'number' ? c.base_font_size : null)
     if (c.active_word_color) {
       setActiveColor(c.active_word_color); setActiveEnabled(true)
     } else {
@@ -77,6 +91,18 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
       setActiveFont(c.active_word_font_family); setActiveFontEnabled(true)
     } else {
       setActiveFontEnabled(false)
+    }
+    // Outline config (Phase 2.5). null in the preset → user can still
+    // toggle on with default values; non-null hydrates the form.
+    const oc = c.active_word_outline_config
+    if (oc && typeof oc === 'object') {
+      setOutlineEnabled(true)
+      setOutlineType(oc.type === 'neon' ? 'neon' : 'outline')
+      if (oc.color) setOutlineColor(oc.color)
+      if (typeof oc.width === 'number') setOutlineWidth(oc.width)
+      if (typeof oc.blur === 'number') setOutlineBlur(oc.blur)
+    } else {
+      setOutlineEnabled(false)
     }
     // Sync the slider to whatever the preset specifies (or null to
     // fall back to the aspect-ratio default).
@@ -133,10 +159,21 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
   const hydrateFormFromConfig = (cs) => {
     if (cs.base_font_family) setBaseFont(cs.base_font_family)
     if (cs.base_font_color) setBaseColor(cs.base_font_color)
+    setBaseFontSize(typeof cs.base_font_size === 'number' ? cs.base_font_size : null)
     if (cs.active_word_color) { setActiveColor(cs.active_word_color); setActiveEnabled(true) }
     else { setActiveEnabled(false) }
     if (cs.active_word_font_family) { setActiveFont(cs.active_word_font_family); setActiveFontEnabled(true) }
     else { setActiveFontEnabled(false) }
+    const oc = cs.active_word_outline_config
+    if (oc && typeof oc === 'object') {
+      setOutlineEnabled(true)
+      setOutlineType(oc.type === 'neon' ? 'neon' : 'outline')
+      if (oc.color) setOutlineColor(oc.color)
+      if (typeof oc.width === 'number') setOutlineWidth(oc.width)
+      if (typeof oc.blur === 'number') setOutlineBlur(oc.blur)
+    } else {
+      setOutlineEnabled(false)
+    }
     // verticalPosition lives inside layout_config. null means "use
     // the aspect-ratio default" — preserve that signal (setVertical
     // Position(null)) rather than coercing to a number.
@@ -169,13 +206,23 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
       : existingLayout && 'verticalPosition' in existingLayout
         ? (() => { const { verticalPosition: _, ...rest } = existingLayout; return Object.keys(rest).length ? rest : null })()
         : existingLayout
+    // Build the outline config from the form. Null when disabled so
+    // the BE clears the column. Width/blur are clamped client-side
+    // (server has no validation here so junk values would render).
+    const outlineCfg = outlineEnabled
+      ? (outlineType === 'neon'
+          ? { type: 'neon', color: outlineColor, width: Math.max(1, Math.min(20, Number(outlineWidth) || 4)), blur: Math.max(0, Math.min(40, Number(outlineBlur) || 8)) }
+          : { type: 'outline', color: outlineColor, width: Math.max(1, Math.min(20, Number(outlineWidth) || 3)) })
+      : null
     return {
       ...(pendingConfig || {}),
       layout_config: mergedLayout,
       base_font_family: baseFont,
       base_font_color: baseColor,
+      base_font_size: baseFontSize, // null = use the aspect-ratio default
       active_word_color: activeEnabled ? activeColor : null,
       active_word_font_family: activeFontEnabled && activeFont ? activeFont : null,
+      active_word_outline_config: outlineCfg,
     }
   }
 
@@ -395,6 +442,33 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
         <span className="font-mono text-[10px] text-muted">{baseColor}</span>
       </div>
 
+      {/* Base font size — slider in 1080-reference px. CaptionLayer
+          scales this by width/1080 so the on-screen size stays
+          proportional across preview vs final-render dimensions. null
+          = use the minDim * 0.055 fallback (~60px on 1080×1920). */}
+      <div className="flex items-center gap-2">
+        <label className="text-[10px] font-medium">Size</label>
+        <input
+          type="range"
+          min={30} max={140} step={2}
+          value={baseFontSize != null ? baseFontSize : 60}
+          onChange={e => { setBaseFontSize(Number(e.target.value)); markDirty() }}
+          className="flex-1"
+          title="Caption font size in 1080-reference pixels. Default ≈ 60px (5.5% of frame width). Same value applies on every render resolution because it's scaled by frame width."
+        />
+        <span className="font-mono text-[10px] text-muted w-14 text-right">
+          {baseFontSize != null ? `${baseFontSize}px` : 'default'}
+        </span>
+        {baseFontSize != null && (
+          <button
+            type="button"
+            onClick={() => { setBaseFontSize(null); markDirty() }}
+            className="text-[9px] text-muted border border-[#e5e5e5] rounded px-1.5 py-0.5 bg-white cursor-pointer"
+            title="Reset to the aspect-ratio default size"
+          >reset</button>
+        )}
+      </div>
+
       {/* Vertical position — slider with a "default" null state.
           0 = top of frame, 100 = bottom. When null, the caption sits
           at the aspect-ratio default (72% on 9:16, 78% on 1:1). */}
@@ -472,6 +546,69 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
                 purpose="active"
                 onChange={f => { setActiveFont(f); setPickerOpen(null); markDirty() }}
               />
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Outline / glow on the active word — Phase 2.5 active_word_outline_config.
+          'outline' draws a solid stroke; 'neon' draws a colored glow
+          via blur. Both override CaptionLayer's default text shadow. */}
+      <div className="space-y-1.5 border border-[#e5e5e5] rounded p-2 bg-[#fafafa]">
+        <label className="flex items-center gap-1.5 text-[10px] font-medium cursor-pointer">
+          <input
+            type="checkbox"
+            checked={outlineEnabled}
+            onChange={e => { setOutlineEnabled(e.target.checked); markDirty() }}
+          />
+          <span>Active-word outline / glow</span>
+        </label>
+        {outlineEnabled && (
+          <>
+            <div className="flex items-center gap-2 text-[10px]">
+              <label className="text-muted">Style</label>
+              <select
+                value={outlineType}
+                onChange={e => { setOutlineType(e.target.value); markDirty() }}
+                className="flex-1 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+              >
+                <option value="outline">Outline (solid stroke)</option>
+                <option value="neon">Neon (colored glow)</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 text-[10px]">
+              <label className="text-muted">Color</label>
+              <input
+                type="color"
+                value={outlineColor}
+                onChange={e => { setOutlineColor(e.target.value); markDirty() }}
+                className="w-8 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0"
+              />
+              <span className="font-mono text-[10px] text-muted">{outlineColor}</span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px]">
+              <label className="text-muted">Width</label>
+              <input
+                type="range"
+                min={1} max={12} step={1}
+                value={outlineWidth}
+                onChange={e => { setOutlineWidth(Number(e.target.value)); markDirty() }}
+                className="flex-1"
+              />
+              <span className="font-mono text-[10px] text-muted w-10 text-right">{outlineWidth}px</span>
+            </div>
+            {outlineType === 'neon' && (
+              <div className="flex items-center gap-2 text-[10px]">
+                <label className="text-muted">Glow</label>
+                <input
+                  type="range"
+                  min={0} max={32} step={1}
+                  value={outlineBlur}
+                  onChange={e => { setOutlineBlur(Number(e.target.value)); markDirty() }}
+                  className="flex-1"
+                />
+                <span className="font-mono text-[10px] text-muted w-10 text-right">{outlineBlur}px</span>
+              </div>
             )}
           </>
         )}
