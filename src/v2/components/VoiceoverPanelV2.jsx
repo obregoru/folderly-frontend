@@ -146,6 +146,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         // user can re-type or re-generate to fill it in.
         upsertPrimarySegment({ text: '', voiceId: vo.voiceId || nextDefault })
       }
+      // Seed the AI-tab textarea from the synthetic primary's
+      // persisted text. Without this, the textarea stays empty on
+      // reload even when voiceover_audio_key + the segment entry
+      // both have data, which feels like the primary was lost.
+      const primarySegOnLoad = segs.find(s => s?.id === PRIMARY_SEGMENT_ID)
+      if (primarySegOnLoad?.text) setText(primarySegOnLoad.text)
       setSegLoaded(true)
     }).catch(() => setSegLoaded(true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -378,6 +384,14 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           api.saveSegmentWordTimings(draftId, PRIMARY_SEGMENT_ID, r.word_timings)
             .catch(e => console.warn('[generate] save primary word_timings failed:', e?.message))
         }
+        // Persist the primary audio to jobs.voiceover_audio_key so
+        // it survives reload — V2's render-final mix path falls back
+        // to this key when no in-session primary_audio_base64 is sent.
+        // Without this PUT the primary lives only as a browser blob:
+        // refresh the page and the audio (and therefore the caption)
+        // disappears.
+        api.saveVoiceover(r.audio_base64, draftId, r.media_type || 'audio/mpeg')
+          .catch(e => console.warn('[generate] save primary audio failed:', e?.message))
       }
     } catch (e) {
       alert('TTS failed: ' + e.message)
@@ -796,6 +810,9 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             api.saveSegmentWordTimings(draftId, PRIMARY_SEGMENT_ID, r.word_timings)
               .catch(e => console.warn('[generateFromScript] save primary timings failed:', e?.message))
           }
+          // Persist primary audio so reload restores it (see generate()).
+          api.saveVoiceover(r.audio_base64, draftId, r.media_type || 'audio/mpeg')
+            .catch(e => console.warn('[generateFromScript] save primary audio failed:', e?.message))
         }
       } else if (draftId) {
         // No primary in script — drop the synthetic entry so the
