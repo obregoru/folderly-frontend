@@ -152,6 +152,10 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // both have data, which feels like the primary was lost.
       const primarySegOnLoad = segs.find(s => s?.id === PRIMARY_SEGMENT_ID)
       if (primarySegOnLoad?.text) setText(primarySegOnLoad.text)
+      // Restore primary speed (was always defaulting to 1.0 on
+      // reload because primarySpeed is local state with no hydrate
+      // path). The synthetic segment carries it now.
+      if (Number(primarySegOnLoad?.speed) > 0) setPrimarySpeed(Number(primarySegOnLoad.speed))
       setSegLoaded(true)
     }).catch(() => setSegLoaded(true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -382,7 +386,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // to key off. Persist word_timings if ElevenLabs returned them
       // — for TTS this is free; mic-recorded primary needs Scribe.
       if (draftId) {
-        upsertPrimarySegment({ text: text.trim(), voiceId, duration: dur })
+        upsertPrimarySegment({ text: text.trim(), voiceId, duration: dur, speed: Number(primarySpeed) || 1.0 })
         if (Array.isArray(r.word_timings) && r.word_timings.length > 0) {
           // Fire-and-forget: failure to save timings shouldn't block
           // the user's flow. The audio still plays; captions will fall
@@ -524,7 +528,13 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         text: patch.text != null ? patch.text : (existing?.text || ''),
         startTime: 0,
         voiceId: patch.voiceId != null ? patch.voiceId : (existing?.voiceId || null),
-        speed: 1.0,
+        // Speed: explicit patch wins, else existing value, else 1.0.
+        // Persisted on voiceover_settings.segments[__primary__].speed
+        // so it survives reload (was hardcoded to 1.0 before, which
+        // silently discarded user-set values).
+        speed: patch.speed != null
+          ? Number(patch.speed)
+          : (Number(existing?.speed) > 0 ? Number(existing.speed) : 1.0),
         // audioKey stays null — primary audio lives on jobs.voiceover_audio_key,
         // and the segment-mix path filters out segments with no audioKey.
         audioKey: null,
@@ -811,7 +821,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         const pDur = await readAudioDuration(pUrl)
         setPrimaryDuration(pDur)
         if (draftId) {
-          upsertPrimarySegment({ text: parsed.primary, voiceId, duration: pDur })
+          upsertPrimarySegment({ text: parsed.primary, voiceId, duration: pDur, speed: Number(primarySpeed) || 1.0 })
           if (Array.isArray(r.word_timings) && r.word_timings.length > 0) {
             api.saveSegmentWordTimings(draftId, PRIMARY_SEGMENT_ID, r.word_timings)
               .catch(e => console.warn('[generateFromScript] save primary timings failed:', e?.message))
@@ -1015,7 +1025,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
               type="range" min={0.7} max={1.2} step={0.05}
               value={primarySpeed}
               onChange={e => {
-                setPrimarySpeed(Number(e.target.value))
+                const next = Number(e.target.value)
+                setPrimarySpeed(next)
+                // Mirror onto the synthetic primary segment so reload
+                // restores the same speed (was always defaulting to
+                // 1.0 because primarySpeed had no persistence path).
+                upsertPrimarySegment({ speed: next })
                 // Speed changed → old audio no longer matches; invalidate so
                 // "Generate primary voice" re-runs.
                 if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
