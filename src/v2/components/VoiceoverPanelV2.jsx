@@ -1779,14 +1779,14 @@ function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGen
 export function parseScript(raw) {
   const text = String(raw || '')
   if (!text.trim()) return { primary: '', segments: [] }
-  const re = /\[(\d{1,2}):(\d{2})\]\s*/g
+  const re = /\[(\d{1,2}):(\d{2}(?:\.\d+)?)\]\s*/g
   const hits = []
   let m
   while ((m = re.exec(text)) !== null) {
     hits.push({
       index: m.index,
       end: m.index + m[0].length,
-      time: parseInt(m[1], 10) * 60 + parseInt(m[2], 10),
+      time: parseInt(m[1], 10) * 60 + parseFloat(m[2]),
     })
   }
   if (hits.length === 0) return { primary: text.trim(), segments: [] }
