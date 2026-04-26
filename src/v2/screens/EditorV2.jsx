@@ -6,6 +6,7 @@ import VideoMerge from '../../components/VideoMerge'
 import PhotoDurationBarBase from '../../components/PhotoDurationBar'
 import Dropzone from '../../components/Dropzone'
 import FinalPreviewV2, { DownloadFinalButton } from '../components/FinalPreviewV2'
+import AudioMixLog from '../components/AudioMixLog'
 import ToolMenuV2 from '../components/ToolMenuV2'
 import HintsPanelV2 from '../components/HintsPanelV2'
 import VoiceoverPanelV2 from '../components/VoiceoverPanelV2'
@@ -151,6 +152,10 @@ export default function EditorV2({
             }
           </div>
           <DownloadFinalButton draftId={draftId} jobSync={jobSync} />
+          {/* Auto-appears after the first Download press; refreshes
+              every subsequent press. Mirrors the BE mix logic so what
+              you see in the table is exactly what landed in the mp4. */}
+          <AudioMixLog draftId={draftId} />
         </div>
       )}
     </div>

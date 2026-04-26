@@ -971,6 +971,9 @@ export function DownloadFinalButton({ draftId, jobSync }) {
         }
       } catch { /* server-side primary still works */ }
 
+      // Tell any audio-mix-log listeners that a render just fired so
+      // they can refetch the job and show what was actually mixed.
+      try { window.dispatchEvent(new CustomEvent('posty-render-final-fired', { detail: { draftId } })) } catch {}
       const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
       const urls = Array.isArray(r?.final_urls) && r.final_urls.length
         ? r.final_urls
