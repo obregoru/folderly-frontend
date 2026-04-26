@@ -2,6 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
 import { hashStyleSet } from '../lib/styleFp'
 
+// Reserved segment id for the primary voiceover. Registered as a
+// synthetic entry in voiceover_settings.segments[] so the existing
+// caption_styles / word_timings / enrich-text endpoints (which all
+// require the segment to exist in voiceover_settings.segments[]) work
+// for the primary too. Audio bytes still live on jobs.voiceover_audio_key
+// — this segment carries audioKey:null so the segment-mix path skips
+// it and the dedicated primary mix path keeps owning the audio.
+const PRIMARY_SEGMENT_ID = '__primary__'
+
 /**
  * VoiceoverPanelV2 — drives the shared FinalPreview <video> via
  * previewRef.getVideo(). Primary voice (single clip, starts at t=0) + any
@@ -125,6 +134,17 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         } catch (e) {
           console.warn('[VoiceoverPanelV2] hydrate persisted primary failed:', e?.message)
         }
+      }
+      // Backfill a synthetic __primary__ segment for legacy jobs that
+      // have voiceover_audio_key but never registered the segment
+      // entry. Without this, the 4 primary controls (caption toggle,
+      // style, timings, emoji) have no segment to point at on hydrate.
+      // No-op when one already exists (preserves persisted hideCaption).
+      const hasPrimarySeg = segs.some(s => s?.id === PRIMARY_SEGMENT_ID)
+      if (!hasPrimarySeg && (job?.voiceover_audio_key || job?.voiceover_audio_url)) {
+        // text isn't persisted on legacy primaries — leave blank, the
+        // user can re-type or re-generate to fill it in.
+        upsertPrimarySegment({ text: '', voiceId: vo.voiceId || nextDefault })
       }
       setSegLoaded(true)
     }).catch(() => setSegLoaded(true))
@@ -345,6 +365,20 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       primaryFiredRef.current = false
       const dur = await readAudioDuration(url)
       setPrimaryDuration(dur)
+      // Register the synthetic __primary__ segment so the caption
+      // pipeline (cue builder) and per-segment endpoints have an entry
+      // to key off. Persist word_timings if ElevenLabs returned them
+      // — for TTS this is free; mic-recorded primary needs Scribe.
+      if (draftId) {
+        upsertPrimarySegment({ text: text.trim(), voiceId, duration: dur })
+        if (Array.isArray(r.word_timings) && r.word_timings.length > 0) {
+          // Fire-and-forget: failure to save timings shouldn't block
+          // the user's flow. The audio still plays; captions will fall
+          // back to static text at startMs=0.
+          api.saveSegmentWordTimings(draftId, PRIMARY_SEGMENT_ID, r.word_timings)
+            .catch(e => console.warn('[generate] save primary word_timings failed:', e?.message))
+        }
+      }
     } catch (e) {
       alert('TTS failed: ' + e.message)
     }
@@ -374,6 +408,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         primaryFiredRef.current = false
         const dur = await readAudioDuration(url)
         setPrimaryDuration(dur)
+        // Register the synthetic segment so the 4 primary controls
+        // unlock immediately. word_timings stay unset — user has to
+        // run the timings backfill (Scribe) to caption a recording.
+        if (draftId) {
+          upsertPrimarySegment({ text: '', voiceId: 'recorded', duration: dur })
+        }
       }
       mediaRecorderRef.current = mr
       mr.start()
@@ -395,6 +435,10 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   const discard = async () => {
     if (audioUrl) try { URL.revokeObjectURL(audioUrl) } catch {}
     setAudioBlob(null); setAudioUrl(null); setPrimaryDuration(null); primaryFiredRef.current = false
+    // Also drop the synthetic __primary__ segment entry so the cue
+    // builder doesn't render a stale primary caption against an audio
+    // track that no longer exists.
+    upsertPrimarySegment(null)
     // Also NULL the persisted voiceover_audio_key so a page reload
     // doesn't resurrect the discarded primary — and, more importantly,
     // so the render pipeline doesn't silently keep mixing in the old
@@ -408,17 +452,17 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   }
 
   // Transcribe a recorded primary voice via ElevenLabs Scribe → turn
-  // it into a full voiceover segment (text + word_timings) so the
-  // Remotion caption pipeline (active-word highlight, reveals, etc.)
-  // works with user-recorded voice.
+  // it into a captionable primary (text + word_timings under the
+  // synthetic __primary__ segment) so the Remotion caption pipeline
+  // (active-word highlight, reveals, etc.) works with user-recorded
+  // voice. Audio bytes stay on jobs.voiceover_audio_key — Scribe only
+  // gives us text + timings, not a re-encoded audio.
   const [transcribing, setTranscribing] = useState(false)
   const [transcribeErr, setTranscribeErr] = useState(null)
   const transcribeRecording = async () => {
     if (!audioBlob || !draftId) return
     setTranscribing(true); setTranscribeErr(null)
     try {
-      // blob → base64 (same pattern used by DownloadFinalButton for
-      // the primary voice → base64 upload).
       const buf = new Uint8Array(await audioBlob.arrayBuffer())
       let bin = ''
       for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
@@ -427,39 +471,59 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       const stt = await api.speechToText({ audioBase64, mediaType })
       if (!stt?.word_timings?.length) throw new Error('No words detected')
 
-      // Build a new segment at t=0 with the transcribed text. The
-      // recorded audio itself is what plays during its window, so we
-      // send the audio bytes to /save-voiceover-segment along with
-      // word_timings so a single PUT persists both.
-      const segId = nextSegId()
       const duration = await readAudioDuration(audioUrl)
-      const newSeg = {
-        id: segId,
-        text: stt.text || '',
-        startTime: 0,
-        voiceId: 'recorded',
-        speed: 1.0,
-        audioKey: null,
-        audioUrl,
-        duration,
-        generating: false,
-      }
-
-      const saveRes = await api.saveVoiceoverSegment(
-        audioBase64, draftId, segId, mediaType, stt.word_timings
-      )
-      if (saveRes?.audio_key) newSeg.audioKey = saveRes.audio_key
-
-      setSegments(prev => [...prev, newSeg])
-      // Clear the primary so the user doesn't see the same audio
-      // in two places. They can re-record if they want a new one.
-      setAudioBlob(null); setAudioUrl(null); setPrimaryDuration(null)
-      primaryFiredRef.current = false
+      // Update the synthetic primary entry with the transcribed text +
+      // duration. Then persist word_timings under the same id so the
+      // cue builder picks them up. Text in the AI tab also gets
+      // updated so the user can see what was transcribed.
+      const transcribedText = stt.text || ''
+      setText(transcribedText)
+      upsertPrimarySegment({ text: transcribedText, voiceId: 'recorded', duration })
+      await api.saveSegmentWordTimings(draftId, PRIMARY_SEGMENT_ID, stt.word_timings)
     } catch (e) {
       setTranscribeErr(e.message || String(e))
     } finally {
       setTranscribing(false)
     }
+  }
+
+  // Upsert the synthetic __primary__ entry in segments[] so backend
+  // endpoints (caption_styles, word_timings, enrich-text) accept it as
+  // a real segment. Pass `null` to remove it (e.g. on discard). Fields
+  // not provided fall back to the existing entry's values, so callers
+  // can patch (e.g. just hideCaption) without clobbering text/duration.
+  const upsertPrimarySegment = (patch) => {
+    setSegments(prev => {
+      const idx = prev.findIndex(s => s.id === PRIMARY_SEGMENT_ID)
+      if (patch === null) {
+        return idx >= 0 ? prev.filter(s => s.id !== PRIMARY_SEGMENT_ID) : prev
+      }
+      const existing = idx >= 0 ? prev[idx] : null
+      const next = {
+        id: PRIMARY_SEGMENT_ID,
+        text: patch.text != null ? patch.text : (existing?.text || ''),
+        startTime: 0,
+        voiceId: patch.voiceId != null ? patch.voiceId : (existing?.voiceId || null),
+        speed: 1.0,
+        // audioKey stays null — primary audio lives on jobs.voiceover_audio_key,
+        // and the segment-mix path filters out segments with no audioKey.
+        audioKey: null,
+        // audioUrl too: primary plays via the dedicated <audio data-posty-primary-voice>
+        // element, NOT the segment audio pool.
+        audioUrl: null,
+        duration: patch.duration != null ? patch.duration : (existing?.duration || null),
+        generating: false,
+        ...(patch.hideCaption != null
+          ? { hideCaption: !!patch.hideCaption }
+          : (existing?.hideCaption ? { hideCaption: true } : {})),
+      }
+      if (idx >= 0) {
+        const copy = prev.slice()
+        copy[idx] = next
+        return copy
+      }
+      return [...prev, next]
+    })
   }
 
   // --- Segments ---
@@ -726,6 +790,18 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         primaryFiredRef.current = false
         const pDur = await readAudioDuration(pUrl)
         setPrimaryDuration(pDur)
+        if (draftId) {
+          upsertPrimarySegment({ text: parsed.primary, voiceId, duration: pDur })
+          if (Array.isArray(r.word_timings) && r.word_timings.length > 0) {
+            api.saveSegmentWordTimings(draftId, PRIMARY_SEGMENT_ID, r.word_timings)
+              .catch(e => console.warn('[generateFromScript] save primary timings failed:', e?.message))
+          }
+        }
+      } else if (draftId) {
+        // No primary in script — drop the synthetic entry so the
+        // segments list reflects reality (no leftover blank primary
+        // sitting in voiceover_settings.segments[]).
+        upsertPrimarySegment(null)
       }
 
       // 2. Replace segments with the parsed list
@@ -771,7 +847,22 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   }
 
   const sortedSegments = useMemo(
-    () => [...segments].sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0)),
+    // Filter out the synthetic primary entry — it renders inside the
+    // primary block (above), not in the timed-segments list. Showing
+    // it in both places would let the user delete the primary via the
+    // segment row's ✕ button without clearing voiceover_audio_key.
+    () => [...segments]
+      .filter(s => s.id !== PRIMARY_SEGMENT_ID)
+      .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0)),
+    [segments]
+  )
+
+  // The synthetic primary segment (if any) — sourced from segments[]
+  // so its hideCaption flag is the single source of truth. The 4
+  // primary controls (caption toggle, style editor, timings backfill,
+  // emoji enrich) all key off this entry's id.
+  const primarySeg = useMemo(
+    () => segments.find(s => s.id === PRIMARY_SEGMENT_ID) || null,
     [segments]
   )
 
@@ -998,13 +1089,18 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             <button onClick={discard} className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] rounded bg-white cursor-pointer">Discard</button>
           </div>
 
-          {/* Transcribe-to-captions. Converts the primary recording into
-              a timed segment so the Remotion caption pipeline can
-              highlight each word as it's spoken. */}
+          {/* Transcribe-to-captions. Sends the recorded primary
+              through ElevenLabs Scribe and stores the resulting
+              text + word_timings under the synthetic __primary__
+              segment so caption rendering (active-word highlight,
+              reveals, etc.) works on user-recorded primary too.
+              No-op for AI-generated primary — TTS already returns
+              word_timings inline so they were saved at generation
+              time. */}
           <div className="bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-2 space-y-1.5">
-            <div className="text-[10px] font-medium">📝 Turn recording into synced captions</div>
+            <div className="text-[10px] font-medium">📝 Add captions to recording</div>
             <div className="text-[10px] text-muted">
-              Sends audio to ElevenLabs Scribe for speech-to-text + word timings, then creates a segment so each word highlights with the voice.
+              Runs ElevenLabs Scribe on the recorded audio to recover word timings so the active-word highlight syncs with your voice. Skip this if the primary came from AI voice — TTS already includes timings.
             </div>
             <button
               type="button"
@@ -1014,6 +1110,25 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             >{transcribing ? 'Transcribing…' : '🎙️ → 📝 Transcribe recording'}</button>
             {transcribeErr && <div className="text-[9px] text-[#c0392b]">{transcribeErr}</div>}
           </div>
+
+          {/* Primary-segment controls — same set the per-segment
+              SegmentRow exposes (caption on/off, caption style,
+              timings backfill, emoji enrich). Mounted only when the
+              synthetic __primary__ segment exists in voiceover_settings,
+              which is the case after any TTS / record / hydrate. */}
+          {draftId && primarySeg && (
+            <PrimaryControls
+              draftId={draftId}
+              primarySeg={primarySeg}
+              audioUrl={audioUrl}
+              jobHideCaptions={hideCaptions}
+              onTextChange={(newText) => {
+                setText(newText)
+                upsertPrimarySegment({ text: newText })
+              }}
+              onToggleHideCaption={() => upsertPrimarySegment({ hideCaption: !primarySeg.hideCaption })}
+            />
+          )}
           <div className="flex items-center gap-3 text-[10px]">
             <label className="flex items-center gap-1 cursor-pointer">
               <input type="radio" checked={mixMode === 'replace'} onChange={() => setMixMode('replace')} />
@@ -1443,6 +1558,182 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, jobHideCaptions, onC
         </>
       )}
     </div>
+  )
+}
+
+// PrimaryControls — the 4 segment-style controls (caption on/off,
+// caption style editor, timings backfill, emoji enrich) wired to the
+// synthetic __primary__ segment. Mirrors SegmentRow's logic but
+// without the per-segment text/voice/speed inputs (those already
+// live in the AI/Record/Paste tabs).
+function PrimaryControls({ draftId, primarySeg, audioUrl, jobHideCaptions, onTextChange, onToggleHideCaption }) {
+  const segId = primarySeg.id
+  const hasAudio = !!audioUrl
+
+  // Caption style editor — lazy-load matches SegmentRow.
+  const [styleOpen, setStyleOpen] = useState(false)
+  const [CaptionStyleEditor, setCaptionStyleEditor] = useState(null)
+  useEffect(() => {
+    if (!styleOpen || CaptionStyleEditor) return
+    import('../../components/fonts/CaptionStyleEditor').then(m => setCaptionStyleEditor(() => m.default))
+  }, [styleOpen, CaptionStyleEditor])
+
+  // Style state pill — same fetch pattern as SegmentRow.
+  const [segStyleState, setSegStyleState] = useState(null)
+  useEffect(() => {
+    if (!hasAudio || styleOpen) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [segRes, defRes, mod] = await Promise.all([
+          api.getCaptionStyle(draftId, segId).catch(() => ({ caption_style: null })),
+          api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
+          import('../../lib/captionPresets/catalog'),
+        ])
+        if (cancelled) return
+        const segCs = segRes?.caption_style || null
+        const defCs = defRes?.caption_style || null
+        if (segCs) {
+          const p = findPresetByConfig(segCs, mod.CAPTION_PRESETS)
+          setSegStyleState({ kind: 'override', name: p?.displayName || 'custom', emoji: p?.thumbnailEmoji })
+        } else if (defCs) {
+          const p = findPresetByConfig(defCs, mod.CAPTION_PRESETS)
+          setSegStyleState({ kind: 'inherit', name: p?.displayName || 'custom', emoji: p?.thumbnailEmoji })
+        } else {
+          setSegStyleState(null)
+        }
+      } catch { /* pill just won't show */ }
+    })()
+    return () => { cancelled = true }
+  }, [hasAudio, draftId, segId, styleOpen])
+
+  // Timings backfill — same as SegmentRow's backfillTimings, but
+  // PUTs against the __primary__ id.
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillMsg, setBackfillMsg] = useState(null)
+  const [backfillErr, setBackfillErr] = useState(null)
+  const backfillTimings = async () => {
+    if (!draftId || !audioUrl) {
+      setBackfillErr('No primary audio to transcribe'); return
+    }
+    setBackfilling(true); setBackfillMsg(null); setBackfillErr(null)
+    try {
+      const res = await fetch(audioUrl, { credentials: 'omit' })
+      if (!res.ok) throw new Error(`Audio fetch failed (${res.status})`)
+      const blob = await res.blob()
+      const buf = new Uint8Array(await blob.arrayBuffer())
+      let bin = ''
+      for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
+      const audioBase64 = btoa(bin)
+      const mediaType = blob.type || 'audio/mpeg'
+      const stt = await api.speechToText({ audioBase64, mediaType })
+      const timings = Array.isArray(stt?.word_timings) ? stt.word_timings : []
+      if (timings.length === 0) {
+        setBackfillErr('Scribe returned 0 words — audio may be silent or unintelligible'); return
+      }
+      await api.saveSegmentWordTimings(draftId, segId, timings)
+      // Update the primary text too if the user hadn't set one (e.g.
+      // a recording that was never transcribed). Doesn't overwrite
+      // user-typed text.
+      if (!primarySeg.text?.trim() && stt.text) onTextChange?.(stt.text)
+      setBackfillMsg(`✓ Backfilled ${timings.length} word timings`)
+    } catch (e) {
+      setBackfillErr(e?.message || String(e))
+    } finally {
+      setBackfilling(false)
+    }
+  }
+
+  // Emoji enrich — same as SegmentRow's enrichWithEmoji.
+  const [enriching, setEnriching] = useState(false)
+  const [enrichErr, setEnrichErr] = useState(null)
+  const enrichWithEmoji = async () => {
+    if (!primarySeg.text?.trim() || !draftId) return
+    setEnriching(true); setEnrichErr(null)
+    try {
+      const r = await api.enrichSegmentText(draftId, segId)
+      if (r?.enriched && r.enriched !== primarySeg.text) onTextChange?.(r.enriched)
+    } catch (e) {
+      setEnrichErr(e.message || String(e))
+    } finally {
+      setEnriching(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button
+          onClick={onToggleHideCaption}
+          disabled={jobHideCaptions}
+          className={`text-[10px] py-0.5 px-2 border rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+            jobHideCaptions
+              ? 'border-[#c0392b]/40 text-[#c0392b] bg-[#fdf2f1]'
+              : primarySeg.hideCaption
+                ? 'border-[#c0392b]/50 text-[#c0392b] bg-[#fdf2f1]'
+                : 'border-[#e5e5e5] text-muted bg-white'
+          }`}
+          title={
+            jobHideCaptions
+              ? 'Job-level "spoken-word captions OFF" overrides the primary toggle. Turn it on at the top of the panel to use this.'
+              : 'Toggle whether the primary voiceover caption shows up in the preview + final video. The audio still plays either way.'
+          }
+        >{(jobHideCaptions || primarySeg.hideCaption) ? '🚫 caption off' : '👁 caption on'}</button>
+
+        <button
+          type="button"
+          onClick={() => setStyleOpen(v => !v)}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+          title="Choose fonts + colors for the rendered primary caption"
+        >{styleOpen ? '✕ close caption style' : '🎨 caption style'}</button>
+
+        {hasAudio && (
+          <button
+            onClick={backfillTimings}
+            disabled={backfilling}
+            className="text-[10px] py-0.5 px-2 border border-[#2D9A5E]/50 text-[#2D9A5E] bg-white rounded cursor-pointer disabled:opacity-50"
+            title="Re-run ElevenLabs Scribe on the primary audio to recover word-level timings. Use when the active-word highlight isn't working — for AI primary the timings were already saved at generation time."
+          >{backfilling ? '…' : '🔤 timings'}</button>
+        )}
+
+        {primarySeg.text?.trim() && (
+          <button
+            onClick={enrichWithEmoji}
+            disabled={enriching}
+            className="text-[10px] py-0.5 px-2 border border-[#f59e0b]/50 text-[#d97706] bg-white rounded cursor-pointer disabled:opacity-50"
+            title="AI adds tasteful emoji at sentence boundaries to the primary text. Invalidates the existing audio (regenerate to apply)."
+          >{enriching ? '…' : '✨ +emoji'}</button>
+        )}
+
+        {!styleOpen && segStyleState && (
+          <span
+            className={`text-[9px] py-0.5 px-1.5 rounded border flex items-center gap-1 ${
+              segStyleState.kind === 'override'
+                ? 'bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7]'
+                : 'bg-[#2D9A5E]/10 border-[#2D9A5E]/40 text-[#2D9A5E]'
+            }`}
+            title={
+              segStyleState.kind === 'override'
+                ? 'Primary overrides the job default caption style.'
+                : 'No primary override — rendering with the job default.'
+            }
+          >
+            {segStyleState.emoji && <span className="text-[10px] leading-none">{segStyleState.emoji}</span>}
+            {segStyleState.kind === 'inherit' ? `default: ${segStyleState.name}` : segStyleState.name}
+          </span>
+        )}
+      </div>
+      {backfillMsg && <div className="text-[9px] text-[#2D9A5E]">{backfillMsg}</div>}
+      {backfillErr && <div className="text-[9px] text-[#c0392b]">Backfill failed: {backfillErr}</div>}
+      {enrichErr && <div className="text-[9px] text-[#c0392b]">Emoji enrich failed: {enrichErr}</div>}
+      {styleOpen && CaptionStyleEditor && (
+        <CaptionStyleEditor
+          jobUuid={draftId}
+          segmentId={segId}
+          onClose={() => setStyleOpen(false)}
+        />
+      )}
+    </>
   )
 }
 

@@ -76,8 +76,14 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
         // what downloads.
         const jobHideCaptions = !!job?.voiceover_settings?.hideCaptions
         const segs = Array.isArray(job?.voiceover_settings?.segments) ? job.voiceover_settings.segments : []
+        // The synthetic primary segment carries no audioUrl — its
+        // audio plays via job.voiceover_audio_url (handled by the
+        // dedicated <audio data-posty-primary-voice> element). Include
+        // it in the cue stream regardless so its caption renders, but
+        // exclude it from the audio-track list further down.
+        const PRIMARY_SEGMENT_ID = '__primary__'
         const ordered = [...segs]
-          .filter(s => s && s.id && s.audioUrl)
+          .filter(s => s && s.id && (s.audioUrl || s.id === PRIMARY_SEGMENT_ID))
           .sort((a, b) => (Number(a.startTime) || 0) - (Number(b.startTime) || 0))
 
         const perSegment = await Promise.all(ordered.map(async (seg) => {
@@ -89,13 +95,17 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
         }))
         if (cancelled) return
 
-        const segmentAudioUrls = perSegment.map(({ seg }) => {
-          const startMs = Math.max(0, Math.round((Number(seg.startTime) || 0) * 1000))
-          const durMs = Number(seg.duration) > 0
-            ? Math.round(Number(seg.duration) * 1000)
-            : 3000
-          return { src: seg.audioUrl, startMs, durationMs: durMs, volume: 1 }
-        })
+        const segmentAudioUrls = perSegment
+          // Primary's audio element lives in VoiceoverPanelV2; emitting
+          // it here too would double-play.
+          .filter(({ seg }) => seg.id !== PRIMARY_SEGMENT_ID)
+          .map(({ seg }) => {
+            const startMs = Math.max(0, Math.round((Number(seg.startTime) || 0) * 1000))
+            const durMs = Number(seg.duration) > 0
+              ? Math.round(Number(seg.duration) * 1000)
+              : 3000
+            return { src: seg.audioUrl, startMs, durationMs: durMs, volume: 1 }
+          })
 
         const lastIdx = perSegment.length - 1
         const cues = perSegment.map(({ seg, cs, wt }, idx) => {
