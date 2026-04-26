@@ -1100,6 +1100,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       {audioUrl && (
         <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
           <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono bg-[#2D9A5E] text-white rounded px-1.5 py-0.5">#1</span>
             <span className="text-[10px] text-[#2D9A5E] font-medium">Primary ready</span>
             {/* key={audioUrl} forces a full remount when the blob URL swaps
                 (e.g. AI voice → user recording). Without it React only
@@ -1238,10 +1239,14 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           )
         })()}
 
-        {sortedSegments.map(seg => (
+        {sortedSegments.map((seg, idx) => (
           <SegmentRow
             key={seg.id}
             seg={seg}
+            // 1-indexed in chronological order. The primary (rendered
+            // separately above) is always #1, so timed segments start
+            // at #2 — matches what the user sees in the panel.
+            number={idx + 2}
             voices={voices}
             defaultVoiceId={voiceId}
             draftId={draftId}
@@ -1278,7 +1283,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   )
 }
 
-function SegmentRow({ seg, voices, defaultVoiceId, draftId, jobHideCaptions, onChange, onGenerate, onPlay, onRemove }) {
+function SegmentRow({ seg, number, voices, defaultVoiceId, draftId, jobHideCaptions, onChange, onGenerate, onPlay, onRemove }) {
   const hasAudio = !!seg.audioUrl
   const speed = Number(seg.speed) || 1.0
   const estSec = wordsToSeconds(seg.text, speed)
@@ -1423,6 +1428,9 @@ function SegmentRow({ seg, voices, defaultVoiceId, draftId, jobHideCaptions, onC
   return (
     <div className={`border rounded p-2 space-y-1.5 ${hasAudio ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white'}`}>
       <div className="flex items-center gap-1.5 text-[10px]">
+        {number != null && (
+          <span className={`text-[10px] font-mono rounded px-1.5 py-0.5 ${hasAudio ? 'bg-[#2D9A5E] text-white' : 'bg-[#e5e5e5] text-muted'}`}>#{number}</span>
+        )}
         <label className="text-muted">@</label>
         <input
           type="text"
