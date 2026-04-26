@@ -158,8 +158,14 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   }, [draftId])
 
   // Persist segments + the default voice whenever either changes.
+  // Depend on the useCallback-stable saveVoiceoverSettings reference,
+  // NOT the wrapping jobSync object — useJobSync returns a fresh
+  // object literal every render, so depending on the whole jobSync
+  // re-fires this effect each render → debouncedSaveJob queues every
+  // 800ms → savingJob toggles → re-render → infinite save loop.
+  const saveVoiceoverSettingsFn = jobSync?.saveVoiceoverSettings
   useEffect(() => {
-    if (!segLoaded || !jobSync?.saveVoiceoverSettings) return
+    if (!segLoaded || !saveVoiceoverSettingsFn) return
     const clean = segments.map(s => ({
       id: s.id, text: s.text, startTime: Number(s.startTime) || 0,
       voiceId: s.voiceId || null, speed: Number(s.speed) || 1.0,
@@ -170,7 +176,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // bloat the voiceover_settings JSONB on existing rows.
       ...(s.hideCaption ? { hideCaption: true } : {}),
     }))
-    jobSync.saveVoiceoverSettings({
+    saveVoiceoverSettingsFn({
       segments: clean,
       voiceId: voiceId || null,
       // Include the job-level master switch so it persists alongside
@@ -188,7 +194,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         detail: { segments: clean, hideCaptions: !!hideCaptions },
       }))
     } catch { /* fine — browser without CustomEvent */ }
-  }, [segments, voiceId, hideCaptions, segLoaded, jobSync])
+  }, [segments, voiceId, hideCaptions, segLoaded, saveVoiceoverSettingsFn])
 
   // Keep primary audio URL in sync with its blob
   useEffect(() => {
