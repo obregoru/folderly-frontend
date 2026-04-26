@@ -804,7 +804,10 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         upsertPrimarySegment(null)
       }
 
-      // 2. Replace segments with the parsed list
+      // 2. Replace segments with the parsed list. Re-inject the
+      // synthetic __primary__ entry (if any) — without this the
+      // wholesale replace below would wipe the entry we just added
+      // above, leaving the primary block with no caption controls.
       const newSegs = parsed.segments.map(p => ({
         id: nextSegId(),
         text: p.text,
@@ -813,7 +816,10 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         speed: 1.0,
         audioKey: null, audioUrl: null, duration: null, generating: false,
       }))
-      setSegments(newSegs)
+      setSegments(prev => {
+        const primary = prev.find(s => s.id === PRIMARY_SEGMENT_ID)
+        return primary ? [primary, ...newSegs] : newSegs
+      })
 
       // 3. Generate audio for every new segment (updateSegment reads from
       // current state via functional setter, so freshly added segs are found)
