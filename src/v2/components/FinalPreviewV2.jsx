@@ -1251,6 +1251,13 @@ function VerticalPositionSlider({ draftId, value, onChange }) {
       api.saveJobDefaultCaptionStyle(draftId, body)
         .then(() => setBaseConfig({ ...(baseConfig || {}), layout_config: nextLayout }))
         .catch(() => { /* silent — local state still reflects user intent */ })
+      // Cascade the new verticalPosition into every per-segment
+      // caption_styles row too. Without this, segments that already
+      // have a row would shadow the default and the export would
+      // render at the aspect-ratio fallback (72%) — the live preview
+      // showed it at the slider value but the downloaded mp4 didn't.
+      api.cascadeJobDefaultCaptionStyle(draftId, { vertical_position: nextValue })
+        .catch(() => { /* silent */ })
     }, 300)
   }
 
@@ -1630,6 +1637,11 @@ function CaptionFontSizeSlider({ draftId, value, onChange }) {
       api.saveJobDefaultCaptionStyle(draftId, body)
         .then(() => setBaseConfig({ ...(baseConfig || {}), base_font_size: nextPx }))
         .catch(() => { /* silent — local state reflects intent */ })
+      // Cascade so segments with their own caption_styles row pick
+      // up the new font size — same shadow-default issue the
+      // VerticalPositionSlider has.
+      api.cascadeJobDefaultCaptionStyle(draftId, { base_font_size: nextPx })
+        .catch(() => { /* silent */ })
     }, 300)
   }
 
