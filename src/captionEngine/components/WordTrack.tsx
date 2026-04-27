@@ -369,7 +369,7 @@ export const WordTrack: React.FC<WordTrackProps> = ({
             {i < totalWords - 1 && (
               <span
                 aria-hidden="true"
-                style={{ display: 'inline-block', width: '0.4em' }}
+                style={{ display: 'inline-block', width: '0.55em' }}
               >&nbsp;</span>
             )}
           </React.Fragment>
