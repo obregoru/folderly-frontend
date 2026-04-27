@@ -1,6 +1,7 @@
 import { forwardRef, lazy, Suspense, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
 import { useLivePreviewAssets } from '../lib/useLivePreviewAssets'
+import { FontSizePreview } from '../../components/fonts/CaptionStyleEditor'
 // Lazy-load the overlay so the caption-engine chunk (Remotion-era
 // effect framework + preset registries) only loads for users who
 // actually open a draft with voiceover — not on first paint. Plus
@@ -1527,6 +1528,8 @@ function OverlayFontSizeSlider({ overlays, onChange, jobSync }) {
   // OverlayText renderer clamps to Math.max(24, ...) at render time,
   // so our 24 floor is enforced end-to-end.
   const current = Number(overlays?.storyFontSize) || 48
+  const family = overlays?.storyFontFamily || overlays?.font_family || 'Inter'
+  const color = overlays?.storyColor || overlays?.font_color || '#ffffff'
   const handle = (nextPx) => {
     const nextOverlays = { ...(overlays || {}), storyFontSize: nextPx }
     onChange(nextOverlays)
@@ -1540,7 +1543,7 @@ function OverlayFontSizeSlider({ overlays, onChange, jobSync }) {
   }
   return (
     <div
-      className="flex items-center gap-2 text-[10px] bg-[#6C5CE7]/10 border border-[#6C5CE7]/30 rounded px-2 py-1.5 flex-1 min-w-[180px]"
+      className="flex items-center gap-2 text-[10px] bg-[#6C5CE7]/10 border border-[#6C5CE7]/30 rounded px-2 py-1.5 flex-1 min-w-[180px] flex-wrap"
       title="Default overlay (opening/middle/closing) font size in px"
     >
       <span className="font-medium text-[#6C5CE7] w-[60px]">Overlay font</span>
@@ -1553,6 +1556,7 @@ function OverlayFontSizeSlider({ overlays, onChange, jobSync }) {
         className="flex-1 cursor-pointer"
       />
       <span className="font-mono text-[10px] text-muted w-10 text-right">{current}px</span>
+      <FontSizePreview family={family} color={color} sizePx={current} />
     </div>
   )
 }
@@ -1631,7 +1635,7 @@ function CaptionFontSizeSlider({ draftId, value, onChange }) {
 
   return (
     <div
-      className="flex items-center gap-2 text-[10px] bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded px-2 py-1.5 flex-1 min-w-[180px]"
+      className="flex items-center gap-2 text-[10px] bg-[#f59e0b]/10 border border-[#f59e0b]/30 rounded px-2 py-1.5 flex-1 min-w-[180px] flex-wrap"
       title="Default caption base font size in px (applies to all segments without their own font size)"
     >
       <span className="font-medium text-[#d97706] w-[60px]">Caption font</span>
@@ -1644,6 +1648,11 @@ function CaptionFontSizeSlider({ draftId, value, onChange }) {
         className="flex-1 cursor-pointer"
       />
       <span className="font-mono text-[10px] text-muted w-10 text-right">{displayValue}px</span>
+      <FontSizePreview
+        family={baseConfig?.base_font_family || 'Inter'}
+        color={baseConfig?.base_font_color || '#ffffff'}
+        sizePx={displayValue}
+      />
     </div>
   )
 }

@@ -446,27 +446,38 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
           scales this by width/1080 so the on-screen size stays
           proportional across preview vs final-render dimensions. null
           = use the minDim * 0.055 fallback (~60px on 1080×1920). */}
-      <div className="flex items-center gap-2">
-        <label className="text-[10px] font-medium">Size</label>
-        <input
-          type="range"
-          min={30} max={140} step={2}
-          value={baseFontSize != null ? baseFontSize : 60}
-          onChange={e => { setBaseFontSize(Number(e.target.value)); markDirty() }}
-          className="flex-1"
-          title="Caption font size in 1080-reference pixels. Default ≈ 60px (5.5% of frame width). Same value applies on every render resolution because it's scaled by frame width."
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-medium">Size</label>
+          <input
+            type="range"
+            min={30} max={140} step={2}
+            value={baseFontSize != null ? baseFontSize : 60}
+            onChange={e => { setBaseFontSize(Number(e.target.value)); markDirty() }}
+            className="flex-1"
+            title="Caption font size in 1080-reference pixels. Default ≈ 60px (5.5% of frame width). Same value applies on every render resolution because it's scaled by frame width."
+          />
+          <span className="font-mono text-[10px] text-muted w-14 text-right">
+            {baseFontSize != null ? `${baseFontSize}px` : 'default'}
+          </span>
+          {baseFontSize != null && (
+            <button
+              type="button"
+              onClick={() => { setBaseFontSize(null); markDirty() }}
+              className="text-[9px] text-muted border border-[#e5e5e5] rounded px-1.5 py-0.5 bg-white cursor-pointer"
+              title="Reset to the aspect-ratio default size"
+            >reset</button>
+          )}
+        </div>
+        {/* Live preview — "Aa" rendered in the chosen font at a
+            scaled-down version of the slider value so the user can
+            see proportional changes without the sample blowing past
+            the editor width. */}
+        <FontSizePreview
+          family={baseFont}
+          color={baseColor}
+          sizePx={baseFontSize != null ? baseFontSize : 60}
         />
-        <span className="font-mono text-[10px] text-muted w-14 text-right">
-          {baseFontSize != null ? `${baseFontSize}px` : 'default'}
-        </span>
-        {baseFontSize != null && (
-          <button
-            type="button"
-            onClick={() => { setBaseFontSize(null); markDirty() }}
-            className="text-[9px] text-muted border border-[#e5e5e5] rounded px-1.5 py-0.5 bg-white cursor-pointer"
-            title="Reset to the aspect-ratio default size"
-          >reset</button>
-        )}
       </div>
 
       {/* Vertical position — slider with a "default" null state.
@@ -698,4 +709,35 @@ function sortedKeys(v) {
     return out
   }
   return v
+}
+
+// Inline "Aa" preview shown beside font-size sliders. Renders at a
+// scaled-down version of the slider value so a 30→140px range stays
+// visually proportional without the sample overflowing the row. The
+// scale (0.4) was tuned so 60px (the typical default) shows as 24px
+// — readable, distinguishable, and never wider than ~40px.
+//
+// Exported so OverlayFontSizeSlider / CaptionFontSizeSlider in
+// FinalPreviewV2 can reuse the same component.
+export function FontSizePreview({ family, color = '#111', sizePx, scale = 0.4, sample = 'Aa', maxPx = 56, minPx = 12 }) {
+  const display = Math.max(minPx, Math.min(maxPx, Math.round((Number(sizePx) || 0) * scale)))
+  return (
+    <div
+      className="flex items-baseline gap-2 bg-[#fafafa] border border-[#e5e5e5] rounded px-2 py-1"
+      title={`Live preview at ${sizePx}px (shown ~${display}px to fit the row)`}
+    >
+      <span className="text-[9px] text-muted uppercase tracking-wide">preview</span>
+      <span
+        className="leading-none"
+        style={{
+          fontFamily: family ? `'${family}', system-ui, sans-serif` : undefined,
+          fontSize: display,
+          color,
+          // Mimics common caption shadow so a white sample is still
+          // readable on the off-white background.
+          textShadow: color && color.toLowerCase() === '#ffffff' ? '0 0 1px rgba(0,0,0,0.6)' : undefined,
+        }}
+      >{sample}</span>
+    </div>
+  )
 }
