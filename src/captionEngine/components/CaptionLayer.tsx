@@ -155,6 +155,14 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
             marginLeft: 'auto',
             marginRight: 'auto',
             whiteSpace: layout?.lineBreak === 'manual' ? 'pre-wrap' : 'normal',
+            // Break long words rather than overflowing the 9:16 frame
+            // when the user sets a large baseFontSize (e.g. 140 + a
+            // 12-char word like "bachelorette" was punching past the
+            // ~88% maxWidth wrapper). word-break:break-word is a
+            // superset of overflow-wrap:break-word; both are set so
+            // Chromium / WebKit / Safari all honor it.
+            overflowWrap: 'break-word',
+            wordBreak: 'break-word',
           }}
         >
           {(() => {
