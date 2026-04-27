@@ -352,7 +352,26 @@ export const WordTrack: React.FC<WordTrackProps> = ({
         return (
           <React.Fragment key={w.wordIndex}>
             {rendered}
-            {i < totalWords - 1 && ' '}
+            {/*
+              Inter-word space. A bare " " text node looked fine in
+              the browser preview but sometimes collapsed in the
+              Remotion / headless-Chrome export — words like "look at
+              what they made" rendered as "lookatwhatthey made". The
+              cause is whitespace handling between display:inline-block
+              siblings (every Word turns inline-block as soon as
+              scalePulse fires or an animation/continuous wrapper sets
+              display:inline-block) under specific font-load timings.
+              An explicit inline-block span with a 0.25em width gives
+              the same visual gap and never collapses, while leaving
+              wrapping behavior intact (the parent still has
+              whiteSpace:'normal').
+            */}
+            {i < totalWords - 1 && (
+              <span
+                aria-hidden="true"
+                style={{ display: 'inline-block', width: '0.25em' }}
+              >&nbsp;</span>
+            )}
           </React.Fragment>
         );
       })}
