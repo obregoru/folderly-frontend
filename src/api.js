@@ -846,3 +846,75 @@ export const updateScheduledPost = (uuid, { caption, title, scheduled_at } = {})
   fetch(api(`/schedule/${uuid}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify({ caption, title, scheduled_at }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const markScheduledPostPosted = (uuid) =>
   fetch(api(`/schedule/${uuid}/mark-posted`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+
+// Producer Chat — streaming Claude conversation scoped to one draft.
+// onChunk fires per token so the panel can paint as text arrives.
+// Returns { fullText, error? } once the stream ends. Aborts mid-stream
+// when the caller's AbortController fires (e.g. user clicks Stop).
+export const producerChat = async (jobUuid, { messages, signal, onChunk, metadata }) => {
+  const res = await fetch(api(`/jobs/${jobUuid}/producer/chat`), {
+    method: 'POST',
+    headers: h(),
+    credentials: 'include',
+    signal,
+    body: JSON.stringify({ messages, metadata: metadata || null }),
+  })
+  if (!res.ok) {
+    let msg = `chat failed (${res.status})`
+    try { const j = await res.json(); if (j?.error) msg = j.error } catch {}
+    throw new Error(msg)
+  }
+  // SSE-style: each event is `data: {...}\n\n`. We parse the buffer
+  // line-by-line so partial chunks don't drop tokens.
+  const reader = res.body.getReader()
+  const dec = new TextDecoder('utf-8')
+  let buf = ''
+  let fullText = ''
+  let error = null
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += dec.decode(value, { stream: true })
+    let idx
+    while ((idx = buf.indexOf('\n\n')) !== -1) {
+      const frame = buf.slice(0, idx)
+      buf = buf.slice(idx + 2)
+      const lines = frame.split('\n').map(l => l.trim()).filter(Boolean)
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue
+        try {
+          const payload = JSON.parse(line.slice(5).trim())
+          if (payload.kind === 'text' && payload.text) {
+            fullText += payload.text
+            onChunk?.(payload.text, fullText)
+          } else if (payload.kind === 'error') {
+            error = payload.error || 'streaming error'
+          }
+        } catch { /* ignore malformed frames */ }
+      }
+    }
+  }
+  return { fullText, error }
+}
+
+// Parse a paste from another AI into structured fields. Returns the
+// extracted JSON shape ({ primary?, segments?, overlays?, platformCaption?,
+// hashtags?, raw }) so the UI can preview before applying.
+export const producerImport = (jobUuid, text) =>
+  fetch(api(`/jobs/${jobUuid}/producer/import`), {
+    method: 'POST', headers: h(), credentials: 'include',
+    body: JSON.stringify({ text }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `import failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
+
+// Replay prior chat turns for this draft so the panel rehydrates on reload.
+export const producerHistory = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/producer/history`), { credentials: 'include' })
+    .then(r => r.ok ? r.json() : { messages: [] })
+    .catch(() => ({ messages: [] }))

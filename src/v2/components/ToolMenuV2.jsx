@@ -5,6 +5,7 @@
 const ALL_TOOLS = [
   { key: 'clips',     icon: '🎬', label: 'Media',    forModes: ['photo-post', 'video'] },
   { key: 'hints',     icon: '🎯', label: 'Hints',    forModes: ['photo-post', 'video'] },
+  { key: 'producer',  icon: '🤖', label: 'Producer', forModes: ['photo-post', 'video'] },
   { key: 'captions',  icon: '✨', label: 'Content',  forModes: ['photo-post', 'video'], primary: true },
   { key: 'voiceover', icon: '🎤', label: 'Voice',    forModes: ['video'] },
   { key: 'overlays',  icon: '📝', label: 'Overlays', forModes: ['video'] },

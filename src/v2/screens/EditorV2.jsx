@@ -12,6 +12,7 @@ import HintsPanelV2 from '../components/HintsPanelV2'
 import VoiceoverPanelV2 from '../components/VoiceoverPanelV2'
 import OverlaysPanelV2 from '../components/OverlaysPanelV2'
 import PostTextPanelV2 from '../components/PostTextPanelV2'
+import ProducerChatPanel from '../components/ProducerChatPanel'
 import ChannelsPanelV2 from '../components/ChannelsPanelV2'
 
 /**
@@ -121,6 +122,7 @@ export default function EditorV2({
           />
         )}
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} settings={settings} />}
+        {safeActiveTool === 'producer' && <ProducerChatPanel draftId={draftId} jobSync={jobSync} />}
         {/*
           VoiceoverPanelV2 stays MOUNTED on every tab — only its
           visibility toggles. Its playback-sync useEffect owns the
