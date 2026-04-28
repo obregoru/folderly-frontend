@@ -2,6 +2,7 @@ import { forwardRef, lazy, Suspense, useEffect, useImperativeHandle, useLayoutEf
 import * as api from '../../api'
 import { useLivePreviewAssets } from '../lib/useLivePreviewAssets'
 import { FontSizePreview } from '../../components/fonts/CaptionStyleEditor'
+import First2sOverlay from './First2sOverlay'
 // Lazy-load the overlay so the caption-engine chunk (Remotion-era
 // effect framework + preset registries) only loads for users who
 // actually open a draft with voiceover — not on first paint. Plus
@@ -391,6 +392,12 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
                   baseFontSizeOverride={captionFontSizeOverride}
                 />
               </Suspense>
+              {/* First-2-second analyzer overlays. Renders nothing
+                  until the user runs the analyzer in the 🎯 First 2s
+                  tab; toggles inside the panel control which sub-
+                  layers (safe zones / score HUD / detection boxes /
+                  clarity timeline) actually paint. */}
+              <First2sOverlay videoEl={videoRef.current} />
             </>
           )}
         </>

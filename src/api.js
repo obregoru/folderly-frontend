@@ -919,6 +919,22 @@ export const producerHistory = (jobUuid) =>
     .then(r => r.ok ? r.json() : { messages: [] })
     .catch(() => ({ messages: [] }))
 
+// First-2-second TikTok scroll-stop analyzer. Extracts 6 frames from
+// the merged video, sends them to Claude vision, returns structured
+// FirstTwoSecondAnalysis JSON + the frame thumbnails so the panel can
+// show the user what the AI saw. ~5-10s round-trip on a typical job.
+export const analyzeFirstTwoSec = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/producer/analyze-first-2s`), {
+    method: 'POST', headers: h(), credentials: 'include', body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `analyze failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
+
 // Grade a hook / voiceover / caption. Returns structured scores +
 // strengths/weaknesses/AI-detection/viral-potential + concrete
 // rewrites. The FE renders the breakdown as cards.
