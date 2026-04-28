@@ -68,6 +68,23 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       if (cancelled) return
       const Quill = QuillMod.default || QuillMod
 
+      // React 19 StrictMode mounts → unmounts → re-mounts every
+      // component on first render to surface effect-cleanup bugs. The
+      // cleanup below clears quillRef but the host DOM element
+      // persists across the re-mount. Without this guard, a second
+      // Quill instance attaches to the SAME div on re-mount, two
+      // editors fight over every keystroke and selection — visibly
+      // typing characters in reverse order, dropping selections when
+      // a toolbar button is clicked, etc. Quill.find() returns any
+      // existing instance attached to the element so we can reuse
+      // instead of double-initializing.
+      const existing = Quill.find(hostRef.current)
+      if (existing) {
+        quillRef.current = existing
+        setLoaded(true)
+        return
+      }
+
       // One-time stylesheet injection. Three purposes:
       //   1. Hide the default-no-value picker options ("Normal" /
       //      "Sans Serif") that Quill prepends to whitelisted
@@ -274,16 +291,21 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
     )
   }, [defaults?.fontSize])
 
-  // Tear down Quill + the ResizeObserver on unmount so they don't
-  // leak listeners across panel switches.
+  // Cleanup: ONLY disconnect the ResizeObserver. We deliberately do
+  // NOT clear quillRef or disable() the Quill instance here. Under
+  // React 19 StrictMode, this cleanup fires between the dev-time
+  // mount → unmount → re-mount cycle. Tearing down Quill there
+  // means the re-mount creates a fresh instance ON THE SAME div
+  // that the prior one was on, and they overlap (two editors
+  // handling the same keystrokes, RTL-looking text, broken
+  // selections). Letting Quill stay attached to the host across
+  // the cycle, plus the Quill.find() guard at init, gives us a
+  // single instance per host element. When the panel truly
+  // unmounts (host removed from the DOM), GC reclaims it.
   useEffect(() => () => {
     if (resizeObsRef.current) {
       try { resizeObsRef.current.disconnect() } catch {}
       resizeObsRef.current = null
-    }
-    if (quillRef.current) {
-      try { quillRef.current.disable?.() } catch {}
-      quillRef.current = null
     }
   }, [])
 
