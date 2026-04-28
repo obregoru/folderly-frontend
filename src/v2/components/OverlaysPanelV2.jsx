@@ -410,13 +410,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
             />
             <span>s</span>
-            <SlotYInput
-              label="Y"
-              value={openingYPct}
-              fallback={overlayYPct}
-              onChange={setOpeningYPct}
-            />
           </div>
+          <SlotYRow
+            value={openingYPct}
+            fallback={overlayYPct}
+            onChange={setOpeningYPct}
+          />
         </div>
 
         <div>
@@ -446,13 +445,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
             />
             <span>s</span>
-            <SlotYInput
-              label="Y"
-              value={middleYPct}
-              fallback={overlayYPct}
-              onChange={setMiddleYPct}
-            />
           </div>
+          <SlotYRow
+            value={middleYPct}
+            fallback={overlayYPct}
+            onChange={setMiddleYPct}
+          />
         </div>
 
         <div>
@@ -473,13 +471,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
             />
             <span>s</span>
-            <SlotYInput
-              label="Y"
-              value={closingYPct}
-              fallback={overlayYPct}
-              onChange={setClosingYPct}
-            />
           </div>
+          <SlotYRow
+            value={closingYPct}
+            fallback={overlayYPct}
+            onChange={setClosingYPct}
+          />
         </div>
       </div>
 
@@ -490,39 +487,45 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   )
 }
 
-// Per-slot Y override input. Tiny number field that displays the
-// global yPct in italic-grey when no override is set, and the
-// override value in solid ink once the user picks one. A "↺"
-// reset button clears the override (sends null up so the slot
-// re-inherits from the global slider).
-function SlotYInput({ label, value, fallback, onChange }) {
+// Full-row per-slot Y position control. The previous compact
+// version (a tiny "Y:" input squeezed into the duration row) was
+// too easy to mistake for informational text — users were
+// looking for the new control and not finding it. This version
+// is its own row with a slider, an explicit label, the live
+// percentage value, and a clear "← Use global" button when an
+// override is active. Inheriting the global value reads as
+// "Y position: inherits global (70%)".
+function SlotYRow({ value, fallback, onChange }) {
   const overridden = value != null
-  const display = overridden ? String(value) : ''
+  const fb = Math.round(Number(fallback) || 0)
+  const effective = overridden ? Number(value) : fb
   return (
-    <span className="ml-auto inline-flex items-center gap-1" title="Vertical position 0-100 (top=0, bottom=100). Empty = inherit from global slider.">
-      <span>{label}:</span>
+    <div className="flex items-center gap-2 mt-1 text-[9px] text-muted bg-[#f8f7f3] rounded px-2 py-1.5">
+      <span className="text-[9px] font-medium text-ink whitespace-nowrap">Y position:</span>
       <input
-        type="text"
-        inputMode="numeric"
-        placeholder={String(Math.round(Number(fallback) || 0))}
-        value={display}
-        onChange={e => {
-          const raw = e.target.value.trim()
-          if (raw === '') { onChange(null); return }
-          const n = Number(raw.replace(/[^0-9.]/g, ''))
-          if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100, n)))
-        }}
-        className={`w-10 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white text-center ${overridden ? 'text-ink' : 'text-muted italic'}`}
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={effective}
+        onChange={e => onChange(Number(e.target.value))}
+        className="flex-1 accent-[#6C5CE7]"
+        aria-label="Slot vertical position 0-100"
       />
-      {overridden && (
+      <span className={`font-mono text-[10px] w-8 text-right ${overridden ? 'text-ink font-medium' : 'text-muted italic'}`}>
+        {effective}%
+      </span>
+      {overridden ? (
         <button
           type="button"
           onClick={() => onChange(null)}
-          className="text-[10px] leading-none text-muted bg-transparent border-none cursor-pointer px-0.5"
-          title="Clear override — inherit from global"
-        >↺</button>
+          className="text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] bg-white rounded cursor-pointer"
+          title="Clear this slot's Y override and inherit from the global slider"
+        >← global</button>
+      ) : (
+        <span className="text-[9px] italic text-muted whitespace-nowrap" title="This slot inherits from the global Y slider — drag to override">inherits</span>
       )}
-    </span>
+    </div>
   )
 }
 
