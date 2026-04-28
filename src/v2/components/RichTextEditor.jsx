@@ -142,16 +142,19 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       // whitelisted values (and the toolbar dropdowns show them).
       //
       // Size uses the CLASS attributor (emits `class="ql-size-60px"`)
-      // not the style attributor — that lets our injected CSS reliably
-      // target each size (`.ql-editor .ql-size-60px { font-size: calc(...) }`)
-      // for WYSIWYG scaling. Inline-style matching via attribute
-      // selectors is browser-format dependent and was unreliable.
+      // because numeric values are CSS-class-name-safe and our scaling
+      // CSS targets those classes directly.
+      //
+      // Font, in contrast, MUST stay on the inline-STYLE attributor.
+      // Class attributor turns 'Bebas Neue' into class="ql-font-Bebas
+      // Neue" which the HTML parser interprets as TWO classes
+      // ('ql-font-Bebas' and 'Neue'), neither of which matches any
+      // CSS rule — so the picked font silently never applied. Inline
+      // style 'font-family: \"Bebas Neue\"' has no such issue.
       const Size = Quill.import('attributors/class/size')
       Size.whitelist = SIZE_OPTIONS.map(n => `${n}px`)
       Quill.register(Size, true)
-      // Font also via class attributor for consistency + so our
-      // ::before label selectors keep working.
-      const Font = Quill.import('attributors/class/font')
+      const Font = Quill.import('attributors/style/font')
       Font.whitelist = FONT_OPTIONS
       Quill.register(Font, true)
       // Color stays inline-style so the saved Delta carries the actual
