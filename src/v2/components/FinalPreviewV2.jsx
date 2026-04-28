@@ -328,6 +328,16 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
             controls
             playsInline
             className="w-full h-full object-contain bg-black"
+            // Tagged so the Quill rich-text editor in OverlaysPanelV2
+            // can find this element and measure its rendered width.
+            // The editor uses width / 1080 to scale font sizes so
+            // what's typed at "60px" displays at the same physical
+            // pixel size on screen as a 60px overlay would in the
+            // exported 1080-wide video. Without this anchor the
+            // editor falls back to its own width which is usually
+            // wider than the video, making editor text look bigger
+            // than its rendered counterpart.
+            data-posty-video-preview="true"
           />
           {mergedUrl && (
             <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">

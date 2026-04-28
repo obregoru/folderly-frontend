@@ -172,13 +172,23 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
 
       // WYSIWYG scale: the rendered video shrinks every fontSize
       // by frame_width / 1080. Match that here so what the user
-      // sees in the editor matches the export. Re-measure on
-      // resize because the panel width changes with window resize.
-      const editorEl = hostRef.current.querySelector('.ql-editor')
+      // sees in the editor matches the export.
+      //
+      // The reference width is the VIDEO PREVIEW'S rendered width,
+      // not the editor's own width. The editor and video are in
+      // different panels with different widths; using the editor's
+      // width made type look ~30% bigger than the matching overlay
+      // in the video. Looking up the video element by data tag
+      // anchors the math to what the user actually sees.
+      const findVideoEl = () => document.querySelector('video[data-posty-video-preview="true"]')
       const updateScale = () => {
-        const w = editorEl?.clientWidth || hostRef.current?.clientWidth || 280
+        const video = findVideoEl()
+        const w = (video?.clientWidth)
+          || hostRef.current?.querySelector('.ql-editor')?.clientWidth
+          || hostRef.current?.clientWidth
+          || 280
         if (w > 0 && hostRef.current) {
-          // Clamp to [0.15, 0.8] so unusually narrow / wide panels
+          // Clamp to [0.15, 0.8] so unusually narrow / wide players
           // don't produce illegible or inappropriately huge text.
           const s = Math.max(0.15, Math.min(0.8, w / 1080))
           hostRef.current.style.setProperty('--posty-rte-scale', String(s))
@@ -186,8 +196,13 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       }
       updateScale()
       if (typeof ResizeObserver !== 'undefined' && hostRef.current) {
+        // Observe BOTH the host element AND the video so window
+        // resizes that change the video's box update the editor's
+        // scale too.
         resizeObsRef.current = new ResizeObserver(updateScale)
         resizeObsRef.current.observe(hostRef.current)
+        const video = findVideoEl()
+        if (video) resizeObsRef.current.observe(video)
       }
 
       // Hydrate from existing runs[] if any.
