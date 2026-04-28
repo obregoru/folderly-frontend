@@ -89,8 +89,19 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
   // Phase 3.6 — when a textEffect is configured, it replaces the
   // generic drop-shadow we default to for readability. Absent effect
   // falls back to the same default so legacy captions look identical.
+  //
+  // Shadow values are proportional to the rendered fontSize (not
+  // fixed px) so the visible glow stays consistent across composition
+  // widths. The old fixed `8px` blur looked prominent in the FE
+  // preview (~400px wide → ~2% of frame) but invisible in the
+  // 1080-wide export (0.7% of frame) — making the export look like
+  // it had no shadow at all even though the same CSS string was
+  // being rendered.
+  const sOff = Math.max(1, Math.round(baseFontSize * 0.04));   // tight drop offset
+  const sBlur = Math.max(2, Math.round(baseFontSize * 0.08));   // tight drop blur
+  const sGlow = Math.max(4, Math.round(baseFontSize * 0.18));   // outer glow blur
   const baseTextShadow = textEffectToShadow(layout?.textEffect)
-    || '0 2px 4px rgba(0,0,0,0.85), 0 0 8px rgba(0,0,0,0.6)';
+    || `0 ${sOff}px ${sBlur}px rgba(0,0,0,0.85), 0 0 ${sGlow}px rgba(0,0,0,0.6)`;
   // Base outline (applies to EVERY word, not just the active one).
   // Lives in layout_config.baseOutline. Same shape as the
   // active-word outline so the math reuses fourWayOutline / glow.
