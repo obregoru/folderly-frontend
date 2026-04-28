@@ -89,6 +89,25 @@ export default function First2sPanel({ draftId }) {
 
       {analysis && (
         <>
+          {/* Source note — tells the user which video the analyzer
+              actually looked at. "final" = the cached download
+              (overlays + captions burned in, most accurate). "merge"
+              = the raw clips without any styled text. The note keeps
+              users from being confused when textEffectiveness scores
+              feel disconnected from what they see in the live preview. */}
+          {analysis?.source?.kind === 'merge' ? (
+            <div className="text-[10px] text-[#92400e] bg-[#fef3c7] border border-[#d97706]/40 rounded p-1.5">
+              <span className="font-medium">Analyzing the raw merge.</span> Overlay text and captions aren't burned into these frames yet —
+              the textEffectiveness score is judging your <em>typed hook</em>, not how it actually appears on screen.
+              Click <strong>Download</strong> once to bake the export, then re-analyze for a pixel-accurate read.
+            </div>
+          ) : analysis?.source?.kind === 'final' ? (
+            <div className="text-[10px] text-[#16a34a] bg-[#f0faf4] border border-[#2D9A5E]/30 rounded p-1.5">
+              <span className="font-medium">Analyzing your last downloaded export</span> — overlay text + captions are visible to the analyzer.
+              If you've changed overlays or VO since then, re-Download and re-analyze for a fresh read.
+            </div>
+          ) : null}
+
           {/* Overall verdict card. */}
           <div
             className="border rounded p-2 flex items-center gap-3"
