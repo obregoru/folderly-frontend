@@ -48,6 +48,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   // as ResultCard's overlayYPct). 70 is a common default — near-bottom
   // but clear of the platform's reserved caption/UI zone.
   const [overlayYPct, setOverlayYPct] = useState(70)
+  // Per-slot Y overrides — null = "use global overlayYPct". Old jobs
+  // (no per-slot keys in overlay_settings) stay null after hydrate so
+  // the burn-in pipeline falls back to the single global Y exactly as
+  // before. Setting any of these to a number activates the override.
+  const [openingYPct, setOpeningYPct] = useState(null)
+  const [middleYPct, setMiddleYPct] = useState(null)
+  const [closingYPct, setClosingYPct] = useState(null)
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [fontPickerOpen, setFontPickerOpen] = useState(false)
@@ -83,6 +90,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.lineHeight != null) setLineHeight(Number(o.lineHeight) || 1.3)
         if (o.letterSpacing != null) setLetterSpacing(Number(o.letterSpacing) || 0)
         if (o.overlayYPct != null) setOverlayYPct(Number(o.overlayYPct))
+        // Per-slot Y — only adopt when explicitly persisted; otherwise
+        // null carries the "inherit from global" meaning into the
+        // payload below.
+        if (o.openingYPct != null) setOpeningYPct(Number(o.openingYPct))
+        if (o.middleYPct  != null) setMiddleYPct(Number(o.middleYPct))
+        if (o.closingYPct != null) setClosingYPct(Number(o.closingYPct))
         setLoaded(true)
       }).catch(() => setLoaded(true))
     })
@@ -139,6 +152,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       lineHeight: Number(lineHeight) || 1.3,
       letterSpacing: Number(letterSpacing) || 0,
       overlayYPct: Number(overlayYPct),
+      // Per-slot overrides. null = "no override, use overlayYPct".
+      // Persisting null preserves the "global mode" intent across
+      // reloads so an unset slot doesn't snap to the global value
+      // and silently lose the inheritance.
+      openingYPct: openingYPct != null ? Number(openingYPct) : null,
+      middleYPct:  middleYPct  != null ? Number(middleYPct)  : null,
+      closingYPct: closingYPct != null ? Number(closingYPct) : null,
     }
     jobSync.saveOverlaySettings?.(payload)
     // Broadcast to FinalPreviewV2 so the overlay preview updates live.
@@ -152,7 +172,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, openingYPct, middleYPct, closingYPct, loaded])
 
   // Scrub the shared FinalPreview <video> so the user can see their
   // overlays rendered in sync with the clip. No server re-render —
@@ -390,6 +410,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
             />
             <span>s</span>
+            <SlotYInput
+              label="Y"
+              value={openingYPct}
+              fallback={overlayYPct}
+              onChange={setOpeningYPct}
+            />
           </div>
         </div>
 
@@ -420,6 +446,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
             />
             <span>s</span>
+            <SlotYInput
+              label="Y"
+              value={middleYPct}
+              fallback={overlayYPct}
+              onChange={setMiddleYPct}
+            />
           </div>
         </div>
 
@@ -441,14 +473,56 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
             />
             <span>s</span>
+            <SlotYInput
+              label="Y"
+              value={closingYPct}
+              fallback={overlayYPct}
+              onChange={setClosingYPct}
+            />
           </div>
         </div>
       </div>
 
       <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">
-        Preview shown live on the video above. Y position avoids the platform's reserved zones (top status bar / bottom caption & UI bar).
+        Preview shown live on the video above. Each slot's Y can override the global slider — leave a slot's Y blank (italic <em>=global</em>) to inherit; type 0–100 to lock that slot to its own vertical position.
       </div>
     </div>
+  )
+}
+
+// Per-slot Y override input. Tiny number field that displays the
+// global yPct in italic-grey when no override is set, and the
+// override value in solid ink once the user picks one. A "↺"
+// reset button clears the override (sends null up so the slot
+// re-inherits from the global slider).
+function SlotYInput({ label, value, fallback, onChange }) {
+  const overridden = value != null
+  const display = overridden ? String(value) : ''
+  return (
+    <span className="ml-auto inline-flex items-center gap-1" title="Vertical position 0-100 (top=0, bottom=100). Empty = inherit from global slider.">
+      <span>{label}:</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        placeholder={String(Math.round(Number(fallback) || 0))}
+        value={display}
+        onChange={e => {
+          const raw = e.target.value.trim()
+          if (raw === '') { onChange(null); return }
+          const n = Number(raw.replace(/[^0-9.]/g, ''))
+          if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100, n)))
+        }}
+        className={`w-10 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white text-center ${overridden ? 'text-ink' : 'text-muted italic'}`}
+      />
+      {overridden && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-[10px] leading-none text-muted bg-transparent border-none cursor-pointer px-0.5"
+          title="Clear override — inherit from global"
+        >↺</button>
+      )}
+    </span>
   )
 }
 

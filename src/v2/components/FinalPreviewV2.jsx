@@ -245,14 +245,18 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     const midStart  = Number(overlays.middleStartTime)   || 0
     const midDur    = Number(overlays.middleDuration)    || 0
     const closeDur  = Number(overlays.closingDuration)   || 0
+    // slot is the identifier the slider/OverlayText use to pick
+    // up the slot-specific yPct (openingYPct / middleYPct /
+    // closingYPct) — with fallback to overlayYPct when the slot
+    // doesn't have its own override.
     if ((overlays.openingText || overlays.openingRuns?.length) && t < openDur) {
-      return { text: overlays.openingText, runs: overlays.openingRuns || null }
+      return { text: overlays.openingText, runs: overlays.openingRuns || null, slot: 'opening' }
     }
     if ((overlays.middleText || overlays.middleRuns?.length) && t >= midStart && t < midStart + midDur) {
-      return { text: overlays.middleText, runs: overlays.middleRuns || null }
+      return { text: overlays.middleText, runs: overlays.middleRuns || null, slot: 'middle' }
     }
     if ((overlays.closingText || overlays.closingRuns?.length) && duration > 0 && t >= duration - closeDur) {
-      return { text: overlays.closingText, runs: overlays.closingRuns || null }
+      return { text: overlays.closingText, runs: overlays.closingRuns || null, slot: 'closing' }
     }
     return null
   }, [overlays, currentTime, duration])
@@ -303,6 +307,7 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
       {showOverlaySlider && (
         <OverlayPositionSlider
           overlays={overlays}
+          activeSlot={activeOverlay?.slot || null}
           onChange={next => setOverlays(next)}
           jobSync={jobSync}
         />
@@ -353,7 +358,7 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
             </div>
           )}
           {activeOverlay && (
-            <OverlayText text={activeOverlay.text} runs={activeOverlay.runs} style={overlays} videoRef={videoRef} />
+            <OverlayText text={activeOverlay.text} runs={activeOverlay.runs} slot={activeOverlay.slot} style={overlays} videoRef={videoRef} />
           )}
           {activeCaptionText && !teleprompter && (
             <CaptionText text={activeCaptionText} />
@@ -574,7 +579,7 @@ function TeleprompterText({ text }) {
   )
 }
 
-function OverlayText({ text, runs, style, videoRef }) {
+function OverlayText({ text, runs, style, videoRef, slot }) {
   // Scale font/outline by the video's ACTUAL displayed rectangle (after
   // object-contain letterboxing) so the preview text size matches what
   // ffmpeg will burn into the 1080-wide output frame. Measuring the
@@ -660,7 +665,14 @@ function OverlayText({ text, runs, style, videoRef }) {
   // the textBlock (fontSize×2.5) is subtracted at the bottom so long
   // captions don't fall off. yPos is the TOP of the text — render
   // uses drawtext's y= param which anchors top-of-glyph.
-  const pct = Math.max(0, Math.min(100, Number(style?.overlayYPct ?? 50)))
+  // Per-slot Y override — slot can be 'opening' / 'middle' /
+  // 'closing'. Each maps to {slot}YPct in overlay_settings; null/
+  // undefined falls back to the global overlayYPct so legacy jobs
+  // (no per-slot keys) render unchanged.
+  const slotYKey = slot ? `${slot}YPct` : null
+  const slotYRaw = slotYKey != null ? style?.[slotYKey] : null
+  const pctSource = slotYRaw != null ? slotYRaw : style?.overlayYPct
+  const pct = Math.max(0, Math.min(100, Number(pctSource ?? 50)))
   // Text-block height as % of container height. The container's
   // clientHeight is the live video element box; textBlock in PX =
   // fontSize × 2.5 (fontSize here is already scaled to the preview),
@@ -1476,7 +1488,7 @@ function useLivePreviewTelemetry(draftId, assets) {
 // jobSync.saveOverlaySettings (which debounces internally) and
 // updates FinalPreviewV2's overlays state optimistically so the
 // OverlayText component re-renders with the new Y during drag.
-function OverlayPositionSlider({ overlays, onChange, jobSync }) {
+function OverlayPositionSlider({ overlays, activeSlot, onChange, jobSync }) {
   // Measure vertical space available for the rotated slider so it
   // actually spans top-to-bottom. Same ResizeObserver pattern as the
   // caption slider. Hooks must run unconditionally — put them ABOVE
@@ -1496,12 +1508,26 @@ function OverlayPositionSlider({ overlays, onChange, jobSync }) {
     return () => ro.disconnect()
   }, [])
 
-  const current = Number(overlays?.overlayYPct ?? 70)
+  // The slider edits the ACTIVE slot's Y when one is showing —
+  // 'opening' / 'middle' / 'closing' map to openingYPct /
+  // middleYPct / closingYPct. With no active slot (or a slot that
+  // hasn't been overridden yet), the slider falls back to / writes
+  // the global overlayYPct so the existing single-Y workflow stays
+  // intact for users who don't care about per-slot positioning.
+  const slotKey = activeSlot ? `${activeSlot}YPct` : null
+  const slotVal = slotKey != null ? overlays?.[slotKey] : null
+  const globalVal = Number(overlays?.overlayYPct ?? 70)
+  const current = slotVal != null ? Number(slotVal) : globalVal
+  const editingSlot = slotKey != null
   const handleChange = (nextPct) => {
     // Update FinalPreviewV2's local overlays state so OverlayText re-
     // renders immediately at the new Y. Also mirror to the global
     // broadcast so any other listener stays consistent.
-    const nextOverlays = { ...(overlays || {}), overlayYPct: nextPct }
+    // Writes ONLY the active slot's key when editing a slot; falls
+    // back to overlayYPct when no slot is active. Other slots'
+    // overrides (and the global) stay untouched on this drag.
+    const writeKey = editingSlot ? slotKey : 'overlayYPct'
+    const nextOverlays = { ...(overlays || {}), [writeKey]: nextPct }
     onChange(nextOverlays)
     try {
       if (typeof window !== 'undefined') {
@@ -1531,7 +1557,9 @@ function OverlayPositionSlider({ overlays, onChange, jobSync }) {
         borderRadius: 15,
         userSelect: 'none',
       }}
-      title={`Overlay text vertical position — ${Math.round(current)}%`}
+      title={`Overlay text vertical position — ${editingSlot
+        ? `editing ${activeSlot} slot${slotVal == null ? ' (currently inheriting global, drag to set)' : ''}`
+        : 'global default (no slot active right now)'} · ${Math.round(current)}%`}
     >
       <div style={{
         color: 'rgba(255,255,255,0.9)',
