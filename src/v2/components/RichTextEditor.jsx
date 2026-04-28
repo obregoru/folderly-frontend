@@ -191,24 +191,7 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
           )),
           // Default editor text (no explicit size class) renders at
           // the overlay-level default font size, scaled the same way.
-          // Color matches the user's chosen overlay color so the
-          // editor reads as WYSIWYG — typing white text in the
-          // editor is what white text on the video will look like.
-          // The editor background flips dark so light overlay
-          // colors stay readable while editing (white-on-white was
-          // unreadable and made users think "the caption is dark
-          // grey" when in fact only the editor preview was off).
-          '.ql-editor { ' +
-            'font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)) !important; ' +
-            'color: var(--posty-rte-base-color, #ffffff) !important; ' +
-            'background: #1a1814 !important; ' +
-            'caret-color: var(--posty-rte-base-color, #ffffff); ' +
-          '}',
-          // Quill's snow theme keeps the toolbar on a white surface;
-          // the editor area below it is the only thing we darken so
-          // toolbar buttons stay legible.
-          '.ql-snow .ql-editor::placeholder { color: rgba(255,255,255,0.45) !important; }',
-          '.ql-snow .ql-editor.ql-blank::before { color: rgba(255,255,255,0.45) !important; font-style: italic; }',
+          '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)) !important; }',
         ].join('\n')
         document.head.appendChild(style)
       }
@@ -249,10 +232,34 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
               ['clean'],
             ],
           },
+          clipboard: { matchVisual: false },
         },
         placeholder: placeholder || 'Type your overlay text…',
       })
       quillRef.current = q
+
+      // Strip color / background / size / font on paste so pasted
+      // content (e.g. text copied from a webpage with dark CSS,
+      // Word, Google Docs) doesn't smuggle in inline color attrs.
+      // Without this, users pasted hook copy and the resulting
+      // runs[] carried `color: '#1a1814'` from the source style —
+      // the live preview + the burned-in mp4 then showed the
+      // overlay in dark grey instead of the panel's chosen color.
+      // bold / italic / line breaks are still allowed through.
+      q.clipboard.addMatcher(Node.ELEMENT_NODE, (_node, delta) => {
+        const ops = (delta.ops || []).map(op => {
+          if (!op || typeof op.insert !== 'string') return op
+          const a = { ...(op.attributes || {}) }
+          delete a.color
+          delete a.background
+          delete a.size
+          delete a.font
+          return Object.keys(a).length > 0
+            ? { insert: op.insert, attributes: a }
+            : { insert: op.insert }
+        })
+        return { ops }
+      })
 
       // The "Default" picker entries Quill auto-prepends to size +
       // font dropdowns are hidden via the CSS injected below — they
@@ -374,19 +381,6 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
     )
   }, [defaults?.fontSize])
 
-  // Same trick for the editor's text color — pulls the user's
-  // chosen overlay color into the editor's CSS so unstyled text
-  // (no explicit per-run color) renders as WYSIWYG. Without this,
-  // Quill's default black text on white background looked like
-  // "the Opening caption is dark grey" even though the rendered
-  // video would show white.
-  useEffect(() => {
-    if (!hostRef.current) return
-    hostRef.current.style.setProperty(
-      '--posty-rte-base-color',
-      defaults?.color || '#ffffff'
-    )
-  }, [defaults?.color])
 
   // Cleanup: ONLY disconnect the ResizeObserver. We deliberately do
   // NOT clear quillRef or disable() the Quill instance here. Under
@@ -459,11 +453,22 @@ export function deltaToRuns(delta, defaults) {
   for (const op of ops) {
     if (typeof op?.insert !== 'string') continue
     const a = op.attributes || {}
+    // A run only carries a color override when it DIFFERS from the
+    // panel's default color — picking white from Quill's palette when
+    // the panel default is white shouldn't persist as an override
+    // (would lock the run to the now-stale literal value if the user
+    // later changes the panel default).
+    const colorMatchesDefault = a.color
+      && defaults?.color
+      && normalizeColor(a.color) === normalizeColor(defaults.color)
+    const fontMatchesDefault = a.font
+      && defaults?.fontFamily
+      && a.font === defaults.fontFamily
     const styleAttrs = {
       bold: !!a.bold,
       italic: !!a.italic,
-      color: a.color || undefined,
-      fontFamily: a.font || undefined,
+      color: (a.color && !colorMatchesDefault) ? a.color : undefined,
+      fontFamily: (a.font && !fontMatchesDefault) ? a.font : undefined,
       fontSize: parseSize(a.size),
     }
     const fragments = op.insert.split('\n')
@@ -497,6 +502,31 @@ export function deltaToRuns(delta, defaults) {
     }
   }
   return out
+}
+
+// Normalize CSS color strings for equality comparison: '#fff' /
+// '#FFFFFF' / 'rgb(255,255,255)' / 'rgb(255, 255, 255)' all map to
+// 'rgb(255,255,255)'. Used by deltaToRuns to detect when an inline
+// color matches the panel default and should NOT be persisted as
+// a per-run override.
+function normalizeColor(c) {
+  if (!c) return null
+  const s = String(c).trim().toLowerCase()
+  if (s.startsWith('#')) {
+    const hex = s.slice(1)
+    const full = hex.length === 3
+      ? hex.split('').map(ch => ch + ch).join('')
+      : hex.length === 4
+        ? hex.slice(0, 3).split('').map(ch => ch + ch).join('')  // ignore alpha for shape
+        : hex.length >= 6 ? hex.slice(0, 6) : null
+    if (!full || !/^[0-9a-f]{6}$/.test(full)) return s
+    const r = parseInt(full.slice(0, 2), 16)
+    const g = parseInt(full.slice(2, 4), 16)
+    const b = parseInt(full.slice(4, 6), 16)
+    return `rgb(${r},${g},${b})`
+  }
+  // 'rgb(255, 255, 255)' → 'rgb(255,255,255)'
+  return s.replace(/\s+/g, '')
 }
 
 function parseSize(s) {

@@ -400,6 +400,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             defaults={{ color: fontColor, fontFamily, fontSize }}
             placeholder="POV: your birthday just got a signature scent"
           />
+          <ResetColorsLink runs={openingRuns} setRuns={setOpeningRuns} />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Duration:</label>
             <input
@@ -426,6 +427,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             defaults={{ color: fontColor, fontFamily, fontSize }}
             placeholder="You made it together"
           />
+          <ResetColorsLink runs={middleRuns} setRuns={setMiddleRuns} />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Start at:</label>
             <input
@@ -461,6 +463,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             defaults={{ color: fontColor, fontFamily, fontSize }}
             placeholder="Only at Poppy & Thyme"
           />
+          <ResetColorsLink runs={closingRuns} setRuns={setClosingRuns} />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Duration:</label>
             <input
@@ -495,6 +498,35 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
 // percentage value, and a clear "← Use global" button when an
 // override is active. Inheriting the global value reads as
 // "Y position: inherits global (70%)".
+// Tiny "reset colors" link below each editor — only visible when
+// at least one run carries an explicit color override. Stripping
+// per-run color makes the slot fall back to the panel's global
+// font color (storyFontColor) so the overlay re-honors what the
+// outer color picker says. Common cause of stuck color overrides:
+// pasted text from a webpage with inline `color: #xxx` styles
+// gets captured into the run, and the user later changes the
+// panel color but the runs still carry the literal old color.
+function ResetColorsLink({ runs, setRuns }) {
+  const hasColorOverride = Array.isArray(runs) && runs.some(r => r && r.color)
+  if (!hasColorOverride) return null
+  const reset = () => {
+    setRuns(runs.map(r => {
+      if (!r) return r
+      // eslint-disable-next-line no-unused-vars
+      const { color, ...rest } = r
+      return rest
+    }))
+  }
+  return (
+    <button
+      type="button"
+      onClick={reset}
+      className="mt-1 text-[9px] text-[#6C5CE7] bg-transparent border-none cursor-pointer underline px-0"
+      title="Drop per-run color overrides so this slot's text follows the global font color"
+    >↺ reset colors to global</button>
+  )
+}
+
 function SlotYRow({ value, fallback, onChange }) {
   const overridden = value != null
   const fb = Math.round(Number(fallback) || 0)
