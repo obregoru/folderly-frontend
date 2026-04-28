@@ -8,6 +8,13 @@ import EditorV2 from './screens/EditorV2'
 import SettingsDrawerV2 from './components/SettingsDrawerV2'
 import JobAiLogModal from './components/JobAiLogModal'
 
+// Build metadata injected at compile time by Vite (see vite.config.js).
+// Aliased here so JSX can reference simpler names. typeof guard means
+// the unit tests / Storybook (which don't run through Vite) still
+// import this module without crashing on the global identifier.
+const BUILD_HASH = typeof __BUILD_HASH__ !== 'undefined' ? __BUILD_HASH__ : 'dev'
+const BUILD_DATE = typeof __BUILD_DATE__ !== 'undefined' ? __BUILD_DATE__ : 'unknown'
+
 /**
  * Real v2 app — mockup layout + real backend. Phase 1: shell only.
  *   - Drafts list from real API
@@ -348,6 +355,18 @@ export default function AppV2() {
           />
         )}
         {!inEditor && <div className="flex-1" />}
+        {/* Build tag — git short-hash + build date baked in by Vite at
+            compile time. Lets users (and us) confirm exactly which
+            commit is running in their browser without opening dev
+            tools. Click to copy the hash for sharing in bug reports. */}
+        <button
+          type="button"
+          onClick={() => {
+            try { navigator.clipboard.writeText(`${BUILD_HASH} (${BUILD_DATE})`) } catch {}
+          }}
+          className="text-[9px] font-mono text-muted bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-0.5 cursor-pointer flex-shrink-0"
+          title={`Frontend build ${BUILD_HASH} (built ${BUILD_DATE} UTC) — click to copy`}
+        >v {BUILD_HASH}</button>
         <button
           onClick={() => setSettingsOpen(true)}
           className="text-[18px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none flex-shrink-0"
