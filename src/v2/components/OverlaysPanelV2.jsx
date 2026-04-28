@@ -55,6 +55,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [openingYPct, setOpeningYPct] = useState(null)
   const [middleYPct, setMiddleYPct] = useState(null)
   const [closingYPct, setClosingYPct] = useState(null)
+  // Per-slot font color overrides. Same null = "inherit global"
+  // pattern as Y. Backwards compatible — old jobs render at the
+  // single panel storyFontColor.
+  const [openingFontColor, setOpeningFontColor] = useState(null)
+  const [middleFontColor, setMiddleFontColor] = useState(null)
+  const [closingFontColor, setClosingFontColor] = useState(null)
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [fontPickerOpen, setFontPickerOpen] = useState(false)
@@ -96,6 +102,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.openingYPct != null) setOpeningYPct(Number(o.openingYPct))
         if (o.middleYPct  != null) setMiddleYPct(Number(o.middleYPct))
         if (o.closingYPct != null) setClosingYPct(Number(o.closingYPct))
+        // Per-slot font color — same inheritance rules.
+        if (o.openingFontColor) setOpeningFontColor(String(o.openingFontColor))
+        if (o.middleFontColor)  setMiddleFontColor(String(o.middleFontColor))
+        if (o.closingFontColor) setClosingFontColor(String(o.closingFontColor))
         setLoaded(true)
       }).catch(() => setLoaded(true))
     })
@@ -159,6 +169,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       openingYPct: openingYPct != null ? Number(openingYPct) : null,
       middleYPct:  middleYPct  != null ? Number(middleYPct)  : null,
       closingYPct: closingYPct != null ? Number(closingYPct) : null,
+      // Per-slot font color overrides — same null-as-inherit pattern.
+      openingFontColor: openingFontColor || null,
+      middleFontColor:  middleFontColor  || null,
+      closingFontColor: closingFontColor || null,
     }
     jobSync.saveOverlaySettings?.(payload)
     // Broadcast to FinalPreviewV2 so the overlay preview updates live.
@@ -172,7 +186,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, openingYPct, middleYPct, closingYPct, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, openingYPct, middleYPct, closingYPct, openingFontColor, middleFontColor, closingFontColor, loaded])
 
   // Scrub the shared FinalPreview <video> so the user can see their
   // overlays rendered in sync with the clip. No server re-render —
@@ -397,7 +411,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           <RichTextEditor
             runs={openingRuns}
             onChange={setOpeningRuns}
-            defaults={{ color: fontColor, fontFamily, fontSize }}
+            defaults={{ color: openingFontColor || fontColor, fontFamily, fontSize }}
             placeholder="POV: your birthday just got a signature scent"
           />
           <ResetColorsLink runs={openingRuns} setRuns={setOpeningRuns} />
@@ -417,6 +431,11 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             fallback={overlayYPct}
             onChange={setOpeningYPct}
           />
+          <SlotColorRow
+            value={openingFontColor}
+            fallback={fontColor}
+            onChange={setOpeningFontColor}
+          />
         </div>
 
         <div>
@@ -424,7 +443,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           <RichTextEditor
             runs={middleRuns}
             onChange={setMiddleRuns}
-            defaults={{ color: fontColor, fontFamily, fontSize }}
+            defaults={{ color: middleFontColor || fontColor, fontFamily, fontSize }}
             placeholder="You made it together"
           />
           <ResetColorsLink runs={middleRuns} setRuns={setMiddleRuns} />
@@ -453,6 +472,11 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             fallback={overlayYPct}
             onChange={setMiddleYPct}
           />
+          <SlotColorRow
+            value={middleFontColor}
+            fallback={fontColor}
+            onChange={setMiddleFontColor}
+          />
         </div>
 
         <div>
@@ -460,7 +484,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           <RichTextEditor
             runs={closingRuns}
             onChange={setClosingRuns}
-            defaults={{ color: fontColor, fontFamily, fontSize }}
+            defaults={{ color: closingFontColor || fontColor, fontFamily, fontSize }}
             placeholder="Only at Poppy & Thyme"
           />
           <ResetColorsLink runs={closingRuns} setRuns={setClosingRuns} />
@@ -479,6 +503,11 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             value={closingYPct}
             fallback={overlayYPct}
             onChange={setClosingYPct}
+          />
+          <SlotColorRow
+            value={closingFontColor}
+            fallback={fontColor}
+            onChange={setClosingFontColor}
           />
         </div>
       </div>
@@ -524,6 +553,44 @@ function ResetColorsLink({ runs, setRuns }) {
       className="mt-1 text-[9px] text-[#6C5CE7] bg-transparent border-none cursor-pointer underline px-0"
       title="Drop per-run color overrides so this slot's text follows the global font color"
     >↺ reset colors to global</button>
+  )
+}
+
+// Per-slot font color row. Mirrors SlotYRow's UX: a color swatch
+// sits next to a row label, with "inherits" / "← global" status
+// on the right. value === null/undefined means "use global"; any
+// hex string activates the override and the swatch renders that
+// color even if it matches the global (so the user can still see
+// what they picked). The color picker is the same browser-native
+// input the panel-wide picker uses.
+function SlotColorRow({ value, fallback, onChange }) {
+  const overridden = value != null && value !== ''
+  const fb = String(fallback || '#ffffff')
+  const effective = overridden ? value : fb
+  return (
+    <div className="flex items-center gap-2 mt-1 text-[9px] text-muted bg-[#f8f7f3] rounded px-2 py-1.5">
+      <span className="text-[9px] font-medium text-ink whitespace-nowrap">Color:</span>
+      <input
+        type="color"
+        value={effective}
+        onChange={e => onChange(e.target.value)}
+        className="w-6 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0"
+        aria-label="Slot font color"
+      />
+      <span className={`font-mono text-[10px] w-[68px] ${overridden ? 'text-ink' : 'text-muted italic'}`}>
+        {effective}
+      </span>
+      {overridden ? (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="ml-auto text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] bg-white rounded cursor-pointer"
+          title="Clear this slot's color override and inherit from the global picker"
+        >← global</button>
+      ) : (
+        <span className="ml-auto text-[9px] italic text-muted whitespace-nowrap" title="This slot inherits from the global Color picker — pick a swatch to override">inherits</span>
+      )}
+    </div>
   )
 }
 

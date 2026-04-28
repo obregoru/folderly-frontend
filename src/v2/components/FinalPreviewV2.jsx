@@ -644,7 +644,13 @@ function OverlayText({ text, runs, style, videoRef, slot }) {
   // flash at a wrong size on mount.
   const effectiveScale = scale != null ? scale : 0.3
   const fontSize = Math.max(8, rawFont * effectiveScale)
-  const color = style?.storyFontColor || '#ffffff'
+  // Per-slot color override — falls back to the global storyFontColor
+  // when the slot doesn't carry its own. Same null = inherit pattern
+  // as the per-slot Y. Legacy jobs (no `${slot}FontColor` keys)
+  // render at the single global color exactly as before.
+  const slotColorKey = slot ? `${slot}FontColor` : null
+  const slotColorRaw = slotColorKey != null ? style?.[slotColorKey] : null
+  const color = slotColorRaw || style?.storyFontColor || '#ffffff'
   const family = style?.storyFontFamily || 'sans-serif'
   const rawOutline = style?.storyFontOutline === false ? 0 : Math.max(0, Number(style?.storyFontOutlineWidth) || 3)
   const outlineWidth = rawOutline * effectiveScale
