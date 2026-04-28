@@ -22,6 +22,9 @@ export default function First2sPanel({ draftId }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [err, setErr] = useState(null)
   const [errRaw, setErrRaw] = useState(null)
+  // Platform tab — 'all' shows the comparison strip; tiktok/reels/
+  // youtubeShorts each show that platform's full breakdown.
+  const [platformTab, setPlatformTab] = useState('all')
   const [overlays, setOverlays] = useState({
     safeZones: true,
     scoreHUD: true,
@@ -219,16 +222,34 @@ export default function First2sPanel({ draftId }) {
             </div>
           )}
 
-          {/* Findings — strengths / issues / suggestions. Each comes
-              from the analyzer and renders as a styled bullet list. */}
-          {Array.isArray(score?.strengths) && score.strengths.length > 0 && (
-            <Findings title="✅ Strengths" items={score.strengths} accent="#2D9A5E" />
+          {/* Platform adaptation layer. Click a tab to see that
+              platform's adjusted score + platform-specific
+              suggestions; "All" shows a 3-card comparison strip. */}
+          {analysis.platformScores && (
+            <PlatformBreakdown
+              base={analysis.score}
+              platforms={analysis.platformScores}
+              activeTab={platformTab}
+              setActiveTab={setPlatformTab}
+            />
           )}
-          {Array.isArray(score?.issues) && score.issues.length > 0 && (
-            <Findings title="⚠️ Issues" items={score.issues} accent="#c0392b" />
-          )}
-          {Array.isArray(score?.suggestions) && score.suggestions.length > 0 && (
-            <Findings title="✏️ Suggestions" items={score.suggestions} accent="#6C5CE7" />
+
+          {/* Generic findings — strengths / issues / suggestions from
+              the BASE analysis (before platform adjustments). Hidden
+              when a specific platform tab is selected since that
+              platform's tab shows its own findings. */}
+          {(!analysis.platformScores || platformTab === 'all') && (
+            <>
+              {Array.isArray(score?.strengths) && score.strengths.length > 0 && (
+                <Findings title="✅ Strengths (base)" items={score.strengths} accent="#2D9A5E" />
+              )}
+              {Array.isArray(score?.issues) && score.issues.length > 0 && (
+                <Findings title="⚠️ Issues (base)" items={score.issues} accent="#c0392b" />
+              )}
+              {Array.isArray(score?.suggestions) && score.suggestions.length > 0 && (
+                <Findings title="✏️ Suggestions (base)" items={score.suggestions} accent="#6C5CE7" />
+              )}
+            </>
           )}
 
           {/* Overlay toggles — flip what's drawn on the live preview. */}
@@ -256,6 +277,133 @@ export default function First2sPanel({ draftId }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// Platform adaptation layer UI. Tabs across the top (All / TikTok /
+// Reels / Shorts). "All" renders three side-by-side mini-cards so the
+// user can see which platform suits the video best at a glance; each
+// platform tab shows that platform's full breakdown plus the
+// platform-specific sub-metric (saveability for Reels; topicClarity +
+// loopQuality for Shorts).
+const PLATFORMS = [
+  { key: 'tiktok',         label: 'TikTok',  short: 'TikTok' },
+  { key: 'reels',          label: 'Reels (IG/FB)', short: 'Reels' },
+  { key: 'youtubeShorts',  label: 'YT Shorts', short: 'Shorts' },
+]
+
+function PlatformBreakdown({ base, platforms, activeTab, setActiveTab }) {
+  const baseScore = Number(base?.totalScore) || 0
+  return (
+    <div className="border border-[#e5e5e5] rounded p-2 space-y-2 bg-white">
+      <div className="text-[10px] font-medium">Per-platform breakdown</div>
+      {/* Tab strip. */}
+      <div className="flex gap-1 bg-[#f8f7f3] rounded-md p-0.5">
+        {[{ key: 'all', label: 'All' }, ...PLATFORMS.map(p => ({ key: p.key, label: p.short }))].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`flex-1 text-[10px] py-1 rounded border-none cursor-pointer ${
+              activeTab === t.key ? 'bg-white text-ink shadow-sm font-medium' : 'bg-transparent text-muted'
+            }`}
+          >{t.label}</button>
+        ))}
+      </div>
+
+      {activeTab === 'all' ? (
+        <div className="grid grid-cols-3 gap-1.5">
+          {PLATFORMS.map(p => {
+            const ps = platforms[p.key]
+            if (!ps) {
+              return (
+                <div key={p.key} className="border border-dashed border-[#e5e5e5] rounded p-1.5 text-[10px] text-muted text-center">
+                  {p.short}<br/>—
+                </div>
+              )
+            }
+            return <PlatformMiniCard key={p.key} platform={p} ps={ps} baseScore={baseScore} onClick={() => setActiveTab(p.key)} />
+          })}
+        </div>
+      ) : (
+        <PlatformDetail platform={PLATFORMS.find(p => p.key === activeTab)} ps={platforms[activeTab]} baseScore={baseScore} />
+      )}
+    </div>
+  )
+}
+
+function PlatformMiniCard({ platform, ps, baseScore, onClick }) {
+  const adjusted = Number(ps.adjustedScore) || 0
+  const delta = Number(ps.scoreAdjustment) || (adjusted - baseScore)
+  const color = adjusted >= 85 ? '#2D9A5E' : adjusted >= 70 ? '#16a34a' : adjusted >= 50 ? '#d97706' : '#c0392b'
+  const deltaColor = delta > 0 ? '#16a34a' : delta < 0 ? '#c0392b' : '#6b7280'
+  return (
+    <button
+      onClick={onClick}
+      className="border rounded p-1.5 text-center cursor-pointer bg-white hover:bg-[#fafafa]"
+      style={{ borderColor: color + '66' }}
+    >
+      <div className="text-[8px] uppercase tracking-wide text-muted">{platform.short}</div>
+      <div className="font-mono font-bold leading-none mt-0.5" style={{ color, fontSize: 18 }}>
+        {Math.round(adjusted)}
+      </div>
+      <div className="text-[9px] mt-0.5" style={{ color }}>{ps.verdict}</div>
+      {Number.isFinite(delta) && delta !== 0 && (
+        <div className="text-[9px] font-mono mt-0.5" style={{ color: deltaColor }}>
+          {delta > 0 ? '+' : ''}{delta} vs base
+        </div>
+      )}
+    </button>
+  )
+}
+
+function PlatformDetail({ platform, ps, baseScore }) {
+  if (!ps) return <div className="text-[10px] text-muted italic">No score for {platform?.label}.</div>
+  const adjusted = Number(ps.adjustedScore) || 0
+  const delta = Number(ps.scoreAdjustment) || (adjusted - baseScore)
+  const color = adjusted >= 85 ? '#2D9A5E' : adjusted >= 70 ? '#16a34a' : adjusted >= 50 ? '#d97706' : '#c0392b'
+  const deltaColor = delta > 0 ? '#16a34a' : delta < 0 ? '#c0392b' : '#6b7280'
+  return (
+    <div className="space-y-2">
+      <div
+        className="border rounded p-2 flex items-center gap-3"
+        style={{ borderColor: color + '66', background: color + '10' }}
+      >
+        <div className="text-center">
+          <div className="text-[8px] uppercase tracking-wide text-muted">{platform.label}</div>
+          <div className="font-mono font-bold leading-none" style={{ color, fontSize: 24 }}>
+            {Math.round(adjusted)}<span className="text-[11px]">/100</span>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-[13px]" style={{ color }}>{ps.verdict || '—'}</div>
+          {Number.isFinite(delta) && delta !== 0 && (
+            <div className="text-[10px] font-mono" style={{ color: deltaColor }}>
+              {delta > 0 ? '+' : ''}{delta} vs base ({baseScore})
+            </div>
+          )}
+          {/* Reels-only sub-metric. */}
+          {ps.saveability != null && (
+            <div className="text-[10px] text-muted">Saveability: <span className="font-mono">{Math.round(ps.saveability)}/100</span></div>
+          )}
+          {/* Shorts-only sub-metrics. */}
+          {ps.topicClarity != null && (
+            <div className="text-[10px] text-muted">Topic clarity: <span className="font-mono">{Math.round(ps.topicClarity)}/100</span></div>
+          )}
+          {ps.loopQuality != null && (
+            <div className="text-[10px] text-muted">Loop quality: <span className="font-mono">{Math.round(ps.loopQuality)}/100</span></div>
+          )}
+        </div>
+      </div>
+      {Array.isArray(ps.strengths) && ps.strengths.length > 0 && (
+        <Findings title={`✅ ${platform.short} strengths`} items={ps.strengths} accent="#2D9A5E" />
+      )}
+      {Array.isArray(ps.issues) && ps.issues.length > 0 && (
+        <Findings title={`⚠️ ${platform.short} issues`} items={ps.issues} accent="#c0392b" />
+      )}
+      {Array.isArray(ps.suggestions) && ps.suggestions.length > 0 && (
+        <Findings title={`✏️ ${platform.short} suggestions`} items={ps.suggestions} accent="#6C5CE7" />
       )}
     </div>
   )
