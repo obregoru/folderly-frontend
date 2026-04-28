@@ -112,39 +112,51 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
             `.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="${n}px"]::before { content: "${n}"; }`
           )),
           // WYSIWYG scaling. The editor's --posty-rte-scale CSS
-          // variable is set per-instance from the editor's measured
-          // width / 1080. Each whitelist size renders as
+          // variable is set per-instance from the VIDEO PREVIEW'S
+          // measured width / 1080 (the same math the video renderer
+          // applies). Each whitelist size class renders as
           //     font-size: calc(Npx * var(--posty-rte-scale))
           // so what the user sees in the editor matches the relative
-          // size that'll render in a 1080-wide export. !important is
-          // needed because Quill writes inline styles which would
-          // otherwise win cascade.
+          // size in a 1080-wide export.
           ...[24,32,40,48,56,64,72,80,96,120,144,180].map(n => (
-            `.ql-editor [style*="font-size: ${n}px"] { ` +
-              `font-size: calc(${n}px * var(--posty-rte-scale, 0.3)) !important; ` +
+            `.ql-editor .ql-size-${n}px { ` +
+              `font-size: calc(${n}px * var(--posty-rte-scale, 0.26)) !important; ` +
             `}`
           )),
-          // Default editor text (no explicit size) renders at the
-          // overlay-level default font size, also scaled. The
-          // --posty-rte-base-size variable holds the overlay's
-          // default size in 1080-ref px; combined with the scale,
-          // it gives us the correct visual default.
-          '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)); }',
+          // Default editor text (no explicit size class) renders at
+          // the overlay-level default font size, scaled the same way.
+          // --posty-rte-base-size holds the panel's default in 1080-ref
+          // px; combined with the scale, this gives the correct
+          // unstyled-text appearance.
+          '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.26)) !important; }',
+          // Constrain the editor's content area to roughly match the
+          // video preview's width — keeps the text-to-frame ratio the
+          // same so the user's mental model of "this is what'll fit
+          // in the frame" holds. Without this, the editor's wider
+          // panel makes equally-scaled text feel disproportionate.
+          '.ql-editor { max-width: var(--posty-rte-frame-width, 280px); margin-left: auto; margin-right: auto; }',
         ].join('\n')
         document.head.appendChild(style)
       }
 
       // Register custom size + font whitelists so Quill emits our
       // whitelisted values (and the toolbar dropdowns show them).
-      const Size = Quill.import('attributors/style/size')
+      //
+      // Size uses the CLASS attributor (emits `class="ql-size-60px"`)
+      // not the style attributor — that lets our injected CSS reliably
+      // target each size (`.ql-editor .ql-size-60px { font-size: calc(...) }`)
+      // for WYSIWYG scaling. Inline-style matching via attribute
+      // selectors is browser-format dependent and was unreliable.
+      const Size = Quill.import('attributors/class/size')
       Size.whitelist = SIZE_OPTIONS.map(n => `${n}px`)
       Quill.register(Size, true)
-      const Font = Quill.import('attributors/style/font')
+      // Font also via class attributor for consistency + so our
+      // ::before label selectors keep working.
+      const Font = Quill.import('attributors/class/font')
       Font.whitelist = FONT_OPTIONS
       Quill.register(Font, true)
-      // Color via inline-style so it renders identically outside
-      // Quill (the default attributor uses CSS classes that wouldn't
-      // map onto our preview / export).
+      // Color stays inline-style so the saved Delta carries the actual
+      // hex value (the runs[] → Delta converter reads it directly).
       const Color = Quill.import('attributors/style/color')
       Quill.register(Color, true)
 
@@ -192,6 +204,12 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
           // don't produce illegible or inappropriately huge text.
           const s = Math.max(0.15, Math.min(0.8, w / 1080))
           hostRef.current.style.setProperty('--posty-rte-scale', String(s))
+          // Also constrain editor max-width to the video's width so
+          // the text-to-frame proportion in the editor matches the
+          // export. Without this, the editor's wider panel hosts
+          // equally-scaled text inside a bigger box, making it feel
+          // larger than its rendered counterpart.
+          hostRef.current.style.setProperty('--posty-rte-frame-width', `${Math.round(w)}px`)
         }
       }
       updateScale()
