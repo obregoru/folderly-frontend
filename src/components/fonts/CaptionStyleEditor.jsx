@@ -50,6 +50,16 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
   const [outlineColor, setOutlineColor] = useState('#000000')
   const [outlineWidth, setOutlineWidth] = useState(3)
   const [outlineBlur, setOutlineBlur] = useState(8)
+  // Outline applied to ALL caption text (not just the active word).
+  // Stored inside layout_config.baseOutline so we don't need a new
+  // BE column / migration; CaptionLayer composes it onto baseStyle's
+  // textShadow before words render. Same shape as active-word
+  // outline so the UI maps 1:1.
+  const [baseOutlineEnabled, setBaseOutlineEnabled] = useState(false)
+  const [baseOutlineType, setBaseOutlineType] = useState('outline')
+  const [baseOutlineColor, setBaseOutlineColor] = useState('#000000')
+  const [baseOutlineWidth, setBaseOutlineWidth] = useState(3)
+  const [baseOutlineBlur, setBaseOutlineBlur] = useState(8)
   // Vertical anchor as % from top of composition. null means "use the
   // aspect-ratio default" (72% on 9:16, 78% on 1:1). User interaction
   // with the slider replaces null with a concrete number; the label
@@ -108,6 +118,18 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     // fall back to the aspect-ratio default).
     const vp = c.layout_config?.verticalPosition
     setVerticalPosition(typeof vp === 'number' ? vp : null)
+    // Base outline (applies to ALL caption text). Stored inside
+    // layout_config so we don't need a new BE column.
+    const baseOc = c.layout_config?.baseOutline
+    if (baseOc && typeof baseOc === 'object') {
+      setBaseOutlineEnabled(true)
+      setBaseOutlineType(baseOc.type === 'neon' ? 'neon' : 'outline')
+      if (baseOc.color) setBaseOutlineColor(baseOc.color)
+      if (typeof baseOc.width === 'number') setBaseOutlineWidth(baseOc.width)
+      if (typeof baseOc.blur === 'number') setBaseOutlineBlur(baseOc.blur)
+    } else {
+      setBaseOutlineEnabled(false)
+    }
     // Keep the preset's full config in memory so Save sends animation /
     // reveal / outline / layout too (this UI doesn't yet surface those
     // fields for direct editing; they ride along from the preset).
@@ -179,6 +201,18 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     // Position(null)) rather than coercing to a number.
     const vp = cs.layout_config?.verticalPosition
     setVerticalPosition(typeof vp === 'number' ? vp : null)
+    // Base outline — same shape as active-word outline, but lives in
+    // layout_config.baseOutline.
+    const baseOc = cs.layout_config?.baseOutline
+    if (baseOc && typeof baseOc === 'object') {
+      setBaseOutlineEnabled(true)
+      setBaseOutlineType(baseOc.type === 'neon' ? 'neon' : 'outline')
+      if (baseOc.color) setBaseOutlineColor(baseOc.color)
+      if (typeof baseOc.width === 'number') setBaseOutlineWidth(baseOc.width)
+      if (typeof baseOc.blur === 'number') setBaseOutlineBlur(baseOc.blur)
+    } else {
+      setBaseOutlineEnabled(false)
+    }
     // Keep JSONB side-fields so Save doesn't drop them.
     setPendingConfig({
       active_word_outline_config: cs.active_word_outline_config || null,
@@ -201,11 +235,24 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     // (verticalPosition === null), delete the key entirely so the
     // render path falls back to the aspect-ratio default.
     const existingLayout = (pendingConfig?.layout_config) || null
-    const mergedLayout = verticalPosition != null
+    let mergedLayout = verticalPosition != null
       ? { ...(existingLayout || {}), verticalPosition }
       : existingLayout && 'verticalPosition' in existingLayout
         ? (() => { const { verticalPosition: _, ...rest } = existingLayout; return Object.keys(rest).length ? rest : null })()
         : existingLayout
+    // Merge base outline into layout_config — set when enabled,
+    // explicitly remove when disabled so toggling off persists.
+    const baseOutlineCfg = baseOutlineEnabled
+      ? (baseOutlineType === 'neon'
+          ? { type: 'neon', color: baseOutlineColor, width: Math.max(1, Math.min(20, Number(baseOutlineWidth) || 4)), blur: Math.max(0, Math.min(40, Number(baseOutlineBlur) || 8)) }
+          : { type: 'outline', color: baseOutlineColor, width: Math.max(1, Math.min(20, Number(baseOutlineWidth) || 3)) })
+      : null
+    if (baseOutlineCfg) {
+      mergedLayout = { ...(mergedLayout || {}), baseOutline: baseOutlineCfg }
+    } else if (mergedLayout && 'baseOutline' in mergedLayout) {
+      const { baseOutline: _bo, ...restNoBo } = mergedLayout
+      mergedLayout = Object.keys(restNoBo).length ? restNoBo : null
+    }
     // Build the outline config from the form. Null when disabled so
     // the BE clears the column. Width/blur are clamped client-side
     // (server has no validation here so junk values would render).
@@ -562,6 +609,72 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
         )}
       </div>
 
+      {/* Base outline / glow — applies to ALL caption text (not just
+          the active word). Stored in layout_config.baseOutline so no
+          BE migration is needed; CaptionLayer composes it onto the
+          baseStyle textShadow. Use this for "every word has a black
+          outline" looks; use the Active-word card below to make ONLY
+          the spoken word have an outline. */}
+      <div className="space-y-1.5 border border-[#e5e5e5] rounded p-2 bg-[#fafafa]">
+        <label className="flex items-center gap-1.5 text-[10px] font-medium cursor-pointer">
+          <input
+            type="checkbox"
+            checked={baseOutlineEnabled}
+            onChange={e => { setBaseOutlineEnabled(e.target.checked); markDirty() }}
+          />
+          <span>Outline / glow on all caption text</span>
+        </label>
+        {baseOutlineEnabled && (
+          <>
+            <div className="flex items-center gap-2 text-[10px]">
+              <label className="text-muted">Style</label>
+              <select
+                value={baseOutlineType}
+                onChange={e => { setBaseOutlineType(e.target.value); markDirty() }}
+                className="flex-1 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+              >
+                <option value="outline">Outline (solid stroke)</option>
+                <option value="neon">Neon (colored glow)</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 text-[10px]">
+              <label className="text-muted">Color</label>
+              <input
+                type="color"
+                value={baseOutlineColor}
+                onChange={e => { setBaseOutlineColor(e.target.value); markDirty() }}
+                className="w-8 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0"
+              />
+              <span className="font-mono text-[10px] text-muted">{baseOutlineColor}</span>
+            </div>
+            <div className="flex items-center gap-2 text-[10px]">
+              <label className="text-muted">Width</label>
+              <input
+                type="range"
+                min={1} max={12} step={1}
+                value={baseOutlineWidth}
+                onChange={e => { setBaseOutlineWidth(Number(e.target.value)); markDirty() }}
+                className="flex-1"
+              />
+              <span className="font-mono text-[10px] text-muted w-10 text-right">{baseOutlineWidth}px</span>
+            </div>
+            {baseOutlineType === 'neon' && (
+              <div className="flex items-center gap-2 text-[10px]">
+                <label className="text-muted">Glow</label>
+                <input
+                  type="range"
+                  min={0} max={32} step={1}
+                  value={baseOutlineBlur}
+                  onChange={e => { setBaseOutlineBlur(Number(e.target.value)); markDirty() }}
+                  className="flex-1"
+                />
+                <span className="font-mono text-[10px] text-muted w-10 text-right">{baseOutlineBlur}px</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Outline / glow on the active word — Phase 2.5 active_word_outline_config.
           'outline' draws a solid stroke; 'neon' draws a colored glow
           via blur. Both override CaptionLayer's default text shadow. */}
@@ -627,7 +740,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
 
       {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
 
-      <div className="flex gap-1.5 pt-1">
+      <div className="flex gap-1.5 pt-1 flex-wrap">
         <button
           type="button"
           onClick={save}
@@ -660,6 +773,68 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
           >Cancel</button>
         )}
       </div>
+      {/* Apply-to-all in default mode. Saves the current form as the
+          job default first (so the cascade reads the latest values),
+          then cascades to every per-segment row so existing customised
+          segments adopt the new font size + vertical position too.
+          Same endpoint as the inline ApplyCaptionToAllButton in
+          FinalPreviewV2 — placed here so users editing the default
+          have the action where they expect it. */}
+      {isDefault && (
+        <ApplyDefaultToAllButton
+          jobUuid={jobUuid}
+          getBody={currentConfigBody}
+          saving={saving}
+          setSaving={setSaving}
+          setErr={setErr}
+        />
+      )}
+    </div>
+  )
+}
+
+// Inline action that saves the current form as the job default and
+// then cascades the slider-controlled fields (base_font_size +
+// verticalPosition) to every per-segment caption_styles row. Lives
+// inside the editor so users editing the default have the action
+// next to the Save button.
+function ApplyDefaultToAllButton({ jobUuid, getBody, saving, setSaving, setErr }) {
+  const [done, setDone] = useState(null) // { count } | null
+  const handle = async () => {
+    setSaving(true); setErr(null); setDone(null)
+    try {
+      const body = getBody()
+      // Persist the current form first so the cascade reads fresh
+      // values, even if the user hadn't pressed Save yet.
+      await api.saveJobDefaultCaptionStyle(jobUuid, body)
+      const cascadeBody = {}
+      if (typeof body.base_font_size === 'number') cascadeBody.base_font_size = body.base_font_size
+      const vp = body.layout_config?.verticalPosition
+      if (typeof vp === 'number') cascadeBody.vertical_position = vp
+      const r = await api.cascadeJobDefaultCaptionStyle(jobUuid, cascadeBody)
+      setDone({ count: Number(r?.updated) || 0 })
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <div className="space-y-1 pt-1">
+      <button
+        type="button"
+        onClick={handle}
+        disabled={saving}
+        className="w-full text-[11px] py-1.5 bg-[#f59e0b]/15 border border-[#f59e0b]/40 text-[#b45309] rounded cursor-pointer disabled:opacity-50 font-medium hover:bg-[#f59e0b]/25"
+        title="Saves the current form as the job default, then cascades the size + vertical position into every existing per-segment caption_styles row so customised segments pick up the new values too."
+      >📥 Apply to all segments</button>
+      {done && (
+        <div className="text-[10px] text-[#2D9A5E]">
+          ✓ {done.count === 0
+            ? 'Default saved (no per-segment rows to cascade into)'
+            : `Cascaded into ${done.count} segment row${done.count === 1 ? '' : 's'}`}
+        </div>
+      )}
     </div>
   )
 }

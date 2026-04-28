@@ -83,13 +83,22 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
   // falls back to the same default so legacy captions look identical.
   const baseTextShadow = textEffectToShadow(layout?.textEffect)
     || '0 2px 4px rgba(0,0,0,0.85), 0 0 8px rgba(0,0,0,0.6)';
+  // Base outline (applies to EVERY word, not just the active one).
+  // Lives in layout_config.baseOutline. Same shape as the
+  // active-word outline so the math reuses fourWayOutline / glow.
+  // Composes onto baseTextShadow so a configured textEffect still
+  // renders, plus the outline reads cleanly on top.
+  const baseOutlineShadow = baseOutlineToShadow((layout as any)?.baseOutline);
+  const composedBaseShadow = baseOutlineShadow
+    ? `${baseTextShadow}, ${baseOutlineShadow}`
+    : baseTextShadow;
 
   const baseStyle: WordStyle = {
     color: captionStyle?.baseFontColor || '#ffffff',
     fontFamily: baseFamily,
     fontSize: baseFontSize,
     fontWeight: 700,
-    textShadow: baseTextShadow,
+    textShadow: composedBaseShadow,
   };
   const resolvedCaptionStyle: CaptionStyle | null | undefined = captionStyle
     ? { ...captionStyle, activeWordFontFamily: activeFamilyResolved }
@@ -216,3 +225,41 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
     </AbsoluteFill>
   );
 };
+
+// Build a textShadow string from a baseOutline config. Mirrors the
+// active-word outline math in Word.tsx (fourWayOutline + glow) so the
+// two outlines look identical when configured the same. Returns null
+// when the config is absent / disabled, so the caller can keep the
+// default drop shadow untouched.
+function baseOutlineToShadow(cfg: any): string | null {
+  if (!cfg || typeof cfg !== 'object' || !cfg.color) return null;
+  const color = String(cfg.color);
+  const width = Math.max(1, Math.round(Number(cfg.width) || 3));
+  const blur = Math.max(0, Math.round(Number(cfg.blur) || 0));
+  const fourWay: string[] = [];
+  for (let x = -1; x <= 1; x++) {
+    for (let y = -1; y <= 1; y++) {
+      if (x === 0 && y === 0) continue;
+      fourWay.push(`${x * width}px ${y * width}px 0 ${color}`);
+    }
+  }
+  if (cfg.type === 'neon') {
+    const b = Math.max(1, blur || width * 2);
+    const stroke = `${Math.max(1, Math.round(width * 0.5)) * 1}px 0 0 ${color}`;
+    const strokes: string[] = [];
+    const halfW = Math.max(1, Math.round(width * 0.5));
+    for (let x = -1; x <= 1; x++) {
+      for (let y = -1; y <= 1; y++) {
+        if (x === 0 && y === 0) continue;
+        strokes.push(`${x * halfW}px ${y * halfW}px 0 ${color}`);
+      }
+    }
+    const glow = [
+      `0 0 ${Math.round(b * 0.5)}px ${color}`,
+      `0 0 ${b}px ${color}`,
+      `0 0 ${Math.round(b * 1.8)}px ${color}`,
+    ].join(', ');
+    return [strokes.join(', '), glow].join(', ');
+  }
+  return fourWay.join(', ');
+}
