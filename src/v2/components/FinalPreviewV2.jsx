@@ -235,16 +235,25 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     }
   }, [previewPlaylist])
 
-  const activeOverlayText = useMemo(() => {
+  // Returns the active slot's plain text AND its rich runs (when set)
+  // so OverlayText can render either form. Runs win when present;
+  // text is the legacy / flattened fallback.
+  const activeOverlay = useMemo(() => {
     if (!overlays) return null
     const t = currentTime
     const openDur   = Number(overlays.openingDuration)   || 0
     const midStart  = Number(overlays.middleStartTime)   || 0
     const midDur    = Number(overlays.middleDuration)    || 0
     const closeDur  = Number(overlays.closingDuration)   || 0
-    if (overlays.openingText && t < openDur) return overlays.openingText
-    if (overlays.middleText && t >= midStart && t < midStart + midDur) return overlays.middleText
-    if (overlays.closingText && duration > 0 && t >= duration - closeDur) return overlays.closingText
+    if ((overlays.openingText || overlays.openingRuns?.length) && t < openDur) {
+      return { text: overlays.openingText, runs: overlays.openingRuns || null }
+    }
+    if ((overlays.middleText || overlays.middleRuns?.length) && t >= midStart && t < midStart + midDur) {
+      return { text: overlays.middleText, runs: overlays.middleRuns || null }
+    }
+    if ((overlays.closingText || overlays.closingRuns?.length) && duration > 0 && t >= duration - closeDur) {
+      return { text: overlays.closingText, runs: overlays.closingRuns || null }
+    }
     return null
   }, [overlays, currentTime, duration])
 
@@ -333,8 +342,8 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
               Preview · {(playlistIdxRef.current + 1)}/{previewPlaylist.length}
             </div>
           )}
-          {activeOverlayText && (
-            <OverlayText text={activeOverlayText} style={overlays} videoRef={videoRef} />
+          {activeOverlay && (
+            <OverlayText text={activeOverlay.text} runs={activeOverlay.runs} style={overlays} videoRef={videoRef} />
           )}
           {activeCaptionText && !teleprompter && (
             <CaptionText text={activeCaptionText} />
@@ -555,7 +564,7 @@ function TeleprompterText({ text }) {
   )
 }
 
-function OverlayText({ text, style, videoRef }) {
+function OverlayText({ text, runs, style, videoRef }) {
   // Scale font/outline by the video's ACTUAL displayed rectangle (after
   // object-contain letterboxing) so the preview text size matches what
   // ffmpeg will burn into the 1080-wide output frame. Measuring the
@@ -653,6 +662,52 @@ function OverlayText({ text, style, videoRef }) {
   const maxY = Math.max(0, 100 - textBlockPct)
   const topPct = maxY * (pct / 100)
 
+  // Render rich runs when supplied — each run becomes a styled span,
+  // newlineAfter inserts a hard <br />. Run-level fields override the
+  // overlay-level defaults; unset fields inherit. The outer block
+  // owns the text-shadow / outline so the outline reads consistently
+  // across runs of mixed colors. effectiveScale is shared so
+  // per-run sizes scale the same way the overlay-level size does.
+  const renderRichRuns = (runs) => {
+    const elems = []
+    runs.forEach((r, idx) => {
+      const runColor = r.color ?? color
+      const runFamily = r.fontFamily ?? family
+      const runSize = (Number(r.fontSize) > 0 ? Number(r.fontSize) : rawFont) * effectiveScale
+      elems.push(
+        <span
+          key={`r${idx}`}
+          style={{
+            color: runColor,
+            fontFamily: runFamily,
+            fontSize: `${Math.max(8, runSize)}px`,
+            fontWeight: r.bold ? 800 : 700,
+            fontStyle: r.italic ? 'italic' : 'normal',
+            // Inline-block so per-run size doesn't collapse the line
+            // height of the surrounding flow.
+            display: 'inline-block',
+            verticalAlign: 'baseline',
+          }}
+        >{r.text}</span>
+      )
+      if (r.newlineAfter && idx < runs.length - 1) {
+        elems.push(<br key={`br${idx}`} />)
+      } else if (idx < runs.length - 1) {
+        // Visible inter-run space — same trick the captions engine uses
+        // because adjacent inline-block spans collapse whitespace text
+        // nodes in headless Chrome.
+        elems.push(
+          <span
+            key={`sp${idx}`}
+            aria-hidden="true"
+            style={{ display: 'inline-block', width: '0.4em' }}
+          >&nbsp;</span>
+        )
+      }
+    })
+    return elems
+  }
+
   return (
     <div
       ref={wrapRef}
@@ -670,9 +725,10 @@ function OverlayText({ text, style, videoRef }) {
           letterSpacing: letterSpacingEm ? `${letterSpacingEm}em` : 'normal',
           maxWidth: '95%',
           whiteSpace: 'pre-wrap',
+          overflowWrap: 'break-word',
         }}
       >
-        {text}
+        {Array.isArray(runs) && runs.length > 0 ? renderRichRuns(runs) : text}
       </div>
     </div>
   )

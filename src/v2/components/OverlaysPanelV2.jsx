@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
+import RichRunsEditor, { runsToFlatText } from './RichRunsEditor'
 
 // Lazy-load the font picker chunk so the 52-font catalog isn't pulled
 // on initial panel mount — only when the user actually opens the
@@ -23,6 +24,14 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [openingText, setOpeningText] = useState('')
   const [middleText, setMiddleText] = useState('')
   const [closingText, setClosingText] = useState('')
+  // Rich runs — per-word styling. When non-null, each slot's runs[]
+  // is the source of truth and the *Text field above is a flattened
+  // back-compat copy (so the legacy ffmpeg-drawtext export still
+  // produces something readable until the Remotion overlay path
+  // ships). null = plain text mode (legacy behavior).
+  const [openingRuns, setOpeningRuns] = useState(null)
+  const [middleRuns, setMiddleRuns] = useState(null)
+  const [closingRuns, setClosingRuns] = useState(null)
   const [openingDuration, setOpeningDuration] = useState(3)
   const [middleStartTime, setMiddleStartTime] = useState(4)
   const [middleDuration, setMiddleDuration] = useState(3)
@@ -51,6 +60,9 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.openingText) setOpeningText(o.openingText)
         if (o.middleText) setMiddleText(o.middleText)
         if (o.closingText) setClosingText(o.closingText)
+        if (Array.isArray(o.openingRuns) && o.openingRuns.length > 0) setOpeningRuns(o.openingRuns)
+        if (Array.isArray(o.middleRuns)  && o.middleRuns.length  > 0) setMiddleRuns(o.middleRuns)
+        if (Array.isArray(o.closingRuns) && o.closingRuns.length > 0) setClosingRuns(o.closingRuns)
         if (o.openingDuration) setOpeningDuration(o.openingDuration)
         if (o.middleStartTime != null) setMiddleStartTime(o.middleStartTime)
         if (o.middleDuration) setMiddleDuration(o.middleDuration)
@@ -71,8 +83,23 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   // Debounced save on any change — same pattern as legacy app.
   useEffect(() => {
     if (!loaded) return
+    // When rich runs are present, flatten into the legacy *Text field
+    // so the existing ffmpeg-drawtext export path still produces
+    // readable text on the mp4 (without the per-run styling — that
+    // arrives in the Remotion-overlay export refactor). When no
+    // runs are set, the user's plain text is the source of truth.
+    const flatOpening = openingRuns?.length ? runsToFlatText(openingRuns) : openingText
+    const flatMiddle  = middleRuns?.length  ? runsToFlatText(middleRuns)  : middleText
+    const flatClosing = closingRuns?.length ? runsToFlatText(closingRuns) : closingText
     const payload = {
-      openingText, middleText, closingText,
+      openingText: flatOpening,
+      middleText: flatMiddle,
+      closingText: flatClosing,
+      // null instead of [] so the back-compat read at line ~52 stays
+      // simple (truthy = present, falsy = plain text mode).
+      openingRuns: openingRuns?.length ? openingRuns : null,
+      middleRuns:  middleRuns?.length  ? middleRuns  : null,
+      closingRuns: closingRuns?.length ? closingRuns : null,
       openingDuration, middleStartTime, middleDuration, closingDuration,
       storyFontSize: Number(fontSize) || 48,
       storyFontFamily: fontFamily,
@@ -95,7 +122,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, loaded])
 
   // Scrub the shared FinalPreview <video> so the user can see their
   // overlays rendered in sync with the clip. No server re-render —
@@ -187,6 +214,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             placeholder="POV: your birthday just got a signature scent"
             rows={2}
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-none"
+            disabled={!!openingRuns?.length}
+            title={openingRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
+          />
+          <RichRunsEditor
+            runs={openingRuns}
+            onChange={setOpeningRuns}
+            defaults={{ color: fontColor, fontFamily, fontSize }}
           />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Duration:</label>
@@ -209,6 +243,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             placeholder="You made it together"
             rows={2}
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-none"
+            disabled={!!middleRuns?.length}
+            title={middleRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
+          />
+          <RichRunsEditor
+            runs={middleRuns}
+            onChange={setMiddleRuns}
+            defaults={{ color: fontColor, fontFamily, fontSize }}
           />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Start at:</label>
@@ -240,6 +281,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             placeholder="Only at Poppy & Thyme"
             rows={2}
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-none"
+            disabled={!!closingRuns?.length}
+            title={closingRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
+          />
+          <RichRunsEditor
+            runs={closingRuns}
+            onChange={setClosingRuns}
+            defaults={{ color: fontColor, fontFamily, fontSize }}
           />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Duration:</label>
