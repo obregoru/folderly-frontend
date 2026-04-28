@@ -6,10 +6,13 @@ const ALL_TOOLS = [
   { key: 'clips',     icon: '🎬', label: 'Media',    forModes: ['photo-post', 'video'] },
   { key: 'hints',     icon: '🎯', label: 'Hints',    forModes: ['photo-post', 'video'] },
   { key: 'producer',  icon: '🤖', label: 'Producer', forModes: ['photo-post', 'video'] },
-  { key: 'first2s',   icon: '🎯', label: 'First 2s', forModes: ['video'] },
   { key: 'captions',  icon: '✨', label: 'Content',  forModes: ['photo-post', 'video'], primary: true },
   { key: 'voiceover', icon: '🎤', label: 'Voice',    forModes: ['video'] },
   { key: 'overlays',  icon: '📝', label: 'Overlays', forModes: ['video'] },
+  // First 2s is an audit step — sits right before Channels so the
+  // user's flow is "build → audit → publish" rather than auditing in
+  // the middle of authoring.
+  { key: 'first2s',   icon: '🎯', label: 'First 2s', forModes: ['video'] },
   { key: 'channels',  icon: '📤', label: 'Channels', forModes: ['photo-post', 'video'] },
 ]
 
