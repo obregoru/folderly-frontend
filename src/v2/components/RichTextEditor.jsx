@@ -168,8 +168,11 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       setLoaded(true)
     })()
     return () => { cancelled = true }
+    // Mount-once effect — Quill is initialized on first render and
+    // reused across re-renders. The runs[] sync effect below handles
+    // external updates without recreating the editor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled])
+  }, [])
 
   // External runs[] change → push into Quill (e.g. another tab updated
   // the same overlay). Compare by serialized delta to avoid loops.
