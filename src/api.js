@@ -918,3 +918,19 @@ export const producerHistory = (jobUuid) =>
   fetch(api(`/jobs/${jobUuid}/producer/history`), { credentials: 'include' })
     .then(r => r.ok ? r.json() : { messages: [] })
     .catch(() => ({ messages: [] }))
+
+// Grade a hook / voiceover / caption. Returns structured scores +
+// strengths/weaknesses/AI-detection/viral-potential + concrete
+// rewrites. The FE renders the breakdown as cards.
+export const producerGrade = (jobUuid, { text, kind, target }) =>
+  fetch(api(`/jobs/${jobUuid}/producer/grade`), {
+    method: 'POST', headers: h(), credentials: 'include',
+    body: JSON.stringify({ text, kind, target }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `grade failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })

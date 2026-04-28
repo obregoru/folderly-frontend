@@ -297,6 +297,12 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
         )}
       </div>
 
+      {/* Grade content — score a hook / voiceover line / caption with
+          structured feedback (strengths, weaknesses, AI-detection
+          score à la ZeroGPT, viral potential, concrete rewrites).
+          Quick-pick from the current draft state OR paste any text. */}
+      <GradePanel draftId={draftId} />
+
       {/* Paste-from-external-AI flow. Collapsed by default — most
           users will type into the chat directly. The reveal toggle
           shows the textarea + Process action; the parsed fields
@@ -436,4 +442,210 @@ function formatStartTime(t) {
   const s = n - m * 60
   const dec = Math.abs(s - Math.floor(s)) > 0.05 ? s.toFixed(1).slice(1) : ''
   return `${m}:${String(Math.floor(s)).padStart(2, '0')}${dec}`
+}
+
+// Grade content card. Pulls candidate snippets (current opening
+// overlay, current primary VO line) from the live job state so the
+// user can grade with one click; also accepts an arbitrary paste so
+// they can score a hook before committing it. The result renders as
+// stacked sub-cards (overall + AI detection + viral potential +
+// strengths + weaknesses + concrete suggestions).
+function GradePanel({ draftId }) {
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const [kind, setKind] = useState('hook')
+  const [target, setTarget] = useState('tiktok')
+  const [grading, setGrading] = useState(false)
+  const [result, setResult] = useState(null)
+  const [err, setErr] = useState(null)
+
+  // Pull snippets from the live job whenever the panel opens so the
+  // quick-pick buttons reflect the user's current state. Re-fetches
+  // each open so a fresh save is reflected without a panel reload.
+  const [picks, setPicks] = useState({ opening: null, primary: null, closing: null })
+  useEffect(() => {
+    if (!open || !draftId) return
+    let cancelled = false
+    api.getJob(draftId).then(j => {
+      if (cancelled) return
+      const overlay = j?.overlay_settings || {}
+      const segs = Array.isArray(j?.voiceover_settings?.segments) ? j.voiceover_settings.segments : []
+      const primarySeg = segs.find(s => s?.id === '__primary__')
+      setPicks({
+        opening: (overlay.openingText || '').trim() || null,
+        primary: (primarySeg?.text || '').trim() || null,
+        closing: (overlay.closingText || '').trim() || null,
+      })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [open, draftId])
+
+  const grade = async (sourceText, sourceKind = kind) => {
+    const t = (sourceText ?? text).trim()
+    if (!t) { setErr('Pick or paste something to grade first.'); return }
+    setGrading(true); setErr(null); setResult(null)
+    try {
+      const r = await api.producerGrade(draftId, { text: t, kind: sourceKind, target })
+      setResult({ ...r, gradedText: t })
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setGrading(false)
+    }
+  }
+
+  return (
+    <div className="border border-[#f59e0b]/30 bg-[#fef3c7]/40 rounded p-2 space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 text-[10px] cursor-pointer bg-transparent border-none"
+      >
+        <span className="text-[12px]">🎯</span>
+        <span className="font-medium text-[#b45309] flex-1 text-left">Grade hook / VO / caption</span>
+        <span className="text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="space-y-1.5">
+          <div className="text-[9px] text-muted">
+            Honest score (0-10), AI-detection probability (ZeroGPT-style), viral potential, plus concrete rewrites. Pick from your current draft or paste any text.
+          </div>
+
+          {/* Target network + content kind selectors. Network changes
+              how viral signals are weighted (TikTok vs Reels vs
+              Shorts have different rhythms); kind tells the critic
+              what conventions to apply (hook vs VO line vs post
+              caption). */}
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <label className="text-muted">Kind</label>
+            <select value={kind} onChange={e => setKind(e.target.value)} className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white">
+              <option value="hook">Hook</option>
+              <option value="voiceover">Voiceover line</option>
+              <option value="caption">Post caption</option>
+            </select>
+            <label className="text-muted ml-1">Target</label>
+            <select value={target} onChange={e => setTarget(e.target.value)} className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white">
+              <option value="tiktok">TikTok</option>
+              <option value="reels">IG Reels</option>
+              <option value="shorts">YT Shorts</option>
+              <option value="generic">Generic</option>
+            </select>
+          </div>
+
+          {/* Quick-pick buttons — each grades a snippet from the
+              live draft state with one click. Disabled when the
+              snippet is empty so the user doesn't waste a token
+              call on nothing. */}
+          <div className="flex gap-1 flex-wrap">
+            <button
+              onClick={() => { if (picks.opening) { setText(picks.opening); grade(picks.opening, 'hook') } }}
+              disabled={grading || !picks.opening}
+              className="text-[10px] py-1 px-2 border border-[#6C5CE7]/50 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+              title={picks.opening ? `Grade as a hook: "${picks.opening.slice(0, 80)}"` : 'No opening overlay set'}
+            >Opening overlay</button>
+            <button
+              onClick={() => { if (picks.primary) { setText(picks.primary); grade(picks.primary, 'voiceover') } }}
+              disabled={grading || !picks.primary}
+              className="text-[10px] py-1 px-2 border border-[#6C5CE7]/50 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+              title={picks.primary ? `Grade primary VO: "${picks.primary.slice(0, 80)}"` : 'No primary voiceover'}
+            >Primary VO</button>
+            <button
+              onClick={() => { if (picks.closing) { setText(picks.closing); grade(picks.closing, 'caption') } }}
+              disabled={grading || !picks.closing}
+              className="text-[10px] py-1 px-2 border border-[#6C5CE7]/50 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+              title={picks.closing ? `Grade as caption: "${picks.closing.slice(0, 80)}"` : 'No closing overlay'}
+            >Closing</button>
+          </div>
+
+          {/* Custom text fallback — paste any candidate hook to grade
+              before committing. */}
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Or paste any text to grade…"
+            rows={2}
+            className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y"
+          />
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => grade()}
+              disabled={grading || !text.trim()}
+              className="flex-1 text-[10px] py-1.5 bg-[#f59e0b] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+            >{grading ? 'Grading…' : '🎯 Grade'}</button>
+            {result && (
+              <button
+                onClick={() => { setResult(null); setErr(null) }}
+                className="text-[10px] py-1.5 px-3 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+              >Clear</button>
+            )}
+          </div>
+          {err && <div className="text-[10px] text-[#c0392b]">{err}</div>}
+          {result && <GradeResult result={result} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GradeResult({ result }) {
+  const overall = Number(result.overall) || 0
+  const aiScore = Number(result?.aiDetection?.score) || 0
+  const viralScore = Number(result?.viralPotential?.score) || 0
+  // Color the overall score: red <4, amber 4-6, green ≥7.
+  const overallColor = overall >= 7 ? '#2D9A5E' : overall >= 4 ? '#d97706' : '#c0392b'
+  // Color AI detection: low = good (clearly human), high = bad.
+  const aiColor = aiScore < 25 ? '#2D9A5E' : aiScore < 60 ? '#d97706' : '#c0392b'
+  // Color viral: high = good.
+  const viralColor = viralScore >= 70 ? '#2D9A5E' : viralScore >= 40 ? '#d97706' : '#c0392b'
+
+  return (
+    <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-2 mt-1">
+      <div className="text-[10px] text-muted italic break-words">"{result.gradedText?.slice(0, 200)}{result.gradedText?.length > 200 ? '…' : ''}"</div>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        <ScoreCard label="Overall" value={overall} suffix="/10" color={overallColor} />
+        <ScoreCard label="AI detection" value={aiScore} suffix="%" color={aiColor} subLabel={result?.aiDetection?.label} />
+        <ScoreCard label="Viral" value={viralScore} suffix="%" color={viralColor} subLabel={result?.viralPotential?.label} />
+      </div>
+
+      {Array.isArray(result.strengths) && result.strengths.length > 0 && (
+        <Section title="✅ Strengths" items={result.strengths} accent="#2D9A5E" />
+      )}
+      {Array.isArray(result.weaknesses) && result.weaknesses.length > 0 && (
+        <Section title="⚠️ Weaknesses" items={result.weaknesses} accent="#c0392b" />
+      )}
+      {Array.isArray(result?.aiDetection?.reasons) && result.aiDetection.reasons.length > 0 && (
+        <Section title="🤖 AI tells" items={result.aiDetection.reasons} accent="#6C5CE7" />
+      )}
+      {Array.isArray(result?.viralPotential?.reasons) && result.viralPotential.reasons.length > 0 && (
+        <Section title="📈 Viral signals" items={result.viralPotential.reasons} accent="#d97706" />
+      )}
+      {Array.isArray(result.suggestions) && result.suggestions.length > 0 && (
+        <Section title="✏️ Suggested rewrites" items={result.suggestions} accent="#6C5CE7" />
+      )}
+    </div>
+  )
+}
+
+function ScoreCard({ label, value, suffix, color, subLabel }) {
+  return (
+    <div className="border rounded p-1.5 text-center" style={{ borderColor: color + '66', background: color + '0d' }}>
+      <div className="text-[8px] uppercase tracking-wide text-muted">{label}</div>
+      <div className="font-mono font-medium leading-none mt-0.5" style={{ color, fontSize: 18 }}>
+        {Math.round(value)}<span className="text-[9px]">{suffix}</span>
+      </div>
+      {subLabel && <div className="text-[9px] mt-0.5" style={{ color }}>{subLabel}</div>}
+    </div>
+  )
+}
+
+function Section({ title, items, accent }) {
+  return (
+    <div>
+      <div className="text-[10px] font-medium mb-0.5" style={{ color: accent }}>{title}</div>
+      <ul className="text-[10px] space-y-0.5 list-disc pl-4">
+        {items.map((it, i) => <li key={i}>{it}</li>)}
+      </ul>
+    </div>
+  )
 }
