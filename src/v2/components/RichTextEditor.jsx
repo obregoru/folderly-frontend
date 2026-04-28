@@ -111,30 +111,29 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
             `.ql-snow .ql-picker.ql-size .ql-picker-label[data-value="${n}px"]::before, ` +
             `.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="${n}px"]::before { content: "${n}"; }`
           )),
-          // WYSIWYG scaling. The editor's --posty-rte-scale CSS
-          // variable is set per-instance from the VIDEO PREVIEW'S
-          // measured width / 1080 (the same math the video renderer
-          // applies). Each whitelist size class renders as
+          // WYSIWYG scaling. Each whitelist size class renders as
           //     font-size: calc(Npx * var(--posty-rte-scale))
-          // so what the user sees in the editor matches the relative
-          // size in a 1080-wide export.
+          // so editor text approximates the rendered size at video
+          // scale. The --posty-rte-scale variable is set per-instance
+          // from the VIDEO PREVIEW'S measured width / 1080.
+          //
+          // We DELIBERATELY don't constrain editor width or apply
+          // text-align tricks here — earlier attempts at "match the
+          // video frame width" produced strange typing behavior
+          // (cursor jumps, centered overflow) because Quill expects
+          // its container to flow naturally LTR. The font-size
+          // scaling alone is enough to give users a sense of the
+          // rendered size; pixel-perfect frame matching can come back
+          // as a separate <SamplePreview> beneath the editor in a
+          // future iteration without touching the typing surface.
           ...[24,32,40,48,56,64,72,80,96,120,144,180].map(n => (
             `.ql-editor .ql-size-${n}px { ` +
-              `font-size: calc(${n}px * var(--posty-rte-scale, 0.26)) !important; ` +
+              `font-size: calc(${n}px * var(--posty-rte-scale, 0.3)) !important; ` +
             `}`
           )),
           // Default editor text (no explicit size class) renders at
           // the overlay-level default font size, scaled the same way.
-          // --posty-rte-base-size holds the panel's default in 1080-ref
-          // px; combined with the scale, this gives the correct
-          // unstyled-text appearance.
-          '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.26)) !important; }',
-          // Constrain the editor's content area to roughly match the
-          // video preview's width — keeps the text-to-frame ratio the
-          // same so the user's mental model of "this is what'll fit
-          // in the frame" holds. Without this, the editor's wider
-          // panel makes equally-scaled text feel disproportionate.
-          '.ql-editor { max-width: var(--posty-rte-frame-width, 280px); margin-left: auto; margin-right: auto; }',
+          '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)) !important; }',
         ].join('\n')
         document.head.appendChild(style)
       }
@@ -204,12 +203,6 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
           // don't produce illegible or inappropriately huge text.
           const s = Math.max(0.15, Math.min(0.8, w / 1080))
           hostRef.current.style.setProperty('--posty-rte-scale', String(s))
-          // Also constrain editor max-width to the video's width so
-          // the text-to-frame proportion in the editor matches the
-          // export. Without this, the editor's wider panel hosts
-          // equally-scaled text inside a bigger box, making it feel
-          // larger than its rendered counterpart.
-          hostRef.current.style.setProperty('--posty-rte-frame-width', `${Math.round(w)}px`)
         }
       }
       updateScale()
