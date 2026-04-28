@@ -5,7 +5,9 @@
 //
 // Frame thumbnails ride along in the response so users can see
 // exactly what the AI was looking at — trust comes from showing the
-// work, not just the verdict.
+// work, not just the verdict. Frames are persisted in
+// ai_interactions.metadata so a panel reload restores the same
+// thumbnails (no need to re-run Claude just to see what was scored).
 
 import { useEffect, useState } from 'react'
 import * as api from '../../api'
@@ -38,10 +40,12 @@ export default function First2sPanel({ draftId }) {
     clarityTimeline: true,
   })
 
-  // Hydrate the most recent saved analysis on draft change. Frames
-  // aren't restored (too big to persist in ai_log); the score, sub-
-  // scores, platforms, suggestions, etc. all come back. User clicks
-  // "Re-run" to get fresh frames + fresh scores against latest state.
+  // Hydrate the most recent saved analysis on draft change. The
+  // backend now persists frame thumbnails alongside the score in
+  // ai_interactions.metadata, so a reloaded panel shows the same
+  // sampled frames + detection boxes the original run displayed —
+  // not just the verdict. Re-running is only needed when the user
+  // has edited the video and wants a fresh score.
   useEffect(() => {
     if (!draftId) return
     let cancelled = false
@@ -121,7 +125,7 @@ export default function First2sPanel({ draftId }) {
       {hydratedFromDisk && analyzedAt && (
         <div className="text-[10px] text-muted bg-[#fafafa] border border-[#e5e5e5] rounded px-2 py-1">
           Showing your last analysis from <span className="font-mono">{new Date(analyzedAt).toLocaleString()}</span>.
-          Frame thumbnails aren't saved with the result — re-analyze to see them again, or to refresh the score after editing.
+          Re-analyze if you've edited the video and want a fresh score.
         </div>
       )}
 

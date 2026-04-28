@@ -27,14 +27,28 @@ import { useEffect, useRef, useState } from 'react'
 // preview / export math doesn't change.
 const SIZE_OPTIONS = [24, 32, 40, 48, 56, 64, 72, 80, 96, 120, 144, 180]
 
-// Shared font catalog. Should match the FontPicker's list so users
-// see the same families in both places. Hard-coded here to avoid
-// importing the catalog (which would un-lazy this chunk).
+// Quill picker list — leaned heavy on playful / display / handwriting
+// because most overlay text is hook copy where personality wins over
+// neutral readability. Plain workhorses kept to a tight five so they
+// don't crowd out the fun stuff. Every family here is also in
+// src/lib/fonts/catalog.js, which is what the Remotion renderer
+// actually loads — drift between this list and that one means the
+// editor would let users pick a font the export can't render.
+//
+// Hard-coded (not imported) on purpose: importing the catalog module
+// pulls extra deps and prevents this RichTextEditor chunk from staying
+// lazy.
 const FONT_OPTIONS = [
-  'Inter', 'Bebas Neue', 'Anton', 'Oswald', 'Montserrat', 'Poppins',
-  'Roboto', 'Open Sans', 'Lato', 'Playfair Display', 'Lora', 'Merriweather',
-  'Pacifico', 'Caveat', 'Permanent Marker', 'Shadows Into Light',
-  'Fredoka', 'Quicksand', 'Comfortaa', 'Righteous', 'Bangers',
+  // Plain workhorses — minimal, just enough for "neutral" copy.
+  'Inter', 'Montserrat', 'DM Sans',
+  'Playfair Display', 'DM Serif Display',
+  // Display — chunky, condensed, attention-grabbing.
+  'Bebas Neue', 'Anton', 'Bangers', 'Bungee', 'Righteous',
+  'Fredoka', 'Lilita One', 'Paytone One', 'Shrikhand',
+  'Black Ops One', 'Alfa Slab One', 'Russo One', 'Ultra',
+  // Handwriting / script — playful, casual, signature.
+  'Lobster', 'Pacifico', 'Dancing Script', 'Caveat',
+  'Permanent Marker', 'Kaushan Script', 'Great Vibes', 'Satisfy',
 ]
 
 // Quill's color picker swatches. Hand-picked for brand-safe variety.
@@ -92,6 +106,26 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
         return
       }
 
+      // Inject Google Fonts <link> tags for every option so the
+      // picker dropdown can render each label in its own face. The
+      // CSS rules below set font-family on each entry, but if the
+      // page hasn't actually loaded the family the browser falls
+      // back to system-ui — making every option look identical.
+      // Browser caches each woff2, so users only download a given
+      // family once across the session.
+      for (const family of FONT_OPTIONS) {
+        const id = `posty-rte-font-${family.replace(/\s+/g, '-')}`
+        if (document.getElementById(id)) continue
+        const link = document.createElement('link')
+        link.id = id
+        link.rel = 'stylesheet'
+        // 400 + 700 covers regular + bold (the only weights the
+        // toolbar's bold button toggles); display=swap so a slow
+        // font load doesn't block the picker rendering.
+        link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@400;700&display=swap`
+        document.head.appendChild(link)
+      }
+
       // One-time stylesheet injection. Three purposes:
       //   1. Hide the default-no-value picker options ("Normal" /
       //      "Sans Serif") that Quill prepends to whitelisted
@@ -124,9 +158,9 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
           '.ql-snow .ql-picker.ql-font { width: 130px; }',
           '.ql-snow .ql-picker.ql-size { width: 70px; }',
           // Render each font option in its own face so users can
-          // see what they're picking. Hand-listed because Quill
-          // doesn't emit data-value for font-family directly.',
-          ...['Inter','Bebas Neue','Anton','Oswald','Montserrat','Poppins','Roboto','Open Sans','Lato','Playfair Display','Lora','Merriweather','Pacifico','Caveat','Permanent Marker','Shadows Into Light','Fredoka','Quicksand','Comfortaa','Righteous','Bangers'].map(f => (
+          // see what they're picking. Drives off FONT_OPTIONS so the
+          // labels can never drift from the toolbar whitelist.
+          ...FONT_OPTIONS.map(f => (
             `.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="${f}"]::before, ` +
             `.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="${f}"]::before { content: "${f}"; font-family: '${f}', system-ui, sans-serif; }`
           )),
