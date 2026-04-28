@@ -49,7 +49,7 @@ const COLOR_PALETTE = [
 export default function RichTextEditor({ runs, onChange, defaults, placeholder }) {
   const hostRef = useRef(null)
   const quillRef = useRef(null)
-  const lastDeltaRef = useRef(null)
+  const resizeObsRef = useRef(null)
   const [loaded, setLoaded] = useState(false)
 
   const D = defaults || { color: '#ffffff', fontFamily: 'Inter', fontSize: 60 }
@@ -68,14 +68,19 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       if (cancelled) return
       const Quill = QuillMod.default || QuillMod
 
-      // One-time stylesheet injection. Two purposes:
+      // One-time stylesheet injection. Three purposes:
       //   1. Hide the default-no-value picker options ("Normal" /
       //      "Sans Serif") that Quill prepends to whitelisted
       //      dropdowns — users saw them as duplicates of the
       //      explicit whitelist entries below.
-      //   2. Make picker labels human-readable ("Inter" instead of
-      //      "Inter" with weird default-fallback styling) and the
-      //      whole toolbar align with the rest of the panel.
+      //   2. Make picker labels human-readable + render each font
+      //      option in its own face so users see what they're picking.
+      //   3. Scale every font-size class IN THE EDITOR by the editor's
+      //      width / 1080. The rendered video applies the same math
+      //      (size in 1080-ref px × frame_width / 1080), so without
+      //      this the editor displays "24px" literally while the
+      //      video shows it as ~6px on a 280-px-wide preview.
+      //      WYSIWYG means the editor preview must match the export.
       if (!document.getElementById('posty-quill-overrides')) {
         const style = document.createElement('style')
         style.id = 'posty-quill-overrides'
@@ -101,11 +106,30 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
             `.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="${f}"]::before, ` +
             `.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="${f}"]::before { content: "${f}"; font-family: '${f}', system-ui, sans-serif; }`
           )),
-          // Each size option labelled as "Npx" rather than "Default".
+          // Picker option labels show the bare number ("24") not "24px".
           ...[24,32,40,48,56,64,72,80,96,120,144,180].map(n => (
             `.ql-snow .ql-picker.ql-size .ql-picker-label[data-value="${n}px"]::before, ` +
             `.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="${n}px"]::before { content: "${n}"; }`
           )),
+          // WYSIWYG scaling. The editor's --posty-rte-scale CSS
+          // variable is set per-instance from the editor's measured
+          // width / 1080. Each whitelist size renders as
+          //     font-size: calc(Npx * var(--posty-rte-scale))
+          // so what the user sees in the editor matches the relative
+          // size that'll render in a 1080-wide export. !important is
+          // needed because Quill writes inline styles which would
+          // otherwise win cascade.
+          ...[24,32,40,48,56,64,72,80,96,120,144,180].map(n => (
+            `.ql-editor [style*="font-size: ${n}px"] { ` +
+              `font-size: calc(${n}px * var(--posty-rte-scale, 0.3)) !important; ` +
+            `}`
+          )),
+          // Default editor text (no explicit size) renders at the
+          // overlay-level default font size, also scaled. The
+          // --posty-rte-base-size variable holds the overlay's
+          // default size in 1080-ref px; combined with the scale,
+          // it gives us the correct visual default.
+          '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)); }',
         ].join('\n')
         document.head.appendChild(style)
       }
@@ -146,6 +170,26 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       // looked like duplicates of our whitelist values to users.
       // The `clean` button on the toolbar is the explicit reset path.
 
+      // WYSIWYG scale: the rendered video shrinks every fontSize
+      // by frame_width / 1080. Match that here so what the user
+      // sees in the editor matches the export. Re-measure on
+      // resize because the panel width changes with window resize.
+      const editorEl = hostRef.current.querySelector('.ql-editor')
+      const updateScale = () => {
+        const w = editorEl?.clientWidth || hostRef.current?.clientWidth || 280
+        if (w > 0 && hostRef.current) {
+          // Clamp to [0.15, 0.8] so unusually narrow / wide panels
+          // don't produce illegible or inappropriately huge text.
+          const s = Math.max(0.15, Math.min(0.8, w / 1080))
+          hostRef.current.style.setProperty('--posty-rte-scale', String(s))
+        }
+      }
+      updateScale()
+      if (typeof ResizeObserver !== 'undefined' && hostRef.current) {
+        resizeObsRef.current = new ResizeObserver(updateScale)
+        resizeObsRef.current.observe(hostRef.current)
+      }
+
       // Hydrate from existing runs[] if any.
       if (Array.isArray(runs) && runs.length > 0) {
         const delta = runsToDelta(runs, D)
@@ -164,7 +208,6 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
         // button.
         onChange(next.length > 0 ? next : null)
       })
-      lastDeltaRef.current = q.getContents()
       setLoaded(true)
     })()
     return () => { cancelled = true }
@@ -188,9 +231,27 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runs])
 
-  // Tear down Quill on unmount so its global event listeners /
-  // observers don't leak across panel switches.
+  // Update the editor's base-size CSS variable whenever the
+  // overlay-level default font size changes. This is what unstyled
+  // editor text (text with no explicit size from the size dropdown)
+  // renders at — combined with --posty-rte-scale, the visible size
+  // matches the rendered video. Variable is read by the .ql-editor
+  // font-size rule in the injected stylesheet above.
+  useEffect(() => {
+    if (!hostRef.current) return
+    hostRef.current.style.setProperty(
+      '--posty-rte-base-size',
+      `${Number(defaults?.fontSize) > 0 ? defaults.fontSize : 60}px`
+    )
+  }, [defaults?.fontSize])
+
+  // Tear down Quill + the ResizeObserver on unmount so they don't
+  // leak listeners across panel switches.
   useEffect(() => () => {
+    if (resizeObsRef.current) {
+      try { resizeObsRef.current.disconnect() } catch {}
+      resizeObsRef.current = null
+    }
     if (quillRef.current) {
       try { quillRef.current.disable?.() } catch {}
       quillRef.current = null
