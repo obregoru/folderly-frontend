@@ -61,9 +61,16 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.openingText) setOpeningText(o.openingText)
         if (o.middleText) setMiddleText(o.middleText)
         if (o.closingText) setClosingText(o.closingText)
+        // Hydrate runs from saved data; if a draft has only the
+        // legacy openingText (no openingRuns yet), wrap it in a
+        // single-run array so Quill shows the existing text and
+        // any subsequent edit upgrades the storage to runs[].
         if (Array.isArray(o.openingRuns) && o.openingRuns.length > 0) setOpeningRuns(o.openingRuns)
-        if (Array.isArray(o.middleRuns)  && o.middleRuns.length  > 0) setMiddleRuns(o.middleRuns)
+        else if (o.openingText) setOpeningRuns([{ text: o.openingText }])
+        if (Array.isArray(o.middleRuns) && o.middleRuns.length > 0) setMiddleRuns(o.middleRuns)
+        else if (o.middleText) setMiddleRuns([{ text: o.middleText }])
         if (Array.isArray(o.closingRuns) && o.closingRuns.length > 0) setClosingRuns(o.closingRuns)
+        else if (o.closingText) setClosingRuns([{ text: o.closingText }])
         if (o.openingDuration) setOpeningDuration(o.openingDuration)
         if (o.middleStartTime != null) setMiddleStartTime(o.middleStartTime)
         if (o.middleDuration) setMiddleDuration(o.middleDuration)
@@ -81,17 +88,39 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     })
   }, [draftId])
 
+  // Keep the *Text fields in sync with the runs[] arrays so the
+  // legacy ffmpeg-drawtext export path + the play-segment buttons
+  // (which gate on text presence) always have something to read.
+  // Quill is the only editor now, but openingText/middleText/closingText
+  // remain the persisted "flat fallback" and the source-of-truth for
+  // disabled-state checks.
+  useEffect(() => {
+    if (!loaded) return
+    const t = openingRuns?.length ? runsToFlatText(openingRuns) : ''
+    if (t !== openingText) setOpeningText(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openingRuns, loaded])
+  useEffect(() => {
+    if (!loaded) return
+    const t = middleRuns?.length ? runsToFlatText(middleRuns) : ''
+    if (t !== middleText) setMiddleText(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [middleRuns, loaded])
+  useEffect(() => {
+    if (!loaded) return
+    const t = closingRuns?.length ? runsToFlatText(closingRuns) : ''
+    if (t !== closingText) setClosingText(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closingRuns, loaded])
+
   // Debounced save on any change — same pattern as legacy app.
   useEffect(() => {
     if (!loaded) return
-    // When rich runs are present, flatten into the legacy *Text field
-    // so the existing ffmpeg-drawtext export path still produces
-    // readable text on the mp4 (without the per-run styling — that
-    // arrives in the Remotion-overlay export refactor). When no
-    // runs are set, the user's plain text is the source of truth.
-    const flatOpening = openingRuns?.length ? runsToFlatText(openingRuns) : openingText
-    const flatMiddle  = middleRuns?.length  ? runsToFlatText(middleRuns)  : middleText
-    const flatClosing = closingRuns?.length ? runsToFlatText(closingRuns) : closingText
+    // openingText / middleText / closingText are now flat-fallback
+    // copies kept in sync via the effects above. Use them directly.
+    const flatOpening = openingText
+    const flatMiddle = middleText
+    const flatClosing = closingText
     const payload = {
       openingText: flatOpening,
       middleText: flatMiddle,
@@ -206,106 +235,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        <div>
-          <label className="text-[10px] text-muted">Opening (first 0-2s)</label>
-          <textarea
-            value={openingText}
-            onChange={e => setOpeningText(e.target.value)}
-            placeholder="POV: your birthday just got a signature scent"
-            rows={2}
-            className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-none"
-            disabled={!!openingRuns?.length}
-            title={openingRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
-          />
-          <RichTextEditor
-            runs={openingRuns}
-            onChange={setOpeningRuns}
-            defaults={{ color: fontColor, fontFamily, fontSize }}
-          />
-          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-            <label>Duration:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={openingDuration}
-              onChange={e => setOpeningDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
-            <span>s</span>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-[10px] text-muted">Middle (optional)</label>
-          <textarea
-            value={middleText}
-            onChange={e => setMiddleText(e.target.value)}
-            placeholder="You made it together"
-            rows={2}
-            className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-none"
-            disabled={!!middleRuns?.length}
-            title={middleRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
-          />
-          <RichTextEditor
-            runs={middleRuns}
-            onChange={setMiddleRuns}
-            defaults={{ color: fontColor, fontFamily, fontSize }}
-          />
-          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-            <label>Start at:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={middleStartTime}
-              onChange={e => setMiddleStartTime(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
-            <span>s · </span>
-            <label>Duration:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={middleDuration}
-              onChange={e => setMiddleDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
-            <span>s</span>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-[10px] text-muted">Closing (last 1-2s)</label>
-          <textarea
-            value={closingText}
-            onChange={e => setClosingText(e.target.value)}
-            placeholder="Only at Poppy & Thyme"
-            rows={2}
-            className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-none"
-            disabled={!!closingRuns?.length}
-            title={closingRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
-          />
-          <RichTextEditor
-            runs={closingRuns}
-            onChange={setClosingRuns}
-            defaults={{ color: fontColor, fontFamily, fontSize }}
-          />
-          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-            <label>Duration:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={closingDuration}
-              onChange={e => setClosingDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
-            <span>s</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t border-[#e5e5e5] pt-2 space-y-2">
-        <div className="text-[11px] font-medium">Style</div>
+      {/* Style block intentionally first — it sets the defaults
+          (font / color / size / outline / vertical position) that
+          every overlay slot inherits. Overlay-specific Quill rich-
+          text overrides only kick in when the user explicitly
+          styles a selection. */}
+      <div className="border border-[#e5e5e5] rounded p-2 space-y-2 bg-[#fafafa]">
+        <div className="text-[11px] font-medium">Default style (applies to all overlays)</div>
         <div className="flex items-center gap-2 text-[10px] flex-wrap">
           <label>Font:</label>
           <button
@@ -365,11 +301,6 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           </Suspense>
         )}
 
-        {/* Caption preset picker — applies only the overlay-compatible
-            fields from a preset (font + color + outline). Word-timing
-            effects, reveals, entry animations, text fills, and
-            backdrop-filter backgrounds don't apply to static FFmpeg
-            drawtext overlays and are silently ignored. */}
         <OverlayPresetFold
           onApply={(preset) => {
             const c = preset.config || {}
@@ -380,9 +311,6 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               if (Number(c.active_word_outline_config.width) > 0) {
                 setOutlineWidth(Math.round(c.active_word_outline_config.width))
               }
-            } else if (c.active_word_outline_config === null || c.active_word_outline_config === undefined) {
-              // Leave existing outline choice alone when preset doesn't
-              // specify one — user may have set it explicitly.
             }
           }}
         />
@@ -420,7 +348,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           </label>
         </div>
 
-        <div className="bg-[#f8f7f3] border border-[#e5e5e5] rounded p-2 space-y-1">
+        <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
           <label className="text-[10px] font-medium flex items-center gap-2">
             <span>↕ Vertical position</span>
             <span className="font-mono text-[#6C5CE7] ml-auto">{overlayYPct}%</span>
@@ -439,6 +367,80 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             <span>top</span>
             <span className="opacity-60">clears TikTok/IG UI chrome</span>
             <span>bottom</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div>
+          <label className="text-[10px] text-muted">Opening (first 0-2s)</label>
+          <RichTextEditor
+            runs={openingRuns}
+            onChange={setOpeningRuns}
+            defaults={{ color: fontColor, fontFamily, fontSize }}
+            placeholder="POV: your birthday just got a signature scent"
+          />
+          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
+            <label>Duration:</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={openingDuration}
+              onChange={e => setOpeningDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            />
+            <span>s</span>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[10px] text-muted">Middle (optional)</label>
+          <RichTextEditor
+            runs={middleRuns}
+            onChange={setMiddleRuns}
+            defaults={{ color: fontColor, fontFamily, fontSize }}
+            placeholder="You made it together"
+          />
+          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
+            <label>Start at:</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={middleStartTime}
+              onChange={e => setMiddleStartTime(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            />
+            <span>s · </span>
+            <label>Duration:</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={middleDuration}
+              onChange={e => setMiddleDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            />
+            <span>s</span>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[10px] text-muted">Closing (last 1-2s)</label>
+          <RichTextEditor
+            runs={closingRuns}
+            onChange={setClosingRuns}
+            defaults={{ color: fontColor, fontFamily, fontSize }}
+            placeholder="Only at Poppy & Thyme"
+          />
+          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
+            <label>Duration:</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={closingDuration}
+              onChange={e => setClosingDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            />
+            <span>s</span>
           </div>
         </div>
       </div>

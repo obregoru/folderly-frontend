@@ -46,19 +46,19 @@ const COLOR_PALETTE = [
   '#ec4899', '#f43f5e',
 ]
 
-export default function RichTextEditor({ runs, onChange, defaults }) {
+export default function RichTextEditor({ runs, onChange, defaults, placeholder }) {
   const hostRef = useRef(null)
   const quillRef = useRef(null)
   const lastDeltaRef = useRef(null)
   const [loaded, setLoaded] = useState(false)
-  const [enabled, setEnabled] = useState(Array.isArray(runs) && runs.length > 0)
 
   const D = defaults || { color: '#ffffff', fontFamily: 'Inter', fontSize: 60 }
 
-  // Lazy-load Quill + its CSS the first time the editor is enabled.
-  // Runs once per page session so subsequent opens are instant.
+  // Lazy-load Quill + its CSS the first time this editor mounts.
+  // Runs once per panel mount; subsequent re-renders reuse the
+  // existing Quill instance.
   useEffect(() => {
-    if (!enabled || quillRef.current) return
+    if (quillRef.current) return
     let cancelled = false
     ;(async () => {
       const QuillMod = await import('quill')
@@ -67,6 +67,48 @@ export default function RichTextEditor({ runs, onChange, defaults }) {
       await import('quill/dist/quill.snow.css')
       if (cancelled) return
       const Quill = QuillMod.default || QuillMod
+
+      // One-time stylesheet injection. Two purposes:
+      //   1. Hide the default-no-value picker options ("Normal" /
+      //      "Sans Serif") that Quill prepends to whitelisted
+      //      dropdowns — users saw them as duplicates of the
+      //      explicit whitelist entries below.
+      //   2. Make picker labels human-readable ("Inter" instead of
+      //      "Inter" with weird default-fallback styling) and the
+      //      whole toolbar align with the rest of the panel.
+      if (!document.getElementById('posty-quill-overrides')) {
+        const style = document.createElement('style')
+        style.id = 'posty-quill-overrides'
+        style.textContent = [
+          // Hide picker entries with no data-value attribute (the
+          // "default" pseudo-options that match Quill's empty-state).
+          '.ql-snow .ql-picker.ql-size .ql-picker-item:not([data-value]),',
+          '.ql-snow .ql-picker.ql-font .ql-picker-item:not([data-value]) { display: none; }',
+          // When toolbar shows the default state in its label spot,
+          // give it readable text instead of an empty string.
+          '.ql-snow .ql-picker.ql-size .ql-picker-label:not([data-value])::before,',
+          '.ql-snow .ql-picker.ql-size .ql-picker-label[data-value=""]::before { content: "Size"; }',
+          '.ql-snow .ql-picker.ql-font .ql-picker-label:not([data-value])::before,',
+          '.ql-snow .ql-picker.ql-font .ql-picker-label[data-value=""]::before { content: "Font"; }',
+          // Make the picker dropdowns roomier — the default size of
+          // ~80px chops long font names like "Playfair Display".
+          '.ql-snow .ql-picker.ql-font { width: 130px; }',
+          '.ql-snow .ql-picker.ql-size { width: 70px; }',
+          // Render each font option in its own face so users can
+          // see what they're picking. Hand-listed because Quill
+          // doesn't emit data-value for font-family directly.',
+          ...['Inter','Bebas Neue','Anton','Oswald','Montserrat','Poppins','Roboto','Open Sans','Lato','Playfair Display','Lora','Merriweather','Pacifico','Caveat','Permanent Marker','Shadows Into Light','Fredoka','Quicksand','Comfortaa','Righteous','Bangers'].map(f => (
+            `.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="${f}"]::before, ` +
+            `.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="${f}"]::before { content: "${f}"; font-family: '${f}', system-ui, sans-serif; }`
+          )),
+          // Each size option labelled as "Npx" rather than "Default".
+          ...[24,32,40,48,56,64,72,80,96,120,144,180].map(n => (
+            `.ql-snow .ql-picker.ql-size .ql-picker-label[data-value="${n}px"]::before, ` +
+            `.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="${n}px"]::before { content: "${n}"; }`
+          )),
+        ].join('\n')
+        document.head.appendChild(style)
+      }
 
       // Register custom size + font whitelists so Quill emits our
       // whitelisted values (and the toolbar dropdowns show them).
@@ -95,9 +137,14 @@ export default function RichTextEditor({ runs, onChange, defaults }) {
             ],
           },
         },
-        placeholder: 'Type your overlay text…',
+        placeholder: placeholder || 'Type your overlay text…',
       })
       quillRef.current = q
+
+      // The "Default" picker entries Quill auto-prepends to size +
+      // font dropdowns are hidden via the CSS injected below — they
+      // looked like duplicates of our whitelist values to users.
+      // The `clean` button on the toolbar is the explicit reset path.
 
       // Hydrate from existing runs[] if any.
       if (Array.isArray(runs) && runs.length > 0) {
@@ -147,43 +194,11 @@ export default function RichTextEditor({ runs, onChange, defaults }) {
     }
   }, [])
 
-  const enable = () => {
-    setEnabled(true)
-    // Seed an empty run so the parent treats us as "active".
-    if (!runs || runs.length === 0) onChange([{ text: '', newlineAfter: false }])
-  }
-  const disable = () => {
-    setEnabled(false)
-    onChange(null)
-    // Quill instance will be GC'd once the host element unmounts.
-    quillRef.current = null
-  }
-
-  if (!enabled) {
-    return (
-      <button
-        type="button"
-        onClick={enable}
-        className="text-[10px] py-0.5 px-2 mt-1 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
-        title="Switch to a rich-text editor — highlight words and click format buttons to style only what you've selected."
-      >✨ Rich-text editor</button>
-    )
-  }
-
   return (
-    <div className="border border-[#6C5CE7]/30 bg-[#f3f0ff]/40 rounded p-1 mt-1 space-y-1">
-      <div className="flex items-center gap-2 text-[10px] px-1">
-        <span className="font-medium text-[#6C5CE7] flex-1">✨ Rich text</span>
-        <button
-          type="button"
-          onClick={disable}
-          className="text-[9px] text-muted border border-[#e5e5e5] rounded px-1.5 py-0.5 bg-white cursor-pointer"
-          title="Drop the rich formatting and revert to the plain text above."
-        >Use plain text</button>
-      </div>
-      {/* Quill mounts into this div. Min-height keeps the toolbar
-          + editor visible while the chunk loads. */}
-      <div ref={hostRef} className="bg-white rounded" style={{ minHeight: 120 }} />
+    <div className="bg-white border border-[#e5e5e5] rounded">
+      {/* Quill mounts into this div. Min-height keeps the toolbar +
+          editor visible while the chunk loads. */}
+      <div ref={hostRef} style={{ minHeight: 120 }} />
     </div>
   )
 }
