@@ -170,6 +170,37 @@ export default function First2sPanel({ draftId }) {
             </div>
           )}
 
+          {/* Hook channel breakdown — separates the on-screen hook
+              (read time, 5 wps) from the spoken VO hook (speak time,
+              2.5 wps). Each channel has its own timing budget so a
+              hook can pass for one and fail for the other. */}
+          {analysis.hookChannels && (analysis.hookChannels.onScreen || analysis.hookChannels.spoken) && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-medium">Hook timing</div>
+              {analysis.hookChannels.onScreen && (
+                <HookChannelRow
+                  label="On-screen"
+                  data={analysis.hookChannels.onScreen}
+                  unitLabel="read"
+                  unitField="readTimeSec"
+                />
+              )}
+              {analysis.hookChannels.spoken && (
+                <HookChannelRow
+                  label="Spoken VO"
+                  data={analysis.hookChannels.spoken}
+                  unitLabel="speak"
+                  unitField="speakTimeSec"
+                />
+              )}
+              {analysis.hookChannels.redundant && (
+                <div className="text-[9px] text-[#d97706]">
+                  ⚠ Overlay text and VO say the same thing — wasted real estate. Use overlay for the hook, VO for the story.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Frame thumbnails with detection boxes. Trust-builder:
               users can see what the AI saw at each timestamp. Boxes
               are filtered to detections close to the frame's time. */}
@@ -282,6 +313,35 @@ function FrameThumbnail({ frame, detections }) {
       <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] font-mono text-center py-0.5">
         t={t.toFixed(2)}s
       </div>
+    </div>
+  )
+}
+
+// Single hook-channel row — shows word count, the channel's timing
+// metric (read or speak), the display window, and pass/fail.
+function HookChannelRow({ label, data, unitLabel, unitField }) {
+  const wc = Number(data?.wordCount) || 0
+  const time = Number(data?.[unitField]) || 0
+  const window = Number(data?.displayDurationSec) || 0
+  const fits = data?.fitsWindow !== false
+  const tooLong = data?.tooLongForWindow === true
+  const overlap = data?.overlapsSafeZone === true
+  const text = data?.text || ''
+  return (
+    <div className={`text-[10px] border rounded px-2 py-1 ${fits && !tooLong ? 'bg-[#f0faf4] border-[#2D9A5E]/30' : 'bg-[#fdf2f1] border-[#c0392b]/30'}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-medium" style={{ color: fits && !tooLong ? '#16a34a' : '#c0392b' }}>{label}</span>
+        {text && <span className="text-muted italic truncate max-w-[180px]" title={text}>"{text}"</span>}
+        <span className="font-mono ml-auto">
+          {wc}w · {unitLabel} {time.toFixed(2)}s {window > 0 && <span className="text-muted">/ {window.toFixed(1)}s</span>}
+        </span>
+      </div>
+      {(tooLong || overlap) && (
+        <div className="text-[9px] mt-0.5 text-[#c0392b]">
+          {tooLong && <div>⚠ Too long for the display window — shorten or extend the duration.</div>}
+          {overlap && <div>⚠ Overlaps the platform UI safe zone — move higher.</div>}
+        </div>
+      )}
     </div>
   )
 }

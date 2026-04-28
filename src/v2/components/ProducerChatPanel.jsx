@@ -455,6 +455,11 @@ function GradePanel({ draftId }) {
   const [text, setText] = useState('')
   const [kind, setKind] = useState('hook')
   const [target, setTarget] = useState('tiktok')
+  // Hook channel — overlay text vs spoken VO vs both. Determines
+  // whether the critic uses read time (5 wps) or speak time (2.5 wps).
+  const [mode, setMode] = useState('onScreen')
+  // Window the hook must fit within; defaults to 2s for hooks.
+  const [windowSec, setWindowSec] = useState(2.0)
   const [grading, setGrading] = useState(false)
   const [result, setResult] = useState(null)
   const [err, setErr] = useState(null)
@@ -480,13 +485,13 @@ function GradePanel({ draftId }) {
     return () => { cancelled = true }
   }, [open, draftId])
 
-  const grade = async (sourceText, sourceKind = kind) => {
+  const grade = async (sourceText, sourceKind = kind, sourceMode = mode) => {
     const t = (sourceText ?? text).trim()
     if (!t) { setErr('Pick or paste something to grade first.'); return }
     setGrading(true); setErr(null); setResult(null)
     try {
-      const r = await api.producerGrade(draftId, { text: t, kind: sourceKind, target })
-      setResult({ ...r, gradedText: t })
+      const r = await api.producerGrade(draftId, { text: t, kind: sourceKind, target, mode: sourceMode, windowSec })
+      setResult({ ...r, gradedText: t, gradedMode: sourceMode })
     } catch (e) {
       setErr(e?.message || String(e))
     } finally {
@@ -532,25 +537,47 @@ function GradePanel({ draftId }) {
             </select>
           </div>
 
+          {/* Hook channel + window — gates which timing budget
+              applies. onScreen = overlay (read time, 5 wps); spoken
+              = VO (speak time, 2.5 wps); both = whichever is longer
+              gates the hook. */}
+          <div className="flex items-center gap-1.5 text-[10px] flex-wrap">
+            <label className="text-muted">Channel</label>
+            <select value={mode} onChange={e => setMode(e.target.value)} className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white">
+              <option value="onScreen">On-screen overlay (read)</option>
+              <option value="spoken">Spoken voiceover (speak)</option>
+              <option value="both">Both (text + VO)</option>
+            </select>
+            <label className="text-muted ml-1">Window</label>
+            <input
+              type="number" min={0.5} max={6} step={0.5}
+              value={windowSec}
+              onChange={e => setWindowSec(Number(e.target.value) || 2.0)}
+              className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white w-12"
+              title="Display window in seconds the hook must fit within"
+            />
+            <span className="text-muted">s</span>
+          </div>
+
           {/* Quick-pick buttons — each grades a snippet from the
-              live draft state with one click. Disabled when the
-              snippet is empty so the user doesn't waste a token
-              call on nothing. */}
+              live draft state with one click. Each button picks the
+              right kind+mode combo so the critic uses the correct
+              timing budget without the user having to remember. */}
           <div className="flex gap-1 flex-wrap">
             <button
-              onClick={() => { if (picks.opening) { setText(picks.opening); grade(picks.opening, 'hook') } }}
+              onClick={() => { if (picks.opening) { setText(picks.opening); grade(picks.opening, 'hook', 'onScreen') } }}
               disabled={grading || !picks.opening}
               className="text-[10px] py-1 px-2 border border-[#6C5CE7]/50 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
-              title={picks.opening ? `Grade as a hook: "${picks.opening.slice(0, 80)}"` : 'No opening overlay set'}
+              title={picks.opening ? `Grade as overlay hook (read time): "${picks.opening.slice(0, 80)}"` : 'No opening overlay set'}
             >Opening overlay</button>
             <button
-              onClick={() => { if (picks.primary) { setText(picks.primary); grade(picks.primary, 'voiceover') } }}
+              onClick={() => { if (picks.primary) { setText(picks.primary); grade(picks.primary, 'voiceover', 'spoken') } }}
               disabled={grading || !picks.primary}
               className="text-[10px] py-1 px-2 border border-[#6C5CE7]/50 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
-              title={picks.primary ? `Grade primary VO: "${picks.primary.slice(0, 80)}"` : 'No primary voiceover'}
+              title={picks.primary ? `Grade primary VO (speak time): "${picks.primary.slice(0, 80)}"` : 'No primary voiceover'}
             >Primary VO</button>
             <button
-              onClick={() => { if (picks.closing) { setText(picks.closing); grade(picks.closing, 'caption') } }}
+              onClick={() => { if (picks.closing) { setText(picks.closing); grade(picks.closing, 'caption', 'onScreen') } }}
               disabled={grading || !picks.closing}
               className="text-[10px] py-1 px-2 border border-[#6C5CE7]/50 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
               title={picks.closing ? `Grade as caption: "${picks.closing.slice(0, 80)}"` : 'No closing overlay'}
@@ -598,9 +625,43 @@ function GradeResult({ result }) {
   // Color viral: high = good.
   const viralColor = viralScore >= 70 ? '#2D9A5E' : viralScore >= 40 ? '#d97706' : '#c0392b'
 
+  // Hook timing breakdown — useful when the rewrite suggestion is too
+  // long for the channel. Read time = words/5; speak time = words/2.5.
+  const wc = Number(result?.wordCount) || 0
+  const readTime = Number(result?.readTimeSec) || 0
+  const speakTime = Number(result?.speakTimeSec) || 0
+  const fits = result?.fitsWindow !== false
+  const channelLabel = result.gradedMode === 'spoken' ? 'spoken VO'
+    : result.gradedMode === 'both' ? 'overlay + VO'
+    : 'on-screen overlay'
+
   return (
     <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-2 mt-1">
       <div className="text-[10px] text-muted italic break-words">"{result.gradedText?.slice(0, 200)}{result.gradedText?.length > 200 ? '…' : ''}"</div>
+
+      {wc > 0 && (
+        <div className="text-[10px] flex items-center gap-2 flex-wrap bg-[#fafafa] border border-[#e5e5e5] rounded px-2 py-1">
+          <span className="text-muted">Channel:</span>
+          <span className="font-medium">{channelLabel}</span>
+          <span className="text-muted">·</span>
+          <span><span className="font-mono">{wc}</span> words</span>
+          {result.gradedMode !== 'spoken' && readTime > 0 && (
+            <>
+              <span className="text-muted">·</span>
+              <span>read <span className="font-mono">{readTime.toFixed(2)}s</span></span>
+            </>
+          )}
+          {result.gradedMode !== 'onScreen' && speakTime > 0 && (
+            <>
+              <span className="text-muted">·</span>
+              <span>speak <span className="font-mono">{speakTime.toFixed(2)}s</span></span>
+            </>
+          )}
+          <span className={`ml-auto font-medium ${fits ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}`}>
+            {fits ? '✓ fits window' : '⚠ too long for window'}
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-1.5">
         <ScoreCard label="Overall" value={overall} suffix="/10" color={overallColor} />

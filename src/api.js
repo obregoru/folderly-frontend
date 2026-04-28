@@ -945,10 +945,15 @@ export const analyzeFirstTwoSec = (jobUuid) =>
 // Grade a hook / voiceover / caption. Returns structured scores +
 // strengths/weaknesses/AI-detection/viral-potential + concrete
 // rewrites. The FE renders the breakdown as cards.
-export const producerGrade = (jobUuid, { text, kind, target }) =>
+//   mode      — 'onScreen' | 'spoken' | 'both'. Tells the critic
+//               whether to gate the hook on read time (overlay),
+//               speak time (VO), or both. Default depends on kind.
+//   windowSec — display window in seconds the hook must fit within.
+//               Default 2.0s.
+export const producerGrade = (jobUuid, { text, kind, target, mode, windowSec }) =>
   fetch(api(`/jobs/${jobUuid}/producer/grade`), {
     method: 'POST', headers: h(), credentials: 'include',
-    body: JSON.stringify({ text, kind, target }),
+    body: JSON.stringify({ text, kind, target, mode, windowSec }),
   }).then(async r => {
     if (!r.ok) {
       let msg = `grade failed (${r.status})`
