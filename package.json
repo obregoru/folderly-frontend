@@ -16,6 +16,7 @@
     "@remotion/google-fonts": "4.0.448",
     "face-api.js": "^0.22.2",
     "jszip": "^3.10.1",
+    "quill": "^2.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-helmet-async": "^3.0.0",

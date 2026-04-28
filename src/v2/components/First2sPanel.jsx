@@ -22,6 +22,12 @@ export default function First2sPanel({ draftId }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [err, setErr] = useState(null)
   const [errRaw, setErrRaw] = useState(null)
+  // Persistence metadata. analyzedAt + sourceKind come from the most
+  // recent ai_log row when we hydrate from disk; both null on a
+  // fresh in-session run (the response itself carries source info
+  // for fresh runs, and analyzedAt is implicitly "now").
+  const [analyzedAt, setAnalyzedAt] = useState(null)
+  const [hydratedFromDisk, setHydratedFromDisk] = useState(false)
   // Platform tab — 'all' shows the comparison strip; tiktok/reels/
   // youtubeShorts each show that platform's full breakdown.
   const [platformTab, setPlatformTab] = useState('all')
@@ -31,6 +37,24 @@ export default function First2sPanel({ draftId }) {
     detectionBoxes: true,
     clarityTimeline: true,
   })
+
+  // Hydrate the most recent saved analysis on draft change. Frames
+  // aren't restored (too big to persist in ai_log); the score, sub-
+  // scores, platforms, suggestions, etc. all come back. User clicks
+  // "Re-run" to get fresh frames + fresh scores against latest state.
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    api.lastFirstTwoSecAnalysis(draftId).then(r => {
+      if (cancelled) return
+      if (r?.analysis) {
+        setAnalysis(r.analysis)
+        setAnalyzedAt(r.analyzedAt || null)
+        setHydratedFromDisk(true)
+      }
+    })
+    return () => { cancelled = true }
+  }, [draftId])
 
   // Whenever overlays toggle OR a new analysis lands, dispatch the
   // payload First2sOverlay listens for. Component never reads from
@@ -52,11 +76,10 @@ export default function First2sPanel({ draftId }) {
     try {
       const r = await api.analyzeFirstTwoSec(draftId)
       setAnalysis(r)
+      setAnalyzedAt(new Date().toISOString())
+      setHydratedFromDisk(false)
     } catch (e) {
       setErr(e?.message || String(e))
-      // The BE attaches the raw model response when a 422 fires
-      // (parser couldn't extract JSON). Surfacing it lets us see
-      // what came back instead of staring at a generic message.
       if (e?.raw) setErrRaw(String(e.raw))
     } finally {
       setAnalyzing(false)
@@ -91,7 +114,16 @@ export default function First2sPanel({ draftId }) {
         onClick={run}
         disabled={analyzing || !draftId}
         className="w-full py-2 bg-[#6C5CE7] text-white text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
-      >{analyzing ? 'Analyzing first 2 seconds…' : '🔍 Analyze first 2 seconds'}</button>
+      >{analyzing
+        ? 'Analyzing first 2 seconds…'
+        : (analysis ? '🔄 Re-analyze first 2 seconds' : '🔍 Analyze first 2 seconds')}</button>
+
+      {hydratedFromDisk && analyzedAt && (
+        <div className="text-[10px] text-muted bg-[#fafafa] border border-[#e5e5e5] rounded px-2 py-1">
+          Showing your last analysis from <span className="font-mono">{new Date(analyzedAt).toLocaleString()}</span>.
+          Frame thumbnails aren't saved with the result — re-analyze to see them again, or to refresh the score after editing.
+        </div>
+      )}
 
       {err && (
         <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2 space-y-1">

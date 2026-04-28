@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import RichRunsEditor, { runsToFlatText } from './RichRunsEditor'
+import RichTextEditor from './RichTextEditor'
+import { runsToFlatText } from './RichRunsEditor'
 
 // Lazy-load the font picker chunk so the 52-font catalog isn't pulled
 // on initial panel mount — only when the user actually opens the
@@ -217,7 +218,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             disabled={!!openingRuns?.length}
             title={openingRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
           />
-          <RichRunsEditor
+          <RichTextEditor
             runs={openingRuns}
             onChange={setOpeningRuns}
             defaults={{ color: fontColor, fontFamily, fontSize }}
@@ -246,7 +247,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             disabled={!!middleRuns?.length}
             title={middleRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
           />
-          <RichRunsEditor
+          <RichTextEditor
             runs={middleRuns}
             onChange={setMiddleRuns}
             defaults={{ color: fontColor, fontFamily, fontSize }}
@@ -284,7 +285,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             disabled={!!closingRuns?.length}
             title={closingRuns?.length ? 'Editing rich runs below — clear them to type plain text here.' : ''}
           />
-          <RichRunsEditor
+          <RichTextEditor
             runs={closingRuns}
             onChange={setClosingRuns}
             defaults={{ color: fontColor, fontFamily, fontSize }}

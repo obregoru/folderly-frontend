@@ -919,6 +919,17 @@ export const producerHistory = (jobUuid) =>
     .then(r => r.ok ? r.json() : { messages: [] })
     .catch(() => ({ messages: [] }))
 
+// Load the most recent persisted first-2-second analysis for a job.
+// Returns { analysis, analyzedAt, sourceKind } or { analysis: null }
+// when no prior run exists. Used by the panel to rehydrate on reload
+// without burning fresh Claude tokens. Frame thumbnails are NOT in
+// the persisted log, so they don't come back here — re-run analyze
+// to see frames again.
+export const lastFirstTwoSecAnalysis = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/producer/analyze-first-2s/last`), {
+    credentials: 'include',
+  }).then(r => r.ok ? r.json() : { analysis: null }).catch(() => ({ analysis: null }))
+
 // First-2-second TikTok scroll-stop analyzer. Extracts 6 frames from
 // the merged video, sends them to Claude vision, returns structured
 // FirstTwoSecondAnalysis JSON + the frame thumbnails so the panel can
