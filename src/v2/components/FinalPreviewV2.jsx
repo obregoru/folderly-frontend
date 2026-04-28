@@ -651,9 +651,24 @@ function OverlayText({ text, runs, style, videoRef, slot }) {
   const slotColorKey = slot ? `${slot}FontColor` : null
   const slotColorRaw = slotColorKey != null ? style?.[slotColorKey] : null
   const color = slotColorRaw || style?.storyFontColor || '#ffffff'
-  const family = style?.storyFontFamily || 'sans-serif'
+  // Default to Inter so the preview uses the same font the BE
+  // export is now bundled with. With "sans-serif" the FE rendered
+  // with macOS Helvetica (narrow) while the BE rendered with
+  // ffmpeg's DejaVu Sans (wider) — same fontSize, very different
+  // total width. Picking Inter on both ends keeps glyph widths in
+  // sync so the preview's text width matches what the export will
+  // burn in.
+  const rawFamily = style?.storyFontFamily
+  const family = (!rawFamily || rawFamily === 'sans-serif')
+    ? 'Inter, system-ui, sans-serif'
+    : rawFamily
   const rawOutline = style?.storyFontOutline === false ? 0 : Math.max(0, Number(style?.storyFontOutlineWidth) || 3)
-  const outlineWidth = rawOutline * effectiveScale
+  // Clamp scaled outline to >= 1px so the multi-direction text-shadow
+  // produces pixel-crisp edges at preview scale instead of subpixel
+  // blur. Without this, an outline of 3 × 0.3 = 0.9px landed on
+  // sub-pixel offsets that browsers render as a soft glow — making
+  // the preview look "fluffy" while the BE drew a crisp 3px border.
+  const outlineWidth = rawOutline > 0 ? Math.max(1, rawOutline * effectiveScale) : 0
   const lineHeight = Number(style?.lineHeight) > 0 ? Number(style.lineHeight) : 1.1
   // Letter-spacing saved as a 0..5 step in the burn-in path; CSS uses em.
   // 0.05em per step matches the legacy ResultCard preview (see v1).
