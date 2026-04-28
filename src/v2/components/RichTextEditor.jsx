@@ -191,7 +191,24 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
           )),
           // Default editor text (no explicit size class) renders at
           // the overlay-level default font size, scaled the same way.
-          '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)) !important; }',
+          // Color matches the user's chosen overlay color so the
+          // editor reads as WYSIWYG — typing white text in the
+          // editor is what white text on the video will look like.
+          // The editor background flips dark so light overlay
+          // colors stay readable while editing (white-on-white was
+          // unreadable and made users think "the caption is dark
+          // grey" when in fact only the editor preview was off).
+          '.ql-editor { ' +
+            'font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)) !important; ' +
+            'color: var(--posty-rte-base-color, #ffffff) !important; ' +
+            'background: #1a1814 !important; ' +
+            'caret-color: var(--posty-rte-base-color, #ffffff); ' +
+          '}',
+          // Quill's snow theme keeps the toolbar on a white surface;
+          // the editor area below it is the only thing we darken so
+          // toolbar buttons stay legible.
+          '.ql-snow .ql-editor::placeholder { color: rgba(255,255,255,0.45) !important; }',
+          '.ql-snow .ql-editor.ql-blank::before { color: rgba(255,255,255,0.45) !important; font-style: italic; }',
         ].join('\n')
         document.head.appendChild(style)
       }
@@ -356,6 +373,20 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       `${Number(defaults?.fontSize) > 0 ? defaults.fontSize : 60}px`
     )
   }, [defaults?.fontSize])
+
+  // Same trick for the editor's text color — pulls the user's
+  // chosen overlay color into the editor's CSS so unstyled text
+  // (no explicit per-run color) renders as WYSIWYG. Without this,
+  // Quill's default black text on white background looked like
+  // "the Opening caption is dark grey" even though the rendered
+  // video would show white.
+  useEffect(() => {
+    if (!hostRef.current) return
+    hostRef.current.style.setProperty(
+      '--posty-rte-base-color',
+      defaults?.color || '#ffffff'
+    )
+  }, [defaults?.color])
 
   // Cleanup: ONLY disconnect the ResizeObserver. We deliberately do
   // NOT clear quillRef or disable() the Quill instance here. Under
