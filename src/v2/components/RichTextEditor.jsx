@@ -50,6 +50,13 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
   const hostRef = useRef(null)
   const quillRef = useRef(null)
   const resizeObsRef = useRef(null)
+  // JSON-stringified version of the runs[] we last emitted via onChange.
+  // The runs-sync effect compares against this so a round-tripped value
+  // (text-change → onChange → parent state → back here) is skipped.
+  // Without this, setContents fires on every keystroke, the cursor
+  // resets to position 0, and the next keystroke prepends — which is
+  // exactly what users saw as "typing backwards / RTL".
+  const lastEmittedRef = useRef('__init__')
   const [loaded, setLoaded] = useState(false)
 
   const D = defaults || { color: '#ffffff', fontFamily: 'Inter', fontSize: 60 }
@@ -241,6 +248,13 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
         const delta = runsToDelta(runs, D)
         q.setContents(delta, 'silent')
       }
+      // Record the runs[] we hydrated with as the baseline. The runs-
+      // sync effect that fires immediately after mount will compare
+      // against this and skip — preventing a redundant setContents
+      // before the user has even touched the editor.
+      lastEmittedRef.current = JSON.stringify(
+        Array.isArray(runs) && runs.length > 0 ? runs : null
+      )
 
       // Wire change → runs[]. Skip 'silent' updates so our own
       // hydration pass doesn't loop back through onChange.
@@ -252,7 +266,11 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
         // erased everything mid-edit — we still want them inside
         // the editor with no rows, controlled by the disable
         // button.
-        onChange(next.length > 0 ? next : null)
+        const out = next.length > 0 ? next : null
+        // Record what we just emitted so the runs-sync effect can
+        // recognize the round-trip and skip resetting the editor.
+        lastEmittedRef.current = JSON.stringify(out)
+        onChange(out)
       })
       setLoaded(true)
     })()
@@ -264,16 +282,30 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
   }, [])
 
   // External runs[] change → push into Quill (e.g. another tab updated
-  // the same overlay). Compare by serialized delta to avoid loops.
+  // the same overlay). The earlier comparison was Delta-shape based:
+  //   JSON.stringify(runsToDelta(runs)) vs JSON.stringify(q.getContents())
+  // That broke because Quill normalizes ops (e.g. merges a trailing
+  // "\n" into the prior op as one combined insert string), while
+  // runsToDelta always emits them as separate ops. The shapes
+  // mismatched on every keystroke, setContents fired, the cursor
+  // jumped to 0, and the NEXT keystroke landed at the start —
+  // visible to the user as letters being typed in reverse order.
+  //
+  // The correct test is "is this incoming runs[] the one I just
+  // emitted?". If yes, the editor already shows it; do nothing.
+  // Only genuinely external changes (different shape from what we
+  // last emitted) need a re-sync.
   useEffect(() => {
     const q = quillRef.current
     if (!q || !loaded) return
+    const incoming = JSON.stringify(runs || null)
+    if (incoming === lastEmittedRef.current) return
     const want = runsToDelta(runs || [], D)
-    const cur = q.getContents()
-    // Crude equality check on JSON strings — Quill's deltas don't
-    // expose a deep-equal helper publicly.
-    if (JSON.stringify(want) === JSON.stringify(cur)) return
     q.setContents(want, 'silent')
+    // Update the marker so this external change becomes the new
+    // baseline; otherwise the next keystroke's round-trip would be
+    // treated as external and re-sync mid-typing.
+    lastEmittedRef.current = incoming
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runs])
 
