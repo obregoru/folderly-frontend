@@ -923,14 +923,21 @@ export const producerHistory = (jobUuid) =>
 // the merged video, sends them to Claude vision, returns structured
 // FirstTwoSecondAnalysis JSON + the frame thumbnails so the panel can
 // show the user what the AI saw. ~5-10s round-trip on a typical job.
+//
+// On a 422 (the BE's "critic returned non-JSON" path), we attach the
+// raw model response to the thrown error so the panel can surface it
+// — otherwise users hit a generic message with no way to debug.
 export const analyzeFirstTwoSec = (jobUuid) =>
   fetch(api(`/jobs/${jobUuid}/producer/analyze-first-2s`), {
     method: 'POST', headers: h(), credentials: 'include', body: '{}',
   }).then(async r => {
     if (!r.ok) {
-      let msg = `analyze failed (${r.status})`
-      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
-      throw new Error(msg)
+      let body = null
+      try { body = await r.json() } catch {}
+      const msg = body?.error || `analyze failed (${r.status})`
+      const err = new Error(msg)
+      if (body?.raw) err.raw = body.raw
+      throw err
     }
     return r.json()
   })

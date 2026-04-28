@@ -21,6 +21,7 @@ export default function First2sPanel({ draftId }) {
   const [analysis, setAnalysis] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   const [err, setErr] = useState(null)
+  const [errRaw, setErrRaw] = useState(null)
   const [overlays, setOverlays] = useState({
     safeZones: true,
     scoreHUD: true,
@@ -44,12 +45,16 @@ export default function First2sPanel({ draftId }) {
 
   const run = async () => {
     if (!draftId || analyzing) return
-    setAnalyzing(true); setErr(null)
+    setAnalyzing(true); setErr(null); setErrRaw(null)
     try {
       const r = await api.analyzeFirstTwoSec(draftId)
       setAnalysis(r)
     } catch (e) {
       setErr(e?.message || String(e))
+      // The BE attaches the raw model response when a 422 fires
+      // (parser couldn't extract JSON). Surfacing it lets us see
+      // what came back instead of staring at a generic message.
+      if (e?.raw) setErrRaw(String(e.raw))
     } finally {
       setAnalyzing(false)
     }
@@ -85,7 +90,17 @@ export default function First2sPanel({ draftId }) {
         className="w-full py-2 bg-[#6C5CE7] text-white text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
       >{analyzing ? 'Analyzing first 2 seconds…' : '🔍 Analyze first 2 seconds'}</button>
 
-      {err && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">{err}</div>}
+      {err && (
+        <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2 space-y-1">
+          <div>{err}</div>
+          {errRaw && (
+            <details className="cursor-pointer">
+              <summary className="text-[9px] text-muted">show raw model response</summary>
+              <pre className="mt-1 text-[9px] font-mono whitespace-pre-wrap bg-white border border-[#e5e5e5] rounded p-1.5 max-h-48 overflow-auto text-ink">{errRaw}</pre>
+            </details>
+          )}
+        </div>
+      )}
 
       {analysis && (
         <>
