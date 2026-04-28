@@ -41,24 +41,58 @@ import { loadFont as loadCaveat } from '@remotion/google-fonts/Caveat';
 // strings the user picks in the overlays panel. Aliases preserve the
 // same names the existing ffmpeg pipeline uses so migrating fonts from
 // overlays → captions is zero-touch.
+//
+// Each entry pairs the loader with a SUBSET options object. Without
+// it, @remotion/google-fonts loads every weight (×9), every italic
+// variant (×2), and every subset (×~10) for that family — a single
+// Inter request fan-out hits ~63 individual woff2 fetches and
+// frequently triggers Google Fonts' 429. Captions only ever render
+// with weights 700 (base) / 800 (bold runs), and we only need
+// Latin glyphs, so capping each load to its actually-used variants
+// drops the request count by an order of magnitude.
+//
+// Display fonts that ship in a single weight (Bangers, Lobster,
+// Pacifico, Permanent Marker, Lilita One, Paytone One, Shrikhand,
+// Bungee, Righteous) accept no `weights` option — passing one would
+// 404 — so we just subset their character set to latin.
+
+// Standard subset — 99% of our usage is Latin glyphs. Drop the
+// other 9 subsets (cyrillic, vietnamese, latin-ext, etc.) so each
+// face request collapses to the one woff2 our renders actually need.
+const LATIN: { subsets: string[] } = { subsets: ['latin'] };
+
+// Multi-weight Latin sans / serif faces. We use 400 (italic / regular
+// runs from Quill), 700 (default caption bold), 800 (rich-runs bold).
+// Italic variants are loaded too because user-formatted runs can flip
+// italic on a selection.
+const TEXT_WEIGHTS: { weights: string[]; subsets: string[]; ital?: string[] } = {
+  weights: ['400', '700', '800'],
+  subsets: ['latin'],
+  ital: ['0', '1'],
+};
+
 const LOADERS: Record<string, () => { fontFamily: string }> = {
-  'Inter': loadInter,
-  'Roboto': loadRoboto,
-  'Montserrat': loadMontserrat,
-  'Poppins': loadPoppins,
-  'Bangers': loadBangers,
-  'Lobster': loadLobster,
-  'Pacifico': loadPacifico,
-  'Permanent Marker': loadPermanentMarker,
-  'Fredoka One': loadFredoka,
-  'Fredoka': loadFredoka,
-  'Lilita One': loadLilitaOne,
-  'Paytone One': loadPaytoneOne,
-  'Shrikhand': loadShrikhand,
-  'Bungee': loadBungee,
-  'Righteous': loadRighteous,
-  'Dancing Script': loadDancingScript,
-  'Caveat': loadCaveat,
+  'Inter': () => loadInter('normal', TEXT_WEIGHTS),
+  'Roboto': () => loadRoboto('normal', TEXT_WEIGHTS),
+  'Montserrat': () => loadMontserrat('normal', TEXT_WEIGHTS),
+  'Poppins': () => loadPoppins('normal', TEXT_WEIGHTS),
+  // Display fonts — single weight, no italic. Latin subset only.
+  'Bangers': () => loadBangers('normal', LATIN),
+  'Lobster': () => loadLobster('normal', LATIN),
+  'Pacifico': () => loadPacifico('normal', LATIN),
+  'Permanent Marker': () => loadPermanentMarker('normal', LATIN),
+  // Fredoka has weights 300-700 but we only need 700 for captions.
+  'Fredoka One': () => loadFredoka('normal', { weights: ['700'], subsets: ['latin'] }),
+  'Fredoka': () => loadFredoka('normal', { weights: ['700'], subsets: ['latin'] }),
+  'Lilita One': () => loadLilitaOne('normal', LATIN),
+  'Paytone One': () => loadPaytoneOne('normal', LATIN),
+  'Shrikhand': () => loadShrikhand('normal', LATIN),
+  'Bungee': () => loadBungee('normal', LATIN),
+  'Righteous': () => loadRighteous('normal', LATIN),
+  // Dancing Script + Caveat are script faces with multiple weights,
+  // but our default-bold caption look only needs 700.
+  'Dancing Script': () => loadDancingScript('normal', { weights: ['700'], subsets: ['latin'] }),
+  'Caveat': () => loadCaveat('normal', { weights: ['700'], subsets: ['latin'] }),
 };
 
 // Resolve a requested family name to a CSS fontFamily string. Triggers
