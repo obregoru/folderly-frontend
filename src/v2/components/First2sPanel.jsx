@@ -22,6 +22,10 @@ const OVERLAY_KEYS = [
 export default function First2sPanel({ draftId }) {
   const [analysis, setAnalysis] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
+  // 'baking' while we auto-trigger render-final to ensure the
+  // analyzed frames have the latest captions / overlays burned in;
+  // 'analyzing' while Claude vision runs.
+  const [stage, setStage] = useState(null)
   const [err, setErr] = useState(null)
   const [errRaw, setErrRaw] = useState(null)
   // Persistence metadata. analyzedAt + sourceKind come from the most
@@ -78,6 +82,38 @@ export default function First2sPanel({ draftId }) {
     if (!draftId || analyzing) return
     setAnalyzing(true); setErr(null); setErrRaw(null)
     try {
+      // Auto-bake the final FIRST so the analyzed frames carry the
+      // current captions + overlays. render-final keys off the same
+      // final_media_fingerprint the Download button uses — when the
+      // user hasn't edited anything since their last bake, this is a
+      // cache hit (a few hundred ms, no ffmpeg). When something HAS
+      // changed (caption style, VO segment text, overlay sizing,
+      // …) the fingerprint mismatches and a fresh render kicks in
+      // — no more "I downloaded yesterday but my new captions
+      // aren't in the analyzed frames" gotcha.
+      setStage('baking')
+      let primaryBase64 = null
+      try {
+        const primaryEl = document.querySelector('audio[data-posty-primary-voice]')
+        if (primaryEl?.src) {
+          const r = await fetch(primaryEl.src)
+          const b = await r.blob()
+          const buf = new Uint8Array(await b.arrayBuffer())
+          let bin = ''
+          for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
+          primaryBase64 = btoa(bin)
+        }
+      } catch { /* persisted primary still works server-side */ }
+      try {
+        await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
+      } catch (e) {
+        // Render failure shouldn't kill analyze — fall through and
+        // analyze whatever the BE has (likely the raw merge with a
+        // 'merge' source banner). Surface to console so we can
+        // diagnose if users report missing captions.
+        console.warn('[first2s] render-final failed; analyzing existing source:', e?.message || e)
+      }
+      setStage('analyzing')
       const r = await api.analyzeFirstTwoSec(draftId)
       setAnalysis(r)
       setAnalyzedAt(new Date().toISOString())
@@ -87,6 +123,7 @@ export default function First2sPanel({ draftId }) {
       if (e?.raw) setErrRaw(String(e.raw))
     } finally {
       setAnalyzing(false)
+      setStage(null)
     }
   }
 
@@ -119,7 +156,9 @@ export default function First2sPanel({ draftId }) {
         disabled={analyzing || !draftId}
         className="w-full py-2 bg-[#6C5CE7] text-white text-[11px] font-medium border-none rounded cursor-pointer disabled:opacity-50"
       >{analyzing
-        ? 'Analyzing first 2 seconds…'
+        ? (stage === 'baking'
+            ? '⏳ Baking captions + overlays into final…'
+            : '🔍 Analyzing first 2 seconds…')
         : (analysis ? '🔄 Re-analyze first 2 seconds' : '🔍 Analyze first 2 seconds')}</button>
 
       {hydratedFromDisk && analyzedAt && (
@@ -151,14 +190,20 @@ export default function First2sPanel({ draftId }) {
               feel disconnected from what they see in the live preview. */}
           {analysis?.source?.kind === 'merge' ? (
             <div className="text-[10px] text-[#92400e] bg-[#fef3c7] border border-[#d97706]/40 rounded p-1.5">
-              <span className="font-medium">Analyzing the raw merge.</span> Overlay text and captions aren't burned into these frames yet —
-              the textEffectiveness score is judging your <em>typed hook</em>, not how it actually appears on screen.
-              Click <strong>Download</strong> once to bake the export, then re-analyze for a pixel-accurate read.
+              <span className="font-medium">Analyzing the raw merge.</span> The auto-bake step couldn't produce a final export
+              (likely missing voiceover audio or a server hiccup) so the frames don't show overlay text or captions yet —
+              textEffectiveness is judging the typed hook, not the rendered pixels.
+            </div>
+          ) : analysis?.source?.kind === 'final' && analysis?.source?.staleFinal ? (
+            <div className="text-[10px] text-[#92400e] bg-[#fef3c7] border border-[#d97706]/40 rounded p-1.5">
+              <span className="font-medium">⚠ Analyzing a STALE final export.</span> The cached bake's fingerprint no longer matches your current
+              caption / overlay / VO settings, but the auto-bake step appears to have been bypassed or hit a server error. Click
+              <strong> Re-analyze</strong> to force a fresh bake, or check console logs for a render-final failure.
             </div>
           ) : analysis?.source?.kind === 'final' ? (
             <div className="text-[10px] text-[#16a34a] bg-[#f0faf4] border border-[#2D9A5E]/30 rounded p-1.5">
-              <span className="font-medium">Analyzing your last downloaded export</span> — overlay text + captions are visible to the analyzer.
-              If you've changed overlays or VO since then, re-Download and re-analyze for a fresh read.
+              <span className="font-medium">Analyzing the freshly-baked final export</span> — overlay text + captions are visible to the analyzer.
+              The bake auto-runs every time you click Analyze; cache hits when nothing changed, re-renders when you've edited overlays or VO.
             </div>
           ) : null}
 
