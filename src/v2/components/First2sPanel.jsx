@@ -19,7 +19,7 @@ const OVERLAY_KEYS = [
   { key: 'clarityTimeline', label: 'Timeline',     hint: 'Scrubber along the bottom marking key events at 0–2s.' },
 ]
 
-export default function First2sPanel({ draftId }) {
+export default function First2sPanel({ draftId, jobSync }) {
   const [analysis, setAnalysis] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
   // 'baking' while we auto-trigger render-final to ensure the
@@ -43,6 +43,15 @@ export default function First2sPanel({ draftId }) {
     detectionBoxes: true,
     clarityTimeline: true,
   })
+  // "Apply analysis" flow — proposals from the BE that the user can
+  // selectively accept (overlay text, VO primary, caption style).
+  // null until the user clicks Apply. Each target has its own
+  // accept/reject so partial application is fine.
+  const [applyProposals, setApplyProposals] = useState(null)
+  const [applying, setApplying] = useState(false)
+  const [applyErr, setApplyErr] = useState(null)
+  const [applyTargets, setApplyTargets] = useState({ overlay: true, voiceover: true, captionStyle: true })
+  const [appliedNote, setAppliedNote] = useState(null)
 
   // Hydrate the most recent saved analysis on draft change. The
   // backend now persists frame thumbnails alongside the score in
@@ -124,6 +133,85 @@ export default function First2sPanel({ draftId }) {
     } finally {
       setAnalyzing(false)
       setStage(null)
+    }
+  }
+
+  const requestApply = async () => {
+    if (!draftId || applying) return
+    const targets = Object.keys(applyTargets).filter(k => applyTargets[k])
+    if (targets.length === 0) {
+      setApplyErr('Pick at least one target (overlay / voiceover / captionStyle).')
+      return
+    }
+    setApplyErr(null); setApplying(true); setApplyProposals(null); setAppliedNote(null)
+    try {
+      const r = await api.producerApplyAnalysis(draftId, { targets })
+      setApplyProposals(r)
+    } catch (e) {
+      setApplyErr(e?.message || String(e))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  // Persist proposals via the existing FE save paths so we don't
+  // duplicate write code. Each target uses the SAME save method the
+  // panel that owns it does, so per-debounce / fingerprint logic
+  // continues to fire normally.
+  const acceptProposal = async (which) => {
+    const p = applyProposals?.proposed?.[which]
+    if (!p) return
+    try {
+      if (which === 'overlay' && p.openingText) {
+        const existingOverlays = (typeof window !== 'undefined' && window._postyOverlays) || {}
+        const next = {
+          ...existingOverlays,
+          openingText: p.openingText,
+          openingDuration: p.openingDuration || existingOverlays.openingDuration || 2.5,
+          // Drop runs[] on apply — the new text replaces any per-run styling
+          // the user had on the previous opening copy.
+          openingRuns: null,
+        }
+        jobSync?.saveOverlaySettings?.(next)
+        try {
+          window._postyOverlays = next
+          window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: next }))
+        } catch {}
+      } else if (which === 'voiceover' && p.primary) {
+        // Persist as the synthetic __primary__ segment via the same
+        // shape VoiceoverPanelV2 uses, by mutating voiceover_settings
+        // through jobSync's existing helper.
+        const r = await api.getJob(draftId).catch(() => null)
+        const vo = r?.voiceover_settings || {}
+        const segs = Array.isArray(vo.segments) ? [...vo.segments] : []
+        const idx = segs.findIndex(s => s?.id === '__primary__')
+        const nextPrimary = {
+          id: '__primary__', startTime: 0, text: p.primary,
+          audioKey: null, duration: null, speed: 1.0,
+        }
+        if (idx >= 0) segs[idx] = { ...segs[idx], text: p.primary, duration: null }
+        else segs.unshift(nextPrimary)
+        const nextVo = { ...vo, segments: segs }
+        jobSync?.saveVoiceoverSettings?.(nextVo)
+        try { window.dispatchEvent(new CustomEvent('posty-voiceover-change', { detail: nextVo })) } catch {}
+      } else if (which === 'captionStyle') {
+        const fields = {}
+        if (p.baseFontSize != null) fields.base_font_size = p.baseFontSize
+        if (p.baseFontColor) fields.base_font_color = p.baseFontColor
+        if (p.verticalPosition != null) {
+          fields.layout_config = { ...(fields.layout_config || {}), verticalPosition: p.verticalPosition }
+        }
+        if (Object.keys(fields).length > 0) {
+          if (typeof api.updateJobDefaultCaptionStyle === 'function') {
+            await api.updateJobDefaultCaptionStyle(draftId, fields)
+          } else {
+            await api.updateJob(draftId, { default_caption_style: fields })
+          }
+        }
+      }
+      setAppliedNote(prev => ({ ...(prev || {}), [which]: true }))
+    } catch (e) {
+      setApplyErr(`Apply ${which} failed: ${e?.message || String(e)}`)
     }
   }
 
@@ -237,6 +325,51 @@ export default function First2sPanel({ draftId }) {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* Apply analysis — refines overlay / VO / captionStyle
+              against the analysis's issues + suggestions. Shows a
+              preview before persisting; each target accepted
+              independently so partial application is fine. */}
+          <div className="border border-[#6C5CE7]/30 bg-[#f3f0ff] rounded p-2 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="text-[11px] font-medium flex-1">✨ Apply this analysis</div>
+              {!applyProposals && (
+                <button
+                  onClick={requestApply}
+                  disabled={applying}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                >{applying ? 'Producing fixes…' : 'Apply suggestions'}</button>
+              )}
+            </div>
+            {!applyProposals && (
+              <div className="text-[9px] text-muted">
+                Sends the analysis above to Claude with the rubric and your current draft. Returns refined versions of the targets you check below — preview first, accept per target.
+              </div>
+            )}
+            {!applyProposals && (
+              <div className="flex items-center gap-3 text-[10px]">
+                {['overlay','voiceover','captionStyle'].map(t => (
+                  <label key={t} className="flex items-center gap-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!applyTargets[t]}
+                      onChange={e => setApplyTargets(prev => ({ ...prev, [t]: e.target.checked }))}
+                    />
+                    {t === 'captionStyle' ? 'caption style' : t}
+                  </label>
+                ))}
+              </div>
+            )}
+            {applyErr && <div className="text-[10px] text-[#c0392b]">{applyErr}</div>}
+            {applyProposals && (
+              <ApplyProposalsPreview
+                proposals={applyProposals}
+                applied={appliedNote || {}}
+                onAccept={acceptProposal}
+                onClose={() => { setApplyProposals(null); setAppliedNote(null) }}
+              />
+            )}
           </div>
 
           {/* Sub-scores. Each category's max varies (25 / 25 / 15 /
@@ -380,6 +513,82 @@ const PLATFORMS = [
   { key: 'reels',          label: 'Reels (IG/FB)', short: 'Reels' },
   { key: 'youtubeShorts',  label: 'YT Shorts', short: 'Shorts' },
 ]
+
+// Renders the BE's apply-analysis proposals as a side-by-side
+// before/after card per target with an Accept button. Designed for
+// partial accept — the user can take the overlay rewrite but skip
+// caption-style changes, etc. The summary up top frames "what
+// changed and why" so users understand the diff before clicking.
+function ApplyProposalsPreview({ proposals, applied, onAccept, onClose }) {
+  const p = proposals?.proposed || {}
+  const cur = proposals?.current || {}
+  const summary = p?.summary || null
+  const targets = []
+  if (p.overlay && p.overlay.openingText) targets.push({
+    key: 'overlay', label: 'Overlay opening',
+    current: cur.overlay?.openingText || '(empty)',
+    next: p.overlay.openingText,
+    extra: p.overlay.openingDuration ? `Duration: ${p.overlay.openingDuration}s` : null,
+  })
+  if (p.voiceover && p.voiceover.primary) targets.push({
+    key: 'voiceover', label: 'Voiceover primary',
+    current: cur.voiceover?.primary || '(empty)',
+    next: p.voiceover.primary,
+    extra: p.voiceover.rationale || null,
+  })
+  if (p.captionStyle && (p.captionStyle.baseFontSize != null || p.captionStyle.baseFontColor || p.captionStyle.verticalPosition != null)) {
+    const parts = []
+    if (p.captionStyle.baseFontSize != null) parts.push(`size ${cur.captionStyle?.baseFontSize ?? '?'} → ${p.captionStyle.baseFontSize}`)
+    if (p.captionStyle.baseFontColor) parts.push(`color ${cur.captionStyle?.baseFontColor ?? '?'} → ${p.captionStyle.baseFontColor}`)
+    if (p.captionStyle.verticalPosition != null) parts.push(`Y ${cur.captionStyle?.verticalPosition ?? '?'}% → ${p.captionStyle.verticalPosition}%`)
+    targets.push({
+      key: 'captionStyle', label: 'Caption style',
+      current: 'see right →',
+      next: parts.join(' · '),
+      extra: null,
+    })
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <div className="text-[10px] font-medium flex-1">Proposed changes</div>
+        <button
+          onClick={onClose}
+          className="text-[10px] text-muted py-0.5 px-1.5 border border-[#e5e5e5] bg-white rounded cursor-pointer"
+          title="Discard proposals — nothing has been applied yet"
+        >Discard</button>
+      </div>
+      {summary && (
+        <div className="text-[10px] text-ink bg-white border border-[#e5e5e5] rounded p-1.5 italic">
+          {summary}
+        </div>
+      )}
+      {targets.length === 0 && (
+        <div className="text-[10px] text-muted italic">Producer didn't suggest any concrete changes for the targets you picked.</div>
+      )}
+      {targets.map(t => (
+        <div key={t.key} className="bg-white border border-[#e5e5e5] rounded p-1.5 space-y-1">
+          <div className="text-[9px] uppercase tracking-wide text-muted">{t.label}</div>
+          <div className="text-[10px]">
+            <div className="text-muted line-through truncate" title={t.current}>{t.current}</div>
+            <div className="text-ink font-medium">{t.next}</div>
+            {t.extra && <div className="text-[9px] text-muted italic">{t.extra}</div>}
+          </div>
+          <div className="flex items-center gap-2">
+            {applied[t.key] ? (
+              <span className="text-[10px] text-[#2D9A5E]">✓ Applied — open the {t.key === 'overlay' ? 'Overlays' : t.key === 'voiceover' ? 'Voiceover' : 'Captions'} tab to fine-tune.</span>
+            ) : (
+              <button
+                onClick={() => onAccept(t.key)}
+                className="ml-auto text-[10px] py-0.5 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer"
+              >Accept this change</button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 function PlatformBreakdown({ base, platforms, activeTab, setActiveTab }) {
   const baseScore = Number(base?.totalScore) || 0

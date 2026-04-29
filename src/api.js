@@ -1028,3 +1028,19 @@ export const producerGrade = (jobUuid, { text, kind, target, mode, windowSec }) 
     }
     return r.json()
   })
+
+// Apply the most recent First-2s analysis to refine overlay /
+// voiceover / captionStyle. Returns proposals; the FE renders them
+// for confirmation before persisting via the existing save paths.
+export const producerApplyAnalysis = (jobUuid, { targets } = {}) =>
+  fetch(api(`/jobs/${jobUuid}/producer/apply-analysis`), {
+    method: 'POST', headers: h(), credentials: 'include',
+    body: JSON.stringify({ targets: Array.isArray(targets) ? targets : null }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `apply-analysis failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
