@@ -261,6 +261,9 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             trim_start: item._trimStart || 0,
             trim_end: item._trimEnd ?? null,
             speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
+            // B-roll cutaway: when true, this clip plays VIDEO ONLY
+            // and the previous audio-source clip's audio extends.
+            use_prev_audio: !!item._usePrevAudio,
           })
         }
       }
@@ -464,6 +467,33 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                           <span className="text-[#d97706]">trimmed</span>
                         )}
                         <div className="flex-1" />
+                        {!itemIsPhoto && pos > 0 && (
+                          <label
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                              item._usePrevAudio
+                                ? 'bg-[#f3f0ff] border-[#6C5CE7]/50 text-[#6C5CE7] font-medium'
+                                : 'bg-white border-border text-muted'
+                            }`}
+                            title="When checked, this clip plays VIDEO ONLY during the merge and the previous audio-source clip's audio extends across this clip's duration. Useful for B-roll cutaways: keep the singing playing while showing the cake."
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!!item._usePrevAudio}
+                              onChange={e => {
+                                item._usePrevAudio = e.target.checked
+                                try { window.dispatchEvent(new CustomEvent('posty-use-prev-audio-change', { detail: { itemId: item.id } })) } catch {}
+                                if (mergedUrl) {
+                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                  setMergedUrl(null)
+                                  mergedBlobRef.current = null
+                                  window._postyMergedVideo = null
+                                }
+                              }}
+                              className="w-3 h-3"
+                            />
+                            <span className="text-[10px]">{item._usePrevAudio ? 'Use prev audio' : 'Own audio'}</span>
+                          </label>
+                        )}
                         {!itemIsPhoto && (
                           <label
                             className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${

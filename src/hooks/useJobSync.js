@@ -181,6 +181,24 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Save the B-roll cutaway flag — when true, this clip plays VIDEO
+  // ONLY during merge and the previous audio-source clip's audio
+  // extends across this clip's duration. Persists to job_files
+  // .use_prev_audio. The merge pipeline (lib/video.js mergeVideos)
+  // composites the audio when any clip carries this flag.
+  const saveFileUsePrevAudio = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        use_prev_audio: !!file._usePrevAudio,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save use_prev_audio failed:', e.message)
+    }
+  }, [])
+
   // Save Ken Burns motion for a still photo. Used when the photo is part
   // of a video merge (photo-to-video-segment). Column already exists on
   // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
@@ -359,6 +377,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _trimStart: f.trim_start || 0,
             _trimEnd: f.trim_end ?? null,
             _speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
+            _usePrevAudio: !!f.use_prev_audio,
             _photoMotion: f.photo_to_video_motion || null,
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             _restored: true,
@@ -505,6 +524,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileToJob,
     saveFileTrim,
     saveFileSpeed,
+    saveFileUsePrevAudio,
     saveFilePhotoMotion,
     saveFileTrimThumbs,
     saveFileCaptions,
