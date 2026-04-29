@@ -812,20 +812,49 @@ function InsertOverlayControl({ item, allItems, onChange }) {
       {isInsert && (
         <>
           <span className="text-[10px]">@</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            value={Number(item._insertAtSec) >= 0 ? String(item._insertAtSec) : '0'}
-            onChange={e => {
-              const cleaned = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')
-              setAtSec(cleaned === '' || cleaned === '.' ? 0 : Number(cleaned))
-            }}
-            className="w-10 text-[10px] border border-[#6C5CE7]/30 rounded px-1 py-0 bg-white text-center"
-            title="Seconds into the host clip's trimmed output where this overlay starts"
-          />
+          <InsertAtSecInput value={item._insertAtSec} onChange={setAtSec} />
           <span className="text-[10px]">s</span>
         </>
       )}
     </span>
+  )
+}
+
+// Decimal-friendly input for the insert offset. Same pattern as
+// OverlaysPanelV2's DecimalInput: keep an internal draft string so a
+// trailing "." (mid-typing "1." → "1.5") survives parent rerenders
+// instead of getting eaten by the Number() round-trip. The previous
+// implementation pushed Number(cleaned) up on every keystroke, then
+// re-read String(_insertAtSec) on the next render — turning "1." into
+// "1" before the user could finish typing the decimal.
+function InsertAtSecInput({ value, onChange }) {
+  const [draft, setDraft] = useState(() => (value == null || value === '' ? '0' : String(value)))
+  const editingRef = useRef(false)
+  useEffect(() => {
+    if (!editingRef.current) {
+      const next = (value == null || value === '' ? '0' : String(value))
+      if (next !== draft) setDraft(next)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={draft}
+      onFocus={() => { editingRef.current = true }}
+      onChange={e => {
+        const cleaned = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')
+        setDraft(cleaned)
+        const n = cleaned === '' || cleaned === '.' ? 0 : Number(cleaned)
+        if (Number.isFinite(n)) onChange(n)
+      }}
+      onBlur={() => {
+        editingRef.current = false
+        setDraft(value == null || value === '' ? '0' : String(value))
+      }}
+      className="w-12 text-[10px] border border-[#6C5CE7]/30 rounded px-1 py-0 bg-white text-center"
+      title="Seconds into the host clip's trimmed output where this overlay starts"
+    />
   )
 }
