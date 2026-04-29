@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import RichTextEditor from './RichTextEditor'
 import { runsToFlatText } from './RichRunsEditor'
 
@@ -417,13 +417,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           <ResetColorsLink runs={openingRuns} setRuns={setOpeningRuns} />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Duration:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={openingDuration}
-              onChange={e => setOpeningDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
+            <DecimalInput value={openingDuration} onChange={setOpeningDuration} />
             <span>s</span>
           </div>
           <SlotYRow
@@ -449,22 +443,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           <ResetColorsLink runs={middleRuns} setRuns={setMiddleRuns} />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Start at:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={middleStartTime}
-              onChange={e => setMiddleStartTime(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
+            <DecimalInput value={middleStartTime} onChange={setMiddleStartTime} />
             <span>s · </span>
             <label>Duration:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={middleDuration}
-              onChange={e => setMiddleDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
+            <DecimalInput value={middleDuration} onChange={setMiddleDuration} />
             <span>s</span>
           </div>
           <SlotYRow
@@ -490,13 +472,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           <ResetColorsLink runs={closingRuns} setRuns={setClosingRuns} />
           <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
             <label>Duration:</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={closingDuration}
-              onChange={e => setClosingDuration(Number(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
+            <DecimalInput value={closingDuration} onChange={setClosingDuration} />
             <span>s</span>
           </div>
           <SlotYRow
@@ -527,6 +503,65 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
 // percentage value, and a clear "← Use global" button when an
 // override is active. Inheriting the global value reads as
 // "Y position: inherits global (70%)".
+// Decimal-friendly text input for second-precision timing fields.
+//
+// Bug we hit: a controlled input that does
+//   onChange={e => setValue(Number(e.target.value) || 0)}
+// can't accept decimals because typing "1." → Number("1.") = 1 →
+// state becomes 1 → input re-binds to "1" → the trailing "." is
+// erased before the user can type "5". Result: only whole numbers
+// accepted.
+//
+// Fix: keep the typed string locally while the field is being
+// edited; only coerce to Number on blur (or when the parent is
+// already storing strings). The parent's effects already do
+// Number(value) where they need a number, so it doesn't matter
+// whether the prop is a "1.5" string or a 1.5 number.
+function DecimalInput({ value, onChange, placeholder, ariaLabel }) {
+  // Keep an internal "draft" string so an in-progress decimal
+  // ("1.") survives parent re-renders. Sync to the parent's value
+  // when the field is NOT being edited so external changes
+  // (defaults, programmatic updates) flow through.
+  const [draft, setDraft] = useState(() => (value == null || value === '' ? '' : String(value)))
+  const editingRef = useRef(false)
+  useEffect(() => {
+    if (!editingRef.current) {
+      const next = (value == null || value === '' ? '' : String(value))
+      if (next !== draft) setDraft(next)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={draft}
+      placeholder={placeholder}
+      aria-label={ariaLabel}
+      onFocus={() => { editingRef.current = true }}
+      onChange={e => {
+        // Allow digits and at most one decimal separator.
+        const cleaned = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')
+        setDraft(cleaned)
+        // Push a parsed number up so live preview / save effects
+        // see the latest value mid-typing. Empty string and bare
+        // "." both flow up as 0; "1." flows up as 1; "1.5" as 1.5.
+        const n = cleaned === '' || cleaned === '.' ? 0 : Number(cleaned)
+        if (Number.isFinite(n)) onChange(n)
+      }}
+      onBlur={() => {
+        editingRef.current = false
+        // On blur, normalize the visible string to whatever the
+        // parent now considers canonical (e.g. trailing "." becomes
+        // "1"). Avoids visual confusion if focus moves away
+        // mid-decimal.
+        setDraft(value == null || value === '' ? '' : String(value))
+      }}
+      className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+    />
+  )
+}
+
 // Tiny "reset colors" link below each editor — only visible when
 // at least one run carries an explicit color override. Stripping
 // per-run color makes the slot fall back to the panel's global
