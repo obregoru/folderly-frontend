@@ -168,10 +168,18 @@ export default function EditorV2({
 
 function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos }) {
   // Show the merge UI when:
-  //   - There's at least one video (mixed draft or video-only) AND 2+ items, OR
-  //   - It's a photo-only draft and the user opted into combining into video.
+  //   - There's at least one video (mixed draft or video-only), OR
+  //   - It's a photo-only draft with 2+ items and the user opted into
+  //     combining into video.
+  //
+  // Single-video drafts also surface the merge UI so the user can
+  // apply trim and produce a merged_video_key — the rest of the
+  // pipeline (final-render, captions, voiceover sync, analyze) keys
+  // off that. Without it, a one-video draft was stuck at "no merge
+  // button to press" and downstream steps fell apart.
   const hasVideos = videoFiles.length > 0
-  const showMerge = files.length >= 2 && (hasVideos || (onlyPhotos && combinePhotosAsVideo))
+  const showMerge = hasVideos
+    || (onlyPhotos && combinePhotosAsVideo && files.length >= 2)
 
   return (
     <div className="space-y-3">

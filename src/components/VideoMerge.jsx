@@ -219,8 +219,13 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     try {
       const api = await import('../api')
       const isPhotoItem = (i) => i?.isImg || i?.file?.type?.startsWith('image/') || i?._mediaType?.startsWith('image/')
-      if (videoFiles.length < 2) {
-        throw new Error('Need at least 2 clips (photos or videos) to merge.')
+      // Single-clip "merge" is allowed — it normalizes the upload
+      // (re-encode to 1080×1920 H.264, applies trim, and produces
+      // the merged_video_key the rest of the pipeline keys off).
+      // Without this path, a one-video draft was stuck with no way
+      // to apply trim and feed downstream tabs.
+      if (videoFiles.length < 1) {
+        throw new Error('Need at least one clip to process.')
       }
       const clips = []
       for (let i = 0; i < videoFiles.length; i++) {
