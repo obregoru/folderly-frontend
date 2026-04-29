@@ -232,14 +232,17 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
         <button onClick={onClose} className="w-8 h-8 rounded-full bg-white text-black text-lg flex items-center justify-center border-none cursor-pointer" aria-label="Close">&times;</button>
       </div>
 
-      {/* Stage — host + insert stacked. The host video has audio
-          and controls. The insert video is positioned absolute on top,
-          muted, hidden by default (z-0 / opacity-0) and elevated to
-          z-30 when an insert is active. The relative wrapper sized to
-          object-contain dimensions keeps both <video>s aligned. */}
+      {/* Stage — host + insert stacked. The host video sizes itself
+          naturally (max-w-full max-h-full); the relative wrapper is
+          inline-block so it shrinks to fit the host's rendered box.
+          The overlay <video> uses absolute inset-0 to exactly match
+          the host's bounds, with object-contain to handle source
+          aspect mismatches. Hidden via z=0/opacity=0 by default;
+          elevated + opaque when an insert is active. Audio always
+          stays on the host (overlay is muted). */}
       <div className="flex-1 flex items-center justify-center p-4 min-h-0">
         {current.type === 'video' ? (
-          <div className="relative max-w-full max-h-full" style={{ aspectRatio: '9 / 16' }}>
+          <div className="relative" style={{ display: 'inline-block', maxWidth: '100%', maxHeight: '100%' }}>
             <video
               key={current.url}
               ref={videoRef}
@@ -247,12 +250,9 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
               controls
               playsInline
               crossOrigin={current.url && !current.url.startsWith('blob:') ? 'anonymous' : undefined}
-              className="absolute inset-0 w-full h-full object-contain bg-black"
-              style={{ zIndex: 10 }}
+              className="block max-w-full max-h-full bg-black"
+              style={{ position: 'relative', zIndex: 10 }}
             />
-            {/* Overlay player for B-roll inserts. Only mounts the src
-                when an insert is active so we don't pre-load every
-                insert. Muted always — audio stays on the host. */}
             {Array.isArray(current.inserts) && current.inserts.length > 0 && (
               <video
                 ref={insertVideoRef}
