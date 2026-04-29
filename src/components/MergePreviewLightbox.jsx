@@ -16,9 +16,15 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   const [idx, setIdx] = useState(0)
   const videoRef = useRef(null)
   const insertVideoRef = useRef(null)
+  const stageRef = useRef(null)
   // Currently-active insert index (within the host's inserts[] array)
   // or null when none is active. Gates the overlay <video>'s src + z.
   const [activeInsertIdx, setActiveInsertIdx] = useState(null)
+  // Rendered video bounds of the host element's actual pixels
+  // (after object-contain letterboxing). Used to position the
+  // overlay so it covers EXACTLY the host's video, not the
+  // element's full padded box.
+  const [hostBox, setHostBox] = useState(null)
   const photoTimerRef = useRef(null)
   // Guards a double-advance when timeupdate fires rapidly right at the
   // trim boundary. Without this, two sibling clips that share the same
@@ -90,21 +96,36 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
       // B-roll insert activation. atSec is in OUTPUT timeline (post-
       // speed). Host's currentTime is in SOURCE timeline starting at
       // trimStart. So outputElapsed = (currentTime - trimStart) / speed.
-      // When outputElapsed lands inside an insert's [atSec, atSec+outDur]
-      // window, swap the overlay <video>'s src to the insert + bring it
-      // forward via z-index. When the window ends, hide the overlay so
-      // the host's video shows again. Audio always stays on the host.
+      // The active insert's onEnded handler also flips activeInsertIdx
+      // to null, so the overlay disappears even if outDur was unknown.
       const inserts = Array.isArray(current.inserts) ? current.inserts : []
       if (inserts.length > 0) {
         const outputElapsed = (v.currentTime - start) / speed
+        // Best-known insert duration: explicit outDur from playlist >
+        // loaded videoElement.duration / speed > unknown (don't auto-
+        // deactivate based on time, rely on onEnded). Caches per
+        // insert via window-attached map keyed by insert id so we
+        // don't keep recomputing the fallback every tick.
+        const knownDurOf = (ins) => {
+          if (Number(ins.outDur) > 0) return Number(ins.outDur)
+          // Insert media element duration (only available when the
+          // overlay has been activated at least once for this insert).
+          const insV = insertVideoRef.current
+          if (insV && Number(insV.duration) > 0
+              && activeInsertIdx != null
+              && inserts[activeInsertIdx]?.id === ins.id) {
+            return Number(insV.duration) / (Number(ins.speed) || 1.0)
+          }
+          return null
+        }
         let nextActive = null
         for (let k = 0; k < inserts.length; k++) {
           const ins = inserts[k]
           const insStart = Number(ins.atSec) || 0
-          const insOutDur = Number(ins.outDur) > 0 ? Number(ins.outDur) : 0
-          // No outDur means "play insert to its natural end" — match
-          // the BE's eof_action=pass: just check we're past the start.
-          const insEnd = insOutDur > 0 ? insStart + insOutDur : Infinity
+          const insDur = knownDurOf(ins)
+          // When duration is unknown, only activate if we're at the
+          // start (don't extend forward indefinitely on every frame).
+          const insEnd = insDur != null ? insStart + insDur : insStart + 30
           if (outputElapsed >= insStart - 0.02 && outputElapsed < insEnd) {
             nextActive = k
             break
@@ -151,6 +172,59 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, current?.type, current?.url])
+
+  // Measure the HOST video's actual rendered video bounds (after
+  // object-contain letterboxing) so the overlay can be positioned
+  // exactly on top of it. Re-measures on metadata load + element
+  // resize. Without this, the overlay used the host element's full
+  // box (or its parent's inset:16) which usually covered a larger
+  // area than the host's letterboxed video pixels — making the
+  // insert appear MUCH bigger than the host underneath.
+  useEffect(() => {
+    const v = videoRef.current
+    const stage = stageRef.current
+    if (!v || !stage) return
+    const measure = () => {
+      const vw = Number(v.videoWidth) || 0
+      const vh = Number(v.videoHeight) || 0
+      if (!vw || !vh) return
+      const vRect = v.getBoundingClientRect()
+      const stageRect = stage.getBoundingClientRect()
+      if (!vRect.width || !vRect.height) return
+      const vAspect = vw / vh
+      const cAspect = vRect.width / vRect.height
+      let renderW, renderH
+      if (cAspect > vAspect) {
+        // Element wider than video — pillarbox left/right
+        renderH = vRect.height
+        renderW = renderH * vAspect
+      } else {
+        // Element taller than video — letterbox top/bottom
+        renderW = vRect.width
+        renderH = renderW / vAspect
+      }
+      const left = (vRect.left - stageRect.left) + (vRect.width - renderW) / 2
+      const top = (vRect.top - stageRect.top) + (vRect.height - renderH) / 2
+      setHostBox({ left, top, width: renderW, height: renderH })
+    }
+    measure()
+    v.addEventListener('loadedmetadata', measure)
+    v.addEventListener('resize', measure)
+    let ro = null
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(measure)
+      ro.observe(v)
+      ro.observe(stage)
+    }
+    window.addEventListener('resize', measure)
+    return () => {
+      v.removeEventListener('loadedmetadata', measure)
+      v.removeEventListener('resize', measure)
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.url])
 
   // Drive the B-roll insert overlay player. When activeInsertIdx
   // flips to a number, seek the overlay <video> to that insert's
@@ -241,7 +315,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
           so for matched-aspect sources it lands on the same letterboxed
           area as the host. Hidden via opacity-0 / pointer-events-none
           when no insert is active. Audio always stays on the host. */}
-      <div className="flex-1 flex items-center justify-center p-4 min-h-0 relative">
+      <div ref={stageRef} className="flex-1 flex items-center justify-center p-4 min-h-0 relative">
         {current.type === 'video' ? (
           <>
             <video
@@ -254,7 +328,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
               className="max-w-full max-h-full object-contain bg-black"
               style={{ position: 'relative', zIndex: 10 }}
             />
-            {Array.isArray(current.inserts) && current.inserts.length > 0 && (
+            {Array.isArray(current.inserts) && current.inserts.length > 0 && hostBox && (
               <video
                 ref={insertVideoRef}
                 src={activeInsertIdx != null && current.inserts[activeInsertIdx]
@@ -262,6 +336,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
                   : undefined}
                 muted
                 playsInline
+                onEnded={() => setActiveInsertIdx(null)}
                 crossOrigin={
                   activeInsertIdx != null
                     && current.inserts[activeInsertIdx]?.url
@@ -272,13 +347,23 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
                   activeInsertIdx != null ? 'opacity-100' : 'opacity-0'
                 }`}
                 style={{
-                  inset: '16px',                   // match parent's p-4
+                  // Pinned to the host's actual rendered video pixels
+                  // so the overlay covers exactly the host's letterboxed
+                  // area. Without this, the overlay used the parent's
+                  // padded box and looked much larger than the host.
+                  left: hostBox.left,
+                  top: hostBox.top,
+                  width: hostBox.width,
+                  height: hostBox.height,
                   zIndex: activeInsertIdx != null ? 20 : -1,
                 }}
               />
             )}
-            {activeInsertIdx != null && (
-              <div className="absolute top-4 left-4 z-30 bg-[#6C5CE7]/90 text-white text-[10px] rounded-full px-2 py-0.5 pointer-events-none">
+            {activeInsertIdx != null && hostBox && (
+              <div
+                className="absolute z-30 bg-[#6C5CE7]/90 text-white text-[10px] rounded-full px-2 py-0.5 pointer-events-none"
+                style={{ left: hostBox.left + 8, top: hostBox.top + 8 }}
+              >
                 ↳ Insert: {current.inserts[activeInsertIdx]?.filename || `#${activeInsertIdx + 1}`}
               </div>
             )}
