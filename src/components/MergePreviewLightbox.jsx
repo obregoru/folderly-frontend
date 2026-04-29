@@ -15,6 +15,10 @@ import { useEffect, useRef, useState } from 'react'
 export default function MergePreviewLightbox({ playlist, onClose }) {
   const [idx, setIdx] = useState(0)
   const videoRef = useRef(null)
+  const insertVideoRef = useRef(null)
+  // Currently-active insert index (within the host's inserts[] array)
+  // or null when none is active. Gates the overlay <video>'s src + z.
+  const [activeInsertIdx, setActiveInsertIdx] = useState(null)
   const photoTimerRef = useRef(null)
   // Guards a double-advance when timeupdate fires rapidly right at the
   // trim boundary. Without this, two sibling clips that share the same
@@ -47,6 +51,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   // for trimEnd, advance on end-of-segment or natural end.
   useEffect(() => {
     advancingRef.current = false // new clip, re-arm the guard
+    setActiveInsertIdx(null)     // a new host = no insert active yet
     if (!current || current.type !== 'video') return
     const v = videoRef.current
     if (!v) return
@@ -81,6 +86,35 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     const onTime = () => {
       if (advancingRef.current) return
       const max = end != null ? end : (Number.isFinite(v.duration) ? v.duration : Infinity)
+
+      // B-roll insert activation. atSec is in OUTPUT timeline (post-
+      // speed). Host's currentTime is in SOURCE timeline starting at
+      // trimStart. So outputElapsed = (currentTime - trimStart) / speed.
+      // When outputElapsed lands inside an insert's [atSec, atSec+outDur]
+      // window, swap the overlay <video>'s src to the insert + bring it
+      // forward via z-index. When the window ends, hide the overlay so
+      // the host's video shows again. Audio always stays on the host.
+      const inserts = Array.isArray(current.inserts) ? current.inserts : []
+      if (inserts.length > 0) {
+        const outputElapsed = (v.currentTime - start) / speed
+        let nextActive = null
+        for (let k = 0; k < inserts.length; k++) {
+          const ins = inserts[k]
+          const insStart = Number(ins.atSec) || 0
+          const insOutDur = Number(ins.outDur) > 0 ? Number(ins.outDur) : 0
+          // No outDur means "play insert to its natural end" — match
+          // the BE's eof_action=pass: just check we're past the start.
+          const insEnd = insOutDur > 0 ? insStart + insOutDur : Infinity
+          if (outputElapsed >= insStart - 0.02 && outputElapsed < insEnd) {
+            nextActive = k
+            break
+          }
+        }
+        if (nextActive !== activeInsertIdx) {
+          setActiveInsertIdx(nextActive)
+        }
+      }
+
       if (v.currentTime >= max - 0.05) {
         console.log(`[preview] ✂ clip ${fromIdx + 1} hit end at ${v.currentTime.toFixed(2)}s (max=${max.toFixed(2)}s) → ${isLast ? 'stop' : 'advance'}`)
         advancingRef.current = true
@@ -117,6 +151,47 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, current?.type, current?.url])
+
+  // Drive the B-roll insert overlay player. When activeInsertIdx
+  // flips to a number, seek the overlay <video> to that insert's
+  // trimStart and play it muted (audio always stays on the host).
+  // When it flips back to null, pause + hide the overlay.
+  useEffect(() => {
+    const v = insertVideoRef.current
+    if (!v) return
+    const inserts = Array.isArray(current?.inserts) ? current.inserts : []
+    if (activeInsertIdx == null || !inserts[activeInsertIdx]) {
+      try { v.pause() } catch {}
+      return
+    }
+    const ins = inserts[activeInsertIdx]
+    const insSpeed = Number(ins.speed) > 0 ? Number(ins.speed) : 1.0
+    const insStart = Number(ins.trimStart) || 0
+    const apply = () => {
+      try { v.muted = true } catch {}
+      try { v.playbackRate = insSpeed } catch {}
+      try { v.currentTime = insStart } catch {}
+      try { const p = v.play(); if (p && p.catch) p.catch(() => {}) } catch {}
+    }
+    // If the src changed (different insert), wait for metadata; else
+    // apply immediately.
+    if (v.readyState >= 2) {
+      apply()
+    } else {
+      const onReady = () => {
+        apply()
+        v.removeEventListener('loadedmetadata', onReady)
+        v.removeEventListener('canplay', onReady)
+      }
+      v.addEventListener('loadedmetadata', onReady)
+      v.addEventListener('canplay', onReady)
+      return () => {
+        v.removeEventListener('loadedmetadata', onReady)
+        v.removeEventListener('canplay', onReady)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeInsertIdx, current?.id])
 
   // Drive photo "playback" — show for N seconds then advance.
   useEffect(() => {
@@ -157,18 +232,53 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
         <button onClick={onClose} className="w-8 h-8 rounded-full bg-white text-black text-lg flex items-center justify-center border-none cursor-pointer" aria-label="Close">&times;</button>
       </div>
 
-      {/* Stage */}
+      {/* Stage — host + insert stacked. The host video has audio
+          and controls. The insert video is positioned absolute on top,
+          muted, hidden by default (z-0 / opacity-0) and elevated to
+          z-30 when an insert is active. The relative wrapper sized to
+          object-contain dimensions keeps both <video>s aligned. */}
       <div className="flex-1 flex items-center justify-center p-4 min-h-0">
         {current.type === 'video' ? (
-          <video
-            key={current.url}
-            ref={videoRef}
-            src={current.url}
-            controls
-            playsInline
-            crossOrigin={current.url && !current.url.startsWith('blob:') ? 'anonymous' : undefined}
-            className="max-w-full max-h-full object-contain bg-black"
-          />
+          <div className="relative max-w-full max-h-full" style={{ aspectRatio: '9 / 16' }}>
+            <video
+              key={current.url}
+              ref={videoRef}
+              src={current.url}
+              controls
+              playsInline
+              crossOrigin={current.url && !current.url.startsWith('blob:') ? 'anonymous' : undefined}
+              className="absolute inset-0 w-full h-full object-contain bg-black"
+              style={{ zIndex: 10 }}
+            />
+            {/* Overlay player for B-roll inserts. Only mounts the src
+                when an insert is active so we don't pre-load every
+                insert. Muted always — audio stays on the host. */}
+            {Array.isArray(current.inserts) && current.inserts.length > 0 && (
+              <video
+                ref={insertVideoRef}
+                src={activeInsertIdx != null && current.inserts[activeInsertIdx]
+                  ? current.inserts[activeInsertIdx].url
+                  : undefined}
+                muted
+                playsInline
+                crossOrigin={
+                  activeInsertIdx != null
+                    && current.inserts[activeInsertIdx]?.url
+                    && !current.inserts[activeInsertIdx].url.startsWith('blob:')
+                    ? 'anonymous' : undefined
+                }
+                className={`absolute inset-0 w-full h-full object-contain bg-black pointer-events-none transition-opacity duration-100 ${
+                  activeInsertIdx != null ? 'opacity-100' : 'opacity-0'
+                }`}
+                style={{ zIndex: activeInsertIdx != null ? 20 : 0 }}
+              />
+            )}
+            {activeInsertIdx != null && (
+              <div className="absolute top-2 left-2 z-30 bg-[#6C5CE7]/90 text-white text-[10px] rounded-full px-2 py-0.5 pointer-events-none">
+                ↳ Insert: {current.inserts[activeInsertIdx]?.filename || `#${activeInsertIdx + 1}`}
+              </div>
+            )}
+          </div>
         ) : (
           <img
             key={current.url}

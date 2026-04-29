@@ -206,22 +206,46 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   }
 
   const handlePreviewMerge = () => {
-    // Inserts (clips marked as B-roll overlays) don't belong in the
-    // sequential preview — they'd show as extra clips back-to-back
-    // instead of layered onto their host's timeline. The lightbox
-    // plays HOSTS only here. The actual merge composites overlays
-    // server-side; an accurate insert preview would require timed
-    // source-swapping in the browser, which is more complex than
-    // this fast-iteration tool warrants. Once the user merges, the
-    // FinalPreview shows the composited result.
-    const hostsOnly = (videoFiles || []).filter(it => it && it._insertIntoFileId == null)
-    const insertCount = (videoFiles || []).length - hostsOnly.length
-    const playlist = hostsOnly.map(itemToPlaylistEntry).filter(c => c.url)
+    // Build a host-only sequential playlist, but attach each host's
+    // B-roll inserts as a sub-array so the lightbox can swap a
+    // second video element on top of the host at the right OUTPUT
+    // time. Inserts never sit in the main play order — they layer
+    // onto their host's timeline and the lightbox handles the
+    // z-stack swap.
+    const items = videoFiles || []
+    const hostsOnly = items.filter(it => it && it._insertIntoFileId == null)
+    const isPhoto = it => it?.isImg || it?.file?.type?.startsWith('image/') || it?._mediaType?.startsWith('image/')
+    const playlist = hostsOnly.map(host => {
+      const baseEntry = itemToPlaylistEntry(host)
+      if (!baseEntry || baseEntry.type !== 'video') return baseEntry
+      // Find inserts whose host db id matches this host's, in the
+      // order they appear in the file list (deterministic).
+      const inserts = items
+        .filter(it => it && !isPhoto(it) && it._insertIntoFileId != null && it._insertIntoFileId === host._dbFileId)
+        .map(ins => {
+          const insEntry = itemToPlaylistEntry(ins)
+          if (!insEntry || !insEntry.url) return null
+          const trimLen = insEntry.trimEnd != null && insEntry.trimEnd > 0
+            ? Math.max(0.1, insEntry.trimEnd - (insEntry.trimStart || 0))
+            : null
+          const outDur = trimLen != null ? trimLen / (insEntry.speed || 1.0) : null
+          return {
+            id: insEntry.id,
+            url: insEntry.url,
+            filename: insEntry.filename,
+            trimStart: insEntry.trimStart || 0,
+            trimEnd: insEntry.trimEnd,
+            speed: insEntry.speed || 1.0,
+            atSec: Number(ins._insertAtSec) >= 0 ? Number(ins._insertAtSec) : 0,
+            outDur, // null = play to natural end of insert (ffmpeg eof_action=pass)
+          }
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.atSec - b.atSec)
+      return { ...baseEntry, inserts }
+    }).filter(c => c && c.url)
     if (playlist.length === 0) { setError('Nothing to preview — no media with a usable URL.'); return }
-    if (insertCount > 0) {
-      setError(null)
-      console.log(`[preview] ${insertCount} insert(s) excluded from sequential preview — they render in the actual merge.`)
-    }
+    setError(null)
     setPreviewPlaylist(playlist)
   }
 
