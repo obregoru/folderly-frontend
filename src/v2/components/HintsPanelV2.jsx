@@ -247,20 +247,48 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
 
   // Apply a hook as the opening overlay text (0-2s). Merges with existing
   // overlay_settings so per-block durations / style / Y position survive.
+  // Uses the in-memory window._postyOverlays first (fast, sync) and only
+  // falls back to api.getJob when nothing's been broadcast yet — earlier
+  // version round-tripped to the server every click and silently hung
+  // when getJob took too long, which read as "the button doesn't work."
   const applyAsOpening = async (opt) => {
+    console.log('[hook-apply] click', { opt, draftId, hasJobSync: !!jobSync, hasSaveOverlay: !!jobSync?.saveOverlaySettings })
     const text = typeof opt === 'string' ? opt : opt?.text
-    if (!text) return
+    if (!text) {
+      console.warn('[hook-apply] no text on opt — bailing', opt)
+      return
+    }
+    if (!draftId) {
+      alert("Open a draft first — there's no job to attach the overlay to.")
+      return
+    }
+    let existing = {}
     try {
-      const existingJob = await api.getJob(draftId)
-      const existing = existingJob?.overlay_settings || {}
+      // 1. In-memory broadcast wins when present (no network).
+      if (typeof window !== 'undefined' && window._postyOverlays) {
+        existing = window._postyOverlays
+      } else {
+        // 2. Fall back to getJob, but DON'T let it gate the apply —
+        // a slow/failed fetch shouldn't break the button.
+        try {
+          const j = await Promise.race([
+            api.getJob(draftId),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('getJob timeout')), 4000)),
+          ])
+          existing = j?.overlay_settings || {}
+        } catch (e) {
+          console.warn('[hook-apply] getJob failed/timed out, applying with empty existing:', e?.message)
+          existing = {}
+        }
+      }
       const next = {
         ...existing,
         openingText: text,
-        // Only set duration when not already present so we don't clobber
-        // a user-chosen value.
         openingDuration: existing.openingDuration || 2.5,
       }
-      jobSync?.saveOverlaySettings?.(next)
+      try { jobSync?.saveOverlaySettings?.(next) } catch (e) {
+        console.error('[hook-apply] saveOverlaySettings threw:', e)
+      }
       try {
         if (typeof window !== 'undefined') {
           window._postyOverlays = next
@@ -268,10 +296,11 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
         }
       } catch {}
       setHookAppliedTo({ text, from: 'just-applied' })
-      // Persist which option was selected so reload shows "applied as opening".
       saveHooks({ selected: typeof opt === 'string' ? { text: opt } : opt })
+      console.log('[hook-apply] success, text applied:', text)
     } catch (e) {
-      alert('Apply failed: ' + e.message)
+      console.error('[hook-apply] failed:', e)
+      alert('Apply failed: ' + (e?.message || String(e)))
     }
   }
 
