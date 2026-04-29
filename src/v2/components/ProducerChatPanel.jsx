@@ -30,13 +30,20 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
 
   // Paste-import state. parsed = the structured fields the BE
   // extracted from the pasted text; the user reviews + Applies.
+  // The same `parsed` slot is reused by the "Apply latest reply"
+  // flow — the source (paste vs latest-message) is tracked in
+  // parsedSource so the UI can label the review block.
   const [pasteOpen, setPasteOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [importing, setImporting] = useState(false)
   const [parsed, setParsed] = useState(null)
+  const [parsedSource, setParsedSource] = useState(null) // 'paste' | 'latest'
   const [applying, setApplying] = useState(false)
   const [applyErr, setApplyErr] = useState(null)
   const [applyMsg, setApplyMsg] = useState(null)
+  // True only while the latest-reply extractor is running so the
+  // button can show a spinner without confusing the paste flow.
+  const [extractingLatest, setExtractingLatest] = useState(false)
 
   // Hydrate prior chat turns on draft change. Each ai_log row =
   // one user→assistant turn, flattened back into the messages shape.
@@ -110,16 +117,57 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
     if (!text) return
     setImporting(true)
     setParsed(null)
+    setParsedSource(null)
     setApplyErr(null)
     setApplyMsg(null)
     try {
       const r = await api.producerImport(draftId, text)
       setParsed(r)
+      setParsedSource('paste')
     } catch (e) {
       setApplyErr(e?.message || String(e))
     } finally {
       setImporting(false)
     }
+  }
+
+  // Extract structured fields (overlay text, primary VO, segments,
+  // caption, hashtags) from the most recent assistant message. Same
+  // server-side parser as the paste flow — we just feed it the chat
+  // reply instead of pasted text. One round-trip per click; the
+  // producer's prose stays unconstrained.
+  const lastAssistant = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === 'assistant' && messages[i]?.content?.trim()) return messages[i].content
+    }
+    return null
+  })()
+
+  const applyLatestReply = async () => {
+    if (!lastAssistant || extractingLatest) return
+    setExtractingLatest(true)
+    setParsed(null)
+    setParsedSource(null)
+    setApplyErr(null)
+    setApplyMsg(null)
+    try {
+      const r = await api.producerImport(draftId, lastAssistant)
+      setParsed(r)
+      setParsedSource('latest')
+    } catch (e) {
+      setApplyErr(e?.message || String(e))
+    } finally {
+      setExtractingLatest(false)
+    }
+  }
+
+  // Open this draft's producer chat in a new browser tab so the
+  // user can keep editing in the original window. The popup mode
+  // is handled in main.jsx by ?producerPopout=<draftId>.
+  const popOut = () => {
+    if (!draftId) return
+    const url = `${window.location.origin}/?producerPopout=${encodeURIComponent(draftId)}`
+    window.open(url, '_blank', 'noopener')
   }
 
   // Track which extracted fields the user wants to apply. Default ON
@@ -232,11 +280,23 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
 
   const showStreamingBubble = streaming && (streamText || true)
   const empty = !streaming && messages.length === 0 && historyLoaded
+  // Popup window already IS a separate browser tab — hide the
+  // pop-out button there to avoid an infinite tab-spawn footgun.
+  const isPopout = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('producerPopout') != null
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <div className="text-[12px] font-medium flex-1">🎬 Producer Chat</div>
+        {!isPopout && (
+          <button
+            onClick={popOut}
+            disabled={!draftId}
+            className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+            title="Open this conversation in a new browser tab so you can keep editing"
+          >↗ Pop out</button>
+        )}
         <button
           onClick={reset}
           disabled={streaming || messages.length === 0}
@@ -297,6 +357,41 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
         )}
       </div>
 
+      {/* Apply-latest-reply — pull the structured fields (primary
+          VO, segments, overlays, caption, hashtags) out of the most
+          recent producer reply and run them through the same
+          review-and-apply flow as the paste-import. The producer's
+          prose stays unconstrained; the parse only happens when
+          the user clicks. */}
+      {lastAssistant && (
+        <button
+          onClick={applyLatestReply}
+          disabled={extractingLatest || streaming}
+          className="w-full text-[10px] py-1.5 px-2 border border-[#2D9A5E]/50 text-[#2D9A5E] bg-[#f0faf4] rounded cursor-pointer disabled:opacity-50 font-medium"
+          title="Extract overlays / voiceover / caption from the producer's last reply"
+        >
+          {extractingLatest ? 'Extracting…' : '✨ Apply latest reply to draft'}
+        </button>
+      )}
+
+      {/* Review block lives at the panel level so it surfaces from
+          BOTH sources — the latest-reply button above and the
+          paste flow below. The source label inside ParsedReview
+          tells the user where the candidates came from. */}
+      {parsed && parsedSource === 'latest' && (
+        <ParsedReview
+          parsed={parsed}
+          source="latest"
+          choices={applyChoices}
+          setChoices={setApplyChoices}
+          applying={applying}
+          applyErr={applyErr}
+          applyMsg={applyMsg}
+          onApply={applySelection}
+          onClear={() => { setParsed(null); setParsedSource(null); setApplyErr(null); setApplyMsg(null) }}
+        />
+      )}
+
       {/* Grade content — score a hook / voiceover line / caption with
           structured feedback (strengths, weaknesses, AI-detection
           score à la ZeroGPT, viral potential, concrete rewrites).
@@ -335,22 +430,24 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
                 disabled={!pasteText.trim() || importing}
                 className="flex-1 text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
               >{importing ? 'Processing…' : 'Process'}</button>
-              {parsed && (
+              {parsed && parsedSource === 'paste' && (
                 <button
-                  onClick={() => { setParsed(null); setPasteText(''); setApplyErr(null); setApplyMsg(null) }}
+                  onClick={() => { setParsed(null); setParsedSource(null); setPasteText(''); setApplyErr(null); setApplyMsg(null) }}
                   className="text-[10px] py-1.5 px-3 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
                 >Clear</button>
               )}
             </div>
-            {parsed && (
+            {parsed && parsedSource === 'paste' && (
               <ParsedReview
                 parsed={parsed}
+                source="paste"
                 choices={applyChoices}
                 setChoices={setApplyChoices}
                 applying={applying}
                 applyErr={applyErr}
                 applyMsg={applyMsg}
                 onApply={applySelection}
+                onClear={() => { setParsed(null); setParsedSource(null); setPasteText(''); setApplyErr(null); setApplyMsg(null) }}
               />
             )}
           </div>
@@ -379,7 +476,10 @@ function ChatBubble({ role, content, streaming }) {
   )
 }
 
-function ParsedReview({ parsed, choices, setChoices, applying, applyErr, applyMsg, onApply }) {
+function ParsedReview({ parsed, source, choices, setChoices, applying, applyErr, applyMsg, onApply, onClear }) {
+  const sourceLabel = source === 'latest'
+    ? 'Extracted from latest producer reply'
+    : 'Extracted from pasted text'
   const has = (k) => k in choices
   const toggle = (k) => setChoices(c => ({ ...c, [k]: !c[k] }))
   const fields = []
@@ -401,10 +501,18 @@ function ParsedReview({ parsed, choices, setChoices, applying, applyErr, applyMs
   }
 
   return (
-    <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1.5 mt-1">
-      <div className="text-[10px] font-medium">Extracted — review and apply</div>
+    <div className="bg-white border border-[#2D9A5E]/30 rounded p-2 space-y-1.5 mt-1">
+      <div className="flex items-center gap-2">
+        <div className="text-[10px] font-medium flex-1">{sourceLabel} — review and apply</div>
+        {onClear && (
+          <button
+            onClick={onClear}
+            className="text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+          >Clear</button>
+        )}
+      </div>
       {fields.length === 0 && (
-        <div className="text-[10px] text-muted italic">Nothing structured was found in the paste.</div>
+        <div className="text-[10px] text-muted italic">No structured fields detected in the {source === 'latest' ? 'reply' : 'paste'}.</div>
       )}
       {fields.map(f => (
         <label
