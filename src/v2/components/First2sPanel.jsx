@@ -178,22 +178,42 @@ export default function First2sPanel({ draftId, jobSync }) {
           window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: next }))
         } catch {}
       } else if (which === 'voiceover' && p.primary) {
-        // Persist as the synthetic __primary__ segment via the same
-        // shape VoiceoverPanelV2 uses, by mutating voiceover_settings
-        // through jobSync's existing helper.
+        // Wipe existing VO state and write the proposed primary as
+        // the ONLY segment. The user explicitly asked for a clean
+        // slate when applying analyzer suggestions — don't merge
+        // with prior segments because the old timed beats were
+        // written for old hook text and would mismatch the new
+        // primary's pacing / payoff.
+        //
+        // Steps:
+        //   1. Replace voiceover_settings.segments with ONE new
+        //      primary (audioKey + duration null so the next render
+        //      re-generates audio for the new text).
+        //   2. Null out jobs.voiceover_audio_key so the persisted
+        //      primary mp3 from before doesn't bleed into the next
+        //      bake. Best-effort — failure here doesn't block.
         const r = await api.getJob(draftId).catch(() => null)
         const vo = r?.voiceover_settings || {}
-        const segs = Array.isArray(vo.segments) ? [...vo.segments] : []
-        const idx = segs.findIndex(s => s?.id === '__primary__')
         const nextPrimary = {
-          id: '__primary__', startTime: 0, text: p.primary,
-          audioKey: null, duration: null, speed: 1.0,
+          id: '__primary__',
+          startTime: 0,
+          text: p.primary,
+          audioKey: null,
+          duration: null,
+          speed: 1.0,
         }
-        if (idx >= 0) segs[idx] = { ...segs[idx], text: p.primary, duration: null }
-        else segs.unshift(nextPrimary)
-        const nextVo = { ...vo, segments: segs }
+        const nextVo = { ...vo, segments: [nextPrimary] }
         jobSync?.saveVoiceoverSettings?.(nextVo)
         try { window.dispatchEvent(new CustomEvent('posty-voiceover-change', { detail: nextVo })) } catch {}
+        // BE PUT /jobs/:id requires the clear_voiceover_audio:true
+        // sentinel to actually NULL voiceover_audio_key — passing
+        // { voiceover_audio_key: null } gets COALESCE'd back to the
+        // existing value. (See routes/jobs.js:155 for context.)
+        try {
+          await api.updateJob(draftId, { clear_voiceover_audio: true })
+        } catch (e) {
+          console.warn('[apply-analysis] clearing voiceover_audio_key failed:', e?.message)
+        }
       } else if (which === 'captionStyle') {
         const fields = {}
         if (p.baseFontSize != null) fields.base_font_size = p.baseFontSize
