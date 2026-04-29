@@ -33,6 +33,7 @@ function api(path) {
 // CSRF token — set on login and /me, sent with every state-changing request
 let _csrfToken = ''
 export function setCsrfToken(token) { _csrfToken = token }
+export function getCsrfToken() { return _csrfToken }
 
 function h(extra = {}) {
   const base = { 'Content-Type': 'application/json', ...extra }
@@ -42,6 +43,59 @@ function h(extra = {}) {
 
 function csrf() {
   return _csrfToken ? { 'X-CSRF-Token': _csrfToken } : {}
+}
+
+// Auto-refresh the in-memory CSRF token by calling /me. Used by the
+// fetch wrappers below on a 403 "Invalid CSRF token" response so the
+// user doesn't have to manually reload the page after their session
+// was rotated server-side (e.g. silent session refresh, secondary
+// tab login, OAuth-triggered cookie change).
+let _csrfRefreshPromise = null
+async function refreshCsrf() {
+  if (_csrfRefreshPromise) return _csrfRefreshPromise
+  _csrfRefreshPromise = (async () => {
+    try {
+      const r = await fetch(`${BASE}/api/auth/me`, { credentials: 'include' })
+      if (!r.ok) return false
+      const data = await r.json().catch(() => null)
+      if (data?.csrf_token) {
+        _csrfToken = data.csrf_token
+        return true
+      }
+      return false
+    } finally {
+      // Clear so the NEXT 403 (much later) can trigger a fresh fetch.
+      setTimeout(() => { _csrfRefreshPromise = null }, 0)
+    }
+  })()
+  return _csrfRefreshPromise
+}
+
+// fetch wrapper that retries ONCE on 403 "Invalid CSRF token" after
+// rehydrating /me. Use for any state-changing request whose 403 path
+// would otherwise surface a confusing "Invalid CSRF token" error to
+// the user.
+async function csrfFetch(url, init) {
+  const r = await fetch(url, init)
+  if (r.status !== 403) return r
+  // Peek without consuming so the caller can still read the body if
+  // it ends up being a real failure.
+  const cloned = r.clone()
+  let body = null
+  try { body = await cloned.json() } catch { /* not JSON */ }
+  if (body?.error !== 'Invalid CSRF token') return r
+  const refreshed = await refreshCsrf()
+  if (!refreshed) return r
+  // Re-issue with the fresh token. init.headers may be the result of
+  // h(), csrf(), or a literal — rebuild minimally so we don't lose
+  // a user-provided body type (e.g. FormData).
+  const nextInit = { ...(init || {}) }
+  const prevHeaders = (init && init.headers) || {}
+  nextInit.headers = {
+    ...prevHeaders,
+    'X-CSRF-Token': _csrfToken,
+  }
+  return fetch(url, nextInit)
 }
 
 // Health
@@ -839,13 +893,13 @@ export const saveSegmentTransition = (jobUuid, body) =>
 export const saveScheduledPostAnalytics = (uuid, patch) =>
   fetch(api(`/schedule/${uuid}/analytics`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(patch) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const retryScheduledPost = (uuid, scheduledAt) =>
-  fetch(api(`/schedule/${uuid}/retry`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ scheduled_at: scheduledAt }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  csrfFetch(api(`/schedule/${uuid}/retry`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ scheduled_at: scheduledAt }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const deleteScheduledPost = (uuid) =>
-  fetch(api(`/schedule/${uuid}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
+  csrfFetch(api(`/schedule/${uuid}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const updateScheduledPost = (uuid, { caption, title, scheduled_at } = {}) =>
-  fetch(api(`/schedule/${uuid}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify({ caption, title, scheduled_at }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  csrfFetch(api(`/schedule/${uuid}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify({ caption, title, scheduled_at }) }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 export const markScheduledPostPosted = (uuid) =>
-  fetch(api(`/schedule/${uuid}/mark-posted`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
+  csrfFetch(api(`/schedule/${uuid}/mark-posted`), { method: 'POST', headers: csrf(), credentials: 'include' }).then(r => { if (!r.ok) return r.json().then(e => { throw new Error(e.error) }); return r.json() })
 
 // Producer Chat — streaming Claude conversation scoped to one draft.
 // onChunk fires per token so the panel can paint as text arrives.
