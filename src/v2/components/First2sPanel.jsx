@@ -101,20 +101,25 @@ export default function First2sPanel({ draftId, jobSync }) {
       // — no more "I downloaded yesterday but my new captions
       // aren't in the analyzed frames" gotcha.
       setStage('baking')
-      let primaryBase64 = null
+      // Analyze auto-bake DELIBERATELY does not pass primary_audio_base64.
+      //
+      // Why: when the BE sees primary_audio_base64 it sets skipCache=true,
+      // which skips BOTH the cache hit and the cache writeback (keys +
+      // fingerprint). So a fresh re-render from analyze WITHOUT this guard
+      // wouldn't update final_media_fingerprint — the next analyze would
+      // detect "stale final" even though the bake just finished, and use
+      // the previous final's frames for vision. Exactly the bug the user
+      // reported in the Railway logs.
+      //
+      // The BE has the persisted voiceover_audio_key on the job row +
+      // any persisted segment audio_keys, so dropping the in-memory
+      // base64 means the render still has the right voice tracks. The
+      // DownloadFinalButton still passes base64 because it covers the
+      // unsaved-in-session case where the user hasn't pressed Generate
+      // yet — but Analyze always runs against persisted state, so it
+      // doesn't need the bypass.
       try {
-        const primaryEl = document.querySelector('audio[data-posty-primary-voice]')
-        if (primaryEl?.src) {
-          const r = await fetch(primaryEl.src)
-          const b = await r.blob()
-          const buf = new Uint8Array(await b.arrayBuffer())
-          let bin = ''
-          for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i])
-          primaryBase64 = btoa(bin)
-        }
-      } catch { /* persisted primary still works server-side */ }
-      try {
-        await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
+        await api.renderFinal({ jobUuid: draftId })
       } catch (e) {
         // Render failure shouldn't kill analyze — fall through and
         // analyze whatever the BE has (likely the raw merge with a
