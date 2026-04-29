@@ -411,7 +411,7 @@ export const generateVoiceoverScript = ({ jobUuid, mode, segmentLength, hook, se
     }),
   }).then(r => r.json())
 
-export const generateVoiceoverHook = ({ hint, category, includeBody, count, frames, audienceOverride, visualContext, jobUuid } = {}) =>
+export const generateVoiceoverHook = ({ hint, category, includeBody, count, frames, audienceOverride, visualContext, jobUuid, rawMode } = {}) =>
   fetch(api('/generate/voiceover-hook'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -425,6 +425,7 @@ export const generateVoiceoverHook = ({ hint, category, includeBody, count, fram
       audience_override: audienceOverride || 'auto',
       visual_context: visualContext || null,
       job_uuid: jobUuid || null,
+      raw_mode: !!rawMode,
     }),
   }).then(r => r.json())
 

@@ -72,6 +72,12 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
   const [hookCategories, setHookCategories] = useState([])
   const [hookCategory, setHookCategory] = useState('')
   const [hookCount, setHookCount] = useState(4)
+  // "Raw" mode skips brand voice / tone / key insights / vocabulary
+  // and asks the model for the most TikTok-native scroll-stopping
+  // hooks possible. Useful when the brand's polite tone is washing
+  // out the hook strength. Off by default so existing flows behave
+  // identically.
+  const [hookRawMode, setHookRawMode] = useState(false)
   const [hookHint, setHookHint] = useState('')
   const [hookGenerating, setHookGenerating] = useState(false)
   const [hookOptions, setHookOptions] = useState([])
@@ -217,6 +223,7 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
         category: hookCategory || null,
         count: Number(hookCount) || 4,
         jobUuid: draftId || null,
+        rawMode: hookRawMode,
       })
       if (r?.error) throw new Error(r.error)
       // Endpoint shape varies; normalize to [{text, family?, reason?}]
@@ -514,11 +521,29 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
             />
           </div>
 
+          <label
+            className={`flex items-start gap-2 border rounded p-2 cursor-pointer ${hookRawMode ? 'border-[#6C5CE7]/40 bg-[#f3f0ff]' : 'border-[#e5e5e5] bg-white'}`}
+            title="When ON: ignore brand tone / rules / insights / vocabulary and write the most TikTok-native, scroll-stopping hooks based on the visual content alone."
+          >
+            <input
+              type="checkbox"
+              checked={hookRawMode}
+              onChange={e => setHookRawMode(e.target.checked)}
+              className="mt-0.5"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] font-medium">Raw TikTok mode</div>
+              <div className="text-[9px] text-muted mt-0.5">
+                Skip brand tone / rules / insights / vocabulary. Generate hooks based on proven TikTok hook patterns + the video content only — when the polished brand voice is washing out the hook strength.
+              </div>
+            </div>
+          </label>
+
           <button
             onClick={generateHooks}
             disabled={hookGenerating}
             className="w-full py-1.5 text-[11px] bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-          >{hookGenerating ? 'Writing hooks…' : `Generate ${hookCount} hooks`}</button>
+          >{hookGenerating ? 'Writing hooks…' : `Generate ${hookCount} hooks${hookRawMode ? ' (raw)' : ''}`}</button>
 
           {hookErr && <div className="text-[10px] text-[#c0392b]">{hookErr}</div>}
 
