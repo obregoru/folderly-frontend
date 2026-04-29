@@ -80,19 +80,16 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     const bump = () => setDurTick(t => t + 1)
     window.addEventListener('posty-video-duration', bump)
     window.addEventListener('posty-trim-change', bump)
-    // Per-clip B-roll cutaway flag: the checkbox's onChange mutates
-    // item._usePrevAudio directly (matching the rest of this file's
-    // pattern of in-place item mutations) — without this re-render
-    // the browser's native checkbox flip is reverted because React
-    // re-renders with the OLD `checked={!!item._usePrevAudio}` value.
-    window.addEventListener('posty-use-prev-audio-change', bump)
-    // Ditto for speed changes — also a checkbox-equivalent
-    // controlled-component case for the visual highlight.
+    // Force re-render when an insert/overlay change fires — controlled
+    // component values (selects, time inputs) need React to see the
+    // mutation or the visual reverts. Same trick as the trim/duration
+    // listeners.
+    window.addEventListener('posty-insert-overlay-change', bump)
     window.addEventListener('posty-speed-change', bump)
     return () => {
       window.removeEventListener('posty-video-duration', bump)
       window.removeEventListener('posty-trim-change', bump)
-      window.removeEventListener('posty-use-prev-audio-change', bump)
+      window.removeEventListener('posty-insert-overlay-change', bump)
       window.removeEventListener('posty-speed-change', bump)
     }
   }, [])
@@ -266,15 +263,35 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             photo_to_video_motion: item._photoMotion || 'zoom-in',
           })
         } else {
+          // Compute insertHostIdx for the BE — the FE persists
+          // _insertIntoFileId (BE job_files.id) but the merge route
+          // expects an INDEX into the hosts-only timeline. Walk the
+          // file list, count hosts before the referenced one, and
+          // pass that index. null when this clip is sequential.
+          let insertHostIdx = null
+          if (item._insertIntoFileId != null) {
+            let hostCount = 0
+            for (const f of videoFiles) {
+              if (!f) continue
+              const isInsert = f._insertIntoFileId != null
+              if (f._dbFileId === item._insertIntoFileId && !isInsert) {
+                insertHostIdx = hostCount
+                break
+              }
+              if (!isInsert) hostCount++
+            }
+          }
           clips.push({
             upload_key: uploadKey,
             media_type: item.file?.type || item._mediaType || 'video/mp4',
             trim_start: item._trimStart || 0,
             trim_end: item._trimEnd ?? null,
             speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
-            // B-roll cutaway: when true, this clip plays VIDEO ONLY
-            // and the previous audio-source clip's audio extends.
-            use_prev_audio: !!item._usePrevAudio,
+            // B-roll insert overlay. When insert_host_idx is set, the
+            // BE places this clip's video on top of that host clip at
+            // insert_at_sec; the host's audio plays through unchanged.
+            insert_host_idx: insertHostIdx,
+            insert_at_sec: Number(item._insertAtSec) >= 0 ? Number(item._insertAtSec) : 0,
           })
         }
       }
@@ -478,36 +495,19 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                           <span className="text-[#d97706]">trimmed</span>
                         )}
                         <div className="flex-1" />
-                        {!itemIsPhoto && pos > 0 && (
-                          <label
-                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
-                              item._usePrevAudio
-                                ? 'bg-[#f3f0ff] border-[#6C5CE7]/50 text-[#6C5CE7] font-medium'
-                                : 'bg-white border-border text-muted'
-                            }`}
-                            title="When checked, this clip plays VIDEO ONLY during the merge and the previous audio-source clip's audio extends across this clip's duration. Useful for B-roll cutaways: keep the singing playing while showing the cake."
-                          >
-                            <input
-                              type="checkbox"
-                              checked={!!item._usePrevAudio}
-                              onChange={e => {
-                                item._usePrevAudio = e.target.checked
-                                try { window.dispatchEvent(new CustomEvent('posty-use-prev-audio-change', { detail: { itemId: item.id } })) } catch {}
-                                if (mergedUrl) {
-                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
-                                  setMergedUrl(null)
-                                  mergedBlobRef.current = null
-                                  window._postyMergedVideo = null
-                                }
-                              }}
-                              className="w-3 h-3"
-                            />
-                            <span className="text-[10px]">
-                              {item._usePrevAudio
-                                ? 'Audio: previous clip ✓'
-                                : 'Borrow audio from prev clip'}
-                            </span>
-                          </label>
+                        {!itemIsPhoto && (
+                          <InsertOverlayControl
+                            item={item}
+                            allItems={videoFiles}
+                            onChange={() => {
+                              if (mergedUrl) {
+                                try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                setMergedUrl(null)
+                                mergedBlobRef.current = null
+                                window._postyMergedVideo = null
+                              }
+                            }}
+                          />
                         )}
                         {!itemIsPhoto && (
                           <label
@@ -698,5 +698,90 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         />
       )}
     </div>
+  )
+}
+
+// Per-clip control for marking a video as a B-roll insert.
+//
+// Two pieces:
+//  1. "Place" select: "Sequential" (default) or "Insert into [Clip N -
+//     filename]" for each available host. Picking a host attaches this
+//     clip as an overlay; picking Sequential clears the attachment.
+//  2. "@" time input (visible only when this clip is an insert) — the
+//     position in the host's trimmed output timeline (seconds, decimals
+//     allowed) where the overlay starts.
+//
+// The list of available hosts EXCLUDES this item itself and any other
+// item that's also flagged as an insert (an insert can't host another
+// insert — keeps the data model flat). Photo clips are also excluded
+// because they don't have a video stream that maps onto host time.
+function InsertOverlayControl({ item, allItems, onChange }) {
+  const isPhoto = it => it?.isImg || it?.file?.type?.startsWith('image/') || it?._mediaType?.startsWith('image/')
+  const candidates = (allItems || [])
+    .map((it, idx) => ({ it, idx }))
+    .filter(({ it }) => it && it !== item && !isPhoto(it) && it._insertIntoFileId == null && it._dbFileId != null)
+
+  const isInsert = item._insertIntoFileId != null
+  const setHost = (hostDbId) => {
+    item._insertIntoFileId = hostDbId == null ? null : Number(hostDbId)
+    if (item._insertIntoFileId == null) item._insertAtSec = 0
+    try { window.dispatchEvent(new CustomEvent('posty-insert-overlay-change', { detail: { itemId: item.id } })) } catch {}
+    if (typeof onChange === 'function') onChange()
+  }
+  const setAtSec = (sec) => {
+    item._insertAtSec = Math.max(0, Number(sec) || 0)
+    try { window.dispatchEvent(new CustomEvent('posty-insert-overlay-change', { detail: { itemId: item.id } })) } catch {}
+    if (typeof onChange === 'function') onChange()
+  }
+
+  const fmtTime = sec => {
+    const s = Math.max(0, Number(sec) || 0)
+    const m = Math.floor(s / 60)
+    const r = s - m * 60
+    return `${m}:${String(Math.floor(r)).padStart(2, '0')}${(r % 1) > 0.05 ? `.${Math.round((r % 1) * 10)}` : ''}`
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border ${
+        isInsert
+          ? 'bg-[#f3f0ff] border-[#6C5CE7]/50 text-[#6C5CE7] font-medium'
+          : 'bg-white border-border text-muted'
+      }`}
+      title={isInsert
+        ? `Overlay placed at ${fmtTime(item._insertAtSec)} into the host clip. Host's audio plays through.`
+        : 'Place this clip sequentially in the timeline, or attach it as an overlay inside another clip.'}
+    >
+      <span className="text-[10px]">{isInsert ? '↳ Insert' : 'Place:'}</span>
+      <select
+        value={item._insertIntoFileId == null ? '' : String(item._insertIntoFileId)}
+        onChange={e => setHost(e.target.value === '' ? null : e.target.value)}
+        className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+      >
+        <option value="">Sequential</option>
+        {candidates.map(({ it, idx }) => (
+          <option key={it._dbFileId} value={it._dbFileId}>
+            into Clip {idx + 1}{it.file?.name || it._filename ? ` (${(it.file?.name || it._filename).slice(0, 18)})` : ''}
+          </option>
+        ))}
+      </select>
+      {isInsert && (
+        <>
+          <span className="text-[10px]">@</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={Number(item._insertAtSec) >= 0 ? String(item._insertAtSec) : '0'}
+            onChange={e => {
+              const cleaned = e.target.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1')
+              setAtSec(cleaned === '' || cleaned === '.' ? 0 : Number(cleaned))
+            }}
+            className="w-10 text-[10px] border border-[#6C5CE7]/30 rounded px-1 py-0 bg-white text-center"
+            title="Seconds into the host clip's trimmed output where this overlay starts"
+          />
+          <span className="text-[10px]">s</span>
+        </>
+      )}
+    </span>
   )
 }

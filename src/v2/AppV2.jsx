@@ -111,21 +111,21 @@ export default function AppV2() {
         jobSyncRef.current?.saveFileSpeed?.(item)
       }
     }
-    const onUsePrevAudioChange = (e) => {
+    const onInsertOverlayChange = (e) => {
       const item = findItem(e.detail?.itemId)
       if (!item) return
-      console.log(`[AppV2] saving use_prev_audio: id=${item.id} flag=${item._usePrevAudio}`)
-      jobSyncRef.current?.saveFileUsePrevAudio?.(item)
+      console.log(`[AppV2] saving insert overlay: id=${item.id} hostId=${item._insertIntoFileId} atSec=${item._insertAtSec}`)
+      jobSyncRef.current?.saveFileInsertOverlay?.(item)
     }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
     window.addEventListener('posty-speed-change', onSpeedChange)
-    window.addEventListener('posty-use-prev-audio-change', onUsePrevAudioChange)
+    window.addEventListener('posty-insert-overlay-change', onInsertOverlayChange)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
       window.removeEventListener('posty-speed-change', onSpeedChange)
-      window.removeEventListener('posty-use-prev-audio-change', onUsePrevAudioChange)
+      window.removeEventListener('posty-insert-overlay-change', onInsertOverlayChange)
     }
   }, [])
 

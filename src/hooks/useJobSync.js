@@ -181,21 +181,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
-  // Save the B-roll cutaway flag — when true, this clip plays VIDEO
-  // ONLY during merge and the previous audio-source clip's audio
-  // extends across this clip's duration. Persists to job_files
-  // .use_prev_audio. The merge pipeline (lib/video.js mergeVideos)
-  // composites the audio when any clip carries this flag.
-  const saveFileUsePrevAudio = useCallback(async (file) => {
+  // Save the B-roll insert/overlay configuration. When _insertIntoFileId
+  // is set, this clip is an OVERLAY placed inside the host clip's video
+  // at _insertAtSec (seconds into the host's trimmed output timeline).
+  // null clears (clip becomes a sequential host).
+  const saveFileInsertOverlay = useCallback(async (file) => {
     const id = jobIdRef.current
     const dbFileId = fileIdMapRef.current[file.id]
     if (!id || !dbFileId) return
     try {
       await api.updateJobFile(id, dbFileId, {
-        use_prev_audio: !!file._usePrevAudio,
+        insert_into_file_id: file._insertIntoFileId == null ? null : Number(file._insertIntoFileId),
+        insert_at_sec: Number(file._insertAtSec) >= 0 ? Number(file._insertAtSec) : 0,
       })
     } catch (e) {
-      console.error('[useJobSync] save use_prev_audio failed:', e.message)
+      console.error('[useJobSync] save insert overlay failed:', e.message)
     }
   }, [])
 
@@ -377,7 +377,14 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _trimStart: f.trim_start || 0,
             _trimEnd: f.trim_end ?? null,
             _speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
-            _usePrevAudio: !!f.use_prev_audio,
+            // B-roll insert overlay — id of the host file (db id),
+            // or null when this clip is a sequential host.
+            _insertIntoFileId: f.insert_into_file_id != null ? Number(f.insert_into_file_id) : null,
+            _insertAtSec: Number(f.insert_at_sec) >= 0 ? Number(f.insert_at_sec) : 0,
+            // Persisted DB id so the FE can reference it from another
+            // clip's _insertIntoFileId (FE clips are keyed by
+            // localId/file.id, not the BE's job_files.id).
+            _dbFileId: f.id,
             _photoMotion: f.photo_to_video_motion || null,
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             _restored: true,
@@ -524,7 +531,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileToJob,
     saveFileTrim,
     saveFileSpeed,
-    saveFileUsePrevAudio,
+    saveFileInsertOverlay,
     saveFilePhotoMotion,
     saveFileTrimThumbs,
     saveFileCaptions,
