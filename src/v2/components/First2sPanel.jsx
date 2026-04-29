@@ -188,7 +188,13 @@ export default function First2sPanel({ draftId }) {
               = the raw clips without any styled text. The note keeps
               users from being confused when textEffectiveness scores
               feel disconnected from what they see in the live preview. */}
-          {analysis?.source?.kind === 'merge' ? (
+          {analysis?.source?.kind === 'raw' ? (
+            <div className="text-[10px] text-[#92400e] bg-[#fef3c7] border border-[#d97706]/40 rounded p-1.5">
+              <span className="font-medium">Analyzing your raw upload.</span> No merge or final has been baked yet — overlay text + captions
+              aren't visible to the analyzer in these frames. Add overlays / VO and re-run for a pixel-accurate read.
+              Trim is respected so the sampled frames start at your trim_start.
+            </div>
+          ) : analysis?.source?.kind === 'merge' ? (
             <div className="text-[10px] text-[#92400e] bg-[#fef3c7] border border-[#d97706]/40 rounded p-1.5">
               <span className="font-medium">Analyzing the raw merge.</span> The auto-bake step couldn't produce a final export
               (likely missing voiceover audio or a server hiccup) so the frames don't show overlay text or captions yet —
