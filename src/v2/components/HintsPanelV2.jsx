@@ -571,15 +571,52 @@ export default function HintsPanelV2({ jobSync, draftId, settings }) {
 function HookOptionRow({ opt, onApply }) {
   const text = typeof opt === 'string' ? opt : opt?.text || ''
   const family = opt?.family || opt?.type || null
-  const reason = opt?.reason || opt?.why || null
+  const reason = opt?.rationale || opt?.reason || opt?.why || null
   const body = opt?.body || opt?.follow_up || null
+  const overall = typeof opt?.overall === 'number' ? opt.overall : null
+  const scores = opt?.scores || null
+  const bestUse = opt?.bestUse || null
+  // Color the strength badge against the same 0-3 / 4-6 / 7-10 anchors
+  // the rubric uses, so users instantly know if a hook would actually
+  // pass the analyzer.
+  const strengthColor = overall == null ? '#7A756F'
+    : overall >= 8 ? '#2D9A5E'
+    : overall >= 6 ? '#d97706'
+    : '#c0392b'
+  const strengthLabel = overall == null ? null
+    : overall >= 8 ? 'Strong'
+    : overall >= 6 ? 'Decent'
+    : 'Weak'
   return (
     <div className="border border-[#e5e5e5] bg-white rounded p-2 space-y-1">
-      <div className="text-[11px] font-medium">{text}</div>
+      <div className="flex items-start gap-2">
+        <div className="text-[11px] font-medium flex-1">{text}</div>
+        {overall != null && (
+          <div
+            className="font-mono font-bold text-[11px] rounded-full px-2 py-0.5 whitespace-nowrap"
+            style={{ background: strengthColor + '15', color: strengthColor, border: `1px solid ${strengthColor}40` }}
+            title={`Strength: ${overall}/10 — ${strengthLabel}`}
+          >
+            {overall}/10
+          </div>
+        )}
+      </div>
       {body && <div className="text-[10px] text-muted italic">{body}</div>}
-      <div className="flex items-center gap-1.5 text-[9px] text-muted flex-wrap">
-        {family && <span className="bg-[#6C5CE7]/10 text-[#6C5CE7] rounded-full px-1.5 py-0.5">{family}</span>}
-        {reason && <span className="italic">{reason}</span>}
+      {scores && (
+        <div className="grid grid-cols-3 gap-x-2 gap-y-0.5 text-[9px] text-muted font-mono pt-0.5">
+          <span title="Pattern Interruption">PI {scores.patternInterruption}</span>
+          <span title="Clarity">CL {scores.clarity}</span>
+          <span title="Curiosity / Tension">CU {scores.curiosity}</span>
+          <span title="Specificity">SP {scores.specificity}</span>
+          <span title="Visual Match">VM {scores.visualMatch}</span>
+          <span title="Read-Time Fit">RT {scores.readTimeFit}</span>
+        </div>
+      )}
+      {reason && <div className="text-[10px] text-muted italic">{reason}</div>}
+      <div className="flex items-center gap-1.5 text-[9px] text-muted flex-wrap pt-1">
+        {family && <span className="bg-[#6C5CE7]/10 text-[#6C5CE7] rounded-full px-1.5 py-0.5">{family.replace(/_/g, ' ')}</span>}
+        {bestUse && <span className="bg-[#f8f7f3] rounded-full px-1.5 py-0.5">best as: {bestUse}</span>}
+        {strengthLabel && <span className="rounded-full px-1.5 py-0.5" style={{ background: strengthColor + '15', color: strengthColor }}>{strengthLabel}</span>}
         <button
           onClick={onApply}
           className="ml-auto text-[9px] py-0.5 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer"
