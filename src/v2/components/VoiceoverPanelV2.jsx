@@ -98,6 +98,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         audioUrl: s.id === PRIMARY_SEGMENT_ID ? null : (s.audioUrl || null),
         duration: Number(s.duration) || null,
         generating: false,
+        // Preserve the per-segment caption hide flag through
+        // hydrate. Without this, the toggle was stripped on every
+        // reload, the next save wrote segments WITHOUT hideCaption,
+        // and the BE filter (`!s.hideCaption`) saw no flag → captions
+        // rendered even though the user had switched them off.
+        ...(s.hideCaption ? { hideCaption: true } : {}),
       })))
       // Hydrate the persisted primary voice (job.voiceover_audio_key)
       // into panel state so the user can SEE and DISCARD it. Without
