@@ -206,8 +206,22 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   }
 
   const handlePreviewMerge = () => {
-    const playlist = videoFiles.map(itemToPlaylistEntry).filter(c => c.url)
+    // Inserts (clips marked as B-roll overlays) don't belong in the
+    // sequential preview — they'd show as extra clips back-to-back
+    // instead of layered onto their host's timeline. The lightbox
+    // plays HOSTS only here. The actual merge composites overlays
+    // server-side; an accurate insert preview would require timed
+    // source-swapping in the browser, which is more complex than
+    // this fast-iteration tool warrants. Once the user merges, the
+    // FinalPreview shows the composited result.
+    const hostsOnly = (videoFiles || []).filter(it => it && it._insertIntoFileId == null)
+    const insertCount = (videoFiles || []).length - hostsOnly.length
+    const playlist = hostsOnly.map(itemToPlaylistEntry).filter(c => c.url)
     if (playlist.length === 0) { setError('Nothing to preview — no media with a usable URL.'); return }
+    if (insertCount > 0) {
+      setError(null)
+      console.log(`[preview] ${insertCount} insert(s) excluded from sequential preview — they render in the actual merge.`)
+    }
     setPreviewPlaylist(playlist)
   }
 
@@ -398,7 +412,13 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             const speed = Number(item?._speed) > 0 ? Number(item._speed) : 1.0
             return trimLen / speed
           })
-          const totalKept = clipDurations.reduce((a, b) => a + b, 0)
+          // Inserts (B-roll overlays) don't add length to the merged
+          // video — they're placed INSIDE a host clip's timeline. Sum
+          // hosts only for the "Total kept" display.
+          const totalKept = videoFiles.reduce((acc, item, i) => {
+            if (item && item._insertIntoFileId != null) return acc
+            return acc + clipDurations[i]
+          }, 0)
           const hasPhotos = videoFiles.some(isPhoto)
           // Detect filename collisions (iPhone recycles IMG_####.mov numbers
           // when the Photos counter rolls over — two different clips can
