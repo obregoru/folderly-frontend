@@ -465,8 +465,17 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                         )}
                         <div className="flex-1" />
                         {!itemIsPhoto && (
-                          <label className="flex items-center gap-0.5" title="Playback speed for this clip. Applied after trim.">
-                            <span className="text-[9px] text-muted">Speed:</span>
+                          <label
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                              speed !== 1
+                                ? 'bg-[#fff7ed] border-[#d97706]/50 text-[#d97706] font-medium'
+                                : 'bg-white border-border text-muted'
+                            }`}
+                            title={speed !== 1
+                              ? `This clip will play at ${speed}× — applied during merge.`
+                              : 'Playback speed. Slow down (0.25×–0.75×) or speed up (1.25×–4×). Applied during merge.'}
+                          >
+                            <span className="text-[10px]">{speed !== 1 ? `${speed}×` : 'Speed'}</span>
                             <select
                               value={String(speed)}
                               onChange={e => {
@@ -481,7 +490,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                                   window._postyMergedVideo = null
                                 }
                               }}
-                              className="text-[9px] border border-border rounded py-0 px-0.5 bg-white"
+                              className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
                             >
                               <option value="0.25">0.25×</option>
                               <option value="0.5">0.5×</option>
