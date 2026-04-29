@@ -80,9 +80,20 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     const bump = () => setDurTick(t => t + 1)
     window.addEventListener('posty-video-duration', bump)
     window.addEventListener('posty-trim-change', bump)
+    // Per-clip B-roll cutaway flag: the checkbox's onChange mutates
+    // item._usePrevAudio directly (matching the rest of this file's
+    // pattern of in-place item mutations) — without this re-render
+    // the browser's native checkbox flip is reverted because React
+    // re-renders with the OLD `checked={!!item._usePrevAudio}` value.
+    window.addEventListener('posty-use-prev-audio-change', bump)
+    // Ditto for speed changes — also a checkbox-equivalent
+    // controlled-component case for the visual highlight.
+    window.addEventListener('posty-speed-change', bump)
     return () => {
       window.removeEventListener('posty-video-duration', bump)
       window.removeEventListener('posty-trim-change', bump)
+      window.removeEventListener('posty-use-prev-audio-change', bump)
+      window.removeEventListener('posty-speed-change', bump)
     }
   }, [])
 
@@ -491,7 +502,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                               }}
                               className="w-3 h-3"
                             />
-                            <span className="text-[10px]">{item._usePrevAudio ? 'Use prev audio' : 'Own audio'}</span>
+                            <span className="text-[10px]">
+                              {item._usePrevAudio
+                                ? 'Audio: previous clip ✓'
+                                : 'Borrow audio from prev clip'}
+                            </span>
                           </label>
                         )}
                         {!itemIsPhoto && (
