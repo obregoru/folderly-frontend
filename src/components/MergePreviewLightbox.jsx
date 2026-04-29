@@ -232,17 +232,18 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
         <button onClick={onClose} className="w-8 h-8 rounded-full bg-white text-black text-lg flex items-center justify-center border-none cursor-pointer" aria-label="Close">&times;</button>
       </div>
 
-      {/* Stage — host + insert stacked. The host video sizes itself
-          naturally (max-w-full max-h-full); the relative wrapper is
-          inline-block so it shrinks to fit the host's rendered box.
-          The overlay <video> uses absolute inset-0 to exactly match
-          the host's bounds, with object-contain to handle source
-          aspect mismatches. Hidden via z=0/opacity=0 by default;
-          elevated + opaque when an insert is active. Audio always
-          stays on the host (overlay is muted). */}
-      <div className="flex-1 flex items-center justify-center p-4 min-h-0">
+      {/* Stage — host + insert stacked.
+          The flex parent itself is the relative positioning context.
+          Host video sits in flow with max-w-full / max-h-full
+          (works because the flex parent has explicit dimensions from
+          flex-1 + min-h-0). The overlay <video> is positioned absolute
+          inset-4 (matching the parent's p-4) and uses object-contain
+          so for matched-aspect sources it lands on the same letterboxed
+          area as the host. Hidden via opacity-0 / pointer-events-none
+          when no insert is active. Audio always stays on the host. */}
+      <div className="flex-1 flex items-center justify-center p-4 min-h-0 relative">
         {current.type === 'video' ? (
-          <div className="relative" style={{ display: 'inline-block', maxWidth: '100%', maxHeight: '100%' }}>
+          <>
             <video
               key={current.url}
               ref={videoRef}
@@ -250,7 +251,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
               controls
               playsInline
               crossOrigin={current.url && !current.url.startsWith('blob:') ? 'anonymous' : undefined}
-              className="block max-w-full max-h-full bg-black"
+              className="max-w-full max-h-full object-contain bg-black"
               style={{ position: 'relative', zIndex: 10 }}
             />
             {Array.isArray(current.inserts) && current.inserts.length > 0 && (
@@ -267,18 +268,21 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
                     && !current.inserts[activeInsertIdx].url.startsWith('blob:')
                     ? 'anonymous' : undefined
                 }
-                className={`absolute inset-0 w-full h-full object-contain bg-black pointer-events-none transition-opacity duration-100 ${
+                className={`absolute object-contain bg-black pointer-events-none transition-opacity duration-100 ${
                   activeInsertIdx != null ? 'opacity-100' : 'opacity-0'
                 }`}
-                style={{ zIndex: activeInsertIdx != null ? 20 : 0 }}
+                style={{
+                  inset: '16px',                   // match parent's p-4
+                  zIndex: activeInsertIdx != null ? 20 : -1,
+                }}
               />
             )}
             {activeInsertIdx != null && (
-              <div className="absolute top-2 left-2 z-30 bg-[#6C5CE7]/90 text-white text-[10px] rounded-full px-2 py-0.5 pointer-events-none">
+              <div className="absolute top-4 left-4 z-30 bg-[#6C5CE7]/90 text-white text-[10px] rounded-full px-2 py-0.5 pointer-events-none">
                 ↳ Insert: {current.inserts[activeInsertIdx]?.filename || `#${activeInsertIdx + 1}`}
               </div>
             )}
-          </div>
+          </>
         ) : (
           <img
             key={current.url}
