@@ -252,8 +252,25 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
                   try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
                 }
               }}
-              onSaveTrim={it => jobSync.saveFileTrim?.(it)}
-              onSaveMotion={it => jobSync.saveFilePhotoMotion?.(it)}
+              onSaveTrim={it => {
+                jobSync.saveFileTrim?.(it)
+                // Bump the files array reference so React sees a
+                // change and re-renders the thumbnail with the new
+                // _trimEnd. PhotoDurationControl mutates item._trimEnd
+                // directly; without this nudge the parent never knows
+                // the value changed.
+                setFiles?.(prev => prev.map(f => f.id === it.id ? { ...f } : f))
+              }}
+              onSaveMotion={it => {
+                jobSync.saveFilePhotoMotion?.(it)
+                // Same treatment for motion / zoom / rotate. After the
+                // first commit, onInvalidateMerge happened to trigger
+                // an incidental re-render; the second commit had no
+                // merge to invalidate so the thumbnail / preview kept
+                // showing the old transform even though the DB row
+                // had updated.
+                setFiles?.(prev => prev.map(f => f.id === it.id ? { ...f } : f))
+              }}
             />
           )) : null}
         />
