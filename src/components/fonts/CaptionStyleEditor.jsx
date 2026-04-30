@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as api from '../../api'
 import FontPicker from './FontPicker'
 import CaptionPresetPicker from './CaptionPresetPicker'
@@ -489,33 +489,16 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
         <span className="font-mono text-[10px] text-muted">{baseColor}</span>
       </div>
 
-      {/* Base font size — slider in 1080-reference px. CaptionLayer
+      {/* Base font size — slider + editable numeric input bound to
+          the same value, so the user can drag OR type. CaptionLayer
           scales this by width/1080 so the on-screen size stays
           proportional across preview vs final-render dimensions. null
           = use the minDim * 0.055 fallback (~60px on 1080×1920). */}
       <div className="space-y-1">
-        <div className="flex items-center gap-2">
-          <label className="text-[10px] font-medium">Size</label>
-          <input
-            type="range"
-            min={30} max={140} step={2}
-            value={baseFontSize != null ? baseFontSize : 60}
-            onChange={e => { setBaseFontSize(Number(e.target.value)); markDirty() }}
-            className="flex-1"
-            title="Caption font size in 1080-reference pixels. Default ≈ 60px (5.5% of frame width). Same value applies on every render resolution because it's scaled by frame width."
-          />
-          <span className="font-mono text-[10px] text-muted w-14 text-right">
-            {baseFontSize != null ? `${baseFontSize}px` : 'default'}
-          </span>
-          {baseFontSize != null && (
-            <button
-              type="button"
-              onClick={() => { setBaseFontSize(null); markDirty() }}
-              className="text-[9px] text-muted border border-[#e5e5e5] rounded px-1.5 py-0.5 bg-white cursor-pointer"
-              title="Reset to the aspect-ratio default size"
-            >reset</button>
-          )}
-        </div>
+        <BaseFontSizeRow
+          value={baseFontSize}
+          onChange={(v) => { setBaseFontSize(v); markDirty() }}
+        />
         {/* Live preview — "Aa" rendered in the chosen font at a
             scaled-down version of the slider value so the user can
             see proportional changes without the sample blowing past
@@ -884,6 +867,81 @@ function sortedKeys(v) {
     return out
   }
   return v
+}
+
+// Slider + editable numeric input bound to the same value. Drag the
+// slider to set it; or type into the input. value === null means
+// "use the aspect-ratio default" (~60px on 1080×1920) — the input
+// shows empty in that state with a "default" placeholder, and a
+// "reset" button next to a non-null value clears back to null.
+//
+// Mirrors the overlays SizeSliderRow's UX so caption + overlay font
+// sizing feel identical.
+function BaseFontSizeRow({ value, onChange }) {
+  const sliderValue = value != null ? value : 60
+  const [draft, setDraft] = useState(value != null ? String(value) : '')
+  const editingRef = useRef(false)
+  // Sync the typed text back to the parent's value when the field
+  // ISN'T being edited — covers slider drags, preset apply, and
+  // reset → null. Without the editingRef guard, a mid-typed "1"
+  // would snap back to the parent's full number on every keystroke.
+  useEffect(() => {
+    if (!editingRef.current) setDraft(value != null ? String(value) : '')
+  }, [value])
+  return (
+    <div className="flex items-center gap-2">
+      <label className="text-[10px] font-medium">Size</label>
+      <input
+        type="range"
+        min={30}
+        max={140}
+        step={2}
+        value={sliderValue}
+        onChange={e => {
+          const n = Number(e.target.value)
+          setDraft(String(n))
+          onChange(n)
+        }}
+        className="flex-1"
+        title="Caption font size in 1080-reference pixels. Default ≈ 60px (5.5% of frame width). Same value applies on every render resolution because it's scaled by frame width."
+      />
+      <input
+        type="text"
+        inputMode="numeric"
+        value={draft}
+        placeholder="default"
+        onFocus={() => { editingRef.current = true }}
+        onChange={e => {
+          const cleaned = e.target.value.replace(/[^0-9]/g, '')
+          setDraft(cleaned)
+          if (cleaned === '') {
+            // Empty input → reset to default (null). Mirrors the
+            // existing reset button so the user has two paths to
+            // the same outcome.
+            onChange(null)
+            return
+          }
+          const n = Number(cleaned)
+          if (Number.isFinite(n) && n > 0) onChange(n)
+        }}
+        onBlur={() => {
+          editingRef.current = false
+          // Normalize visible string after typing finishes.
+          setDraft(value != null ? String(value) : '')
+        }}
+        className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white text-center font-mono text-muted"
+      />
+      <span className="text-[10px] text-muted">px</span>
+      {value != null && (
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          className="text-[9px] text-muted border border-[#e5e5e5] rounded px-1.5 py-0.5 bg-white cursor-pointer"
+          title="Reset to the aspect-ratio default size"
+        >reset</button>
+      )}
+    </div>
+  )
 }
 
 // Inline "Aa" preview shown beside font-size sliders. Renders at a
