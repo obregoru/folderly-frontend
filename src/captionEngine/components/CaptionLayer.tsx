@@ -100,8 +100,15 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
   const sOff = Math.max(1, Math.round(baseFontSize * 0.04));   // tight drop offset
   const sBlur = Math.max(2, Math.round(baseFontSize * 0.08));   // tight drop blur
   const sGlow = Math.max(4, Math.round(baseFontSize * 0.18));   // outer glow blur
+  // Drop the default drop-shadow + glow when the caption sits on a
+  // box / pill background. The shadow exists to give white text on
+  // raw video a legibility halo; on dark text on a bright pill it
+  // does the opposite — the black blur bleeds into the letterforms
+  // and makes them look fuzzy. textEffect overrides still take
+  // effect since those are explicit author intent.
+  const hasBox = !!layout?.box && !!layout.box.color;
   const baseTextShadow = textEffectToShadow(layout?.textEffect)
-    || `0 ${sOff}px ${sBlur}px rgba(0,0,0,0.85), 0 0 ${sGlow}px rgba(0,0,0,0.6)`;
+    || (hasBox ? 'none' : `0 ${sOff}px ${sBlur}px rgba(0,0,0,0.85), 0 0 ${sGlow}px rgba(0,0,0,0.6)`);
   // Base outline (applies to EVERY word, not just the active one).
   // Lives in layout_config.baseOutline. Same shape as the
   // active-word outline so the math reuses fourWayOutline / glow.
