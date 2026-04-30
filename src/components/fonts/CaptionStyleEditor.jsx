@@ -315,6 +315,20 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
         // Preview happens inline on the main editor video via
         // InlineCaptionOverlay — no separate render needed here.
       }
+      // Tell the live preview's cue cache (useLivePreviewAssets) to
+      // refetch so the new style shows immediately. Without this, the
+      // user had to regenerate the segment's audio to see the change
+      // — which both wastes 11labs credits and is the wrong UX
+      // (caption style is purely visual, has nothing to do with the
+      // spoken audio). The refetch is debounced 1s on the listening
+      // side so rapid saves collapse into a single network round.
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('posty-voiceover-change', {
+            detail: { reason: 'caption-style-save', segmentId: segmentId || null, isDefault },
+          }))
+        }
+      } catch {}
     } catch (e) {
       setErr(e.message || String(e))
     } finally {
@@ -338,6 +352,16 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
         hydrateFormFromConfig(preset.config)
         setAppliedPresetId(preset.id)
       }
+      // Refetch live preview cues so inheriting segments pick up the
+      // new default without an audio regenerate — same reason as the
+      // save() path.
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('posty-voiceover-change', {
+            detail: { reason: 'set-as-default', presetId: preset.id },
+          }))
+        }
+      } catch {}
     } catch (e) {
       setErr(e.message || String(e))
     } finally {
@@ -779,6 +803,13 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
                 await api.saveJobDefaultCaptionStyle(jobUuid, { clear: true })
                 setDefaultPresetId(null)
                 setAppliedPresetId(null)
+                try {
+                  if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('posty-voiceover-change', {
+                      detail: { reason: 'clear-default' },
+                    }))
+                  }
+                } catch {}
               } catch (e) { setErr(e.message || String(e)) }
               finally { setSaving(false) }
             }}
@@ -836,6 +867,13 @@ function ApplyDefaultToAllButton({ jobUuid, getBody, saving, setSaving, setErr }
       if (typeof vp === 'number') cascadeBody.vertical_position = vp
       const r = await api.cascadeJobDefaultCaptionStyle(jobUuid, cascadeBody)
       setDone({ count: Number(r?.updated) || 0 })
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('posty-voiceover-change', {
+            detail: { reason: 'cascade-default-to-all', updated: Number(r?.updated) || 0 },
+          }))
+        }
+      } catch {}
     } catch (e) {
       setErr(e?.message || String(e))
     } finally {
