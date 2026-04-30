@@ -665,6 +665,68 @@ function SlotColorRow({ value, fallback, onChange }) {
   )
 }
 
+// Bidirectional font-size control — slider + numeric input bound to
+// the same value, mirroring the voiceover caption-style pattern but
+// with the readout upgraded to an editable input. Drag the slider
+// to set the value; or type a number into the input box. Range
+// 20-200px in 1080-reference space, which covers tiny logos through
+// movie-poster headlines without making the slider too jumpy.
+function SizeSliderRow({ value, onChange }) {
+  const v = Number(value) > 0 ? Number(value) : 48
+  const [draft, setDraft] = useState(String(v))
+  const editingRef = useRef(false)
+  // Sync draft from prop when the parent value changes (slider drag,
+  // preset apply, etc.) — but only when we're not actively typing,
+  // otherwise a mid-typed "1" would snap back to the parent's number.
+  useEffect(() => {
+    if (!editingRef.current) setDraft(String(v))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v])
+  return (
+    <div className="flex items-center gap-2 text-[10px]">
+      <label className="font-medium">Size</label>
+      <input
+        type="range"
+        min={20}
+        max={200}
+        step={2}
+        value={Math.max(20, Math.min(200, v))}
+        onChange={e => {
+          const n = Number(e.target.value)
+          setDraft(String(n))
+          onChange(n)
+        }}
+        className="flex-1 accent-[#6C5CE7]"
+        title="Font size in 1080-reference pixels"
+      />
+      <input
+        type="text"
+        inputMode="numeric"
+        value={draft}
+        onFocus={() => { editingRef.current = true }}
+        onChange={e => {
+          const cleaned = e.target.value.replace(/[^0-9]/g, '')
+          setDraft(cleaned)
+          // Push live so the slider tracks the typed number; null lets
+          // upstream slot patch fall back to default if user clears.
+          if (cleaned === '') return
+          const n = Number(cleaned)
+          if (Number.isFinite(n) && n > 0) onChange(n)
+        }}
+        onBlur={() => {
+          editingRef.current = false
+          // On blur, normalize the visible string to whatever the
+          // parent considers canonical now (covers the "user cleared
+          // the box" case where we never pushed a number up).
+          setDraft(String(v))
+        }}
+        className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white text-center"
+      />
+      <span className="text-muted">px</span>
+    </div>
+  )
+}
+
 // All the default-style form fields, lifted out of the panel body so
 // they can be hidden when the presets picker is open (mirrors the
 // voiceover CaptionStyleEditor pattern: presets toggle swaps the
@@ -697,14 +759,6 @@ function DefaultStyleControls({
           <span className="text-[9px] text-muted truncate">{fontFamily}</span>
           <span className="text-[10px] text-muted">{fontPickerOpen ? '▾' : '▸'}</span>
         </button>
-        <label>Size:</label>
-        <input
-          type="text"
-          inputMode="numeric"
-          value={fontSize}
-          onChange={e => setFontSize(Number(e.target.value.replace(/[^0-9]/g, '')) || 0)}
-          className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-        />
         <label>Color:</label>
         <input
           type="color"
@@ -730,6 +784,8 @@ function DefaultStyleControls({
           </>
         )}
       </div>
+
+      <SizeSliderRow value={fontSize} onChange={setFontSize} />
 
       {fontPickerOpen && (
         <Suspense fallback={<div className="text-[11px] text-muted italic py-4 text-center">Loading fonts…</div>}>
@@ -963,14 +1019,6 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
               <span className="text-[9px] text-muted truncate">{slotStyle?.fontFamily ? effective.fontFamily : `${effective.fontFamily} (default)`}</span>
               <span className="text-[10px] text-muted">{fontPickerOpen ? '▾' : '▸'}</span>
             </button>
-            <label>Size:</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={effective.fontSize}
-              onChange={e => onPatch('fontSize', Number(e.target.value.replace(/[^0-9]/g, '')) || null)}
-              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-            />
             <label>Color:</label>
             <input
               type="color"
@@ -1009,6 +1057,8 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
               />
             </Suspense>
           )}
+
+          <SizeSliderRow value={effective.fontSize} onChange={(v) => onPatch('fontSize', v)} />
 
           <div className="flex items-center gap-2 text-[10px] flex-wrap">
             <label className="flex items-center gap-1 text-muted">
