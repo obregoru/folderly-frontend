@@ -247,6 +247,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             // <video> for videos. Without this, image inserts would
             // be fed to a <video> element and never display.
             type: insIsPhoto ? 'image' : 'video',
+            // Photo motion (Ken Burns) for the preview to animate via
+            // the Web Animations API. The BE photoToVideo pass uses
+            // this same value to render the equivalent motion in the
+            // exported mp4 — so preview and export look the same.
+            motion: insIsPhoto ? (ins._photoMotion || 'zoom-in') : null,
             trimStart: insEntry.trimStart || 0,
             trimEnd: insEntry.trimEnd,
             speed: insIsPhoto ? 1.0 : (insEntry.speed || 1.0),

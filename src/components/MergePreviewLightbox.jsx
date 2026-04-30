@@ -16,6 +16,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   const [idx, setIdx] = useState(0)
   const videoRef = useRef(null)
   const insertVideoRef = useRef(null)
+  const insertImageRef = useRef(null)
   const stageRef = useRef(null)
   // Currently-active insert index (within the host's inserts[] array)
   // or null when none is active. Gates the overlay <video>'s src + z.
@@ -131,9 +132,16 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
             break
           }
         }
-        if (nextActive !== activeInsertIdx) {
-          setActiveInsertIdx(nextActive)
-        }
+        // Always call setState — React's Object.is short-circuit
+        // bails out for identical values without re-rendering. The
+        // previous `nextActive !== activeInsertIdx` guard read a
+        // stale closure value (this onTime handler is bound in a
+        // useEffect with deps that don't include activeInsertIdx),
+        // so when the window exited and both were null in the
+        // closure's view the setState never fired — leaving image
+        // inserts stuck on screen because they have no onEnded
+        // event to bail us out the way video inserts do.
+        setActiveInsertIdx(nextActive)
       }
 
       if (v.currentTime >= max - 0.05) {
@@ -267,6 +275,37 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeInsertIdx, current?.id])
 
+  // Drive the Ken Burns motion on photo inserts via the Web Animations
+  // API. Mirrors the BE photoToVideo motions so the preview shows
+  // approximately what the export will burn in. When the active
+  // insert is a photo with a motion, kick off el.animate(); cancel
+  // when activeInsertIdx flips away.
+  useEffect(() => {
+    const el = insertImageRef.current
+    if (!el) return
+    const inserts = Array.isArray(current?.inserts) ? current.inserts : []
+    const ins = activeInsertIdx != null ? inserts[activeInsertIdx] : null
+    if (!ins || ins.type !== 'image' || !ins.motion || ins.motion === 'static') return
+    const durMs = Math.max(100, Math.round((Number(ins.outDur) || 5) * 1000))
+    const keyframes = motionKeyframes(ins.motion)
+    if (!keyframes) return
+    let anim
+    try {
+      anim = el.animate(keyframes, {
+        duration: durMs,
+        fill: 'both',
+        easing: 'linear',
+      })
+    } catch (e) {
+      // older browsers without Web Animations API support — skip
+      // motion silently. Still beats no preview at all.
+      return
+    }
+    return () => {
+      try { anim.cancel() } catch {}
+    }
+  }, [activeInsertIdx, current?.id])
+
   // Drive photo "playback" — show for N seconds then advance.
   useEffect(() => {
     if (!current || current.type !== 'photo') return
@@ -348,6 +387,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
               return isImageInsert ? (
                 <img
                   key={activeInsert.url}
+                  ref={insertImageRef}
                   src={activeInsert.url}
                   alt={activeInsert.filename || ''}
                   className={`absolute object-contain bg-black pointer-events-none transition-opacity duration-100 ${
@@ -414,4 +454,34 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
       </div>
     </div>
   )
+}
+
+// Maps a Ken Burns motion name to a Web Animations API keyframes
+// array. The amounts are tuned to roughly match the BE photoToVideo
+// pass — the export uses ffmpeg's zoompan / scale / setpts filters
+// which produce comparable visual motion at our 1080×1920 frame.
+// Pan amounts are deliberately small (5%) so even a tightly-cropped
+// photo doesn't reveal letterbox edges as it moves.
+function motionKeyframes(motion) {
+  switch (motion) {
+    case 'zoom-in':
+      return [{ transform: 'scale(1.0)' }, { transform: 'scale(1.18)' }]
+    case 'zoom-out':
+      return [{ transform: 'scale(1.18)' }, { transform: 'scale(1.0)' }]
+    case 'pan-lr':
+      return [{ transform: 'scale(1.08) translateX(-3%)' }, { transform: 'scale(1.08) translateX(3%)' }]
+    case 'pan-rl':
+      return [{ transform: 'scale(1.08) translateX(3%)' }, { transform: 'scale(1.08) translateX(-3%)' }]
+    case 'pan-lr-zoom-in':
+      return [{ transform: 'scale(1.0) translateX(-3%)' }, { transform: 'scale(1.18) translateX(3%)' }]
+    case 'pan-lr-zoom-out':
+      return [{ transform: 'scale(1.18) translateX(-3%)' }, { transform: 'scale(1.0) translateX(3%)' }]
+    case 'pan-rl-zoom-in':
+      return [{ transform: 'scale(1.0) translateX(3%)' }, { transform: 'scale(1.18) translateX(-3%)' }]
+    case 'pan-rl-zoom-out':
+      return [{ transform: 'scale(1.18) translateX(3%)' }, { transform: 'scale(1.0) translateX(-3%)' }]
+    case 'static':
+    default:
+      return null
+  }
 }
