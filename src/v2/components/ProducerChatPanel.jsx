@@ -170,6 +170,64 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
     window.open(url, '_blank', 'noopener')
   }
 
+  // Import-from-first-2s. User clicks a platform-specific button →
+  // we fetch the most recent saved analysis, format the relevant
+  // fields for that platform into a readable message, and send it
+  // as a user turn. The producer then responds with whatever
+  // tactical advice fits the analysis. Saves the manual copy/paste
+  // workflow.
+  const [importing2s, setImporting2s] = useState(false)
+  const [import2sError, setImport2sError] = useState(null)
+  const importAnalysisForPlatform = async (platform) => {
+    if (!draftId || streaming || importing2s) return
+    setImporting2s(true)
+    setImport2sError(null)
+    try {
+      const r = await api.lastFirstTwoSecAnalysis(draftId)
+      const analysis = r?.analysis
+      if (!analysis) {
+        setImport2sError('No first-2s analysis saved yet — run the analyzer first.')
+        return
+      }
+      const text = formatFirst2sAnalysisForPlatform(analysis, platform, r?.analyzedAt)
+      // Prefill the input + send. We piggyback on send() so the
+      // chat handles the streaming response identically.
+      setInput(text)
+      // setInput is async — give React a tick to commit before send
+      // reads input. Calling send directly would still see the old
+      // (empty) input value because closures capture state at render.
+      // Inline the send logic with the formatted text instead.
+      const next = [...messages, { role: 'user', content: text }]
+      setMessages(next)
+      setInput('')
+      setStreaming(true)
+      setStreamText('')
+      setErr(null)
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      try {
+        const { fullText, error } = await api.producerChat(draftId, {
+          messages: next,
+          signal: ctrl.signal,
+          onChunk: (_, full) => setStreamText(full),
+        })
+        if (error) setErr(error)
+        setMessages(prev => [...prev, { role: 'assistant', content: fullText || '' }])
+        setStreamText('')
+      } catch (e) {
+        if (e?.name !== 'AbortError') setErr(e?.message || String(e))
+        setStreamText('')
+      } finally {
+        setStreaming(false)
+        abortRef.current = null
+      }
+    } catch (e) {
+      setImport2sError(e?.message || String(e))
+    } finally {
+      setImporting2s(false)
+    }
+  }
+
   // Track which extracted fields the user wants to apply. Default ON
   // for every field present so the typical case is "click Apply".
   const [applyChoices, setApplyChoices] = useState({})
@@ -329,6 +387,34 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
         {messages.map((m, i) => <ChatBubble key={i} role={m.role} content={m.content} />)}
         {showStreamingBubble && <ChatBubble role="assistant" content={streamText || '…'} streaming />}
         {err && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">{err}</div>}
+      </div>
+
+      {/* Import-from-first-2s toolbar. Each button pulls the most
+          recent saved analysis and posts a platform-specific summary
+          to the chat as a user message — saves the copy/paste round
+          trip the user was doing manually. */}
+      <div className="flex items-center gap-1.5 flex-wrap text-[10px] bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-1.5">
+        <span className="font-medium text-[#6C5CE7]">📊 Import 2s analysis:</span>
+        <button
+          onClick={() => importAnalysisForPlatform('tiktok')}
+          disabled={!draftId || streaming || importing2s}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send the TikTok-specific portion of the latest first-2s analysis to the producer for follow-up advice"
+        >TikTok</button>
+        <button
+          onClick={() => importAnalysisForPlatform('reels')}
+          disabled={!draftId || streaming || importing2s}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send the Reels-specific portion of the latest first-2s analysis to the producer"
+        >Reels</button>
+        <button
+          onClick={() => importAnalysisForPlatform('youtubeShorts')}
+          disabled={!draftId || streaming || importing2s}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send the YouTube Shorts-specific portion of the latest first-2s analysis to the producer"
+        >Shorts</button>
+        {importing2s && <span className="text-[9px] text-muted italic">loading…</span>}
+        {import2sError && <span className="text-[9px] text-[#c0392b]">{import2sError}</span>}
       </div>
 
       <div className="flex gap-1.5">
@@ -542,6 +628,117 @@ function ParsedReview({ parsed, source, choices, setChoices, applying, applyErr,
       {applyErr && <div className="text-[10px] text-[#c0392b]">{applyErr}</div>}
     </div>
   )
+}
+
+// Build a human-readable summary of the saved first-2s analysis,
+// scoped to ONE platform. Used by the Import 2s analysis buttons in
+// the producer chat — clicking a platform sends this text as a user
+// message so the producer can comment on it. Includes overall score,
+// platform-specific score adjustments, hook channels, time-to-clarity
+// /-engagement, and the platform-specific strengths/issues/suggestions.
+// All free-form text — the producer doesn't need to parse this; it's
+// just context.
+function formatFirst2sAnalysisForPlatform(analysis, platform, analyzedAt) {
+  const platformLabels = {
+    tiktok: 'TikTok',
+    reels: 'Instagram Reels',
+    youtubeShorts: 'YouTube Shorts',
+  }
+  const label = platformLabels[platform] || platform
+  const platformScore = analysis?.platformScores?.[platform] || null
+  const score = analysis?.score || {}
+  const lines = []
+  lines.push(`These are the results of the first 2 seconds analysis (${label}-focused):`)
+  lines.push('')
+  if (typeof score.totalScore === 'number') {
+    lines.push(`OVERALL: ${score.totalScore}/100 (${score.verdict || '—'})`)
+  }
+  const cats = score.categoryScores || {}
+  if (Object.keys(cats).length) {
+    lines.push('Category breakdown:')
+    if (typeof cats.contextClarity === 'number')   lines.push(`  - Context clarity:   ${cats.contextClarity}/25`)
+    if (typeof cats.visualEngagement === 'number') lines.push(`  - Visual engagement: ${cats.visualEngagement}/25`)
+    if (typeof cats.focalClarity === 'number')     lines.push(`  - Focal clarity:     ${cats.focalClarity}/15`)
+    if (typeof cats.textEffectiveness === 'number') lines.push(`  - Text effectiveness:${cats.textEffectiveness}/15`)
+    if (typeof cats.curiosityGap === 'number')      lines.push(`  - Curiosity gap:     ${cats.curiosityGap}/15`)
+    if (typeof cats.scrollRiskPenalty === 'number') lines.push(`  - Scroll risk:       ${cats.scrollRiskPenalty}`)
+  }
+  // Top-level strengths / issues / suggestions — these apply across
+  // every platform. The platform-specific block below ADDS on top.
+  if (Array.isArray(score.strengths) && score.strengths.length) {
+    lines.push('')
+    lines.push('Strengths (cross-platform):')
+    for (const s of score.strengths) lines.push(`  - ${s}`)
+  }
+  if (Array.isArray(score.issues) && score.issues.length) {
+    lines.push('')
+    lines.push('Issues (cross-platform):')
+    for (const s of score.issues) lines.push(`  - ${s}`)
+  }
+  if (Array.isArray(score.suggestions) && score.suggestions.length) {
+    lines.push('')
+    lines.push('Suggestions (cross-platform):')
+    for (const s of score.suggestions) lines.push(`  - ${s}`)
+  }
+  // Platform-specific block.
+  if (platformScore) {
+    lines.push('')
+    lines.push(`=== ${label}-specific ===`)
+    if (typeof platformScore.adjustedScore === 'number') {
+      const adj = typeof platformScore.scoreAdjustment === 'number'
+        ? ` (${platformScore.scoreAdjustment > 0 ? '+' : ''}${platformScore.scoreAdjustment} from base)`
+        : ''
+      lines.push(`Adjusted score: ${platformScore.adjustedScore}/100${adj} — ${platformScore.verdict || '—'}`)
+    }
+    if (Array.isArray(platformScore.strengths) && platformScore.strengths.length) {
+      lines.push(`${label} strengths:`)
+      for (const s of platformScore.strengths) lines.push(`  - ${s}`)
+    }
+    if (Array.isArray(platformScore.issues) && platformScore.issues.length) {
+      lines.push(`${label} issues:`)
+      for (const s of platformScore.issues) lines.push(`  - ${s}`)
+    }
+    if (Array.isArray(platformScore.suggestions) && platformScore.suggestions.length) {
+      lines.push(`${label} suggestions:`)
+      for (const s of platformScore.suggestions) lines.push(`  - ${s}`)
+    }
+    // Reels saveability / Shorts topicClarity+loopQuality sub-metrics
+    // when present.
+    if (platform === 'reels' && typeof platformScore.saveability === 'number') {
+      lines.push(`Saveability: ${platformScore.saveability}/100`)
+    }
+    if (platform === 'youtubeShorts') {
+      if (typeof platformScore.topicClarity === 'number') lines.push(`Topic clarity: ${platformScore.topicClarity}/100`)
+      if (typeof platformScore.loopQuality === 'number')  lines.push(`Loop quality:  ${platformScore.loopQuality}/100`)
+    }
+  }
+  // Hook channels — onScreen vs spoken — useful context for whatever
+  // the producer recommends next.
+  const hooks = analysis?.hookChannels
+  if (hooks) {
+    lines.push('')
+    lines.push('Hook channels:')
+    if (hooks.onScreen?.text) {
+      lines.push(`  On-screen: "${hooks.onScreen.text}" (${hooks.onScreen.wordCount || 0} words, read ~${(hooks.onScreen.readTimeSec || 0).toFixed(2)}s${hooks.onScreen.fitsWindow === false ? ', too long for window' : ''})`)
+    }
+    if (hooks.spoken?.text) {
+      lines.push(`  Spoken:    "${hooks.spoken.text}" (${hooks.spoken.wordCount || 0} words, speak ~${(hooks.spoken.speakTimeSec || 0).toFixed(2)}s${hooks.spoken.tooLongForWindow ? ', too long for window' : ''})`)
+    }
+    if (hooks.redundant === true) lines.push(`  ⚠ overlay text == VO text (redundant — wasted real estate)`)
+  }
+  if (analysis.timeToClarity) {
+    lines.push(`Time to clarity:    ${(analysis.timeToClarity.seconds ?? 0).toFixed(2)}s (${analysis.timeToClarity.rating || '—'})`)
+  }
+  if (analysis.timeToEngagement) {
+    lines.push(`Time to engagement: ${(analysis.timeToEngagement.seconds ?? 0).toFixed(2)}s (${analysis.timeToEngagement.rating || '—'})`)
+  }
+  if (analyzedAt) {
+    lines.push('')
+    lines.push(`(analysis from ${new Date(analyzedAt).toLocaleString()})`)
+  }
+  lines.push('')
+  lines.push(`Given this analysis, what changes would you suggest to make this video stronger for ${label}?`)
+  return lines.join('\n')
 }
 
 function formatStartTime(t) {
