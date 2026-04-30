@@ -76,32 +76,44 @@ export function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
   )
 }
 
-// Per-photo base magnification, displayed as an OFFSET centered at
-// 0. The slider visually treats 0 as "natural fit", positive values
-// as magnification, negative as letterbox. Internally we still
-// store a multiplier (1.0 = natural) for back-compat with the
-// existing column + render code; the UI translation is just
-// stored = displayed + 1.
+// Per-photo base magnification, displayed on a SYMMETRIC slider
+// centered at 0 (matching the Rotate slider's UX). Range -2 to +2,
+// 0.1 steps. Mapping is piecewise linear so the symmetric visual
+// covers an asymmetric multiplier range — zoom-in feels much
+// different in scale than zoom-out, so the slider's slope on each
+// side is tuned to that perception:
+//   display >= 0 → multiplier = 1 + display × 2  (0→1×, 2→5×)
+//   display < 0  → multiplier = 1 + display × 0.25  (0→1×, -2→0.5×)
 //
-// Visible range: -0.5 to +4 → stored 0.5× to 5×. Negative values
-// letterbox in preview/thumbnail; export currently degrades them
-// to 1× (see photoToVideo comment for the follow-up).
+// Storage stays as a positive multiplier (existing photo_to_video_zoom
+// column + downstream render code is unchanged); only the UI
+// representation flips to 0-centered.
+const zoomDisplayToMult = (d) => {
+  if (!Number.isFinite(d)) return 1.0
+  return d >= 0 ? 1 + d * 2 : 1 + d * 0.25
+}
+const zoomMultToDisplay = (m) => {
+  const mult = Number(m) > 0 ? Number(m) : 1.0
+  return mult >= 1 ? (mult - 1) / 2 : (mult - 1) / 0.25
+}
+
 export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
-  const storedMult = (m) => Math.max(0.5, Math.min(5, Number(m) > 0 ? Number(m) : 1.0))
-  // displayed = stored - 1 so 0 sits dead-center on the slider.
-  const initial = storedMult(item._photoZoom) - 1
+  const initial = zoomMultToDisplay(item._photoZoom)
   const [display, setDisplay] = useState(initial)
   useEffect(() => {
-    const next = storedMult(item._photoZoom) - 1
+    const next = zoomMultToDisplay(item._photoZoom)
     if (Math.abs(next - display) > 0.001) setDisplay(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item._photoZoom])
 
   const commit = (v) => {
     const d = Number(v)
-    const clampedDisplay = Math.max(-0.5, Math.min(4, Number.isFinite(d) ? d : 0))
+    const clampedDisplay = Math.max(-2, Math.min(2, Number.isFinite(d) ? d : 0))
     setDisplay(clampedDisplay)
-    item._photoZoom = clampedDisplay + 1 // back to multiplier for storage
+    // Convert symmetric display back to multiplier and clamp to the
+    // server-side range. mult below 0.5 / above 5 gets pinned.
+    const mult = Math.max(0.5, Math.min(5, zoomDisplayToMult(clampedDisplay)))
+    item._photoZoom = mult
     onInvalidateMerge?.()
     onSaveMotion?.(item)
   }
@@ -109,13 +121,13 @@ export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
   return (
     <label
       className="flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1"
-      title="Base zoom centered at 0. Positive = magnify into the frame; negative = letterbox the photo with black bars. Step 0.1."
+      title="Base zoom centered at 0. Positive = magnify into the frame (max 5×); negative = letterbox the photo with black bars (min 0.5×)."
     >
       <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap">Zoom</span>
       <input
         type="range"
-        min={-0.5}
-        max={4}
+        min={-2}
+        max={2}
         step={0.1}
         value={display}
         onChange={e => setDisplay(Number(e.target.value))}
@@ -126,8 +138,8 @@ export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
       />
       <input
         type="number"
-        min={-0.5}
-        max={4}
+        min={-2}
+        max={2}
         step={0.1}
         value={display}
         onChange={e => setDisplay(Number(e.target.value) || 0)}
