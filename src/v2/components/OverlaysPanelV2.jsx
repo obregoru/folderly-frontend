@@ -188,6 +188,20 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, openingYPct, middleYPct, closingYPct, openingFontColor, middleFontColor, closingFontColor, loaded])
 
+  // Wipe every per-slot Y + color override so all three slots inherit
+  // the current default style. Used by the explicit "Apply to all
+  // overlays" button on the Default style block AND by the preset
+  // fold's onApply path so picking a preset doesn't leave orphan
+  // per-slot overrides from a previous tweak.
+  const applyDefaultsToAllSlots = () => {
+    setOpeningYPct(null)
+    setMiddleYPct(null)
+    setClosingYPct(null)
+    setOpeningFontColor(null)
+    setMiddleFontColor(null)
+    setClosingFontColor(null)
+  }
+
   // Scrub the shared FinalPreview <video> so the user can see their
   // overlays rendered in sync with the clip. No server re-render —
   // OverlayText already reads window._postyOverlays on every timeupdate,
@@ -275,7 +289,15 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           text overrides only kick in when the user explicitly
           styles a selection. */}
       <div className="border border-[#e5e5e5] rounded p-2 space-y-2 bg-[#fafafa]">
-        <div className="text-[11px] font-medium">Default style (applies to all overlays)</div>
+        <div className="flex items-center gap-2">
+          <div className="text-[11px] font-medium flex-1">Default style (applies to all overlays)</div>
+          <button
+            type="button"
+            onClick={applyDefaultsToAllSlots}
+            className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+            title="Clear every per-slot color/Y override so opening, middle, and closing all inherit these defaults"
+          >Apply to all overlays</button>
+        </div>
         <div className="flex items-center gap-2 text-[10px] flex-wrap">
           <label>Font:</label>
           <button
@@ -346,6 +368,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
                 setOutlineWidth(Math.round(c.active_word_outline_config.width))
               }
             }
+            // Wipe per-slot overrides so the freshly-applied preset
+            // is what every slot uses. Without this, a slot that
+            // had an override from a previous preset stayed at its
+            // old color and the user saw "I picked the new preset
+            // but only some overlays changed."
+            applyDefaultsToAllSlots()
           }}
         />
 
@@ -420,15 +448,9 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             <DecimalInput value={openingDuration} onChange={setOpeningDuration} />
             <span>s</span>
           </div>
-          <SlotYRow
-            value={openingYPct}
-            fallback={overlayYPct}
-            onChange={setOpeningYPct}
-          />
-          <SlotColorRow
-            value={openingFontColor}
-            fallback={fontColor}
-            onChange={setOpeningFontColor}
+          <SlotStyleFold
+            yValue={openingYPct} yFallback={overlayYPct} onYChange={setOpeningYPct}
+            colorValue={openingFontColor} colorFallback={fontColor} onColorChange={setOpeningFontColor}
           />
         </div>
 
@@ -449,15 +471,9 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             <DecimalInput value={middleDuration} onChange={setMiddleDuration} />
             <span>s</span>
           </div>
-          <SlotYRow
-            value={middleYPct}
-            fallback={overlayYPct}
-            onChange={setMiddleYPct}
-          />
-          <SlotColorRow
-            value={middleFontColor}
-            fallback={fontColor}
-            onChange={setMiddleFontColor}
+          <SlotStyleFold
+            yValue={middleYPct} yFallback={overlayYPct} onYChange={setMiddleYPct}
+            colorValue={middleFontColor} colorFallback={fontColor} onColorChange={setMiddleFontColor}
           />
         </div>
 
@@ -475,15 +491,9 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             <DecimalInput value={closingDuration} onChange={setClosingDuration} />
             <span>s</span>
           </div>
-          <SlotYRow
-            value={closingYPct}
-            fallback={overlayYPct}
-            onChange={setClosingYPct}
-          />
-          <SlotColorRow
-            value={closingFontColor}
-            fallback={fontColor}
-            onChange={setClosingFontColor}
+          <SlotStyleFold
+            yValue={closingYPct} yFallback={overlayYPct} onYChange={setClosingYPct}
+            colorValue={closingFontColor} colorFallback={fontColor} onColorChange={setClosingFontColor}
           />
         </div>
       </div>
@@ -624,6 +634,44 @@ function SlotColorRow({ value, fallback, onChange }) {
         >← global</button>
       ) : (
         <span className="ml-auto text-[9px] italic text-muted whitespace-nowrap" title="This slot inherits from the global Color picker — pick a swatch to override">inherits</span>
+      )}
+    </div>
+  )
+}
+
+// Collapsible per-slot style controls. Bundles SlotYRow + SlotColorRow
+// behind a "▸ Style" toggle so the slot's text editor + duration row
+// stays the visual anchor and the override controls only show when the
+// user explicitly opens them. The summary line shows a quick read of
+// what's overridden ("inherits all" / "color · Y") so the user can see
+// at a glance which slots have custom styling without expanding each.
+function SlotStyleFold({ yValue, yFallback, onYChange, colorValue, colorFallback, onColorChange }) {
+  const [open, setOpen] = useState(false)
+  const yOverridden = yValue != null
+  const colorOverridden = colorValue != null && colorValue !== ''
+  const summary = (() => {
+    const bits = []
+    if (colorOverridden) bits.push('color')
+    if (yOverridden) bits.push('Y')
+    return bits.length === 0 ? 'inherits all' : `overrides: ${bits.join(' · ')}`
+  })()
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 text-[9px] py-1 px-2 border border-[#e5e5e5] bg-[#f8f7f3] rounded cursor-pointer"
+        title="Set this slot's color and vertical position. Leave fields untouched to inherit the default style."
+      >
+        <span className="font-medium text-ink">▸ Style</span>
+        <span className={`text-[9px] ${(yOverridden || colorOverridden) ? 'text-[#6C5CE7]' : 'text-muted italic'}`}>{summary}</span>
+        <span className="ml-auto text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="space-y-1 mt-1">
+          <SlotColorRow value={colorValue} fallback={colorFallback} onChange={onColorChange} />
+          <SlotYRow value={yValue} fallback={yFallback} onChange={onYChange} />
+        </div>
       )}
     </div>
   )
