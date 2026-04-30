@@ -97,18 +97,36 @@ export const CaptionLayer: React.FC<CaptionLayerProps> = ({
   // 1080-wide export (0.7% of frame) — making the export look like
   // it had no shadow at all even though the same CSS string was
   // being rendered.
-  const sOff = Math.max(1, Math.round(baseFontSize * 0.04));   // tight drop offset
-  const sBlur = Math.max(2, Math.round(baseFontSize * 0.08));   // tight drop blur
-  const sGlow = Math.max(4, Math.round(baseFontSize * 0.18));   // outer glow blur
+  const sOff = Math.max(2, Math.round(baseFontSize * 0.06));    // drop offset
+  const sBlur = Math.max(4, Math.round(baseFontSize * 0.12));   // drop blur
+  const sGlow1 = Math.max(8, Math.round(baseFontSize * 0.22));  // inner glow
+  const sGlow2 = Math.max(14, Math.round(baseFontSize * 0.34)); // outer glow
   // Drop the default drop-shadow + glow when the caption sits on a
   // box / pill background. The shadow exists to give white text on
   // raw video a legibility halo; on dark text on a bright pill it
   // does the opposite — the black blur bleeds into the letterforms
   // and makes them look fuzzy. textEffect overrides still take
   // effect since those are explicit author intent.
+  //
+  // The non-box halo is also user-toggleable via
+  // `layout.haloDisabled` (set by the "Halo behind text" checkbox
+  // in CaptionStyleEditor). undefined / false / unset = halo on,
+  // matching the prior default. true = halo off (sharp text on
+  // raw video). Box presence still wins — never apply the halo
+  // when on a pill regardless of the toggle, because dark-text-on-
+  // bright-pill never benefits from a black halo.
+  //
+  // For non-box captions WITH halo on, the halo is intentionally
+  // heavy: a tight drop shadow + two stacked outer glows. Older
+  // 0.04/0.08/0.18 multipliers produced barely-visible softness;
+  // the user asked for a more readable halo so 0.06/0.12/0.22/0.34
+  // is the new default — pronounced but not muddy.
   const hasBox = !!layout?.box && !!layout.box.color;
+  const haloDisabled = !!(layout as any)?.haloDisabled;
   const baseTextShadow = textEffectToShadow(layout?.textEffect)
-    || (hasBox ? 'none' : `0 ${sOff}px ${sBlur}px rgba(0,0,0,0.85), 0 0 ${sGlow}px rgba(0,0,0,0.6)`);
+    || (hasBox || haloDisabled
+      ? 'none'
+      : `0 ${sOff}px ${sBlur}px rgba(0,0,0,0.9), 0 0 ${sGlow1}px rgba(0,0,0,0.7), 0 0 ${sGlow2}px rgba(0,0,0,0.45)`);
   // Base outline (applies to EVERY word, not just the active one).
   // Lives in layout_config.baseOutline. Same shape as the
   // active-word outline so the math reuses fourWayOutline / glow.

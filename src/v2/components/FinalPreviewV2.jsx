@@ -673,12 +673,39 @@ function OverlayText({ text, runs, style, videoRef, slot }) {
   // Letter-spacing saved as a 0..5 step in the burn-in path; CSS uses em.
   // 0.05em per step matches the legacy ResultCard preview (see v1).
   const letterSpacingEm = (Number(style?.letterSpacing) || 0) * 0.05
-  const shadow = outlineWidth > 0
+  // Halo (soft drop-shadow + glow) — same intent as the captionEngine
+  // CaptionLayer halo, applied to overlay text when the user enables
+  // the "Halo behind text" toggle and the slot doesn't carry a box
+  // background. Per-slot halo override beats the panel default; box
+  // backgrounds suppress halo regardless (the box already provides
+  // the contrast).
+  const slotHaloKey = slot ? `${slot}Halo` : null
+  const slotHaloRaw = slotHaloKey != null ? style?.[slotHaloKey] : null
+  const haloEffective = typeof slotHaloRaw === 'boolean'
+    ? slotHaloRaw
+    : (style?.storyHalo !== false) // default on when undefined
+  // Suppress halo when this slot has a box background.
+  const slotBoxKeyForHalo = slot ? `${slot}Box` : null
+  const slotBoxRawForHalo = slotBoxKeyForHalo ? style?.[slotBoxKeyForHalo] : null
+  const slotHasBox = !!(slotBoxRawForHalo?.color || style?.storyBox?.color)
+  const haloApplies = haloEffective && !slotHasBox
+  // Build the halo shadow stack at the same intensity as the
+  // CaptionLayer halo so caption + overlay halos look consistent.
+  const haloFontSize = Math.max(8, rawFont)
+  const haloShadow = haloApplies
+    ? `0 ${Math.max(2, Math.round(haloFontSize * 0.06)) * effectiveScale}px ${Math.max(4, Math.round(haloFontSize * 0.12)) * effectiveScale}px rgba(0,0,0,0.9), 0 0 ${Math.max(8, Math.round(haloFontSize * 0.22)) * effectiveScale}px rgba(0,0,0,0.7), 0 0 ${Math.max(14, Math.round(haloFontSize * 0.34)) * effectiveScale}px rgba(0,0,0,0.45)`
+    : null
+  // Compose outline + halo. Outline takes precedence visually; halo
+  // adds onto it. When neither is active, no shadow.
+  const outlineShadow = outlineWidth > 0
     ? Array.from({ length: 8 }).map((_, i) => {
         const ang = (i / 8) * Math.PI * 2
         return `${Math.cos(ang) * outlineWidth}px ${Math.sin(ang) * outlineWidth}px 0 #000`
       }).join(', ')
-    : 'none'
+    : null
+  const shadow = (outlineShadow && haloShadow)
+    ? `${outlineShadow}, ${haloShadow}`
+    : (outlineShadow || haloShadow || 'none')
 
   // Match the burn-in pipeline's positioning math (lib/video.js
   // processStoryVideo). No platform-safe clamping — slider spans the

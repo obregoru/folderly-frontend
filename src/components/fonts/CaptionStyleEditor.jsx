@@ -65,6 +65,12 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
   // with the slider replaces null with a concrete number; the label
   // shows "default (72%)" while null.
   const [verticalPosition, setVerticalPosition] = useState(null)
+  // Halo behind text (default drop-shadow + glow stack) toggle.
+  // false / undefined = halo on (default); true = halo off.
+  // Stored in layout_config.haloDisabled. Box-style backgrounds
+  // never get the halo regardless of this toggle (the pill already
+  // provides legibility) — see CaptionLayer.tsx for that gate.
+  const [haloDisabled, setHaloDisabled] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(null) // 'base' | 'active' | null
   const [presetsOpen, setPresetsOpen] = useState(false)
 
@@ -136,6 +142,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     } else {
       setBaseOutlineEnabled(false)
     }
+    setHaloDisabled(!!c.layout_config?.haloDisabled)
     // Keep the preset's full config in memory so Save sends animation /
     // reveal / outline / layout too (this UI doesn't yet surface those
     // fields for direct editing; they ride along from the preset).
@@ -219,6 +226,7 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     } else {
       setBaseOutlineEnabled(false)
     }
+    setHaloDisabled(!!cs.layout_config?.haloDisabled)
     // Keep JSONB side-fields so Save doesn't drop them.
     setPendingConfig({
       active_word_outline_config: cs.active_word_outline_config || null,
@@ -258,6 +266,15 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     } else if (mergedLayout && 'baseOutline' in mergedLayout) {
       const { baseOutline: _bo, ...restNoBo } = mergedLayout
       mergedLayout = Object.keys(restNoBo).length ? restNoBo : null
+    }
+    // Halo toggle — set when disabled, remove the key entirely when
+    // enabled (the default), so the layout JSONB stays minimal for
+    // un-toggled rows.
+    if (haloDisabled) {
+      mergedLayout = { ...(mergedLayout || {}), haloDisabled: true }
+    } else if (mergedLayout && 'haloDisabled' in mergedLayout) {
+      const { haloDisabled: _hd, ...restNoHd } = mergedLayout
+      mergedLayout = Object.keys(restNoHd).length ? restNoHd : null
     }
     // Build the outline config from the form. Null when disabled so
     // the BE clears the column. Width/blur are clamped client-side
@@ -540,6 +557,23 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
             title="Reset to the aspect-ratio default (72% on 9:16)"
           >reset</button>
         )}
+      </div>
+
+      {/* Halo behind text — drop-shadow + glow stack that gives white
+          text on raw video a legibility halo. ON by default; off
+          renders sharp text. Box-style backgrounds always suppress
+          the halo regardless of this toggle (the pill provides its
+          own contrast). */}
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5 text-[10px] flex-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!haloDisabled}
+            onChange={e => { setHaloDisabled(!e.target.checked); markDirty() }}
+          />
+          <span className="font-medium">Halo behind text</span>
+        </label>
+        <span className="text-[9px] text-muted italic">soft glow / drop-shadow for legibility on video</span>
       </div>
 
       {/* Active color */}

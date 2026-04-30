@@ -50,6 +50,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   // cornerRadius is also accepted but only honored in the FE
   // preview — ffmpeg's drawtext draws rectangular boxes only.
   const [boxConfig, setBoxConfig] = useState(null)
+  // Halo behind text — soft drop-shadow + glow stack for legibility
+  // on raw video. ON by default to match the previous baseline; box
+  // backgrounds always suppress halo regardless of this toggle.
+  const [haloEnabled, setHaloEnabled] = useState(true)
   // Y position 0-100% within the platform-safe center band (same scale
   // as ResultCard's overlayYPct). 70 is a common default — near-bottom
   // but clear of the platform's reserved caption/UI zone.
@@ -67,8 +71,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   //
   // Supported fields (each optional):
   //   yPct, fontColor, fontFamily, fontSize, fontOutline,
-  //   outlineWidth, lineHeight, letterSpacing, box
+  //   outlineWidth, lineHeight, letterSpacing, box, halo
   // box has the same shape as the panel-level boxConfig.
+  // halo: boolean — overrides the panel-level haloEnabled. true =
+  // halo on, false = halo off, undefined = inherit panel default.
   const [slotStyles, setSlotStyles] = useState({ opening: {}, middle: {}, closing: {} })
 
   const [saved, setSaved] = useState(false)
@@ -141,6 +147,9 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         // text). Stored under overlay_settings.storyBox so the persist
         // shape stays close to the rest of the storyFont* defaults.
         if (o.storyBox && typeof o.storyBox === 'object') setBoxConfig(o.storyBox)
+        // Halo toggle: persisted as `storyHalo` on overlay_settings.
+        // undefined / true on disk = halo on (default); false = off.
+        if (o.storyHalo === false) setHaloEnabled(false)
 
         // Hydrate per-slot styles. New canonical shape is
         // {opening,middle,closing}Style objects. Old jobs only have
@@ -163,6 +172,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             if (fromObj.lineHeight != null) out.lineHeight = Number(fromObj.lineHeight)
             if (fromObj.letterSpacing != null) out.letterSpacing = Number(fromObj.letterSpacing)
             if (fromObj.box && typeof fromObj.box === 'object') out.box = fromObj.box
+            if (typeof fromObj.halo === 'boolean') out.halo = fromObj.halo
             return out
           }
           // Legacy back-compat: pull from individual flat keys.
@@ -238,6 +248,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       // means "no box". Slot-level boxes override the default of
       // the same name when set.
       storyBox: boxConfig || null,
+      storyHalo: haloEnabled,
 
       // Per-slot full style overrides — canonical shape. The BE
       // export pipeline reads these directly when the per-slot key
@@ -267,6 +278,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       openingBox: slotStyles.opening?.box || null,
       middleBox:  slotStyles.middle?.box  || null,
       closingBox: slotStyles.closing?.box || null,
+      // Per-slot halo override. true/false explicit; undefined =
+      // "inherit panel haloEnabled" (so the FE preview can fall back
+      // when reading style.{slot}Halo ?? style.storyHalo).
+      openingHalo: typeof slotStyles.opening?.halo === 'boolean' ? slotStyles.opening.halo : null,
+      middleHalo:  typeof slotStyles.middle?.halo  === 'boolean' ? slotStyles.middle.halo  : null,
+      closingHalo: typeof slotStyles.closing?.halo === 'boolean' ? slotStyles.closing.halo : null,
     }
     jobSync.saveOverlaySettings?.(payload)
     // Broadcast to FinalPreviewV2 so the overlay preview updates live.
@@ -280,7 +297,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, boxConfig, slotStyles, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, boxConfig, haloEnabled, slotStyles, loaded])
 
   // Wipe every per-slot override so all three slots inherit the
   // current default style. Used by the explicit "Apply to all
@@ -467,6 +484,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           lineHeight={lineHeight} setLineHeight={setLineHeight}
           letterSpacing={letterSpacing} setLetterSpacing={setLetterSpacing}
           overlayYPct={overlayYPct} setOverlayYPct={setOverlayYPct}
+          haloEnabled={haloEnabled} setHaloEnabled={setHaloEnabled}
           fontPickerOpen={fontPickerOpen} setFontPickerOpen={setFontPickerOpen}
         />}
       </div>
@@ -516,7 +534,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               <SlotStyleFold
                 slotStyle={ss}
                 onPatch={(field, value) => updateSlotStyle(slot.key, field, value)}
-                defaults={{ fontFamily, fontSize, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, box: boxConfig }}
+                defaults={{ fontFamily, fontSize, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, box: boxConfig, haloEnabled }}
                 presetCatalog={presetCatalog}
               />
             </div>
@@ -740,6 +758,7 @@ function DefaultStyleControls({
   lineHeight, setLineHeight,
   letterSpacing, setLetterSpacing,
   overlayYPct, setOverlayYPct,
+  haloEnabled, setHaloEnabled,
   fontPickerOpen, setFontPickerOpen,
 }) {
   return (
@@ -829,6 +848,19 @@ function DefaultStyleControls({
           />
         </label>
       </div>
+
+      {/* Halo toggle — soft drop-shadow + glow stack for legibility on
+          raw video. Box backgrounds always suppress the halo, so this
+          toggle only matters when no box is configured. */}
+      <label className="flex items-center gap-1.5 text-[10px] cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!haloEnabled}
+          onChange={e => setHaloEnabled(e.target.checked)}
+        />
+        <span className="font-medium">Halo behind text</span>
+        <span className="text-[9px] text-muted italic">soft glow / drop-shadow for legibility on video</span>
+      </label>
 
       <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
         <label className="text-[10px] font-medium flex items-center gap-2">
@@ -968,7 +1000,7 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
           <button
             type="button"
             onClick={() => {
-              for (const k of ['yPct', 'fontColor', 'fontFamily', 'fontSize', 'fontOutline', 'outlineWidth', 'lineHeight', 'letterSpacing', 'box']) {
+              for (const k of ['yPct', 'fontColor', 'fontFamily', 'fontSize', 'fontOutline', 'outlineWidth', 'lineHeight', 'letterSpacing', 'box', 'halo']) {
                 onPatch(k, null)
               }
             }}
@@ -1085,6 +1117,25 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
                 className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
               />
             </label>
+          </div>
+
+          {/* Per-slot halo override. Tri-state: undefined = inherit
+              panel default; true/false = explicit override. */}
+          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted bg-[#f8f7f3] rounded px-2 py-1.5">
+            <span className="text-[9px] font-medium text-ink whitespace-nowrap">Halo:</span>
+            <select
+              value={typeof slotStyle?.halo === 'boolean' ? String(slotStyle.halo) : ''}
+              onChange={e => {
+                const v = e.target.value
+                onPatch('halo', v === '' ? null : v === 'true')
+              }}
+              className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            >
+              <option value="">inherit ({defaults.haloEnabled ? 'on' : 'off'})</option>
+              <option value="true">on</option>
+              <option value="false">off</option>
+            </select>
+            <span className="text-[9px] italic">soft glow on raw video</span>
           </div>
 
           <SlotYRow
