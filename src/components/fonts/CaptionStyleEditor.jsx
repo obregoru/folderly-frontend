@@ -91,7 +91,13 @@ export default function CaptionStyleEditor({ jobUuid, segmentId, onClose, mode =
     const c = preset.config
     if (c.base_font_family) setBaseFont(c.base_font_family)
     if (c.base_font_color) setBaseColor(c.base_font_color)
-    setBaseFontSize(typeof c.base_font_size === 'number' ? c.base_font_size : null)
+    // Only overwrite the existing size when the preset explicitly
+    // specifies one. The previous code wiped baseFontSize to null
+    // for any preset that didn't include base_font_size (Bold Pill,
+    // most others) — which then fell back to the small minDim×0.055
+    // default, rendering microscopic captions on a small preview
+    // even though every other segment had a proper size saved.
+    if (typeof c.base_font_size === 'number') setBaseFontSize(c.base_font_size)
     if (c.active_word_color) {
       setActiveColor(c.active_word_color); setActiveEnabled(true)
     } else {
