@@ -785,19 +785,28 @@ function OverlayText({ text, runs, style, videoRef, slot }) {
           whiteSpace: 'pre-wrap',
           overflowWrap: 'break-word',
           // Box / pill background — only rendered when a box config
-          // is set (default storyBox or per-slot {slot}Box). Scales
-          // the padding + cornerRadius alongside the font so the
-          // pill's proportions stay consistent across preview sizes.
-          background: boxBg || undefined,
-          paddingLeft: boxBg ? `${boxPaddingX}px` : undefined,
-          paddingRight: boxBg ? `${boxPaddingX}px` : undefined,
-          paddingTop: boxBg ? `${boxPaddingY}px` : undefined,
-          paddingBottom: boxBg ? `${boxPaddingY}px` : undefined,
-          borderRadius: boxBg ? `${boxRadius}px` : undefined,
-          // Drop the text-shadow when on a pill background — it muddies
-          // the contrast against the bright box and isn't part of any
-          // box-style preset's intended look.
-          ...(boxBg ? { textShadow: 'none' } : null),
+          // is set (default storyBox or per-slot {slot}Box). Without
+          // display:inline-block the element stays block-level and
+          // the background stretches the entire 95% maxWidth → looks
+          // like a full-width banner instead of the intended pill.
+          // inline-block makes the box hug the text + padding while
+          // still allowing wrapping at maxWidth. boxDecorationBreak
+          // clone keeps each wrapped line its own pill rather than
+          // merging into one tall rectangle.
+          ...(boxBg
+            ? {
+                display: 'inline-block',
+                background: boxBg,
+                paddingLeft: `${boxPaddingX}px`,
+                paddingRight: `${boxPaddingX}px`,
+                paddingTop: `${boxPaddingY}px`,
+                paddingBottom: `${boxPaddingY}px`,
+                borderRadius: `${boxRadius}px`,
+                // Drop the text-shadow when on a pill background —
+                // it muddies the contrast against the bright box.
+                textShadow: 'none',
+              }
+            : null),
         }}
       >
         {Array.isArray(runs) && runs.length > 0 ? renderRichRuns(runs) : text}
