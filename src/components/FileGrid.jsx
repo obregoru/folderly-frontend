@@ -192,10 +192,17 @@ function RestoredMedia({ item, isVideo, onClick }) {
   const [aspect, setAspect] = useState(() => item._videoDuration && item._videoAspect ? item._videoAspect : null)
   useEffect(() => { if (aspect != null) item._videoAspect = aspect }, [aspect, item])
   const isPortrait = aspect != null && aspect < 1
-  const height = isPortrait ? 260 : 120
+  const isPhoto = !isVideo
+  // Photo tiles render at 9:16 to mirror the export frame so the
+  // user sees a literal preview of the video framing (matches
+  // ImageThumb above). Videos keep their existing height-by-aspect
+  // treatment because the user controls trim/duration, not crop.
+  const tileStyle = isPhoto
+    ? { aspectRatio: '9 / 16', outline: '2px dashed rgba(255, 255, 255, 0.55)', outlineOffset: '-2px' }
+    : { height: isPortrait ? 260 : 120 }
   const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
   return (
-    <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative overflow-hidden" style={{ height }}>
+    <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative overflow-hidden" style={tileStyle}>
       {isVideo ? (
         <video
           data-posty-item-id={item.id}
@@ -219,22 +226,27 @@ function RestoredMedia({ item, isVideo, onClick }) {
         // _photoZoom + _photoRotate sliders so the tile reflects
         // the export framing. overflow:hidden lives on the outer
         // wrapper above so transformed pixels stay inside the tile.
+        // Tile is 9:16 with a dashed outline so the user sees the
+        // video frame boundary at a glance.
         (() => {
           const z = Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0
           const r = Number.isFinite(Number(item._photoRotate)) ? Number(item._photoRotate) : 0
           return (
-            <img
-              src={src}
-              className="w-full h-full"
-              style={{
-                objectFit: z < 1 ? 'contain' : 'cover',
-                transform: `rotate(${r}deg) scale(${z})`,
-                transformOrigin: 'center center',
-                imageOrientation: 'from-image',
-              }}
-              onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
-              onError={e => { e.target.style.display = 'none' }}
-            />
+            <>
+              <img
+                src={src}
+                className="w-full h-full"
+                style={{
+                  objectFit: z < 1 ? 'contain' : 'cover',
+                  transform: `rotate(${r}deg) scale(${z})`,
+                  transformOrigin: 'center center',
+                  imageOrientation: 'from-image',
+                }}
+                onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
+                onError={e => { e.target.style.display = 'none' }}
+              />
+              <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white rounded px-1 py-0.5 pointer-events-none">9:16</span>
+            </>
           )
         })()
       )}
@@ -247,19 +259,18 @@ function ImageThumb({ file, zoom, rotate, onClick }) {
   const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
   const [aspect, setAspect] = useState(() => file._imgAspect || null)
   useEffect(() => { if (aspect != null) file._imgAspect = aspect }, [aspect])
-  const isPortrait = aspect != null && aspect < 1
-  const height = isPortrait ? 260 : 120
-  // Apply the user's per-photo Zoom + Rotate sliders. zoom=1.0 is
-  // natural; >1 magnifies; <1 letterboxes. rotate is degrees
-  // (positive = CW). overflow:hidden + black bg matches the export
-  // framing. transform composes scale + rotate centered.
+  // Photo tiles are 9:16 — matches the exported video aspect — so the
+  // tile IS a literal preview of the video frame. With overflow:hidden
+  // anything the user's zoom/rotate pushes outside the tile is exactly
+  // what gets cropped out of the export. A subtle dashed border marks
+  // it as the "video frame outline" the user asked for.
   const z = Number(zoom) > 0 ? Number(zoom) : 1.0
   const r = Number.isFinite(Number(rotate)) ? Number(rotate) : 0
   return (
     <div
       onClick={onClick}
-      className="w-full block bg-black overflow-hidden cursor-pointer hover:opacity-80"
-      style={{ height }}
+      className="w-full block bg-black overflow-hidden cursor-pointer hover:opacity-80 relative"
+      style={{ aspectRatio: '9 / 16', outline: '2px dashed rgba(255, 255, 255, 0.55)', outlineOffset: '-2px' }}
     >
       <img
         src={src}
@@ -267,11 +278,17 @@ function ImageThumb({ file, zoom, rotate, onClick }) {
         className="w-full h-full"
         style={{
           imageOrientation: 'from-image',
+          // Cover when zoomed in (>=1) so the photo fills the 9:16
+          // tile = matches the export's photoToVideo cover crop.
+          // Contain when zoomed out (<1) so the photo shrinks with
+          // black bars showing through — matches the letterbox the
+          // export will burn in (when we add letterbox export support).
           objectFit: z < 1 ? 'contain' : 'cover',
           transform: `rotate(${r}deg) scale(${z})`,
           transformOrigin: 'center center',
         }}
       />
+      <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white rounded px-1 py-0.5 pointer-events-none">9:16</span>
     </div>
   )
 }
