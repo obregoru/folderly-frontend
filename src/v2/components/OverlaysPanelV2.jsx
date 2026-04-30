@@ -48,22 +48,52 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   // as ResultCard's overlayYPct). 70 is a common default — near-bottom
   // but clear of the platform's reserved caption/UI zone.
   const [overlayYPct, setOverlayYPct] = useState(70)
-  // Per-slot Y overrides — null = "use global overlayYPct". Old jobs
-  // (no per-slot keys in overlay_settings) stay null after hydrate so
-  // the burn-in pipeline falls back to the single global Y exactly as
-  // before. Setting any of these to a number activates the override.
-  const [openingYPct, setOpeningYPct] = useState(null)
-  const [middleYPct, setMiddleYPct] = useState(null)
-  const [closingYPct, setClosingYPct] = useState(null)
-  // Per-slot font color overrides. Same null = "inherit global"
-  // pattern as Y. Backwards compatible — old jobs render at the
-  // single panel storyFontColor.
-  const [openingFontColor, setOpeningFontColor] = useState(null)
-  const [middleFontColor, setMiddleFontColor] = useState(null)
-  const [closingFontColor, setClosingFontColor] = useState(null)
+
+  // Per-slot full style overrides — one partial config per slot.
+  // Fields that are set override the same-named default; missing
+  // fields inherit. Empty object {} = inherit everything (the
+  // SlotStyleFold's "inherits all" state). Persisted under
+  // overlay_settings.{opening,middle,closing}Style. For back-compat
+  // we ALSO mirror common fields (yPct, fontColor, fontSize) into
+  // the legacy openingYPct / openingFontColor / openingFontSize keys
+  // that the BE has read for a while; the new persistence path is
+  // additive, so old consumers keep working.
+  //
+  // Supported fields (each optional):
+  //   yPct, fontColor, fontFamily, fontSize, fontOutline,
+  //   outlineWidth, lineHeight, letterSpacing
+  const [slotStyles, setSlotStyles] = useState({ opening: {}, middle: {}, closing: {} })
+
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [fontPickerOpen, setFontPickerOpen] = useState(false)
+  // Catalog of overlay-compatible presets — loaded once for the
+  // matcher that powers the indicator pills (default + per slot).
+  const [presetCatalog, setPresetCatalog] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    import('../../lib/captionPresets/catalog').then(mod => {
+      if (cancelled) return
+      setPresetCatalog(mod.CAPTION_PRESETS || [])
+    }).catch(() => setPresetCatalog([]))
+    return () => { cancelled = true }
+  }, [])
+
+  // Patch a single field on a single slot. Setting to null/undefined/''
+  // removes the field so the slot falls back to the default — the
+  // "inherits all" reset happens by passing an empty patch through the
+  // applyDefaultsToAllSlots helper below.
+  const updateSlotStyle = (slot, field, value) => {
+    setSlotStyles(prev => {
+      const cur = { ...(prev[slot] || {}) }
+      if (value === null || value === undefined || value === '') {
+        delete cur[field]
+      } else {
+        cur[field] = value
+      }
+      return { ...prev, [slot]: cur }
+    })
+  }
 
   // Seed state from the job's overlay_settings once on mount.
   useEffect(() => {
@@ -96,16 +126,42 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.lineHeight != null) setLineHeight(Number(o.lineHeight) || 1.3)
         if (o.letterSpacing != null) setLetterSpacing(Number(o.letterSpacing) || 0)
         if (o.overlayYPct != null) setOverlayYPct(Number(o.overlayYPct))
-        // Per-slot Y — only adopt when explicitly persisted; otherwise
-        // null carries the "inherit from global" meaning into the
-        // payload below.
-        if (o.openingYPct != null) setOpeningYPct(Number(o.openingYPct))
-        if (o.middleYPct  != null) setMiddleYPct(Number(o.middleYPct))
-        if (o.closingYPct != null) setClosingYPct(Number(o.closingYPct))
-        // Per-slot font color — same inheritance rules.
-        if (o.openingFontColor) setOpeningFontColor(String(o.openingFontColor))
-        if (o.middleFontColor)  setMiddleFontColor(String(o.middleFontColor))
-        if (o.closingFontColor) setClosingFontColor(String(o.closingFontColor))
+
+        // Hydrate per-slot styles. New canonical shape is
+        // {opening,middle,closing}Style objects. Old jobs only have
+        // the flat openingYPct / openingFontColor / openingFontSize
+        // fields, so we backfill the new objects from those when the
+        // new shape is absent. Either way, slotStyles is the source
+        // of truth from this point on.
+        const buildSlotStyle = (prefix) => {
+          const fromObj = (typeof o[`${prefix}Style`] === 'object' && o[`${prefix}Style`] != null)
+            ? o[`${prefix}Style`]
+            : null
+          if (fromObj) {
+            const out = {}
+            if (fromObj.yPct != null) out.yPct = Number(fromObj.yPct)
+            if (fromObj.fontColor) out.fontColor = String(fromObj.fontColor)
+            if (fromObj.fontFamily) out.fontFamily = String(fromObj.fontFamily)
+            if (fromObj.fontSize != null) out.fontSize = Number(fromObj.fontSize)
+            if (fromObj.fontOutline != null) out.fontOutline = !!fromObj.fontOutline
+            if (fromObj.outlineWidth != null) out.outlineWidth = Number(fromObj.outlineWidth)
+            if (fromObj.lineHeight != null) out.lineHeight = Number(fromObj.lineHeight)
+            if (fromObj.letterSpacing != null) out.letterSpacing = Number(fromObj.letterSpacing)
+            return out
+          }
+          // Legacy back-compat: pull from individual flat keys.
+          const out = {}
+          if (o[`${prefix}YPct`] != null) out.yPct = Number(o[`${prefix}YPct`])
+          if (o[`${prefix}FontColor`]) out.fontColor = String(o[`${prefix}FontColor`])
+          if (o[`${prefix}FontSize`] != null) out.fontSize = Number(o[`${prefix}FontSize`])
+          return out
+        }
+        setSlotStyles({
+          opening: buildSlotStyle('opening'),
+          middle:  buildSlotStyle('middle'),
+          closing: buildSlotStyle('closing'),
+        })
+
         setLoaded(true)
       }).catch(() => setLoaded(true))
     })
@@ -162,17 +218,28 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       lineHeight: Number(lineHeight) || 1.3,
       letterSpacing: Number(letterSpacing) || 0,
       overlayYPct: Number(overlayYPct),
-      // Per-slot overrides. null = "no override, use overlayYPct".
-      // Persisting null preserves the "global mode" intent across
-      // reloads so an unset slot doesn't snap to the global value
-      // and silently lose the inheritance.
-      openingYPct: openingYPct != null ? Number(openingYPct) : null,
-      middleYPct:  middleYPct  != null ? Number(middleYPct)  : null,
-      closingYPct: closingYPct != null ? Number(closingYPct) : null,
-      // Per-slot font color overrides — same null-as-inherit pattern.
-      openingFontColor: openingFontColor || null,
-      middleFontColor:  middleFontColor  || null,
-      closingFontColor: closingFontColor || null,
+
+      // Per-slot full style overrides — canonical shape. The BE
+      // export pipeline reads these directly when the per-slot key
+      // is set; otherwise it falls back to the default of the same
+      // name. Each object is sparse: missing fields = inherit.
+      openingStyle: slotStyles.opening || {},
+      middleStyle:  slotStyles.middle  || {},
+      closingStyle: slotStyles.closing || {},
+
+      // Legacy mirror — old BE/FE consumers read these flat keys.
+      // Keep them in sync so a deploy carrying the new code can
+      // still serve a session running the old code (and vice-versa).
+      // null = "no override, use overlayYPct / storyFontColor / size".
+      openingYPct:      slotStyles.opening?.yPct      != null ? Number(slotStyles.opening.yPct)      : null,
+      middleYPct:       slotStyles.middle?.yPct       != null ? Number(slotStyles.middle.yPct)       : null,
+      closingYPct:      slotStyles.closing?.yPct      != null ? Number(slotStyles.closing.yPct)      : null,
+      openingFontColor: slotStyles.opening?.fontColor || null,
+      middleFontColor:  slotStyles.middle?.fontColor  || null,
+      closingFontColor: slotStyles.closing?.fontColor || null,
+      openingFontSize:  slotStyles.opening?.fontSize  != null ? Number(slotStyles.opening.fontSize)  : null,
+      middleFontSize:   slotStyles.middle?.fontSize   != null ? Number(slotStyles.middle.fontSize)   : null,
+      closingFontSize:  slotStyles.closing?.fontSize  != null ? Number(slotStyles.closing.fontSize)  : null,
     }
     jobSync.saveOverlaySettings?.(payload)
     // Broadcast to FinalPreviewV2 so the overlay preview updates live.
@@ -186,20 +253,17 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, openingYPct, middleYPct, closingYPct, openingFontColor, middleFontColor, closingFontColor, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, slotStyles, loaded])
 
-  // Wipe every per-slot Y + color override so all three slots inherit
-  // the current default style. Used by the explicit "Apply to all
+  // Wipe every per-slot override so all three slots inherit the
+  // current default style. Used by the explicit "Apply to all
   // overlays" button on the Default style block AND by the preset
   // fold's onApply path so picking a preset doesn't leave orphan
-  // per-slot overrides from a previous tweak.
+  // per-slot overrides from a previous tweak. Resets to the canonical
+  // empty-object form which serializes to the same shape as a fresh
+  // job so no orphan keys survive.
   const applyDefaultsToAllSlots = () => {
-    setOpeningYPct(null)
-    setMiddleYPct(null)
-    setClosingYPct(null)
-    setOpeningFontColor(null)
-    setMiddleFontColor(null)
-    setClosingFontColor(null)
+    setSlotStyles({ opening: {}, middle: {}, closing: {} })
   }
 
   // Scrub the shared FinalPreview <video> so the user can see their
@@ -289,13 +353,36 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           text overrides only kick in when the user explicitly
           styles a selection. */}
       <div className="border border-[#e5e5e5] rounded p-2 space-y-2 bg-[#fafafa]">
-        <div className="flex items-center gap-2">
-          <div className="text-[11px] font-medium flex-1">Default style (applies to all overlays)</div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="text-[11px] font-medium">Default style (applies to all overlays)</div>
+          {(() => {
+            // Indicator pill for the currently-applied default preset.
+            // Same matcher the slot folds use so default + slot pills
+            // always agree on what counts as "the same preset". Shows
+            // emoji + name when a preset matches, "custom" when none does.
+            const matched = matchOverlayPreset(presetCatalog || [], {
+              fontFamily, fontColor, fontOutline, outlineWidth,
+            })
+            return matched ? (
+              <span
+                className="text-[10px] py-0.5 px-1.5 rounded border bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7] flex items-center gap-1"
+                title={`Default matches the "${matched.displayName}" preset`}
+              >
+                {matched.thumbnailEmoji && <span className="leading-none">{matched.thumbnailEmoji}</span>}
+                {matched.displayName}
+              </span>
+            ) : (
+              <span
+                className="text-[10px] py-0.5 px-1.5 rounded border bg-[#fafafa] border-[#e5e5e5] text-muted"
+                title="Default — doesn't match any preset"
+              >custom</span>
+            )
+          })()}
           <button
             type="button"
             onClick={applyDefaultsToAllSlots}
-            className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
-            title="Clear every per-slot color/Y override so opening, middle, and closing all inherit these defaults"
+            className="ml-auto text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+            title="Clear every per-slot override so opening, middle, and closing all inherit these defaults"
           >Apply to all overlays</button>
         </div>
         <div className="flex items-center gap-2 text-[10px] flex-wrap">
@@ -434,68 +521,56 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       </div>
 
       <div className="space-y-2">
-        <div>
-          <label className="text-[10px] text-muted">Opening (first 0-2s)</label>
-          <RichTextEditor
-            runs={openingRuns}
-            onChange={setOpeningRuns}
-            defaults={{ color: openingFontColor || fontColor, fontFamily, fontSize }}
-            placeholder="POV: your birthday just got a signature scent"
-          />
-          <ResetColorsLink runs={openingRuns} setRuns={setOpeningRuns} />
-          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-            <label>Duration:</label>
-            <DecimalInput value={openingDuration} onChange={setOpeningDuration} />
-            <span>s</span>
-          </div>
-          <SlotStyleFold
-            yValue={openingYPct} yFallback={overlayYPct} onYChange={setOpeningYPct}
-            colorValue={openingFontColor} colorFallback={fontColor} onColorChange={setOpeningFontColor}
-          />
-        </div>
-
-        <div>
-          <label className="text-[10px] text-muted">Middle (optional)</label>
-          <RichTextEditor
-            runs={middleRuns}
-            onChange={setMiddleRuns}
-            defaults={{ color: middleFontColor || fontColor, fontFamily, fontSize }}
-            placeholder="You made it together"
-          />
-          <ResetColorsLink runs={middleRuns} setRuns={setMiddleRuns} />
-          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-            <label>Start at:</label>
-            <DecimalInput value={middleStartTime} onChange={setMiddleStartTime} />
-            <span>s · </span>
-            <label>Duration:</label>
-            <DecimalInput value={middleDuration} onChange={setMiddleDuration} />
-            <span>s</span>
-          </div>
-          <SlotStyleFold
-            yValue={middleYPct} yFallback={overlayYPct} onYChange={setMiddleYPct}
-            colorValue={middleFontColor} colorFallback={fontColor} onColorChange={setMiddleFontColor}
-          />
-        </div>
-
-        <div>
-          <label className="text-[10px] text-muted">Closing (last 1-2s)</label>
-          <RichTextEditor
-            runs={closingRuns}
-            onChange={setClosingRuns}
-            defaults={{ color: closingFontColor || fontColor, fontFamily, fontSize }}
-            placeholder="Only at Poppy & Thyme"
-          />
-          <ResetColorsLink runs={closingRuns} setRuns={setClosingRuns} />
-          <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-            <label>Duration:</label>
-            <DecimalInput value={closingDuration} onChange={setClosingDuration} />
-            <span>s</span>
-          </div>
-          <SlotStyleFold
-            yValue={closingYPct} yFallback={overlayYPct} onYChange={setClosingYPct}
-            colorValue={closingFontColor} colorFallback={fontColor} onColorChange={setClosingFontColor}
-          />
-        </div>
+        {[
+          { key: 'opening', label: 'Opening (first 0-2s)', runs: openingRuns, setRuns: setOpeningRuns, placeholder: 'POV: your birthday just got a signature scent' },
+          { key: 'middle',  label: 'Middle (optional)',     runs: middleRuns,  setRuns: setMiddleRuns,  placeholder: 'You made it together' },
+          { key: 'closing', label: 'Closing (last 1-2s)',   runs: closingRuns, setRuns: setClosingRuns, placeholder: 'Only at Poppy & Thyme' },
+        ].map(slot => {
+          const ss = slotStyles[slot.key] || {}
+          return (
+            <div key={slot.key}>
+              <label className="text-[10px] text-muted">{slot.label}</label>
+              <RichTextEditor
+                runs={slot.runs}
+                onChange={slot.setRuns}
+                defaults={{
+                  color: ss.fontColor || fontColor,
+                  fontFamily: ss.fontFamily || fontFamily,
+                  fontSize: ss.fontSize != null ? ss.fontSize : fontSize,
+                }}
+                placeholder={slot.placeholder}
+              />
+              <ResetColorsLink runs={slot.runs} setRuns={slot.setRuns} />
+              <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
+                {slot.key === 'middle' ? (
+                  <>
+                    <label>Start at:</label>
+                    <DecimalInput value={middleStartTime} onChange={setMiddleStartTime} />
+                    <span>s · </span>
+                    <label>Duration:</label>
+                    <DecimalInput value={middleDuration} onChange={setMiddleDuration} />
+                    <span>s</span>
+                  </>
+                ) : (
+                  <>
+                    <label>Duration:</label>
+                    <DecimalInput
+                      value={slot.key === 'opening' ? openingDuration : closingDuration}
+                      onChange={slot.key === 'opening' ? setOpeningDuration : setClosingDuration}
+                    />
+                    <span>s</span>
+                  </>
+                )}
+              </div>
+              <SlotStyleFold
+                slotStyle={ss}
+                onPatch={(field, value) => updateSlotStyle(slot.key, field, value)}
+                defaults={{ fontFamily, fontSize, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct }}
+                presetCatalog={presetCatalog}
+              />
+            </div>
+          )
+        })}
       </div>
 
       <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">
@@ -639,42 +714,255 @@ function SlotColorRow({ value, fallback, onChange }) {
   )
 }
 
-// Collapsible per-slot style controls. Bundles SlotYRow + SlotColorRow
-// behind a "▸ Style" toggle so the slot's text editor + duration row
-// stays the visual anchor and the override controls only show when the
-// user explicitly opens them. The summary line shows a quick read of
-// what's overridden ("inherits all" / "color · Y") so the user can see
-// at a glance which slots have custom styling without expanding each.
-function SlotStyleFold({ yValue, yFallback, onYChange, colorValue, colorFallback, onColorChange }) {
+// Collapsible per-slot style controls. Bundles a preset indicator pill,
+// preset picker, and the full set of override controls (font, size,
+// color, outline, line height, letter spacing, Y) behind a "▸ Style"
+// toggle so the slot's text editor + duration row stays the visual
+// anchor. Summary line shows the matched preset name (override) /
+// inherit + default name / "inherits all" so the user sees at a glance
+// what each slot is doing without expanding each.
+function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
   const [open, setOpen] = useState(false)
-  const yOverridden = yValue != null
-  const colorOverridden = colorValue != null && colorValue !== ''
-  const summary = (() => {
-    const bits = []
-    if (colorOverridden) bits.push('color')
-    if (yOverridden) bits.push('Y')
-    return bits.length === 0 ? 'inherits all' : `overrides: ${bits.join(' · ')}`
-  })()
+  const [fontPickerOpen, setFontPickerOpen] = useState(false)
+  // Effective config for this slot — defaults + slot overrides.
+  const effective = {
+    fontFamily:    slotStyle?.fontFamily    ?? defaults.fontFamily,
+    fontSize:      slotStyle?.fontSize      ?? defaults.fontSize,
+    fontColor:     slotStyle?.fontColor     ?? defaults.fontColor,
+    fontOutline:   slotStyle?.fontOutline   ?? defaults.fontOutline,
+    outlineWidth:  slotStyle?.outlineWidth  ?? defaults.outlineWidth,
+    lineHeight:    slotStyle?.lineHeight    ?? defaults.lineHeight,
+    letterSpacing: slotStyle?.letterSpacing ?? defaults.letterSpacing,
+    yPct:          slotStyle?.yPct          ?? defaults.overlayYPct,
+  }
+  const slotPreset = matchOverlayPreset(presetCatalog || [], effective)
+  const defaultPreset = matchOverlayPreset(presetCatalog || [], {
+    fontFamily: defaults.fontFamily,
+    fontColor: defaults.fontColor,
+    fontOutline: defaults.fontOutline,
+    outlineWidth: defaults.outlineWidth,
+  })
+  const overrideKeys = Object.keys(slotStyle || {}).filter(k => slotStyle[k] !== undefined)
+  const isOverride = overrideKeys.length > 0
+
   return (
     <div className="mt-1">
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-2 text-[9px] py-1 px-2 border border-[#e5e5e5] bg-[#f8f7f3] rounded cursor-pointer"
-        title="Set this slot's color and vertical position. Leave fields untouched to inherit the default style."
+        title="Customize this slot's font, color, outline, line height, letter spacing, and vertical position. Leave fields untouched to inherit the default style."
       >
         <span className="font-medium text-ink">▸ Style</span>
-        <span className={`text-[9px] ${(yOverridden || colorOverridden) ? 'text-[#6C5CE7]' : 'text-muted italic'}`}>{summary}</span>
+        {isOverride ? (
+          <span
+            className="text-[9px] py-0.5 px-1.5 rounded border bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7] flex items-center gap-1"
+            title={slotPreset ? `Matches the "${slotPreset.displayName}" preset` : 'Custom override on this slot'}
+          >
+            {slotPreset?.thumbnailEmoji && <span className="leading-none">{slotPreset.thumbnailEmoji}</span>}
+            {slotPreset ? slotPreset.displayName : 'custom'}
+          </span>
+        ) : (
+          <span
+            className="text-[9px] py-0.5 px-1.5 rounded border bg-[#2D9A5E]/10 border-[#2D9A5E]/40 text-[#2D9A5E] flex items-center gap-1 italic"
+            title="No per-slot override — inheriting default style"
+          >
+            {defaultPreset?.thumbnailEmoji && <span className="leading-none not-italic">{defaultPreset.thumbnailEmoji}</span>}
+            inherit{defaultPreset ? `: ${defaultPreset.displayName}` : ' default'}
+          </span>
+        )}
         <span className="ml-auto text-muted">{open ? '▾' : '▸'}</span>
       </button>
       {open && (
-        <div className="space-y-1 mt-1">
-          <SlotColorRow value={colorValue} fallback={colorFallback} onChange={onColorChange} />
-          <SlotYRow value={yValue} fallback={yFallback} onChange={onYChange} />
+        <div className="space-y-1.5 mt-1 bg-[#fafafa] border border-[#e5e5e5] rounded p-2">
+          {/* Preset picker — applies the chosen preset's mapped fields
+              ONTO this slot's override bundle, so the slot pill flips
+              to "override: <preset name>". Only the overlay-compatible
+              fields flow through. */}
+          <SlotPresetFold
+            onApply={(preset) => {
+              const c = preset.config || {}
+              if (c.base_font_family) onPatch('fontFamily', c.base_font_family)
+              if (c.base_font_color) onPatch('fontColor', c.base_font_color)
+              if (c.active_word_outline_config?.type === 'outline') {
+                onPatch('fontOutline', true)
+                if (Number(c.active_word_outline_config.width) > 0) {
+                  onPatch('outlineWidth', Math.round(c.active_word_outline_config.width))
+                }
+              }
+            }}
+          />
+          {isOverride && (
+            <button
+              type="button"
+              onClick={() => {
+                // Clear every per-slot field at once. Triggers a single
+                // setSlotStyles via repeated patches; since updateSlotStyle
+                // closes over the latest state, we issue one patch per
+                // known field rather than passing an empty object.
+                for (const k of ['yPct', 'fontColor', 'fontFamily', 'fontSize', 'fontOutline', 'outlineWidth', 'lineHeight', 'letterSpacing']) {
+                  onPatch(k, null)
+                }
+              }}
+              className="text-[9px] py-0.5 px-2 border border-[#e5e5e5] bg-white text-muted rounded cursor-pointer"
+              title="Clear every override on this slot so it inherits the default style"
+            >↺ inherit default</button>
+          )}
+
+          {/* Font row — picker + size + color + outline. Mirrors the
+              default style row's controls 1:1, but each writes onto
+              the slot's override bundle via onPatch. */}
+          <div className="flex items-center gap-2 text-[10px] flex-wrap">
+            <label>Font:</label>
+            <button
+              type="button"
+              onClick={() => setFontPickerOpen(v => !v)}
+              className="flex-1 min-w-[140px] text-left flex items-center gap-2 bg-white border border-[#e5e5e5] hover:border-[#6C5CE7]/50 rounded py-1 px-2 cursor-pointer"
+            >
+              <span className="text-[12px] truncate flex-1" style={{ fontFamily: `'${effective.fontFamily}', system-ui, sans-serif` }}>The quick brown fox</span>
+              <span className="text-[9px] text-muted truncate">{slotStyle?.fontFamily ? effective.fontFamily : `${effective.fontFamily} (default)`}</span>
+              <span className="text-[10px] text-muted">{fontPickerOpen ? '▾' : '▸'}</span>
+            </button>
+            <label>Size:</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={effective.fontSize}
+              onChange={e => onPatch('fontSize', Number(e.target.value.replace(/[^0-9]/g, '')) || null)}
+              className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            />
+            <label>Color:</label>
+            <input
+              type="color"
+              value={effective.fontColor}
+              onChange={e => onPatch('fontColor', e.target.value)}
+              className="w-6 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0"
+            />
+            <label className="flex items-center gap-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!effective.fontOutline}
+                onChange={e => onPatch('fontOutline', e.target.checked)}
+              />
+              Outline
+            </label>
+            {effective.fontOutline && (
+              <>
+                <label>Width:</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={effective.outlineWidth}
+                  onChange={e => onPatch('outlineWidth', Number(e.target.value.replace(/[^0-9]/g, '')) || null)}
+                  className="w-10 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+                />
+                <span>px</span>
+              </>
+            )}
+          </div>
+          {fontPickerOpen && (
+            <Suspense fallback={<div className="text-[11px] text-muted italic py-4 text-center">Loading fonts…</div>}>
+              <FontPicker
+                value={effective.fontFamily}
+                purpose="base"
+                onChange={(fam) => { onPatch('fontFamily', fam); setFontPickerOpen(false) }}
+              />
+            </Suspense>
+          )}
+
+          <div className="flex items-center gap-2 text-[10px] flex-wrap">
+            <label className="flex items-center gap-1 text-muted">
+              <span>Line height:</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={effective.lineHeight}
+                onChange={e => onPatch('lineHeight', Number(String(e.target.value).replace(/[^0-9.]/g, '')) || null)}
+                className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-muted">
+              <span>Letter spacing:</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={effective.letterSpacing}
+                onChange={e => {
+                  const cleaned = String(e.target.value).replace(/[^0-9.-]/g, '')
+                  const n = parseFloat(cleaned)
+                  onPatch('letterSpacing', Number.isFinite(n) ? n : null)
+                }}
+                className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+              />
+            </label>
+          </div>
+
+          <SlotYRow
+            value={slotStyle?.yPct ?? null}
+            fallback={defaults.overlayYPct}
+            onChange={(v) => onPatch('yPct', v)}
+          />
         </div>
       )}
     </div>
   )
+}
+
+// Slim per-slot version of OverlayPresetFold. Same picker, different
+// label so the user understands they're applying onto THIS slot only.
+function SlotPresetFold({ onApply }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border border-[#6C5CE7]/30 bg-white rounded">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 text-[9px] py-1 px-2 cursor-pointer"
+        title="Apply a preset onto this slot only — overrides this slot's font / color / outline"
+      >
+        <span className="text-[12px]">🎨</span>
+        <span className="font-medium text-[#6C5CE7] flex-1 text-left">Apply preset to this slot</span>
+        <span className="text-muted">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="p-2 border-t border-[#e5e5e5]">
+          <Suspense fallback={<div className="text-[10px] text-muted italic py-2 text-center">Loading presets…</div>}>
+            <CaptionPresetPicker
+              onApply={(preset) => { onApply(preset); setOpen(false) }}
+            />
+          </Suspense>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Match an overlay-effective config (fontFamily / fontColor /
+// fontOutline / outlineWidth) against the catalog of caption presets.
+// Only the overlay-compatible fields are compared because the rest
+// (word timings, animations, etc.) don't render in static drawtext.
+// Returns the best match or null. Comparison is case-insensitive on
+// font names + 6-digit hex normalization on colors.
+function matchOverlayPreset(catalog, eff) {
+  if (!Array.isArray(catalog) || catalog.length === 0) return null
+  const normColor = (c) => {
+    if (!c) return null
+    const s = String(c).toLowerCase().trim()
+    if (s.startsWith('#') && s.length === 4) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`
+    return s
+  }
+  const targetFam = String(eff.fontFamily || '').trim().toLowerCase()
+  const targetColor = normColor(eff.fontColor)
+  const targetOutline = !!eff.fontOutline
+  for (const p of catalog) {
+    const c = p.config || {}
+    if (!c.base_font_family || !c.base_font_color) continue
+    const pFam = String(c.base_font_family).trim().toLowerCase()
+    const pColor = normColor(c.base_font_color)
+    const pOutline = c.active_word_outline_config?.type === 'outline'
+    if (pFam === targetFam && pColor === targetColor && pOutline === targetOutline) return p
+  }
+  return null
 }
 
 function SlotYRow({ value, fallback, onChange }) {
