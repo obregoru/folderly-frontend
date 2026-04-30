@@ -17,6 +17,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   const videoRef = useRef(null)
   const insertVideoRef = useRef(null)
   const insertImageRef = useRef(null)
+  const photoImageRef = useRef(null)
   const stageRef = useRef(null)
   // Currently-active insert index (within the host's inserts[] array)
   // or null when none is active. Gates the overlay <video>'s src + z.
@@ -285,9 +286,14 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     if (!el) return
     const inserts = Array.isArray(current?.inserts) ? current.inserts : []
     const ins = activeInsertIdx != null ? inserts[activeInsertIdx] : null
-    if (!ins || ins.type !== 'image' || !ins.motion || ins.motion === 'static') return
+    if (!ins || ins.type !== 'image') return
+    const baseZoom = Number(ins.zoom) >= 1 ? Number(ins.zoom) : 1.0
+    // No motion + zoom 1.0 = nothing to animate. But a non-1.0 zoom
+    // STILL needs an animation (a static scale via 1-frame keyframes)
+    // so the photo fills the frame.
+    if ((!ins.motion || ins.motion === 'static') && baseZoom <= 1.001) return
     const durMs = Math.max(100, Math.round((Number(ins.outDur) || 5) * 1000))
-    const keyframes = motionKeyframes(ins.motion)
+    const keyframes = motionKeyframes(ins.motion || 'static', baseZoom)
     if (!keyframes) return
     let anim
     try {
@@ -317,6 +323,27 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     return () => { if (photoTimerRef.current) clearTimeout(photoTimerRef.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, current?.type, current?.url])
+
+  // Drive Ken Burns motion + base zoom on the main photo display
+  // (when current.type === 'photo'). Same animation engine as the
+  // image-insert path — Web Animations API on the <img> ref. Without
+  // this, sequential photos in the merge preview rendered as static
+  // stills with no motion / zoom even though the export burns it in.
+  useEffect(() => {
+    const el = photoImageRef.current
+    if (!el || !current || current.type !== 'photo') return
+    const baseZoom = Number(current.zoom) >= 1 ? Number(current.zoom) : 1.0
+    const motion = current.motion || 'zoom-in'
+    if ((!motion || motion === 'static') && baseZoom <= 1.001) return
+    const durMs = Math.max(500, (Number(current.trimEnd) || 5) * 1000)
+    const keyframes = motionKeyframes(motion, baseZoom)
+    if (!keyframes) return
+    let anim
+    try {
+      anim = el.animate(keyframes, { duration: durMs, fill: 'both', easing: 'linear' })
+    } catch { return }
+    return () => { try { anim.cancel() } catch {} }
+  }, [idx, current?.type, current?.url, current?.motion, current?.zoom, current?.trimEnd])
 
   if (!current) return null
 
@@ -425,6 +452,7 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
         ) : (
           <img
             key={current.url}
+            ref={photoImageRef}
             src={current.url}
             alt=""
             className="max-w-full max-h-full object-contain bg-black"
@@ -456,32 +484,43 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   )
 }
 
-// Maps a Ken Burns motion name to a Web Animations API keyframes
-// array. The amounts are tuned to roughly match the BE photoToVideo
-// pass — the export uses ffmpeg's zoompan / scale / setpts filters
-// which produce comparable visual motion at our 1080×1920 frame.
-// Pan amounts are deliberately small (5%) so even a tightly-cropped
+// Maps a Ken Burns motion name + base zoom into Web Animations API
+// keyframes. The base zoom (1.0–5.0) is the user's per-photo
+// magnification slider; motion ramps relative to that base. So a
+// 1.5× zoom-in starts at scale(1.5) and ends at scale(1.5 * 1.18).
+// Pan amounts are deliberately small (3%) so even a tightly-cropped
 // photo doesn't reveal letterbox edges as it moves.
-function motionKeyframes(motion) {
+//
+// Static motion + non-1.0 zoom returns a 1-frame "keep at scale"
+// animation so the photo still fills the frame at the user's
+// chosen base size.
+function motionKeyframes(motion, baseZoom = 1.0) {
+  const z = Number(baseZoom) >= 1 ? Number(baseZoom) : 1.0
+  const ZOOM_AMP = 1.18; // zoom-in ramp factor
+  const PAN_BASE = 1.08; // small zoom on pure pans so edges don't flash through
   switch (motion) {
     case 'zoom-in':
-      return [{ transform: 'scale(1.0)' }, { transform: 'scale(1.18)' }]
+      return [{ transform: `scale(${z * 1.0})` }, { transform: `scale(${z * ZOOM_AMP})` }]
     case 'zoom-out':
-      return [{ transform: 'scale(1.18)' }, { transform: 'scale(1.0)' }]
+      return [{ transform: `scale(${z * ZOOM_AMP})` }, { transform: `scale(${z * 1.0})` }]
     case 'pan-lr':
-      return [{ transform: 'scale(1.08) translateX(-3%)' }, { transform: 'scale(1.08) translateX(3%)' }]
+      return [{ transform: `scale(${z * PAN_BASE}) translateX(-3%)` }, { transform: `scale(${z * PAN_BASE}) translateX(3%)` }]
     case 'pan-rl':
-      return [{ transform: 'scale(1.08) translateX(3%)' }, { transform: 'scale(1.08) translateX(-3%)' }]
+      return [{ transform: `scale(${z * PAN_BASE}) translateX(3%)` }, { transform: `scale(${z * PAN_BASE}) translateX(-3%)` }]
     case 'pan-lr-zoom-in':
-      return [{ transform: 'scale(1.0) translateX(-3%)' }, { transform: 'scale(1.18) translateX(3%)' }]
+      return [{ transform: `scale(${z * 1.0}) translateX(-3%)` }, { transform: `scale(${z * ZOOM_AMP}) translateX(3%)` }]
     case 'pan-lr-zoom-out':
-      return [{ transform: 'scale(1.18) translateX(-3%)' }, { transform: 'scale(1.0) translateX(3%)' }]
+      return [{ transform: `scale(${z * ZOOM_AMP}) translateX(-3%)` }, { transform: `scale(${z * 1.0}) translateX(3%)` }]
     case 'pan-rl-zoom-in':
-      return [{ transform: 'scale(1.0) translateX(3%)' }, { transform: 'scale(1.18) translateX(-3%)' }]
+      return [{ transform: `scale(${z * 1.0}) translateX(3%)` }, { transform: `scale(${z * ZOOM_AMP}) translateX(-3%)` }]
     case 'pan-rl-zoom-out':
-      return [{ transform: 'scale(1.18) translateX(3%)' }, { transform: 'scale(1.0) translateX(-3%)' }]
+      return [{ transform: `scale(${z * ZOOM_AMP}) translateX(3%)` }, { transform: `scale(${z * 1.0}) translateX(-3%)` }]
     case 'static':
     default:
-      return null
+      // Hold at the chosen zoom for the entire duration. Without
+      // returning keyframes here, a 1.5× static photo would have
+      // no transform applied and render at object-contain natural
+      // size (letterboxed).
+      return [{ transform: `scale(${z})` }, { transform: `scale(${z})` }]
   }
 }

@@ -192,7 +192,17 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
       // Photos: _trimEnd doubles as "display duration" (seconds).
       // Default to 5s when unset.
       const duration = item._trimEnd != null && item._trimEnd > 0 ? Number(item._trimEnd) : 5
-      return { id: item.id, type: 'photo', url, filename, trimEnd: duration }
+      return {
+        id: item.id,
+        type: 'photo',
+        url,
+        filename,
+        trimEnd: duration,
+        // Motion + base zoom so the lightbox can apply the same Ken
+        // Burns animation in preview that the BE export will burn in.
+        motion: item._photoMotion || 'zoom-in',
+        zoom: Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0,
+      }
     }
     return {
       id: item.id,
@@ -252,6 +262,10 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             // this same value to render the equivalent motion in the
             // exported mp4 — so preview and export look the same.
             motion: insIsPhoto ? (ins._photoMotion || 'zoom-in') : null,
+            // Per-photo base zoom (1.0–5.0). Multiplied into the
+            // motion keyframes so a 1.5× starting size shrinks into
+            // ~1.5×→1.77× (zoom-in) instead of 1.0×→1.18×.
+            zoom: insIsPhoto ? (Number(ins._photoZoom) >= 1 ? Number(ins._photoZoom) : 1.0) : 1.0,
             trimStart: insEntry.trimStart || 0,
             trimEnd: insEntry.trimEnd,
             speed: insIsPhoto ? 1.0 : (insEntry.speed || 1.0),
@@ -335,6 +349,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             media_type: item.file?.type || item._mediaType || 'image/jpeg',
             trim_end: Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5,
             photo_to_video_motion: item._photoMotion || 'zoom-in',
+            photo_to_video_zoom: Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0,
             insert_host_idx: photoInsertHostIdx,
             insert_at_sec: Number(item._insertAtSec) >= 0 ? Number(item._insertAtSec) : 0,
           })

@@ -211,6 +211,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
         photo_to_video: true,
         photo_to_video_motion: file._photoMotion || 'zoom-in',
         photo_to_video_duration: Number(file._trimEnd) > 0 ? Number(file._trimEnd) : 5,
+        photo_to_video_zoom: Number(file._photoZoom) > 0 ? Number(file._photoZoom) : 1.0,
       })
     } catch (e) {
       console.error('[useJobSync] save photo motion failed:', e.message)
@@ -386,6 +387,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             // localId/file.id, not the BE's job_files.id).
             _dbFileId: f.id,
             _photoMotion: f.photo_to_video_motion || null,
+            _photoZoom: Number(f.photo_to_video_zoom) > 0 ? Number(f.photo_to_video_zoom) : 1.0,
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             _restored: true,
             _tenantSlug: api.tenantSlug(),

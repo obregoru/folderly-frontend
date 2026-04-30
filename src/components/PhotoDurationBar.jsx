@@ -76,6 +76,68 @@ export function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
   )
 }
 
+// Per-photo base magnification (1.0 = natural object-contain fit
+// inside the 9:16 frame, possibly letterboxed for non-9:16 photos;
+// >1.0 magnifies the photo BEFORE Ken Burns motion applies, so it
+// fills the frame). Range 1.0–5.0 in 0.1 steps.
+//
+// Why this exists: zoom-in's natural 1.0→1.18 ramp can't cover the
+// letterbox gap on a landscape photo inside a portrait frame. The
+// user's preview showed the photo smaller than the video bounds.
+// This slider lets them dial up the starting size so the photo
+// fills the frame, then motion runs on top of that base.
+export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
+  const initial = Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0
+  const [value, setValue] = useState(initial)
+  useEffect(() => {
+    const next = Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0
+    if (Math.abs(next - value) > 0.001) setValue(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item._photoZoom])
+
+  const commit = (v) => {
+    const clamped = Math.max(1, Math.min(5, Number(v) || 1))
+    setValue(clamped)
+    item._photoZoom = clamped
+    onInvalidateMerge?.()
+    // Reuses the photo-motion save path on the BE side — same row,
+    // same PUT shape — so we don't need a separate endpoint.
+    onSaveMotion?.(item)
+  }
+
+  return (
+    <label
+      className="flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1"
+      title="Base magnification before Ken Burns motion. 1.0 = natural fit (may letterbox); 5.0 = 5× zoom. Use this when a photo's natural fit shows letterbox bars inside the 9:16 frame."
+    >
+      <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap">Zoom</span>
+      <input
+        type="range"
+        min={1}
+        max={5}
+        step={0.1}
+        value={value}
+        onChange={e => setValue(Number(e.target.value))}
+        onMouseUp={e => commit(e.target.value)}
+        onTouchEnd={e => commit(e.target.value)}
+        onKeyUp={e => commit(e.target.value)}
+        className="flex-1 min-w-0 accent-[#6C5CE7]"
+      />
+      <input
+        type="number"
+        min={1}
+        max={5}
+        step={0.1}
+        value={value}
+        onChange={e => setValue(Number(e.target.value) || 1)}
+        onBlur={e => commit(e.target.value)}
+        className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-12 text-right px-1 py-0.5"
+      />
+      <span className="text-[10px] text-[#6C5CE7] font-medium">×</span>
+    </label>
+  )
+}
+
 export function PhotoMotionControl({ item, onInvalidateMerge, onSaveMotion }) {
   const current = item._photoMotion || 'zoom-in'
   return (
@@ -109,6 +171,7 @@ export default function PhotoDurationBar({ item, onInvalidateMerge, onSaveTrim, 
     <div className="space-y-1 mt-1 px-1.5">
       <PhotoDurationControl item={item} onInvalidateMerge={onInvalidateMerge} onSaveTrim={onSaveTrim} />
       <PhotoMotionControl   item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
+      <PhotoZoomControl     item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
     </div>
   )
 }
