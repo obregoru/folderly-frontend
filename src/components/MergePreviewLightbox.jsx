@@ -287,13 +287,13 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
     const inserts = Array.isArray(current?.inserts) ? current.inserts : []
     const ins = activeInsertIdx != null ? inserts[activeInsertIdx] : null
     if (!ins || ins.type !== 'image') return
-    const baseZoom = Number(ins.zoom) >= 1 ? Number(ins.zoom) : 1.0
-    // No motion + zoom 1.0 = nothing to animate. But a non-1.0 zoom
-    // STILL needs an animation (a static scale via 1-frame keyframes)
-    // so the photo fills the frame.
-    if ((!ins.motion || ins.motion === 'static') && baseZoom <= 1.001) return
+    const baseZoom = Number(ins.zoom) > 0 ? Number(ins.zoom) : 1.0
+    const rotate = Number.isFinite(Number(ins.rotate)) ? Number(ins.rotate) : 0
+    // No motion + zoom 1.0 + no rotate = nothing to animate. Skip
+    // to avoid an empty Web Animations call.
+    if ((!ins.motion || ins.motion === 'static') && Math.abs(baseZoom - 1) < 0.001 && rotate === 0) return
     const durMs = Math.max(100, Math.round((Number(ins.outDur) || 5) * 1000))
-    const keyframes = motionKeyframes(ins.motion || 'static', baseZoom)
+    const keyframes = motionKeyframes(ins.motion || 'static', baseZoom, rotate)
     if (!keyframes) return
     let anim
     try {
@@ -332,18 +332,19 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
   useEffect(() => {
     const el = photoImageRef.current
     if (!el || !current || current.type !== 'photo') return
-    const baseZoom = Number(current.zoom) >= 1 ? Number(current.zoom) : 1.0
+    const baseZoom = Number(current.zoom) > 0 ? Number(current.zoom) : 1.0
+    const rotate = Number.isFinite(Number(current.rotate)) ? Number(current.rotate) : 0
     const motion = current.motion || 'zoom-in'
-    if ((!motion || motion === 'static') && baseZoom <= 1.001) return
+    if ((!motion || motion === 'static') && Math.abs(baseZoom - 1) < 0.001 && rotate === 0) return
     const durMs = Math.max(500, (Number(current.trimEnd) || 5) * 1000)
-    const keyframes = motionKeyframes(motion, baseZoom)
+    const keyframes = motionKeyframes(motion, baseZoom, rotate)
     if (!keyframes) return
     let anim
     try {
       anim = el.animate(keyframes, { duration: durMs, fill: 'both', easing: 'linear' })
     } catch { return }
     return () => { try { anim.cancel() } catch {} }
-  }, [idx, current?.type, current?.url, current?.motion, current?.zoom, current?.trimEnd])
+  }, [idx, current?.type, current?.url, current?.motion, current?.zoom, current?.rotate, current?.trimEnd])
 
   if (!current) return null
 
@@ -494,33 +495,37 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
 // Static motion + non-1.0 zoom returns a 1-frame "keep at scale"
 // animation so the photo still fills the frame at the user's
 // chosen base size.
-function motionKeyframes(motion, baseZoom = 1.0) {
-  const z = Number(baseZoom) >= 1 ? Number(baseZoom) : 1.0
+function motionKeyframes(motion, baseZoom = 1.0, rotate = 0) {
+  const z = Number(baseZoom) > 0 ? Number(baseZoom) : 1.0
+  const r = Number.isFinite(Number(rotate)) ? Number(rotate) : 0
   const ZOOM_AMP = 1.18; // zoom-in ramp factor
   const PAN_BASE = 1.08; // small zoom on pure pans so edges don't flash through
+  // Compose rotate(...) ahead of every scale/translate so the rotated
+  // bounding box is what we then scale/pan. Order matters in CSS
+  // transforms — rotate first means the photo's rotated frame is
+  // what gets cropped/zoomed. This matches what users expect from a
+  // "rotate then zoom in" mental model.
+  const rot = r !== 0 ? `rotate(${r}deg) ` : ''
   switch (motion) {
     case 'zoom-in':
-      return [{ transform: `scale(${z * 1.0})` }, { transform: `scale(${z * ZOOM_AMP})` }]
+      return [{ transform: `${rot}scale(${z * 1.0})` }, { transform: `${rot}scale(${z * ZOOM_AMP})` }]
     case 'zoom-out':
-      return [{ transform: `scale(${z * ZOOM_AMP})` }, { transform: `scale(${z * 1.0})` }]
+      return [{ transform: `${rot}scale(${z * ZOOM_AMP})` }, { transform: `${rot}scale(${z * 1.0})` }]
     case 'pan-lr':
-      return [{ transform: `scale(${z * PAN_BASE}) translateX(-3%)` }, { transform: `scale(${z * PAN_BASE}) translateX(3%)` }]
+      return [{ transform: `${rot}scale(${z * PAN_BASE}) translateX(-3%)` }, { transform: `${rot}scale(${z * PAN_BASE}) translateX(3%)` }]
     case 'pan-rl':
-      return [{ transform: `scale(${z * PAN_BASE}) translateX(3%)` }, { transform: `scale(${z * PAN_BASE}) translateX(-3%)` }]
+      return [{ transform: `${rot}scale(${z * PAN_BASE}) translateX(3%)` }, { transform: `${rot}scale(${z * PAN_BASE}) translateX(-3%)` }]
     case 'pan-lr-zoom-in':
-      return [{ transform: `scale(${z * 1.0}) translateX(-3%)` }, { transform: `scale(${z * ZOOM_AMP}) translateX(3%)` }]
+      return [{ transform: `${rot}scale(${z * 1.0}) translateX(-3%)` }, { transform: `${rot}scale(${z * ZOOM_AMP}) translateX(3%)` }]
     case 'pan-lr-zoom-out':
-      return [{ transform: `scale(${z * ZOOM_AMP}) translateX(-3%)` }, { transform: `scale(${z * 1.0}) translateX(3%)` }]
+      return [{ transform: `${rot}scale(${z * ZOOM_AMP}) translateX(-3%)` }, { transform: `${rot}scale(${z * 1.0}) translateX(3%)` }]
     case 'pan-rl-zoom-in':
-      return [{ transform: `scale(${z * 1.0}) translateX(3%)` }, { transform: `scale(${z * ZOOM_AMP}) translateX(-3%)` }]
+      return [{ transform: `${rot}scale(${z * 1.0}) translateX(3%)` }, { transform: `${rot}scale(${z * ZOOM_AMP}) translateX(-3%)` }]
     case 'pan-rl-zoom-out':
-      return [{ transform: `scale(${z * ZOOM_AMP}) translateX(3%)` }, { transform: `scale(${z * 1.0}) translateX(-3%)` }]
+      return [{ transform: `${rot}scale(${z * ZOOM_AMP}) translateX(3%)` }, { transform: `${rot}scale(${z * 1.0}) translateX(-3%)` }]
     case 'static':
     default:
-      // Hold at the chosen zoom for the entire duration. Without
-      // returning keyframes here, a 1.5× static photo would have
-      // no transform applied and render at object-contain natural
-      // size (letterboxed).
-      return [{ transform: `scale(${z})` }, { transform: `scale(${z})` }]
+      // Hold at the chosen zoom + rotation for the entire duration.
+      return [{ transform: `${rot}scale(${z})` }, { transform: `${rot}scale(${z})` }]
   }
 }

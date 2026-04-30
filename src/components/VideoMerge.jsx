@@ -198,10 +198,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         url,
         filename,
         trimEnd: duration,
-        // Motion + base zoom so the lightbox can apply the same Ken
-        // Burns animation in preview that the BE export will burn in.
+        // Motion + base zoom + rotate so the lightbox can apply the
+        // same transform the BE export will burn in.
         motion: item._photoMotion || 'zoom-in',
-        zoom: Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0,
+        zoom: Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0,
+        rotate: Number.isFinite(Number(item._photoRotate)) ? Number(item._photoRotate) : 0,
       }
     }
     return {
@@ -265,7 +266,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             // Per-photo base zoom (1.0–5.0). Multiplied into the
             // motion keyframes so a 1.5× starting size shrinks into
             // ~1.5×→1.77× (zoom-in) instead of 1.0×→1.18×.
-            zoom: insIsPhoto ? (Number(ins._photoZoom) >= 1 ? Number(ins._photoZoom) : 1.0) : 1.0,
+            zoom: insIsPhoto ? (Number(ins._photoZoom) > 0 ? Number(ins._photoZoom) : 1.0) : 1.0,
+            // Per-photo rotation (degrees). Composed onto the
+            // transform alongside scale so the photo rotates with
+            // its zoom intact.
+            rotate: insIsPhoto ? (Number.isFinite(Number(ins._photoRotate)) ? Number(ins._photoRotate) : 0) : 0,
             trimStart: insEntry.trimStart || 0,
             trimEnd: insEntry.trimEnd,
             speed: insIsPhoto ? 1.0 : (insEntry.speed || 1.0),
@@ -349,7 +354,8 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             media_type: item.file?.type || item._mediaType || 'image/jpeg',
             trim_end: Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5,
             photo_to_video_motion: item._photoMotion || 'zoom-in',
-            photo_to_video_zoom: Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0,
+            photo_to_video_zoom: Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0,
+            photo_to_video_rotate: Number.isFinite(Number(item._photoRotate)) ? Number(item._photoRotate) : 0,
             insert_host_idx: photoInsertHostIdx,
             insert_at_sec: Number(item._insertAtSec) >= 0 ? Number(item._insertAtSec) : 0,
           })
