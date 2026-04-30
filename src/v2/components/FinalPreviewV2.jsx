@@ -766,50 +766,65 @@ function OverlayText({ text, runs, style, videoRef, slot }) {
   const boxPaddingY = box?.paddingY != null ? Math.max(0, Number(box.paddingY)) * effectiveScale : 0
   const boxRadius = box?.cornerRadius != null ? Math.max(0, Number(box.cornerRadius)) * effectiveScale : 0
 
+  // CSS layout note: the OverlayText used to use a flex parent
+  // (`flex items-start justify-center`) to center its child. That
+  // works for plain text, but it breaks the inline-block box pattern
+  // we rely on for pill backgrounds — per CSS spec, flex children
+  // have their `display` blockified, so `display: inline-block` is
+  // treated as `display: block` and the background stretches the
+  // full flex-item width (a banner, not a pill).
+  //
+  // Mirroring the captionEngine CaptionLayer wrapper pattern fixes
+  // it: a plain block-level wrapper with `text-align: center` lets
+  // an inline-block child shrink to its content and center itself
+  // naturally via the inherited text-align rule.
   return (
     <div
       ref={wrapRef}
-      className="absolute inset-x-0 flex items-start justify-center pointer-events-none px-4 text-center"
+      className="absolute inset-x-0 pointer-events-none px-4 text-center"
       style={{ top: `${topPct}%` }}
     >
       <div
         style={{
-          fontSize: `${fontSize}px`,
-          color,
-          fontFamily: family,
-          textShadow: shadow,
-          fontWeight: 700,
-          lineHeight,
-          letterSpacing: letterSpacingEm ? `${letterSpacingEm}em` : 'normal',
+          // Block-style intrinsic sizing — text-align: center on this
+          // wrapper centers the inline-block child below.
+          textAlign: 'center',
           maxWidth: '95%',
-          whiteSpace: 'pre-wrap',
-          overflowWrap: 'break-word',
-          // Box / pill background — only rendered when a box config
-          // is set (default storyBox or per-slot {slot}Box). Without
-          // display:inline-block the element stays block-level and
-          // the background stretches the entire 95% maxWidth → looks
-          // like a full-width banner instead of the intended pill.
-          // inline-block makes the box hug the text + padding while
-          // still allowing wrapping at maxWidth. boxDecorationBreak
-          // clone keeps each wrapped line its own pill rather than
-          // merging into one tall rectangle.
-          ...(boxBg
-            ? {
-                display: 'inline-block',
-                background: boxBg,
-                paddingLeft: `${boxPaddingX}px`,
-                paddingRight: `${boxPaddingX}px`,
-                paddingTop: `${boxPaddingY}px`,
-                paddingBottom: `${boxPaddingY}px`,
-                borderRadius: `${boxRadius}px`,
-                // Drop the text-shadow when on a pill background —
-                // it muddies the contrast against the bright box.
-                textShadow: 'none',
-              }
-            : null),
+          marginLeft: 'auto',
+          marginRight: 'auto',
         }}
       >
-        {Array.isArray(runs) && runs.length > 0 ? renderRichRuns(runs) : text}
+        <span
+          style={{
+            // inline-block on the text+pill so the background hugs
+            // text + padding and the wrapper's text-align centers it.
+            display: 'inline-block',
+            fontSize: `${fontSize}px`,
+            color,
+            fontFamily: family,
+            textShadow: shadow,
+            fontWeight: 700,
+            lineHeight,
+            letterSpacing: letterSpacingEm ? `${letterSpacingEm}em` : 'normal',
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'break-word',
+            wordBreak: 'break-word',
+            // Box / pill background — only rendered when a box config
+            // is set (default storyBox or per-slot {slot}Box).
+            ...(boxBg
+              ? {
+                  background: boxBg,
+                  padding: `${boxPaddingY}px ${boxPaddingX}px`,
+                  borderRadius: `${boxRadius}px`,
+                  // Drop the text-shadow when on a pill background —
+                  // it muddies the contrast against the bright box.
+                  textShadow: 'none',
+                }
+              : null),
+          }}
+        >
+          {Array.isArray(runs) && runs.length > 0 ? renderRichRuns(runs) : text}
+        </span>
       </div>
     </div>
   )
