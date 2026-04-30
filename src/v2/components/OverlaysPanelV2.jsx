@@ -531,6 +531,17 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
                   </>
                 )}
               </div>
+              {/* Always-visible per-slot Y position. Lives inline with
+                  the slot's duration / text editor — earlier the only
+                  Y override was buried inside the SlotStyleFold and
+                  felt like it was missing. The same control still
+                  exists in the fold for parity but this surface puts
+                  it where the user expects to find it. */}
+              <SlotYRow
+                value={ss?.yPct ?? null}
+                fallback={overlayYPct}
+                onChange={(v) => updateSlotStyle(slot.key, 'yPct', v)}
+              />
               <SlotStyleFold
                 slotStyle={ss}
                 onPatch={(field, value) => updateSlotStyle(slot.key, field, value)}
