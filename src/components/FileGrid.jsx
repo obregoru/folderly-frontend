@@ -229,6 +229,8 @@ function RestoredMedia({ item, isVideo, onClick }) {
         (() => {
           const z = Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0
           const r = Number.isFinite(Number(item._photoRotate)) ? Number(item._photoRotate) : 0
+          const ox = Number.isFinite(Number(item._photoOffsetX)) ? Number(item._photoOffsetX) / 4 : 0
+          const oy = Number.isFinite(Number(item._photoOffsetY)) ? Number(item._photoOffsetY) / 4 : 0
           return (
             <>
               <img
@@ -236,7 +238,7 @@ function RestoredMedia({ item, isVideo, onClick }) {
                 className="w-full h-full"
                 style={{
                   objectFit: z < 1 ? 'contain' : 'cover',
-                  transform: `rotate(${r}deg) scale(${z})`,
+                  transform: `rotate(${r}deg) scale(${z}) translate(${-ox}%, ${-oy}%)`,
                   transformOrigin: 'center center',
                   imageOrientation: 'from-image',
                 }}
@@ -262,7 +264,7 @@ function RestoredMedia({ item, isVideo, onClick }) {
   )
 }
 
-function ImageThumb({ file, zoom, rotate, onClick }) {
+function ImageThumb({ file, zoom, rotate, offsetX, offsetY, onClick }) {
   const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
   const [aspect, setAspect] = useState(() => file._imgAspect || null)
   useEffect(() => { if (aspect != null) file._imgAspect = aspect }, [aspect])
@@ -274,6 +276,14 @@ function ImageThumb({ file, zoom, rotate, onClick }) {
   // outline visibly. overflow:hidden clips at the outer tile bounds.
   const z = Number(zoom) > 0 ? Number(zoom) : 1.0
   const r = Number.isFinite(Number(rotate)) ? Number(rotate) : 0
+  // Pan offsets are -100..+100 percent (BE clamp range). For the
+  // thumbnail we apply translate(X%, Y%) where the percentages are
+  // relative to the IMG's own dimensions. ÷4 keeps thumbnail nudge
+  // proportional — a +100 pan in the BE is "shift to canvas edge"
+  // which on the thumbnail looks like ~25% of element width (because
+  // the canvas is ~2× target). Empirically this matches.
+  const ox = Number.isFinite(Number(offsetX)) ? Number(offsetX) / 4 : 0
+  const oy = Number.isFinite(Number(offsetY)) ? Number(offsetY) / 4 : 0
   return (
     <div
       onClick={onClick}
@@ -290,7 +300,12 @@ function ImageThumb({ file, zoom, rotate, onClick }) {
           // the tile, parts outside the 9:16 outline = cropped from
           // the export).
           objectFit: z < 1 ? 'contain' : 'cover',
-          transform: `rotate(${r}deg) scale(${z})`,
+          // Translate first so the pan is in original-coords, then
+          // scale + rotate. Sign is inverted — moving the FRAME
+          // right (positive offsetX in the BE) means visually the
+          // image shifts LEFT in the preview to land on the new
+          // crop region.
+          transform: `rotate(${r}deg) scale(${z}) translate(${-ox}%, ${-oy}%)`,
           transformOrigin: 'center center',
         }}
       />
@@ -386,7 +401,14 @@ export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer, Pho
                 <span className="absolute bottom-6 left-1 z-[5] text-white bg-[#6C5CE7]/90 rounded-full text-[9px] font-bold w-[18px] h-[18px] flex items-center justify-center leading-none pointer-events-none">{i + 1}</span>
               )}
               {isImg && item.file ? (
-                <ImageThumb file={item.file} zoom={item._photoZoom} rotate={item._photoRotate} onClick={() => setPreviewItem(item)} />
+                <ImageThumb
+                  file={item.file}
+                  zoom={item._photoZoom}
+                  rotate={item._photoRotate}
+                  offsetX={item._photoOffsetX}
+                  offsetY={item._photoOffsetY}
+                  onClick={() => setPreviewItem(item)}
+                />
               ) : isVideo && item.file ? (
                 <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
               ) : item._restored && (item._publicUrl || item._uploadKey) ? (

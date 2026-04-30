@@ -207,6 +207,96 @@ export function PhotoRotateControl({ item, onInvalidateMerge, onSaveMotion }) {
   )
 }
 
+// Per-photo X/Y pan offsets, both -100 to +100 (percent of available
+// pan range). 0 = centered (legacy behavior). Useful when zoom or
+// rotate has shifted the focus of the image off-center — the user
+// nudges the framed region back without re-zooming. Saved through
+// the same photo-motion path as the other per-photo fields.
+export function PhotoPanControl({ item, onInvalidateMerge, onSaveMotion }) {
+  const initialX = Number.isFinite(Number(item._photoOffsetX)) ? Number(item._photoOffsetX) : 0
+  const initialY = Number.isFinite(Number(item._photoOffsetY)) ? Number(item._photoOffsetY) : 0
+  const [x, setX] = useState(initialX)
+  const [y, setY] = useState(initialY)
+  useEffect(() => {
+    const next = Number.isFinite(Number(item._photoOffsetX)) ? Number(item._photoOffsetX) : 0
+    if (Math.abs(next - x) > 0.5) setX(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item._photoOffsetX])
+  useEffect(() => {
+    const next = Number.isFinite(Number(item._photoOffsetY)) ? Number(item._photoOffsetY) : 0
+    if (Math.abs(next - y) > 0.5) setY(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item._photoOffsetY])
+
+  const commitX = (v) => {
+    const n = Number(v)
+    const clamped = Math.max(-100, Math.min(100, Number.isFinite(n) ? n : 0))
+    setX(clamped)
+    item._photoOffsetX = clamped
+    onInvalidateMerge?.()
+    onSaveMotion?.(item)
+  }
+  const commitY = (v) => {
+    const n = Number(v)
+    const clamped = Math.max(-100, Math.min(100, Number.isFinite(n) ? n : 0))
+    setY(clamped)
+    item._photoOffsetY = clamped
+    onInvalidateMerge?.()
+    onSaveMotion?.(item)
+  }
+
+  return (
+    <div className="flex flex-col gap-1 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1">
+      <label
+        className="flex items-center gap-2"
+        title="Move the framed region horizontally. -100 = pan left to canvas edge; +100 = pan right; 0 = centered."
+      >
+        <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap w-12">Pan X</span>
+        <input
+          type="range" min={-100} max={100} step={1}
+          value={x}
+          onChange={e => setX(Number(e.target.value))}
+          onMouseUp={e => commitX(e.target.value)}
+          onTouchEnd={e => commitX(e.target.value)}
+          onKeyUp={e => commitX(e.target.value)}
+          className="flex-1 min-w-0 accent-[#6C5CE7]"
+        />
+        <input
+          type="number" min={-100} max={100} step={1}
+          value={x}
+          onChange={e => setX(Number(e.target.value) || 0)}
+          onBlur={e => commitX(e.target.value)}
+          className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-14 text-right px-1 py-0.5"
+        />
+        <span className="text-[10px] text-[#6C5CE7] font-medium">%</span>
+      </label>
+      <label
+        className="flex items-center gap-2"
+        title="Move the framed region vertically. -100 = pan up to canvas edge; +100 = pan down; 0 = centered."
+      >
+        <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap w-12">Pan Y</span>
+        <input
+          type="range" min={-100} max={100} step={1}
+          value={y}
+          onChange={e => setY(Number(e.target.value))}
+          onMouseUp={e => commitY(e.target.value)}
+          onTouchEnd={e => commitY(e.target.value)}
+          onKeyUp={e => commitY(e.target.value)}
+          className="flex-1 min-w-0 accent-[#6C5CE7]"
+        />
+        <input
+          type="number" min={-100} max={100} step={1}
+          value={y}
+          onChange={e => setY(Number(e.target.value) || 0)}
+          onBlur={e => commitY(e.target.value)}
+          className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-14 text-right px-1 py-0.5"
+        />
+        <span className="text-[10px] text-[#6C5CE7] font-medium">%</span>
+      </label>
+    </div>
+  )
+}
+
 export function PhotoMotionControl({ item, onInvalidateMerge, onSaveMotion }) {
   const current = item._photoMotion || 'zoom-in'
   return (
@@ -242,6 +332,7 @@ export default function PhotoDurationBar({ item, onInvalidateMerge, onSaveTrim, 
       <PhotoMotionControl   item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
       <PhotoZoomControl     item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
       <PhotoRotateControl   item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
+      <PhotoPanControl      item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
     </div>
   )
 }

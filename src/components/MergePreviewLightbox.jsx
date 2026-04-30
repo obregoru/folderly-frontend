@@ -495,37 +495,45 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
 // Static motion + non-1.0 zoom returns a 1-frame "keep at scale"
 // animation so the photo still fills the frame at the user's
 // chosen base size.
-function motionKeyframes(motion, baseZoom = 1.0, rotate = 0) {
+function motionKeyframes(motion, baseZoom = 1.0, rotate = 0, offsetX = 0, offsetY = 0) {
   const z = Number(baseZoom) > 0 ? Number(baseZoom) : 1.0
   const r = Number.isFinite(Number(rotate)) ? Number(rotate) : 0
+  // Pan offsets — same -100..+100 BE range, ÷4 to match the static
+  // thumbnail mapping (see FileGrid ImageThumb). Sign inverted because
+  // moving the FRAME right (positive offsetX in the BE) corresponds to
+  // shifting the IMAGE left in screen space.
+  const ox = Number.isFinite(Number(offsetX)) ? -Number(offsetX) / 4 : 0
+  const oy = Number.isFinite(Number(offsetY)) ? -Number(offsetY) / 4 : 0
   const ZOOM_AMP = 1.18; // zoom-in ramp factor
   const PAN_BASE = 1.08; // small zoom on pure pans so edges don't flash through
   // Compose rotate(...) ahead of every scale/translate so the rotated
   // bounding box is what we then scale/pan. Order matters in CSS
   // transforms — rotate first means the photo's rotated frame is
-  // what gets cropped/zoomed. This matches what users expect from a
-  // "rotate then zoom in" mental model.
+  // what gets cropped/zoomed. The user pan (offX/Y) is appended at
+  // the end so it sits in original-coords space (translate is the
+  // last op applied → operates on un-scaled, un-rotated coords).
   const rot = r !== 0 ? `rotate(${r}deg) ` : ''
+  const pan = (ox !== 0 || oy !== 0) ? ` translate(${ox}%, ${oy}%)` : ''
   switch (motion) {
     case 'zoom-in':
-      return [{ transform: `${rot}scale(${z * 1.0})` }, { transform: `${rot}scale(${z * ZOOM_AMP})` }]
+      return [{ transform: `${rot}scale(${z * 1.0})${pan}` }, { transform: `${rot}scale(${z * ZOOM_AMP})${pan}` }]
     case 'zoom-out':
-      return [{ transform: `${rot}scale(${z * ZOOM_AMP})` }, { transform: `${rot}scale(${z * 1.0})` }]
+      return [{ transform: `${rot}scale(${z * ZOOM_AMP})${pan}` }, { transform: `${rot}scale(${z * 1.0})${pan}` }]
     case 'pan-lr':
-      return [{ transform: `${rot}scale(${z * PAN_BASE}) translateX(-3%)` }, { transform: `${rot}scale(${z * PAN_BASE}) translateX(3%)` }]
+      return [{ transform: `${rot}scale(${z * PAN_BASE}) translateX(${-3 + ox}%) translateY(${oy}%)` }, { transform: `${rot}scale(${z * PAN_BASE}) translateX(${3 + ox}%) translateY(${oy}%)` }]
     case 'pan-rl':
-      return [{ transform: `${rot}scale(${z * PAN_BASE}) translateX(3%)` }, { transform: `${rot}scale(${z * PAN_BASE}) translateX(-3%)` }]
+      return [{ transform: `${rot}scale(${z * PAN_BASE}) translateX(${3 + ox}%) translateY(${oy}%)` }, { transform: `${rot}scale(${z * PAN_BASE}) translateX(${-3 + ox}%) translateY(${oy}%)` }]
     case 'pan-lr-zoom-in':
-      return [{ transform: `${rot}scale(${z * 1.0}) translateX(-3%)` }, { transform: `${rot}scale(${z * ZOOM_AMP}) translateX(3%)` }]
+      return [{ transform: `${rot}scale(${z * 1.0}) translateX(${-3 + ox}%) translateY(${oy}%)` }, { transform: `${rot}scale(${z * ZOOM_AMP}) translateX(${3 + ox}%) translateY(${oy}%)` }]
     case 'pan-lr-zoom-out':
-      return [{ transform: `${rot}scale(${z * ZOOM_AMP}) translateX(-3%)` }, { transform: `${rot}scale(${z * 1.0}) translateX(3%)` }]
+      return [{ transform: `${rot}scale(${z * ZOOM_AMP}) translateX(${-3 + ox}%) translateY(${oy}%)` }, { transform: `${rot}scale(${z * 1.0}) translateX(${3 + ox}%) translateY(${oy}%)` }]
     case 'pan-rl-zoom-in':
-      return [{ transform: `${rot}scale(${z * 1.0}) translateX(3%)` }, { transform: `${rot}scale(${z * ZOOM_AMP}) translateX(-3%)` }]
+      return [{ transform: `${rot}scale(${z * 1.0}) translateX(${3 + ox}%) translateY(${oy}%)` }, { transform: `${rot}scale(${z * ZOOM_AMP}) translateX(${-3 + ox}%) translateY(${oy}%)` }]
     case 'pan-rl-zoom-out':
-      return [{ transform: `${rot}scale(${z * ZOOM_AMP}) translateX(3%)` }, { transform: `${rot}scale(${z * 1.0}) translateX(-3%)` }]
+      return [{ transform: `${rot}scale(${z * ZOOM_AMP}) translateX(${3 + ox}%) translateY(${oy}%)` }, { transform: `${rot}scale(${z * 1.0}) translateX(${-3 + ox}%) translateY(${oy}%)` }]
     case 'static':
     default:
-      // Hold at the chosen zoom + rotation for the entire duration.
-      return [{ transform: `${rot}scale(${z})` }, { transform: `${rot}scale(${z})` }]
+      // Hold at the chosen zoom + rotation + pan for the entire duration.
+      return [{ transform: `${rot}scale(${z})${pan}` }, { transform: `${rot}scale(${z})${pan}` }]
   }
 }

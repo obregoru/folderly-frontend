@@ -198,11 +198,13 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         url,
         filename,
         trimEnd: duration,
-        // Motion + base zoom + rotate so the lightbox can apply the
-        // same transform the BE export will burn in.
+        // Motion + base zoom + rotate + pan so the lightbox can
+        // apply the same transform the BE export will burn in.
         motion: item._photoMotion || 'zoom-in',
         zoom: Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0,
         rotate: Number.isFinite(Number(item._photoRotate)) ? Number(item._photoRotate) : 0,
+        offsetX: Number.isFinite(Number(item._photoOffsetX)) ? Number(item._photoOffsetX) : 0,
+        offsetY: Number.isFinite(Number(item._photoOffsetY)) ? Number(item._photoOffsetY) : 0,
       }
     }
     return {
@@ -271,6 +273,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             // transform alongside scale so the photo rotates with
             // its zoom intact.
             rotate: insIsPhoto ? (Number.isFinite(Number(ins._photoRotate)) ? Number(ins._photoRotate) : 0) : 0,
+            // Per-photo X/Y pan. The lightbox composes translate(
+            // X%, Y%) into the keyframes so the preview matches
+            // the BE crop shift.
+            offsetX: insIsPhoto ? (Number.isFinite(Number(ins._photoOffsetX)) ? Number(ins._photoOffsetX) : 0) : 0,
+            offsetY: insIsPhoto ? (Number.isFinite(Number(ins._photoOffsetY)) ? Number(ins._photoOffsetY) : 0) : 0,
             trimStart: insEntry.trimStart || 0,
             trimEnd: insEntry.trimEnd,
             speed: insIsPhoto ? 1.0 : (insEntry.speed || 1.0),
@@ -356,6 +363,8 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             photo_to_video_motion: item._photoMotion || 'zoom-in',
             photo_to_video_zoom: Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0,
             photo_to_video_rotate: Number.isFinite(Number(item._photoRotate)) ? Number(item._photoRotate) : 0,
+            photo_to_video_offset_x: Number.isFinite(Number(item._photoOffsetX)) ? Number(item._photoOffsetX) : 0,
+            photo_to_video_offset_y: Number.isFinite(Number(item._photoOffsetY)) ? Number(item._photoOffsetY) : 0,
             insert_host_idx: photoInsertHostIdx,
             insert_at_sec: Number(item._insertAtSec) >= 0 ? Number(item._insertAtSec) : 0,
           })
