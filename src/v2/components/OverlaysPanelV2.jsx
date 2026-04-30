@@ -67,6 +67,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [fontPickerOpen, setFontPickerOpen] = useState(false)
+  // Default-block presets toggle. When open, the CaptionPresetPicker
+  // replaces the form controls inline — same behaviour as the
+  // voiceover CaptionStyleEditor's "🎭 presets" button.
+  const [defaultPresetsOpen, setDefaultPresetsOpen] = useState(false)
   // Catalog of overlay-compatible presets — loaded once for the
   // matcher that powers the indicator pills (default + per slot).
   const [presetCatalog, setPresetCatalog] = useState(null)
@@ -353,13 +357,14 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           text overrides only kick in when the user explicitly
           styles a selection. */}
       <div className="border border-[#e5e5e5] rounded p-2 space-y-2 bg-[#fafafa]">
+        {/* Header row mirrors the voiceover CaptionStyleEditor —
+            title, current-preset pill, "🎭 presets" toggle that
+            swaps the form for the picker, and "Apply to all" on the
+            far right. Pill is two-state on the default (applied vs
+            custom) since the default has nothing to inherit from. */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="text-[11px] font-medium">Default style (applies to all overlays)</div>
+          <div className="text-[11px] font-medium">Default style</div>
           {(() => {
-            // Indicator pill for the currently-applied default preset.
-            // Same matcher the slot folds use so default + slot pills
-            // always agree on what counts as "the same preset". Shows
-            // emoji + name when a preset matches, "custom" when none does.
             const matched = matchOverlayPreset(presetCatalog || [], {
               fontFamily, fontColor, fontOutline, outlineWidth,
             })
@@ -378,146 +383,57 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               >custom</span>
             )
           })()}
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setDefaultPresetsOpen(v => !v)}
+            className={`text-[10px] py-1 px-2 border rounded cursor-pointer flex items-center gap-1 ${
+              defaultPresetsOpen
+                ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                : 'border-[#6C5CE7]/40 bg-white text-[#6C5CE7]'
+            }`}
+            title="Pick a preset for the default style — applies to every slot that inherits"
+          >{defaultPresetsOpen ? '✕' : '🎭'} presets</button>
           <button
             type="button"
             onClick={applyDefaultsToAllSlots}
-            className="ml-auto text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
-            title="Clear every per-slot override so opening, middle, and closing all inherit these defaults"
+            className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+            title="Clear every per-slot override so opening, middle, and closing all inherit this default"
           >Apply to all overlays</button>
         </div>
-        <div className="flex items-center gap-2 text-[10px] flex-wrap">
-          <label>Font:</label>
-          <button
-            type="button"
-            onClick={() => setFontPickerOpen(v => !v)}
-            className="flex-1 min-w-[140px] text-left flex items-center gap-2 bg-white border border-[#e5e5e5] hover:border-[#6C5CE7]/50 rounded py-1 px-2 cursor-pointer"
-            title="Pick an overlay font — preview tiles show the real face"
-          >
-            <span
-              className="text-[12px] truncate flex-1"
-              style={{ fontFamily: `'${fontFamily}', system-ui, sans-serif` }}
-            >The quick brown fox</span>
-            <span className="text-[9px] text-muted truncate">{fontFamily}</span>
-            <span className="text-[10px] text-muted">{fontPickerOpen ? '▾' : '▸'}</span>
-          </button>
-          <label>Size:</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={fontSize}
-            onChange={e => setFontSize(Number(e.target.value.replace(/[^0-9]/g, '')) || 0)}
-            className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-          />
-          <label>Color:</label>
-          <input
-            type="color"
-            value={fontColor}
-            onChange={e => setFontColor(e.target.value)}
-            className="w-6 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0"
-          />
-          <label className="flex items-center gap-1 cursor-pointer">
-            <input type="checkbox" checked={fontOutline} onChange={e => setFontOutline(e.target.checked)} />
-            Outline
-          </label>
-          {fontOutline && (
-            <>
-              <label>Width:</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={outlineWidth}
-                onChange={e => setOutlineWidth(Number(e.target.value.replace(/[^0-9]/g, '')) || 0)}
-                className="w-10 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-              />
-              <span>px</span>
-            </>
-          )}
+        <div className="text-[10px] text-muted italic">
+          Applies to every overlay slot that hasn't been customized. Individual slots can still override it.
         </div>
-
-        {fontPickerOpen && (
-          <Suspense fallback={<div className="text-[11px] text-muted italic py-4 text-center">Loading fonts…</div>}>
-            <FontPicker
-              value={fontFamily}
-              purpose="base"
-              onChange={(fam) => { setFontFamily(fam); setFontPickerOpen(false) }}
+        {defaultPresetsOpen && (
+          <Suspense fallback={<div className="text-[10px] text-muted italic py-2 text-center">Loading presets…</div>}>
+            <CaptionPresetPicker
+              onApply={(preset) => {
+                const c = preset.config || {}
+                if (c.base_font_family) setFontFamily(c.base_font_family)
+                if (c.base_font_color) setFontColor(c.base_font_color)
+                if (c.active_word_outline_config?.type === 'outline') {
+                  setFontOutline(true)
+                  if (Number(c.active_word_outline_config.width) > 0) {
+                    setOutlineWidth(Math.round(c.active_word_outline_config.width))
+                  }
+                }
+                applyDefaultsToAllSlots()
+                setDefaultPresetsOpen(false)
+              }}
             />
           </Suspense>
         )}
-
-        <OverlayPresetFold
-          onApply={(preset) => {
-            const c = preset.config || {}
-            if (c.base_font_family) setFontFamily(c.base_font_family)
-            if (c.base_font_color) setFontColor(c.base_font_color)
-            if (c.active_word_outline_config?.type === 'outline') {
-              setFontOutline(true)
-              if (Number(c.active_word_outline_config.width) > 0) {
-                setOutlineWidth(Math.round(c.active_word_outline_config.width))
-              }
-            }
-            // Wipe per-slot overrides so the freshly-applied preset
-            // is what every slot uses. Without this, a slot that
-            // had an override from a previous preset stayed at its
-            // old color and the user saw "I picked the new preset
-            // but only some overlays changed."
-            applyDefaultsToAllSlots()
-          }}
-        />
-
-        <div className="flex items-center gap-2 text-[10px] flex-wrap">
-          <label className="flex items-center gap-1 text-muted">
-            <span>Line height:</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={lineHeight}
-              onChange={e => setLineHeight(e.target.value.replace(/[^0-9.]/g, ''))}
-              onBlur={e => {
-                const n = parseFloat(e.target.value)
-                setLineHeight(Number.isFinite(n) && n > 0 ? n : 1.3)
-              }}
-              className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-              title="Space between lines as a multiplier of font size (e.g. 1.3)"
-            />
-          </label>
-          <label className="flex items-center gap-1 text-muted">
-            <span>Letter spacing:</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={letterSpacing}
-              onChange={e => setLetterSpacing(e.target.value.replace(/[^0-9.-]/g, ''))}
-              onBlur={e => {
-                const n = parseFloat(e.target.value)
-                setLetterSpacing(Number.isFinite(n) ? n : 0)
-              }}
-              className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
-              title="Character spacing (0 = normal, positive = wider)"
-            />
-          </label>
-        </div>
-
-        <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
-          <label className="text-[10px] font-medium flex items-center gap-2">
-            <span>↕ Vertical position</span>
-            <span className="font-mono text-[#6C5CE7] ml-auto">{overlayYPct}%</span>
-          </label>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={overlayYPct}
-            onChange={e => setOverlayYPct(Number(e.target.value))}
-            className="w-full h-5 accent-[#6C5CE7]"
-            aria-label="Vertical overlay position"
-          />
-          <div className="flex items-center justify-between text-[8px] text-muted">
-            <span>top</span>
-            <span className="opacity-60">clears TikTok/IG UI chrome</span>
-            <span>bottom</span>
-          </div>
-        </div>
+        {!defaultPresetsOpen && <DefaultStyleControls
+          fontFamily={fontFamily} setFontFamily={setFontFamily}
+          fontSize={fontSize} setFontSize={setFontSize}
+          fontColor={fontColor} setFontColor={setFontColor}
+          fontOutline={fontOutline} setFontOutline={setFontOutline}
+          outlineWidth={outlineWidth} setOutlineWidth={setOutlineWidth}
+          lineHeight={lineHeight} setLineHeight={setLineHeight}
+          letterSpacing={letterSpacing} setLetterSpacing={setLetterSpacing}
+          overlayYPct={overlayYPct} setOverlayYPct={setOverlayYPct}
+          fontPickerOpen={fontPickerOpen} setFontPickerOpen={setFontPickerOpen}
+        />}
       </div>
 
       <div className="space-y-2">
@@ -714,17 +630,152 @@ function SlotColorRow({ value, fallback, onChange }) {
   )
 }
 
-// Collapsible per-slot style controls. Bundles a preset indicator pill,
-// preset picker, and the full set of override controls (font, size,
-// color, outline, line height, letter spacing, Y) behind a "▸ Style"
-// toggle so the slot's text editor + duration row stays the visual
-// anchor. Summary line shows the matched preset name (override) /
-// inherit + default name / "inherits all" so the user sees at a glance
-// what each slot is doing without expanding each.
+// All the default-style form fields, lifted out of the panel body so
+// they can be hidden when the presets picker is open (mirrors the
+// voiceover CaptionStyleEditor pattern: presets toggle swaps the
+// form ↔ picker inline).
+function DefaultStyleControls({
+  fontFamily, setFontFamily,
+  fontSize, setFontSize,
+  fontColor, setFontColor,
+  fontOutline, setFontOutline,
+  outlineWidth, setOutlineWidth,
+  lineHeight, setLineHeight,
+  letterSpacing, setLetterSpacing,
+  overlayYPct, setOverlayYPct,
+  fontPickerOpen, setFontPickerOpen,
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-[10px] flex-wrap">
+        <label>Font:</label>
+        <button
+          type="button"
+          onClick={() => setFontPickerOpen(v => !v)}
+          className="flex-1 min-w-[140px] text-left flex items-center gap-2 bg-white border border-[#e5e5e5] hover:border-[#6C5CE7]/50 rounded py-1 px-2 cursor-pointer"
+          title="Pick an overlay font — preview tiles show the real face"
+        >
+          <span
+            className="text-[12px] truncate flex-1"
+            style={{ fontFamily: `'${fontFamily}', system-ui, sans-serif` }}
+          >The quick brown fox</span>
+          <span className="text-[9px] text-muted truncate">{fontFamily}</span>
+          <span className="text-[10px] text-muted">{fontPickerOpen ? '▾' : '▸'}</span>
+        </button>
+        <label>Size:</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={fontSize}
+          onChange={e => setFontSize(Number(e.target.value.replace(/[^0-9]/g, '')) || 0)}
+          className="w-12 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+        />
+        <label>Color:</label>
+        <input
+          type="color"
+          value={fontColor}
+          onChange={e => setFontColor(e.target.value)}
+          className="w-6 h-6 border border-[#e5e5e5] rounded cursor-pointer p-0"
+        />
+        <label className="flex items-center gap-1 cursor-pointer">
+          <input type="checkbox" checked={fontOutline} onChange={e => setFontOutline(e.target.checked)} />
+          Outline
+        </label>
+        {fontOutline && (
+          <>
+            <label>Width:</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={outlineWidth}
+              onChange={e => setOutlineWidth(Number(e.target.value.replace(/[^0-9]/g, '')) || 0)}
+              className="w-10 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            />
+            <span>px</span>
+          </>
+        )}
+      </div>
+
+      {fontPickerOpen && (
+        <Suspense fallback={<div className="text-[11px] text-muted italic py-4 text-center">Loading fonts…</div>}>
+          <FontPicker
+            value={fontFamily}
+            purpose="base"
+            onChange={(fam) => { setFontFamily(fam); setFontPickerOpen(false) }}
+          />
+        </Suspense>
+      )}
+
+      <div className="flex items-center gap-2 text-[10px] flex-wrap">
+        <label className="flex items-center gap-1 text-muted">
+          <span>Line height:</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={lineHeight}
+            onChange={e => setLineHeight(e.target.value.replace(/[^0-9.]/g, ''))}
+            onBlur={e => {
+              const n = parseFloat(e.target.value)
+              setLineHeight(Number.isFinite(n) && n > 0 ? n : 1.3)
+            }}
+            className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            title="Space between lines as a multiplier of font size (e.g. 1.3)"
+          />
+        </label>
+        <label className="flex items-center gap-1 text-muted">
+          <span>Letter spacing:</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={letterSpacing}
+            onChange={e => setLetterSpacing(e.target.value.replace(/[^0-9.-]/g, ''))}
+            onBlur={e => {
+              const n = parseFloat(e.target.value)
+              setLetterSpacing(Number.isFinite(n) ? n : 0)
+            }}
+            className="w-14 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            title="Character spacing (0 = normal, positive = wider)"
+          />
+        </label>
+      </div>
+
+      <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
+        <label className="text-[10px] font-medium flex items-center gap-2">
+          <span>↕ Vertical position</span>
+          <span className="font-mono text-[#6C5CE7] ml-auto">{overlayYPct}%</span>
+        </label>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={overlayYPct}
+          onChange={e => setOverlayYPct(Number(e.target.value))}
+          className="w-full h-5 accent-[#6C5CE7]"
+          aria-label="Vertical overlay position"
+        />
+        <div className="flex items-center justify-between text-[8px] text-muted">
+          <span>top</span>
+          <span className="opacity-60">clears TikTok/IG UI chrome</span>
+          <span>bottom</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Collapsible per-slot style controls — mirrors the voiceover
+// CaptionStyleEditor: closed = trigger button + state pill; open =
+// header (title + pill + "🎭 presets" toggle + "✕ close") and a body
+// that swaps form ↔ preset picker based on `presetsOpen`. State pill
+// is three-state — purple "<preset>" for an applied override that
+// matches a preset, grey "custom" for an applied override with no
+// preset match, green "inherit: <default preset>" when the slot
+// inherits.
 function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
   const [open, setOpen] = useState(false)
+  const [presetsOpen, setPresetsOpen] = useState(false)
   const [fontPickerOpen, setFontPickerOpen] = useState(false)
-  // Effective config for this slot — defaults + slot overrides.
   const effective = {
     fontFamily:    slotStyle?.fontFamily    ?? defaults.fontFamily,
     fontSize:      slotStyle?.fontSize      ?? defaults.fontSize,
@@ -745,41 +796,98 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
   const overrideKeys = Object.keys(slotStyle || {}).filter(k => slotStyle[k] !== undefined)
   const isOverride = overrideKeys.length > 0
 
+  // Pill model — shared by the closed-state trigger button and the
+  // open-state editor header so both reads are byte-identical.
+  const pill = isOverride
+    ? slotPreset
+      ? { tone: 'applied', label: slotPreset.displayName, emoji: slotPreset.thumbnailEmoji, title: `Matches the "${slotPreset.displayName}" preset` }
+      : { tone: 'custom', label: 'custom', emoji: null, title: 'Custom override — doesn\'t match any preset' }
+    : defaultPreset
+      ? { tone: 'inherited', label: `inherit: ${defaultPreset.displayName}`, emoji: defaultPreset.thumbnailEmoji, title: 'No per-slot override — inheriting default style' }
+      : { tone: 'inherited', label: 'inherit default', emoji: null, title: 'No per-slot override — inheriting default style' }
+  const pillClasses =
+    pill.tone === 'applied' ? 'bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7]'
+      : pill.tone === 'inherited' ? 'bg-[#2D9A5E]/10 border-[#2D9A5E]/40 text-[#2D9A5E]'
+      : 'bg-[#fafafa] border-[#e5e5e5] text-muted'
+
+  // Closed-state trigger row.
+  if (!open) {
+    return (
+      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+          title="Edit this slot's font, color, outline, line height, letter spacing, and vertical position"
+        >🎨 caption style</button>
+        <span
+          className={`text-[9px] py-0.5 px-1.5 rounded border flex items-center gap-1 ${pillClasses}`}
+          title={pill.title}
+        >
+          {pill.emoji && <span className="text-[10px] leading-none">{pill.emoji}</span>}
+          {pill.label}
+        </span>
+      </div>
+    )
+  }
+
+  // Open-state editor — header + body (form OR picker).
   return (
-    <div className="mt-1">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-2 text-[9px] py-1 px-2 border border-[#e5e5e5] bg-[#f8f7f3] rounded cursor-pointer"
-        title="Customize this slot's font, color, outline, line height, letter spacing, and vertical position. Leave fields untouched to inherit the default style."
-      >
-        <span className="font-medium text-ink">▸ Style</span>
-        {isOverride ? (
-          <span
-            className="text-[9px] py-0.5 px-1.5 rounded border bg-[#6C5CE7]/10 border-[#6C5CE7]/40 text-[#6C5CE7] flex items-center gap-1"
-            title={slotPreset ? `Matches the "${slotPreset.displayName}" preset` : 'Custom override on this slot'}
-          >
-            {slotPreset?.thumbnailEmoji && <span className="leading-none">{slotPreset.thumbnailEmoji}</span>}
-            {slotPreset ? slotPreset.displayName : 'custom'}
+    <div className="mt-1 bg-[#fafafa] border border-[#e5e5e5] rounded-lg p-3 space-y-2.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="text-[12px] font-medium">Caption style</div>
+        <span
+          className={`text-[10px] py-0.5 px-1.5 rounded border flex items-center gap-1 ${pillClasses}`}
+          title={pill.title}
+        >
+          {pill.emoji && <span className="text-[11px] leading-none">{pill.emoji}</span>}
+          {pill.label}
+        </span>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => setPresetsOpen(v => !v)}
+          className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer"
+          title="Start from a preset — you can still customize below"
+        >{presetsOpen ? '✕' : '🎭'} presets</button>
+        <button
+          type="button"
+          onClick={() => { setOpen(false); setPresetsOpen(false); setFontPickerOpen(false) }}
+          className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
+        >✕ close</button>
+      </div>
+
+      {/* Inheritance hint — same UX as the voiceover editor's
+          "Inheriting job default" / "This segment overrides" rows.
+          When inheriting, encourages editing; when overriding, shows
+          a "↺ inherit default" button to drop every override. */}
+      {!isOverride && (
+        <div className="bg-[#f0faf4] border border-[#2D9A5E]/30 rounded px-2 py-1.5 text-[10px] text-[#2D9A5E] flex items-center gap-2">
+          <span className="flex-1">
+            <span className="font-medium">Inheriting default style.</span>{' '}
+            Edit any field below to override, or apply a preset to this slot only.
           </span>
-        ) : (
-          <span
-            className="text-[9px] py-0.5 px-1.5 rounded border bg-[#2D9A5E]/10 border-[#2D9A5E]/40 text-[#2D9A5E] flex items-center gap-1 italic"
-            title="No per-slot override — inheriting default style"
-          >
-            {defaultPreset?.thumbnailEmoji && <span className="leading-none not-italic">{defaultPreset.thumbnailEmoji}</span>}
-            inherit{defaultPreset ? `: ${defaultPreset.displayName}` : ' default'}
-          </span>
-        )}
-        <span className="ml-auto text-muted">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && (
-        <div className="space-y-1.5 mt-1 bg-[#fafafa] border border-[#e5e5e5] rounded p-2">
-          {/* Preset picker — applies the chosen preset's mapped fields
-              ONTO this slot's override bundle, so the slot pill flips
-              to "override: <preset name>". Only the overlay-compatible
-              fields flow through. */}
-          <SlotPresetFold
+        </div>
+      )}
+      {isOverride && (
+        <div className="flex items-center justify-between bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] text-muted gap-2">
+          <span>This slot overrides the default style.</span>
+          <button
+            type="button"
+            onClick={() => {
+              for (const k of ['yPct', 'fontColor', 'fontFamily', 'fontSize', 'fontOutline', 'outlineWidth', 'lineHeight', 'letterSpacing']) {
+                onPatch(k, null)
+              }
+            }}
+            className="text-[10px] py-0.5 px-2 border border-[#2D9A5E]/40 text-[#2D9A5E] bg-white rounded cursor-pointer"
+            title="Drop every per-slot override so this slot follows the default style"
+          >↺ inherit default</button>
+        </div>
+      )}
+
+      {presetsOpen ? (
+        <Suspense fallback={<div className="text-[10px] text-muted italic py-2 text-center">Loading presets…</div>}>
+          <CaptionPresetPicker
             onApply={(preset) => {
               const c = preset.config || {}
               if (c.base_font_family) onPatch('fontFamily', c.base_font_family)
@@ -790,25 +898,12 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
                   onPatch('outlineWidth', Math.round(c.active_word_outline_config.width))
                 }
               }
+              setPresetsOpen(false)
             }}
           />
-          {isOverride && (
-            <button
-              type="button"
-              onClick={() => {
-                // Clear every per-slot field at once. Triggers a single
-                // setSlotStyles via repeated patches; since updateSlotStyle
-                // closes over the latest state, we issue one patch per
-                // known field rather than passing an empty object.
-                for (const k of ['yPct', 'fontColor', 'fontFamily', 'fontSize', 'fontOutline', 'outlineWidth', 'lineHeight', 'letterSpacing']) {
-                  onPatch(k, null)
-                }
-              }}
-              className="text-[9px] py-0.5 px-2 border border-[#e5e5e5] bg-white text-muted rounded cursor-pointer"
-              title="Clear every override on this slot so it inherits the default style"
-            >↺ inherit default</button>
-          )}
-
+        </Suspense>
+      ) : (
+        <div className="space-y-1.5">
           {/* Font row — picker + size + color + outline. Mirrors the
               default style row's controls 1:1, but each writes onto
               the slot's override bundle via onPatch. */}
@@ -908,35 +1003,6 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
   )
 }
 
-// Slim per-slot version of OverlayPresetFold. Same picker, different
-// label so the user understands they're applying onto THIS slot only.
-function SlotPresetFold({ onApply }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="border border-[#6C5CE7]/30 bg-white rounded">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-2 text-[9px] py-1 px-2 cursor-pointer"
-        title="Apply a preset onto this slot only — overrides this slot's font / color / outline"
-      >
-        <span className="text-[12px]">🎨</span>
-        <span className="font-medium text-[#6C5CE7] flex-1 text-left">Apply preset to this slot</span>
-        <span className="text-muted">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && (
-        <div className="p-2 border-t border-[#e5e5e5]">
-          <Suspense fallback={<div className="text-[10px] text-muted italic py-2 text-center">Loading presets…</div>}>
-            <CaptionPresetPicker
-              onApply={(preset) => { onApply(preset); setOpen(false) }}
-            />
-          </Suspense>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // Match an overlay-effective config (fontFamily / fontColor /
 // fontOutline / outlineWidth) against the catalog of caption presets.
 // Only the overlay-compatible fields are compared because the rest
@@ -1005,37 +1071,3 @@ function SlotYRow({ value, fallback, onChange }) {
 // FFmpeg drawtext burn-in. Rendered as an advisory line under the
 // picker so users aren't surprised when their "Floating Wave"
 // preset doesn't actually wave on the overlay.
-function OverlayPresetFold({ onApply }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="border border-[#e5e5e5] rounded bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center gap-2 p-2 cursor-pointer hover:bg-[#fafafa]"
-        title="Apply a caption preset — only font/color/outline flow through"
-      >
-        <span className="text-[14px] leading-none">🎭</span>
-        <span className="text-[11px] font-medium flex-1 text-left">Apply caption preset</span>
-        <span className="text-[11px] text-muted">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && (
-        <div className="px-2 pb-2 space-y-1.5">
-          <div className="text-[9px] text-muted italic bg-[#fdf2f1] border border-[#c0392b]/20 rounded px-2 py-1">
-            Overlays are burned statically by FFmpeg. Word timings,
-            active-word effects, reveals, animations, text fills, and
-            blurred/highlighter backgrounds don't apply here — only
-            font, color, and outline transfer.
-          </div>
-          <Suspense fallback={<div className="text-[10px] text-muted italic py-2 text-center">Loading presets…</div>}>
-            <CaptionPresetPicker
-              onApply={(preset) => { onApply(preset); setOpen(false) }}
-              selectedId={null}
-              defaultId={null}
-            />
-          </Suspense>
-        </div>
-      )}
-    </div>
-  )
-}
