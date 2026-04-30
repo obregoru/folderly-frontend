@@ -195,7 +195,7 @@ function RestoredMedia({ item, isVideo, onClick }) {
   const height = isPortrait ? 260 : 120
   const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
   return (
-    <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative" style={{ height }}>
+    <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative overflow-hidden" style={{ height }}>
       {isVideo ? (
         <video
           data-posty-item-id={item.id}
@@ -215,19 +215,34 @@ function RestoredMedia({ item, isVideo, onClick }) {
           onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
         />
       ) : (
-        <img
-          src={src}
-          className="w-full h-full object-contain"
-          onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
-          onError={e => { e.target.style.display = 'none' }}
-        />
+        // Photo thumb on a restored draft. Honors the user's
+        // _photoZoom slider so the tile reflects the export framing.
+        // overflow:hidden lives on the outer wrapper above so the
+        // zoom-in crop stays inside the tile.
+        (() => {
+          const z = Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0
+          return (
+            <img
+              src={src}
+              className="w-full h-full"
+              style={{
+                objectFit: z < 1 ? 'contain' : 'cover',
+                transform: `scale(${z})`,
+                transformOrigin: 'center center',
+                imageOrientation: 'from-image',
+              }}
+              onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
+              onError={e => { e.target.style.display = 'none' }}
+            />
+          )
+        })()
       )}
       {isVideo && <span className="absolute text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>}
     </div>
   )
 }
 
-function ImageThumb({ file, onClick }) {
+function ImageThumb({ file, zoom, onClick }) {
   const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
   const [aspect, setAspect] = useState(() => file._imgAspect || null)
   // Stash the detected aspect back on the file so downstream consumers
@@ -235,14 +250,39 @@ function ImageThumb({ file, onClick }) {
   useEffect(() => { if (aspect != null) file._imgAspect = aspect }, [aspect])
   const isPortrait = aspect != null && aspect < 1
   const height = isPortrait ? 260 : 120
+  // Apply the user's per-photo Zoom slider (1.0 = natural fit; >1.0
+  // magnifies; <1.0 letterboxes). overflow:hidden + a black bg
+  // ensures the thumb visually matches the export's framing — when
+  // you crank zoom up the thumb crops in; when you dial down the
+  // thumb shrinks with black bars around it.
+  const z = Number(zoom) > 0 ? Number(zoom) : 1.0
   return (
-    <img
-      src={src}
+    <div
       onClick={onClick}
-      onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
-      className="w-full object-cover block cursor-pointer hover:opacity-80"
-      style={{ height, imageOrientation: 'from-image' }}
-    />
+      className="w-full block bg-black overflow-hidden cursor-pointer hover:opacity-80"
+      style={{ height }}
+    >
+      <img
+        src={src}
+        onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
+        className="w-full h-full object-cover"
+        style={{
+          imageOrientation: 'from-image',
+          // Zoom > 1: object-cover already crops; transform scale
+          // pushes further in. Zoom < 1: switch to object-contain
+          // so the photo fits inside its container, then scale to
+          // shrink — black bg shows through as letterboxing.
+          objectFit: z < 1 ? 'contain' : 'cover',
+          transform: `scale(${z >= 1 ? z : 1.0})`,
+          transformOrigin: 'center center',
+          // For zoom < 1, the scale stays 1 (object-contain handled
+          // it) but we add a separate visual scale via padding/inset.
+          // Simpler: rely on object-contain at zoom<1 to letterbox
+          // naturally; use transform scale only for zoom-in.
+          ...(z < 1 ? { transform: `scale(${z})` } : null),
+        }}
+      />
+    </div>
   )
 }
 
@@ -321,7 +361,7 @@ export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer, Pho
                 <span className="absolute bottom-6 left-1 z-[5] text-white bg-[#6C5CE7]/90 rounded-full text-[9px] font-bold w-[18px] h-[18px] flex items-center justify-center leading-none pointer-events-none">{i + 1}</span>
               )}
               {isImg && item.file ? (
-                <ImageThumb file={item.file} onClick={() => setPreviewItem(item)} />
+                <ImageThumb file={item.file} zoom={item._photoZoom} onClick={() => setPreviewItem(item)} />
               ) : isVideo && item.file ? (
                 <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
               ) : item._restored && (item._publicUrl || item._uploadKey) ? (

@@ -77,26 +77,27 @@ export function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
 }
 
 // Per-photo base magnification (1.0 = natural object-contain fit
-// inside the 9:16 frame, possibly letterboxed for non-9:16 photos;
-// >1.0 magnifies the photo BEFORE Ken Burns motion applies, so it
-// fills the frame). Range 1.0–5.0 in 0.1 steps.
+// inside the 9:16 frame; >1.0 magnifies the photo BEFORE Ken Burns
+// motion applies; <1.0 shrinks the photo, leaving black letterbox
+// bars around it). Range 0.5–5.0 in 0.1 steps.
 //
 // Why this exists: zoom-in's natural 1.0→1.18 ramp can't cover the
-// letterbox gap on a landscape photo inside a portrait frame. The
-// user's preview showed the photo smaller than the video bounds.
-// This slider lets them dial up the starting size so the photo
-// fills the frame, then motion runs on top of that base.
+// letterbox gap on a landscape photo inside a portrait frame. This
+// slider lets the user dial up the starting size so the photo
+// fills the frame, then motion runs on top of that base. Values
+// below 1.0 do the opposite — purposeful letterboxing for stylized
+// shots or aspect-ratio-correct displays.
 export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
-  const initial = Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0
+  const initial = Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0
   const [value, setValue] = useState(initial)
   useEffect(() => {
-    const next = Number(item._photoZoom) >= 1 ? Number(item._photoZoom) : 1.0
+    const next = Number(item._photoZoom) > 0 ? Number(item._photoZoom) : 1.0
     if (Math.abs(next - value) > 0.001) setValue(next)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item._photoZoom])
 
   const commit = (v) => {
-    const clamped = Math.max(1, Math.min(5, Number(v) || 1))
+    const clamped = Math.max(0.5, Math.min(5, Number(v) || 1))
     setValue(clamped)
     item._photoZoom = clamped
     onInvalidateMerge?.()
@@ -108,12 +109,12 @@ export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
   return (
     <label
       className="flex items-center gap-2 bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded px-2 py-1"
-      title="Base magnification before Ken Burns motion. 1.0 = natural fit (may letterbox); 5.0 = 5× zoom. Use this when a photo's natural fit shows letterbox bars inside the 9:16 frame."
+      title="Base magnification before Ken Burns motion. 1.0 = natural fit; >1.0 fills the frame; <1.0 letterboxes. Use 0.5–1.0 to intentionally show black bars around a non-9:16 photo, or 1.0–5.0 to magnify into the frame."
     >
       <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap">Zoom</span>
       <input
         type="range"
-        min={1}
+        min={0.5}
         max={5}
         step={0.1}
         value={value}
@@ -125,7 +126,7 @@ export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
       />
       <input
         type="number"
-        min={1}
+        min={0.5}
         max={5}
         step={0.1}
         value={value}
