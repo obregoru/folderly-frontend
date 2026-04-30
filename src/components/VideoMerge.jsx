@@ -221,21 +221,35 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
       // Find inserts whose host db id matches this host's, in the
       // order they appear in the file list (deterministic).
       const inserts = items
-        .filter(it => it && !isPhoto(it) && it._insertIntoFileId != null && it._insertIntoFileId === host._dbFileId)
+        .filter(it => it && it._insertIntoFileId != null && it._insertIntoFileId === host._dbFileId)
         .map(ins => {
           const insEntry = itemToPlaylistEntry(ins)
           if (!insEntry || !insEntry.url) return null
-          const trimLen = insEntry.trimEnd != null && insEntry.trimEnd > 0
-            ? Math.max(0.1, insEntry.trimEnd - (insEntry.trimStart || 0))
-            : null
-          const outDur = trimLen != null ? trimLen / (insEntry.speed || 1.0) : null
+          const insIsPhoto = isPhoto(ins) || insEntry.type === 'image'
+          // For photo inserts, outDur comes from the photo's display
+          // duration (trim_end on photo clips = display seconds, same
+          // contract as sequential photos). Default 5s. For video
+          // inserts, outDur is trim_length / speed.
+          let outDur
+          if (insIsPhoto) {
+            outDur = Number(ins._trimEnd) > 0 ? Number(ins._trimEnd) : 5
+          } else {
+            const trimLen = insEntry.trimEnd != null && insEntry.trimEnd > 0
+              ? Math.max(0.1, insEntry.trimEnd - (insEntry.trimStart || 0))
+              : null
+            outDur = trimLen != null ? trimLen / (insEntry.speed || 1.0) : null
+          }
           return {
             id: insEntry.id,
             url: insEntry.url,
             filename: insEntry.filename,
+            // type lets the lightbox render <img> for photos and
+            // <video> for videos. Without this, image inserts would
+            // be fed to a <video> element and never display.
+            type: insIsPhoto ? 'image' : 'video',
             trimStart: insEntry.trimStart || 0,
             trimEnd: insEntry.trimEnd,
-            speed: insEntry.speed || 1.0,
+            speed: insIsPhoto ? 1.0 : (insEntry.speed || 1.0),
             atSec: Number(ins._insertAtSec) >= 0 ? Number(ins._insertAtSec) : 0,
             outDur, // null = play to natural end of insert (ffmpeg eof_action=pass)
           }
@@ -293,12 +307,31 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         }
         if (photo) {
           // Photo clip — trim_end is the display duration; motion
-          // drives the Ken Burns effect the backend applies.
+          // drives the Ken Burns effect the backend applies. When
+          // the photo is configured as an insert (overlay onto a
+          // video host), include insert_host_idx + insert_at_sec
+          // so the BE converts it to a video segment AND treats it
+          // as an insert rather than a sequential clip.
+          let photoInsertHostIdx = null
+          if (item._insertIntoFileId != null) {
+            let hostCount = 0
+            for (const f of videoFiles) {
+              if (!f) continue
+              const isInsert = f._insertIntoFileId != null
+              if (f._dbFileId === item._insertIntoFileId && !isInsert) {
+                photoInsertHostIdx = hostCount
+                break
+              }
+              if (!isInsert) hostCount++
+            }
+          }
           clips.push({
             upload_key: uploadKey,
             media_type: item.file?.type || item._mediaType || 'image/jpeg',
             trim_end: Number(item._trimEnd) > 0 ? Number(item._trimEnd) : 5,
             photo_to_video_motion: item._photoMotion || 'zoom-in',
+            insert_host_idx: photoInsertHostIdx,
+            insert_at_sec: Number(item._insertAtSec) >= 0 ? Number(item._insertAtSec) : 0,
           })
         } else {
           // Compute insertHostIdx for the BE — the FE persists
@@ -539,20 +572,26 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                           <span className="text-[#d97706]">trimmed</span>
                         )}
                         <div className="flex-1" />
-                        {!itemIsPhoto && (
-                          <InsertOverlayControl
-                            item={item}
-                            allItems={videoFiles}
-                            onChange={() => {
-                              if (mergedUrl) {
-                                try { URL.revokeObjectURL(mergedUrl) } catch {}
-                                setMergedUrl(null)
-                                mergedBlobRef.current = null
-                                window._postyMergedVideo = null
-                              }
-                            }}
-                          />
-                        )}
+                        {/* InsertOverlayControl renders for BOTH videos
+                            and photos. A photo as an insert overlays
+                            its still image on top of the host video
+                            for the photo's duration while the host's
+                            audio keeps playing. The candidate hosts
+                            list inside the control is filtered to
+                            videos only — only video clips have audio
+                            for the insert to layer on. */}
+                        <InsertOverlayControl
+                          item={item}
+                          allItems={videoFiles}
+                          onChange={() => {
+                            if (mergedUrl) {
+                              try { URL.revokeObjectURL(mergedUrl) } catch {}
+                              setMergedUrl(null)
+                              mergedBlobRef.current = null
+                              window._postyMergedVideo = null
+                            }
+                          }}
+                        />
                         {!itemIsPhoto && (
                           <label
                             className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${

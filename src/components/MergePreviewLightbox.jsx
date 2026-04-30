@@ -328,37 +328,51 @@ export default function MergePreviewLightbox({ playlist, onClose }) {
               className="max-w-full max-h-full object-contain bg-black"
               style={{ position: 'relative', zIndex: 10 }}
             />
-            {Array.isArray(current.inserts) && current.inserts.length > 0 && hostBox && (
-              <video
-                ref={insertVideoRef}
-                src={activeInsertIdx != null && current.inserts[activeInsertIdx]
-                  ? current.inserts[activeInsertIdx].url
-                  : undefined}
-                muted
-                playsInline
-                onEnded={() => setActiveInsertIdx(null)}
-                crossOrigin={
-                  activeInsertIdx != null
-                    && current.inserts[activeInsertIdx]?.url
-                    && !current.inserts[activeInsertIdx].url.startsWith('blob:')
-                    ? 'anonymous' : undefined
-                }
-                className={`absolute object-contain bg-black pointer-events-none transition-opacity duration-100 ${
-                  activeInsertIdx != null ? 'opacity-100' : 'opacity-0'
-                }`}
-                style={{
-                  // Pinned to the host's actual rendered video pixels
-                  // so the overlay covers exactly the host's letterboxed
-                  // area. Without this, the overlay used the parent's
-                  // padded box and looked much larger than the host.
-                  left: hostBox.left,
-                  top: hostBox.top,
-                  width: hostBox.width,
-                  height: hostBox.height,
-                  zIndex: activeInsertIdx != null ? 20 : -1,
-                }}
-              />
-            )}
+            {Array.isArray(current.inserts) && current.inserts.length > 0 && hostBox && (() => {
+              // Pick the active insert (if any) so we can branch on
+              // its type. Image inserts render <img>, video inserts
+              // render <video>. Both layer on top of the host at
+              // the same hostBox bounds so they cover the host's
+              // letterboxed area exactly.
+              const activeInsert = activeInsertIdx != null && current.inserts[activeInsertIdx]
+                ? current.inserts[activeInsertIdx]
+                : null
+              const isImageInsert = activeInsert?.type === 'image'
+              const overlayStyle = {
+                left: hostBox.left,
+                top: hostBox.top,
+                width: hostBox.width,
+                height: hostBox.height,
+                zIndex: activeInsertIdx != null ? 20 : -1,
+              }
+              return isImageInsert ? (
+                <img
+                  key={activeInsert.url}
+                  src={activeInsert.url}
+                  alt={activeInsert.filename || ''}
+                  className={`absolute object-contain bg-black pointer-events-none transition-opacity duration-100 ${
+                    activeInsertIdx != null ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={overlayStyle}
+                />
+              ) : (
+                <video
+                  ref={insertVideoRef}
+                  src={activeInsert?.url || undefined}
+                  muted
+                  playsInline
+                  onEnded={() => setActiveInsertIdx(null)}
+                  crossOrigin={
+                    activeInsert?.url && !activeInsert.url.startsWith('blob:')
+                      ? 'anonymous' : undefined
+                  }
+                  className={`absolute object-contain bg-black pointer-events-none transition-opacity duration-100 ${
+                    activeInsertIdx != null ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={overlayStyle}
+                />
+              )
+            })()}
             {activeInsertIdx != null && hostBox && (
               <div
                 className="absolute z-30 bg-[#6C5CE7]/90 text-white text-[10px] rounded-full px-2 py-0.5 pointer-events-none"
