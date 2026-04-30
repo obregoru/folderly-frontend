@@ -44,6 +44,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [outlineWidth, setOutlineWidth] = useState(3)
   const [lineHeight, setLineHeight] = useState(1.3)
   const [letterSpacing, setLetterSpacing] = useState(0)
+  // Background box behind the overlay text (e.g. the white "pill"
+  // background from the Bold Pill preset). null = no box. When set:
+  //   { color: '#ffffff', opacity: 0.95, paddingX: 28, paddingY: 14 }
+  // cornerRadius is also accepted but only honored in the FE
+  // preview — ffmpeg's drawtext draws rectangular boxes only.
+  const [boxConfig, setBoxConfig] = useState(null)
   // Y position 0-100% within the platform-safe center band (same scale
   // as ResultCard's overlayYPct). 70 is a common default — near-bottom
   // but clear of the platform's reserved caption/UI zone.
@@ -61,7 +67,8 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   //
   // Supported fields (each optional):
   //   yPct, fontColor, fontFamily, fontSize, fontOutline,
-  //   outlineWidth, lineHeight, letterSpacing
+  //   outlineWidth, lineHeight, letterSpacing, box
+  // box has the same shape as the panel-level boxConfig.
   const [slotStyles, setSlotStyles] = useState({ opening: {}, middle: {}, closing: {} })
 
   const [saved, setSaved] = useState(false)
@@ -130,6 +137,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.lineHeight != null) setLineHeight(Number(o.lineHeight) || 1.3)
         if (o.letterSpacing != null) setLetterSpacing(Number(o.letterSpacing) || 0)
         if (o.overlayYPct != null) setOverlayYPct(Number(o.overlayYPct))
+        // Default-level box config (background pill / box behind the
+        // text). Stored under overlay_settings.storyBox so the persist
+        // shape stays close to the rest of the storyFont* defaults.
+        if (o.storyBox && typeof o.storyBox === 'object') setBoxConfig(o.storyBox)
 
         // Hydrate per-slot styles. New canonical shape is
         // {opening,middle,closing}Style objects. Old jobs only have
@@ -151,6 +162,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             if (fromObj.outlineWidth != null) out.outlineWidth = Number(fromObj.outlineWidth)
             if (fromObj.lineHeight != null) out.lineHeight = Number(fromObj.lineHeight)
             if (fromObj.letterSpacing != null) out.letterSpacing = Number(fromObj.letterSpacing)
+            if (fromObj.box && typeof fromObj.box === 'object') out.box = fromObj.box
             return out
           }
           // Legacy back-compat: pull from individual flat keys.
@@ -222,6 +234,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       lineHeight: Number(lineHeight) || 1.3,
       letterSpacing: Number(letterSpacing) || 0,
       overlayYPct: Number(overlayYPct),
+      // Default-level box config (e.g. white pill background). null
+      // means "no box". Slot-level boxes override the default of
+      // the same name when set.
+      storyBox: boxConfig || null,
 
       // Per-slot full style overrides — canonical shape. The BE
       // export pipeline reads these directly when the per-slot key
@@ -244,6 +260,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       openingFontSize:  slotStyles.opening?.fontSize  != null ? Number(slotStyles.opening.fontSize)  : null,
       middleFontSize:   slotStyles.middle?.fontSize   != null ? Number(slotStyles.middle.fontSize)   : null,
       closingFontSize:  slotStyles.closing?.fontSize  != null ? Number(slotStyles.closing.fontSize)  : null,
+      // Flat per-slot box keys — mirrors slotStyles.{slot}.box so the
+      // FE preview's OverlayText (reads style?.{slot}Box) and the BE
+      // render-final route (reads overlay.{slot}Box) get the box
+      // override without having to peek into the nested style obj.
+      openingBox: slotStyles.opening?.box || null,
+      middleBox:  slotStyles.middle?.box  || null,
+      closingBox: slotStyles.closing?.box || null,
     }
     jobSync.saveOverlaySettings?.(payload)
     // Broadcast to FinalPreviewV2 so the overlay preview updates live.
@@ -257,7 +280,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, slotStyles, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, boxConfig, slotStyles, loaded])
 
   // Wipe every per-slot override so all three slots inherit the
   // current default style. Used by the explicit "Apply to all
@@ -366,7 +389,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           <div className="text-[11px] font-medium">Default style</div>
           {(() => {
             const matched = matchOverlayPreset(presetCatalog || [], {
-              fontFamily, fontColor, fontOutline, outlineWidth,
+              fontFamily, fontColor, fontOutline, outlineWidth, box: boxConfig,
             })
             return matched ? (
               <span
@@ -411,12 +434,24 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
                 const c = preset.config || {}
                 if (c.base_font_family) setFontFamily(c.base_font_family)
                 if (c.base_font_color) setFontColor(c.base_font_color)
+                // Outline is bidirectional — turn ON when the preset
+                // has an outline config, OFF when it doesn't. Without
+                // this, applying e.g. Bold Pill (no outline) over a
+                // default with outline=true left fontOutline stuck on
+                // → matcher mismatched → pill never showed.
                 if (c.active_word_outline_config?.type === 'outline') {
                   setFontOutline(true)
                   if (Number(c.active_word_outline_config.width) > 0) {
                     setOutlineWidth(Math.round(c.active_word_outline_config.width))
                   }
+                } else {
+                  setFontOutline(false)
                 }
+                // Box / pill background — taken from the preset's
+                // layout_config.box. null when the preset has no box
+                // config so applying a non-box preset over a previous
+                // box-based one wipes the background cleanly.
+                setBoxConfig(c.layout_config?.box || null)
                 applyDefaultsToAllSlots()
                 setDefaultPresetsOpen(false)
               }}
@@ -481,7 +516,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               <SlotStyleFold
                 slotStyle={ss}
                 onPatch={(field, value) => updateSlotStyle(slot.key, field, value)}
-                defaults={{ fontFamily, fontSize, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct }}
+                defaults={{ fontFamily, fontSize, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, box: boxConfig }}
                 presetCatalog={presetCatalog}
               />
             </div>
@@ -785,6 +820,7 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
     lineHeight:    slotStyle?.lineHeight    ?? defaults.lineHeight,
     letterSpacing: slotStyle?.letterSpacing ?? defaults.letterSpacing,
     yPct:          slotStyle?.yPct          ?? defaults.overlayYPct,
+    box:           slotStyle?.box           ?? defaults.box,
   }
   const slotPreset = matchOverlayPreset(presetCatalog || [], effective)
   const defaultPreset = matchOverlayPreset(presetCatalog || [], {
@@ -792,6 +828,7 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
     fontColor: defaults.fontColor,
     fontOutline: defaults.fontOutline,
     outlineWidth: defaults.outlineWidth,
+    box: defaults.box,
   })
   const overrideKeys = Object.keys(slotStyle || {}).filter(k => slotStyle[k] !== undefined)
   const isOverride = overrideKeys.length > 0
@@ -875,7 +912,7 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
           <button
             type="button"
             onClick={() => {
-              for (const k of ['yPct', 'fontColor', 'fontFamily', 'fontSize', 'fontOutline', 'outlineWidth', 'lineHeight', 'letterSpacing']) {
+              for (const k of ['yPct', 'fontColor', 'fontFamily', 'fontSize', 'fontOutline', 'outlineWidth', 'lineHeight', 'letterSpacing', 'box']) {
                 onPatch(k, null)
               }
             }}
@@ -892,12 +929,20 @@ function SlotStyleFold({ slotStyle, onPatch, defaults, presetCatalog }) {
               const c = preset.config || {}
               if (c.base_font_family) onPatch('fontFamily', c.base_font_family)
               if (c.base_font_color) onPatch('fontColor', c.base_font_color)
+              // Bidirectional outline — see DefaultStyleControls
+              // applyPreset for the same reasoning. Without the
+              // explicit `false` branch, a slot that picked a
+              // non-outline preset stayed at outline=true (inherited
+              // from default) and the pill never showed.
               if (c.active_word_outline_config?.type === 'outline') {
                 onPatch('fontOutline', true)
                 if (Number(c.active_word_outline_config.width) > 0) {
                   onPatch('outlineWidth', Math.round(c.active_word_outline_config.width))
                 }
+              } else {
+                onPatch('fontOutline', false)
               }
+              onPatch('box', c.layout_config?.box || null)
               setPresetsOpen(false)
             }}
           />
@@ -1017,16 +1062,25 @@ function matchOverlayPreset(catalog, eff) {
     if (s.startsWith('#') && s.length === 4) return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`
     return s
   }
+  // Box equality: presence of a box (and its color) is the meaningful
+  // signal — paddings vary by preset but rarely uniquely identify it.
+  // Match by hasBox + boxColor; let padding/cornerRadius drift.
+  const boxKey = (b) => {
+    if (!b || typeof b !== 'object') return 'none'
+    return `box:${normColor(b.color) || 'na'}`
+  }
   const targetFam = String(eff.fontFamily || '').trim().toLowerCase()
   const targetColor = normColor(eff.fontColor)
   const targetOutline = !!eff.fontOutline
+  const targetBoxKey = boxKey(eff.box)
   for (const p of catalog) {
     const c = p.config || {}
     if (!c.base_font_family || !c.base_font_color) continue
     const pFam = String(c.base_font_family).trim().toLowerCase()
     const pColor = normColor(c.base_font_color)
     const pOutline = c.active_word_outline_config?.type === 'outline'
-    if (pFam === targetFam && pColor === targetColor && pOutline === targetOutline) return p
+    const pBoxKey = boxKey(c.layout_config?.box)
+    if (pFam === targetFam && pColor === targetColor && pOutline === targetOutline && pBoxKey === targetBoxKey) return p
   }
   return null
 }

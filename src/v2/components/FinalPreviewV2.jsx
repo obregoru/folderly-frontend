@@ -751,6 +751,21 @@ function OverlayText({ text, runs, style, videoRef, slot }) {
     return elems
   }
 
+  // Background box ("pill") behind the text — sourced from the slot's
+  // override box if set, else the default storyBox. Falls back to no
+  // box (empty rendering) when neither is set. Padding/cornerRadius
+  // are scaled by the same effectiveScale as the font so the pill
+  // looks proportional in the preview at any container size.
+  const slotBoxKey = slot ? `${slot}Box` : null
+  const slotBoxRaw = slotBoxKey ? style?.[slotBoxKey] : null
+  const box = slotBoxRaw || style?.storyBox || null
+  const boxBg = box?.color
+    ? hexWithOpacity(box.color, typeof box.opacity === 'number' ? box.opacity : 1)
+    : null
+  const boxPaddingX = box?.paddingX != null ? Math.max(0, Number(box.paddingX)) * effectiveScale : 0
+  const boxPaddingY = box?.paddingY != null ? Math.max(0, Number(box.paddingY)) * effectiveScale : 0
+  const boxRadius = box?.cornerRadius != null ? Math.max(0, Number(box.cornerRadius)) * effectiveScale : 0
+
   return (
     <div
       ref={wrapRef}
@@ -769,12 +784,43 @@ function OverlayText({ text, runs, style, videoRef, slot }) {
           maxWidth: '95%',
           whiteSpace: 'pre-wrap',
           overflowWrap: 'break-word',
+          // Box / pill background — only rendered when a box config
+          // is set (default storyBox or per-slot {slot}Box). Scales
+          // the padding + cornerRadius alongside the font so the
+          // pill's proportions stay consistent across preview sizes.
+          background: boxBg || undefined,
+          paddingLeft: boxBg ? `${boxPaddingX}px` : undefined,
+          paddingRight: boxBg ? `${boxPaddingX}px` : undefined,
+          paddingTop: boxBg ? `${boxPaddingY}px` : undefined,
+          paddingBottom: boxBg ? `${boxPaddingY}px` : undefined,
+          borderRadius: boxBg ? `${boxRadius}px` : undefined,
+          // Drop the text-shadow when on a pill background — it muddies
+          // the contrast against the bright box and isn't part of any
+          // box-style preset's intended look.
+          ...(boxBg ? { textShadow: 'none' } : null),
         }}
       >
         {Array.isArray(runs) && runs.length > 0 ? renderRichRuns(runs) : text}
       </div>
     </div>
   )
+}
+
+// Convert a #rrggbb-or-named CSS color to rgba(...) with the given
+// alpha. Falls back to the original string when the input isn't a
+// recognized hex; browsers will best-effort parse it.
+function hexWithOpacity(hex, alpha) {
+  const a = Math.max(0, Math.min(1, Number.isFinite(alpha) ? alpha : 1))
+  if (typeof hex !== 'string') return hex
+  const s = hex.trim()
+  if (s.startsWith('#') && (s.length === 7 || s.length === 4)) {
+    const norm = s.length === 4 ? `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}` : s
+    const r = parseInt(norm.slice(1, 3), 16)
+    const g = parseInt(norm.slice(3, 5), 16)
+    const b = parseInt(norm.slice(5, 7), 16)
+    return `rgba(${r}, ${g}, ${b}, ${a})`
+  }
+  return s
 }
 
 // Live preview of lib/image.renderImageFinal — must stay in sync with
