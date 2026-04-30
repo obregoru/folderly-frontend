@@ -118,6 +118,38 @@ export const uploadWatermark = (file) => {
   return fetch(api('/settings/watermark'), { method: 'POST', headers: csrf(), credentials: 'include', body: fd }).then(r => r.json())
 }
 
+// Media library — list deduped media uploaded by this tenant + import
+// (server-side copy) one item into a destination job. Powers the
+// "Browse uploads" picker on the media panel.
+export const listMediaLibrary = (opts = {}) => {
+  const params = new URLSearchParams()
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.offset) params.set('offset', String(opts.offset))
+  if (opts.kind) params.set('kind', String(opts.kind))
+  const qs = params.toString()
+  return fetch(api(`/media-library${qs ? `?${qs}` : ''}`), { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `listMediaLibrary failed (${r.status})`)
+      }
+      return r.json()
+    })
+}
+export const importMediaToJob = (destJobUuid, payload) =>
+  fetch(api(`/media-library/${destJobUuid}/import`), {
+    method: 'POST',
+    headers: { ...h(), ...csrf() },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `importMediaToJob failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Jobs — persistent session state
 export const listJobs = () => fetch(api('/jobs'), { credentials: 'include' }).then(r => r.json())
 export const createJob = () => fetch(api('/jobs'), { method: 'POST', headers: h(), credentials: 'include', body: '{}' }).then(r => r.json())

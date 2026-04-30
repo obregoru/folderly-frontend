@@ -5,6 +5,7 @@ import VideoTrimmer from '../../components/VideoTrimmer'
 import VideoMerge from '../../components/VideoMerge'
 import PhotoDurationBarBase from '../../components/PhotoDurationBar'
 import Dropzone from '../../components/Dropzone'
+import MediaLibraryPicker from '../components/MediaLibraryPicker'
 import FinalPreviewV2, { DownloadFinalButton } from '../components/FinalPreviewV2'
 import AudioMixLog from '../components/AudioMixLog'
 import ToolMenuV2 from '../components/ToolMenuV2'
@@ -112,6 +113,7 @@ export default function EditorV2({
         {safeActiveTool === 'clips' && (
           <ClipsPanelV2
             files={files}
+            setFiles={setFiles}
             videoFiles={videoFiles}
             addFiles={addFiles}
             removeFile={removeFile}
@@ -120,6 +122,7 @@ export default function EditorV2({
             onlyPhotos={onlyPhotos}
             combinePhotosAsVideo={combinePhotosAsVideo}
             onToggleCombinePhotos={toggleCombinePhotos}
+            draftId={draftId}
           />
         )}
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} settings={settings} />}
@@ -166,7 +169,7 @@ export default function EditorV2({
   )
 }
 
-function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos }) {
+function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reorderFiles, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos, draftId }) {
   // Show the merge UI when:
   //   - There's at least one video (mixed draft or video-only), OR
   //   - It's a photo-only draft with 2+ items and the user opted into
@@ -181,11 +184,54 @@ function ClipsPanelV2({ files, videoFiles, addFiles, removeFile, reorderFiles, j
   const showMerge = hasVideos
     || (onlyPhotos && combinePhotosAsVideo && files.length >= 2)
 
+  const [libraryOpen, setLibraryOpen] = useState(false)
+
   return (
     <div className="space-y-3">
-      <div className="text-[12px] font-medium">Media ({files.length})</div>
+      <div className="flex items-center gap-2">
+        <div className="text-[12px] font-medium flex-1">Media ({files.length})</div>
+        <button
+          type="button"
+          onClick={() => setLibraryOpen(true)}
+          disabled={!draftId}
+          className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Pick a file from media you've already uploaded in other drafts. The file is copied so cleanup of the source draft won't break this one."
+        >📚 Browse uploads</button>
+      </div>
 
       <Dropzone onFiles={(fileList) => addFiles(fileList)} />
+
+      {libraryOpen && (
+        <MediaLibraryPicker
+          destJobUuid={draftId}
+          kind={onlyPhotos ? 'image' : 'all'}
+          onClose={() => setLibraryOpen(false)}
+          onPicked={(picked) => {
+            // Inject the freshly imported file into the local files
+            // state so it appears in the panel immediately. Shape
+            // mirrors what addFiles would produce for an uploaded
+            // local file: the editor reads ._uploadKey / ._dbFileId /
+            // _filename / _previewUrl off these entries.
+            const imp = picked?.imported || {}
+            const isImg = String(picked?.media_type || '').toLowerCase().startsWith('image/')
+            const entry = {
+              id: `lib-${Math.random().toString(36).slice(2)}`,
+              file: null,
+              isImg,
+              parsed: { occasions: [], products: [], moments: [] },
+              status: 'done',
+              captions: null,
+              _previewUrl: imp.public_url || null,
+              _uploadKey: imp.upload_key || null,
+              _filename: imp.filename || picked?.filename,
+              _mediaType: imp.media_type || picked?.media_type,
+              _dbFileId: imp.id || null,
+              _fileHash: imp.file_hash || picked?.file_hash || null,
+            }
+            setFiles?.(prev => [...(prev || []), entry])
+          }}
+        />
+      )}
 
       {files.length > 0 && (
         <FileGrid
