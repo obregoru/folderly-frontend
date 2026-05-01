@@ -3,6 +3,7 @@ import * as api from '../../api'
 import { useLivePreviewAssets } from '../lib/useLivePreviewAssets'
 import { FontSizePreview } from '../../components/fonts/CaptionStyleEditor'
 import First2sOverlay from './First2sOverlay'
+import { buildDownloadName } from '../../lib/filename'
 // Lazy-load the overlay so the caption-engine chunk (Remotion-era
 // effect framework + preset registries) only loads for users who
 // actually open a draft with voiceover — not on first paint. Plus
@@ -1117,7 +1118,7 @@ export function DownloadButton({ url, label: idleLabel = '⬇ Download' }) {
 //          trigger an <a download> (desktop) *synchronously* inside the
 //          click handler. iOS Safari otherwise rejects the share because
 //          the 4–6s render would expire the original user activation.
-export function DownloadFinalButton({ draftId, jobSync }) {
+export function DownloadFinalButton({ draftId, jobSync, files }) {
   const [state, setState] = useState('idle') // idle | rendering | ready | saving | done | error
   const [msg, setMsg] = useState('')
   // Stores EACH final as a {blob, filename} pair so multi-photo
@@ -1194,7 +1195,13 @@ export function DownloadFinalButton({ draftId, jobSync }) {
       // Fetch each render sequentially so a slow first item doesn't
       // stall the whole thing if it fails mid-way — each success is
       // appended, errors abort the rest.
-      const ts = Date.now()
+      // Pick the source for the download base name: the first file
+      // with a job_name set, else the first file overall. buildDownloadName
+      // sanitizes for Windows/macOS-illegal characters and falls back
+      // to "posty-video" if no usable name is found.
+      const fileForName = (Array.isArray(files) && files.length)
+        ? (files.find(f => f && (f.job_name || f.captions?.job_name)) || files[0])
+        : null
       const collected = []
       for (let i = 0; i < urls.length; i++) {
         const u = urls[i]
@@ -1208,11 +1215,11 @@ export function DownloadFinalButton({ draftId, jobSync }) {
           : t.includes('quicktime') ? 'mov'
           : 'mp4'
         // Zero-pad the index when multi-item so a file manager sorts
-        // them in order (posty-final-...-01.jpg before -02.jpg).
+        // them in order (job-name-final-01-of-03.jpg before -02-of-03.jpg).
         const suffix = urls.length > 1
-          ? `-${String(i + 1).padStart(2, '0')}-of-${String(urls.length).padStart(2, '0')}`
-          : ''
-        collected.push({ blob, filename: `posty-final-${ts}${suffix}.${ext}` })
+          ? `final-${String(i + 1).padStart(2, '0')}-of-${String(urls.length).padStart(2, '0')}`
+          : 'final'
+        collected.push({ blob, filename: buildDownloadName(fileForName, suffix, ext) })
       }
       filesRef.current = collected
       setState('ready')

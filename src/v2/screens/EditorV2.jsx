@@ -158,7 +158,7 @@ export default function EditorV2({
                   : `Bakes the overlay caption onto each of the ${photoFiles.length} photos and gives you all ${photoFiles.length} files to save. Carousel publishing from Schedule is coming next — for now Schedule posts only the first photo.`)
             }
           </div>
-          <DownloadFinalButton draftId={draftId} jobSync={jobSync} />
+          <DownloadFinalButton draftId={draftId} jobSync={jobSync} files={files} />
           {/* Auto-appears after the first Download press; refreshes
               every subsequent press. Mirrors the BE mix logic so what
               you see in the table is exactly what landed in the mp4. */}
