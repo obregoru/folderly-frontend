@@ -50,19 +50,49 @@ export async function applyHooks(pkg, draftId, currentJob) {
   return 'ok'
 }
 
-// Voiceover apply: try to preserve existing audio keys when text+timing
-// match an existing segment. New/changed segments get audioKey=null —
-// the user re-generates TTS through the panel afterward. Hard
-// destruction of every segment's audio is unfriendly; preserving when
-// the text is byte-identical lets a small voice tweak skip TTS.
+// Voiceover apply: the panel models a synthetic __primary__ segment
+// for the at-t=0 voice (panel labels it "#1 / Primary"). Any package
+// segment that starts at t=0 maps onto __primary__ — otherwise it
+// shows up as #2 because we'd preserve the old primary AND prepend
+// the new segment. Other segments become #2, #3, etc. ordered by
+// startTime.
+//
+// We try to preserve audioKey when text+timing match an existing
+// segment so a small voice tweak doesn't force a full TTS regen.
 export async function applyVoiceover(pkg, draftId, currentJob) {
   if (!Array.isArray(pkg.voiceover)) return 'skip'
   const curVo = currentJob.voiceover_settings || {}
   const curSegs = Array.isArray(curVo.segments) ? curVo.segments : []
   const curById = new Map(curSegs.map(s => [s?.id, s]))
   const curByText = new Map(curSegs.map(s => [String(s?.text || '').trim(), s]).filter(([k]) => k))
+  const existingPrimary = curSegs.find(s => s?.id === '__primary__') || null
 
-  const nextSegs = pkg.voiceover.map(s => {
+  const sortedPkg = [...pkg.voiceover].sort(
+    (a, b) => (Number(a.start) || 0) - (Number(b.start) || 0)
+  )
+  // The first segment at (or near) t=0 is the primary. Everything
+  // else is a timed overlay segment.
+  const firstAtZero = sortedPkg[0] && Number(sortedPkg[0].start) < 0.1 ? sortedPkg[0] : null
+  const timedPkg = firstAtZero ? sortedPkg.slice(1) : sortedPkg
+
+  let primarySeg = null
+  if (firstAtZero) {
+    const samePrimaryText = existingPrimary
+      && String(existingPrimary.text || '').trim() === String(firstAtZero.text || '').trim()
+    primarySeg = {
+      id: '__primary__',
+      text: firstAtZero.text,
+      startTime: 0,
+      duration: Math.max(0.1, Number(firstAtZero.end) - Number(firstAtZero.start)),
+      audioKey: samePrimaryText ? (existingPrimary.audioKey || null) : null,
+      ...(firstAtZero.showCaption === false ? { hideCaption: true } : {}),
+    }
+  } else if (existingPrimary) {
+    // Package didn't touch t=0 — preserve the user's existing primary.
+    primarySeg = existingPrimary
+  }
+
+  const nextTimed = timedPkg.map(s => {
     const matchById = s.id ? curById.get(s.id) : null
     const matchByText = !matchById ? curByText.get(String(s.text || '').trim()) : null
     const match = matchById || matchByText
@@ -76,9 +106,7 @@ export async function applyVoiceover(pkg, draftId, currentJob) {
     }
   })
 
-  // Preserve __primary__ and any pre-existing job-level toggles.
-  const primary = curSegs.find(s => s?.id === '__primary__')
-  const finalSegs = primary ? [primary, ...nextSegs] : nextSegs
+  const finalSegs = primarySeg ? [primarySeg, ...nextTimed] : nextTimed
   await api.updateJob(draftId, {
     voiceover_settings: { ...curVo, segments: finalSegs },
   })
