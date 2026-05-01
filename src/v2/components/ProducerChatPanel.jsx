@@ -490,7 +490,17 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           draftId={draftId}
           jobSync={jobSync}
           onClose={() => setReviewOpen(false)}
-          onApplied={() => { /* keep open so the user sees per-section status */ }}
+          onApplied={(_results, summary) => {
+            // Insert a system-styled assistant message into the chat so
+            // the conversation reflects what landed. The user can scroll
+            // back later and see exactly which package was applied vs
+            // ignored. We DO NOT persist this to the BE chat history —
+            // it's a local UI marker only, since the BE history is the
+            // raw producer turns.
+            if (summary) {
+              setMessages(prev => [...prev, { role: 'assistant', content: summary, _localSystemNote: true }])
+            }
+          }}
         />
       )}
       {finalPackage.errors && (

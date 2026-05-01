@@ -31,6 +31,11 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
   const [applying, setApplying] = useState(false)
   const [applyResults, setApplyResults] = useState(null)
   const [applyErrors, setApplyErrors] = useState([])
+  // Two-step confirm when the apply will delete clips. The user
+  // explicitly asked for an "are you sure" gate on destructive ops —
+  // a single click takes the safe path; a clip-delete requires a
+  // visible second click on a red button.
+  const [confirmingDestructive, setConfirmingDestructive] = useState(false)
 
   useEffect(() => {
     if (!draftId) return
@@ -59,6 +64,11 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
   })
 
   const totalChanges = Object.values(diffs).reduce((acc, list) => acc + (Array.isArray(list) ? list.length : 0), 0)
+
+  // Destructive = at least one clip will be deleted AND the user
+  // didn't opt out of the media section. Opting out skips deletes
+  // entirely (applyMedia returns 'skip').
+  const willDeleteClips = enabled.media && Array.isArray(removed) && removed.length > 0
 
   const handleApply = async () => {
     if (!currentJob) return
@@ -90,7 +100,18 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
 
     // Refresh job state so other tabs show new values immediately.
     try { await jobSync?.loadJob?.(draftId) } catch { /* non-fatal */ }
-    if (typeof onApplied === 'function') onApplied(results)
+
+    // Build a one-line summary the chat panel can echo back as a
+    // system-style message, so the conversation reflects what was
+    // applied (and what was skipped/errored). Also fires a custom
+    // event for any other listener that wants the same signal.
+    const summary = buildApplySummary(results, diffs, removed)
+    try {
+      window.dispatchEvent(new CustomEvent('posty-final-package-applied', {
+        detail: { draftId, results, summary },
+      }))
+    } catch {}
+    if (typeof onApplied === 'function') onApplied(results, summary)
   }
 
   return (
@@ -200,7 +221,7 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
               onClick={onClose}
               className="text-[11px] py-1.5 px-3 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
             >{applyResults ? 'Done' : 'Cancel'}</button>
-            {!applyResults && (
+            {!applyResults && !willDeleteClips && (
               <button
                 type="button"
                 onClick={handleApply}
@@ -208,9 +229,66 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
                 className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
               >{applying ? 'Applying…' : `Apply ${totalChanges} change${totalChanges === 1 ? '' : 's'}`}</button>
             )}
+            {!applyResults && willDeleteClips && !confirmingDestructive && (
+              <button
+                type="button"
+                onClick={() => setConfirmingDestructive(true)}
+                disabled={applying || loading || totalChanges === 0}
+                className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+              >{`Apply ${totalChanges} change${totalChanges === 1 ? '' : 's'}`}</button>
+            )}
+            {!applyResults && willDeleteClips && confirmingDestructive && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDestructive(false)}
+                  className="text-[11px] py-1.5 px-3 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+                >Back</button>
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  disabled={applying}
+                  className="text-[11px] py-1.5 px-3 bg-[#c0392b] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+                  title={`Will delete ${removed.length} clip${removed.length === 1 ? '' : 's'} that aren't in the package`}
+                >{applying ? 'Applying…' : `⚠ Confirm: delete ${removed.length} clip${removed.length === 1 ? '' : 's'} & apply`}</button>
+              </>
+            )}
           </div>
         </div>
       </div>
     </div>
   )
+}
+
+// Compose a one-line "✓ Applied: 3 VO segments, 2 overlays, 4 clips
+// reordered, 1 removed" the chat panel echoes after a successful
+// apply. Skipped + errored sections appear with their own markers.
+function buildApplySummary(results, diffs, removed) {
+  const parts = []
+  for (const [key, status] of Object.entries(results || {})) {
+    if (status !== 'ok') continue
+    if (key === 'voiceover' && Array.isArray(diffs.voiceover) && diffs.voiceover.length > 0) {
+      parts.push('voiceover')
+    } else if (key === 'overlays' && Array.isArray(diffs.overlays) && diffs.overlays.length > 0) {
+      parts.push(`${diffs.overlays.length} overlay change${diffs.overlays.length === 1 ? '' : 's'}`)
+    } else if (key === 'media' && Array.isArray(diffs.media)) {
+      const reorderCount = diffs.media.filter(d => d.label === 'order').length
+      const otherCount = diffs.media.length - reorderCount
+      const removedCount = removed?.length || 0
+      const bits = []
+      if (reorderCount > 0) bits.push('reordered clips')
+      if (otherCount > 0) bits.push(`${otherCount} clip edit${otherCount === 1 ? '' : 's'}`)
+      if (removedCount > 0) bits.push(`${removedCount} removed`)
+      if (bits.length > 0) parts.push(bits.join(', '))
+    } else if (key === 'channels' && Array.isArray(diffs.channels) && diffs.channels.length > 0) {
+      parts.push(`${diffs.channels.length} channel field${diffs.channels.length === 1 ? '' : 's'}`)
+    } else if (key === 'voice' || key === 'overrides' || key === 'hooks') {
+      const list = diffs[key]
+      if (Array.isArray(list) && list.length > 0) parts.push(key)
+    }
+  }
+  const errored = Object.entries(results || {}).filter(([, s]) => s === 'error').map(([k]) => k)
+  let summary = parts.length > 0 ? `✓ Applied: ${parts.join(', ')}` : '✓ No changes applied (all sections opted out)'
+  if (errored.length > 0) summary += ` · ⚠ Errors: ${errored.join(', ')}`
+  return summary
 }
