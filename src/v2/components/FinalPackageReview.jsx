@@ -9,7 +9,7 @@ import * as api from '../../api'
 import {
   applyVoice, applyOverrides, applyHooks,
   applyVoiceover, applyOverlays, applyChannels,
-  computeDiffs,
+  applyMedia, computeDiffs,
 } from '../lib/finalPackageApply'
 
 const SECTION_ORDER = [
@@ -19,14 +19,14 @@ const SECTION_ORDER = [
   { key: 'voiceover', label: 'Voiceover', applier: applyVoiceover },
   { key: 'overlays',  label: 'Overlays',  applier: applyOverlays },
   { key: 'channels',  label: 'Channels',  applier: 'channels' }, // signature differs; handled below
-  { key: 'media',     label: 'Media',     applier: null }, // Phase 5
+  { key: 'media',     label: 'Media',     applier: 'media' },    // signature differs (needs removed[]); handled below
 ]
 
 export default function FinalPackageReview({ pkg, removed, files, draftId, jobSync, onClose, onApplied }) {
   const [currentJob, setCurrentJob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState(null)
-  const [enabled, setEnabled] = useState({ voice: true, overrides: true, hooks: true, voiceover: true, overlays: true, channels: true, media: false })
+  const [enabled, setEnabled] = useState({ voice: true, overrides: true, hooks: true, voiceover: true, overlays: true, channels: true, media: true })
   const [expanded, setExpanded] = useState({})
   const [applying, setApplying] = useState(false)
   const [applyResults, setApplyResults] = useState(null)
@@ -72,10 +72,8 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
       if (!enabled[s.key]) { results[s.key] = 'skip'; continue }
       try {
         if (s.key === 'media') {
-          results[s.key] = 'pending-phase-5'
-          continue
-        }
-        if (s.key === 'channels') {
+          results[s.key] = await applyMedia(pkg, draftId, currentJob, removed)
+        } else if (s.key === 'channels') {
           results[s.key] = await applyChannels(pkg, draftId, firstFileDbId, currentJob)
         } else {
           results[s.key] = await s.applier(pkg, draftId, currentJob)
@@ -123,27 +121,25 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
           {!loading && presentSections.map(s => {
             const sectionDiffs = diffs[s.key] || []
             const isMedia = s.key === 'media'
-            const mediaCount = isMedia ? pkg.media.length : 0
             const removedCount = isMedia ? (removed?.length || 0) : 0
-            const isExpanded = !!expanded[s.key]
+            const totalForSection = sectionDiffs.length + (isMedia ? removedCount : 0)
+            const isExpanded = !!expanded[s.key] || isMedia // media is always expanded — destructive ops need full visibility
             return (
-              <div key={s.key} className="border border-[#e5e5e5] rounded p-2">
+              <div key={s.key} className={`border rounded p-2 ${isMedia && removedCount > 0 ? 'border-[#c0392b]/50 bg-[#fdf2f1]' : 'border-[#e5e5e5]'}`}>
                 <div className="flex items-center gap-2">
                   <label className="flex items-center gap-2 cursor-pointer flex-1">
                     <input
                       type="checkbox"
                       checked={!!enabled[s.key]}
-                      disabled={isMedia}
                       onChange={e => setEnabled(prev => ({ ...prev, [s.key]: e.target.checked }))}
                       className="cursor-pointer"
                     />
                     <span className="text-[12px] font-medium">{s.label}</span>
-                    {isMedia ? (
-                      <span className="text-[10px] text-[#d97706] bg-[#fef3c7] px-1.5 py-0.5 rounded">
-                        Phase 5 — apply disabled. {mediaCount} clip{mediaCount === 1 ? '' : 's'} ordered{removedCount > 0 ? `, ${removedCount} marked for removal` : ''}.
+                    <span className="text-[10px] text-muted">{totalForSection} change{totalForSection === 1 ? '' : 's'}</span>
+                    {isMedia && removedCount > 0 && (
+                      <span className="text-[10px] text-[#c0392b] bg-white border border-[#c0392b]/40 px-1.5 py-0.5 rounded font-medium">
+                        ⚠ {removedCount} clip{removedCount === 1 ? '' : 's'} will be DELETED
                       </span>
-                    ) : (
-                      <span className="text-[10px] text-muted">{sectionDiffs.length} change{sectionDiffs.length === 1 ? '' : 's'}</span>
                     )}
                   </label>
                   {!isMedia && sectionDiffs.length > 0 && (
@@ -161,16 +157,26 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
                     }`}>{applyResults[s.key] || ''}</span>
                   )}
                 </div>
-                {!isMedia && isExpanded && sectionDiffs.length > 0 && (
+                {isExpanded && (sectionDiffs.length > 0 || (isMedia && removedCount > 0)) && (
                   <div className="mt-2 pt-2 border-t border-[#e5e5e5]/70 space-y-1">
                     {sectionDiffs.map((d, i) => (
-                      <div key={i} className="text-[10px] flex items-start gap-1.5">
+                      <div key={i} className="text-[10px] flex items-start gap-1.5 flex-wrap">
                         <span className="font-mono text-muted shrink-0">{d.label}</span>
-                        <span className="text-[#c0392b] line-through">{String(d.before)}</span>
+                        <span className="text-[#c0392b] line-through break-all">{String(d.before)}</span>
                         <span className="text-muted">→</span>
-                        <span className="text-[#2D9A5E]">{String(d.after)}</span>
+                        <span className="text-[#2D9A5E] break-all">{String(d.after)}</span>
                       </div>
                     ))}
+                    {isMedia && removedCount > 0 && (
+                      <div className="mt-1 pt-1 border-t border-[#c0392b]/30">
+                        <div className="text-[10px] text-[#c0392b] font-medium mb-0.5">Will be deleted:</div>
+                        {removed.map((f, i) => (
+                          <div key={i} className="text-[10px] text-[#c0392b]">
+                            • clip-{f._dbFileId} {f.file?.name || f._filename || '(no name)'}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

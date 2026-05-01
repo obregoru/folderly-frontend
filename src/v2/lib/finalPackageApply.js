@@ -136,6 +136,104 @@ export async function applyChannels(pkg, draftId, firstFileDbId, currentJob) {
   return 'ok'
 }
 
+// Apply media changes: reorder + per-clip trim/photo/insert mutations
+// + deletes. Order of operations matters:
+//   1. Detach inserts that are about to move to a new host (or be removed)
+//      — we set insert_into_file_id=null first so the host reorder
+//      doesn't temporarily reference the wrong host.
+//   2. Per-clip mutations (trim, photo settings).
+//   3. Re-attach inserts to their (possibly new) host.
+//   4. Update file_order to match the package's order.
+//   5. Delete files marked for removal (those in current files but
+//      not present in pkg.media).
+// Failures abort the remaining steps and surface the first error.
+// The caller refreshes the job after to pick up final state.
+export async function applyMedia(pkg, draftId, currentJob, removed) {
+  if (!Array.isArray(pkg.media) || pkg.media.length === 0) return 'skip'
+  if (!draftId) throw new Error('draftId required')
+  const files = currentJob.files || []
+  const fileById = new Map(files.map(f => [Number(f.id), f]))
+
+  // 1. Detach inserts up front. Any current insert relationship that
+  //    won't survive (host changes, this clip becomes a host, this
+  //    clip is removed) needs the link cleared first.
+  const detachOps = []
+  for (const f of files) {
+    if (f.insert_into_file_id == null) continue
+    const stillExists = pkg.media.some(m => m._resolvedDbId === Number(f.id))
+    const wantedHost = pkg.media.find(m => m._resolvedDbId === Number(f.id))?._resolvedInsertInto
+    if (!stillExists || wantedHost !== Number(f.insert_into_file_id)) {
+      detachOps.push(api.updateJobFile(draftId, f.id, {
+        insert_into_file_id: null,
+        insert_at_sec: 0,
+      }))
+    }
+  }
+  await Promise.all(detachOps)
+
+  // 2. Per-clip mutations: trim, photo settings, speed unchanged.
+  for (let i = 0; i < pkg.media.length; i++) {
+    const m = pkg.media[i]
+    const dbId = m._resolvedDbId
+    if (!dbId) continue
+    const patch = {}
+    if (Array.isArray(m.trim) && m.trim.length === 2) {
+      patch.trim_start = Number(m.trim[0])
+      patch.trim_end = Number(m.trim[1])
+    }
+    if (m.photo && typeof m.photo === 'object') {
+      if (m.photo.motion !== undefined) patch.photo_to_video_motion = m.photo.motion
+      if (m.photo.zoom !== undefined) patch.photo_to_video_zoom = Number(m.photo.zoom)
+      if (m.photo.rotate !== undefined) patch.photo_to_video_rotate = Number(m.photo.rotate)
+      if (m.photo.offsetX !== undefined) patch.photo_to_video_offset_x = Number(m.photo.offsetX)
+      if (m.photo.offsetY !== undefined) patch.photo_to_video_offset_y = Number(m.photo.offsetY)
+      if (m.photo.duration !== undefined) {
+        // Photo display duration is stored as trim_end on photo clips
+        // (the panel uses trim_end as the photo display seconds).
+        patch.trim_end = Number(m.photo.duration)
+      }
+    }
+    if (Object.keys(patch).length > 0) {
+      await api.updateJobFile(draftId, dbId, patch)
+    }
+  }
+
+  // 3. Re-attach inserts.
+  for (const m of pkg.media) {
+    if (m._resolvedInsertInto == null) continue
+    await api.updateJobFile(draftId, m._resolvedDbId, {
+      insert_into_file_id: m._resolvedInsertInto,
+      insert_at_sec: Number(m.insertAt) >= 0 ? Number(m.insertAt) : 0,
+    })
+  }
+
+  // 4. file_order: walk pkg.media in order, give each clip a fresh
+  //    sequential index. Clips removed below stay outside the order
+  //    so they don't conflict with the new positions.
+  await Promise.all(pkg.media.map((m, idx) =>
+    api.updateJobFile(draftId, m._resolvedDbId, { file_order: idx })
+  ))
+
+  // 5. Deletes — anything in `removed` that the user didn't omit by
+  //    accident. The normalize step computed this list; we trust it
+  //    rather than re-deriving here so the modal's diff matches what
+  //    actually happens.
+  if (Array.isArray(removed) && removed.length > 0) {
+    for (const f of removed) {
+      if (f._dbFileId == null) continue
+      try {
+        await api.deleteJobFile(draftId, f._dbFileId)
+      } catch (e) {
+        // Surface the failure but keep going — partial removal is
+        // recoverable; aborting halfway leaves a worse state.
+        console.warn('[applyMedia] delete failed for', f._dbFileId, e?.message)
+      }
+    }
+  }
+
+  return 'ok'
+}
+
 // Compute simple field-level diffs for the review UI. Returns a list
 // of { label, before, after } per section. Phase 6 will rewrite this
 // for richer media diff; Phase 4 just needs counts + per-field strings.
@@ -200,6 +298,56 @@ export function computeDiffs(pkg, currentJob) {
       const newDur = pkg.overlays[slot].duration
       const curDur = co[`${slot}Duration`]
       if (newDur != null && Number(curDur) !== Number(newDur)) out.overlays.push({ label: `overlays.${slot}.duration`, before: curDur ?? '(default)', after: newDur })
+    }
+  }
+  if (Array.isArray(pkg.media)) {
+    const curFiles = cur.files || []
+    const curOrder = curFiles.map(f => f.id).filter(Boolean)
+    const newOrder = pkg.media.map(m => m._resolvedDbId).filter(Boolean)
+    out.media = []
+    if (curOrder.join(',') !== newOrder.join(',')) {
+      out.media.push({
+        label: 'order',
+        before: curOrder.map(id => `clip-${id}`).join(', ') || '(empty)',
+        after: newOrder.map(id => `clip-${id}`).join(', ') || '(empty)',
+      })
+    }
+    for (const m of pkg.media) {
+      const f = curFiles.find(x => Number(x.id) === Number(m._resolvedDbId))
+      if (!f) continue
+      if (Array.isArray(m.trim) && m.trim.length === 2) {
+        const ts = Number(f.trim_start) || 0
+        const te = f.trim_end != null ? Number(f.trim_end) : null
+        if (ts !== Number(m.trim[0]) || te !== Number(m.trim[1])) {
+          out.media.push({ label: `clip-${m._resolvedDbId}.trim`, before: `${ts}–${te ?? '?'}`, after: `${m.trim[0]}–${m.trim[1]}` })
+        }
+      }
+      if (m.photo && typeof m.photo === 'object') {
+        const fields = [
+          ['motion', f.photo_to_video_motion, m.photo.motion],
+          ['zoom', f.photo_to_video_zoom, m.photo.zoom],
+          ['rotate', f.photo_to_video_rotate, m.photo.rotate],
+          ['offsetX', f.photo_to_video_offset_x, m.photo.offsetX],
+          ['offsetY', f.photo_to_video_offset_y, m.photo.offsetY],
+        ]
+        for (const [k, before, after] of fields) {
+          if (after !== undefined && String(before ?? '') !== String(after)) {
+            out.media.push({ label: `clip-${m._resolvedDbId}.photo.${k}`, before: before ?? '(unset)', after })
+          }
+        }
+        if (m.photo.duration !== undefined) {
+          const curDur = f.trim_end != null ? Number(f.trim_end) : null
+          if (curDur !== Number(m.photo.duration)) {
+            out.media.push({ label: `clip-${m._resolvedDbId}.photo.duration`, before: curDur ?? '(default)', after: m.photo.duration })
+          }
+        }
+      }
+      if (m._resolvedInsertInto != null) {
+        const curHost = f.insert_into_file_id != null ? Number(f.insert_into_file_id) : null
+        if (curHost !== m._resolvedInsertInto) {
+          out.media.push({ label: `clip-${m._resolvedDbId}.insertInto`, before: curHost ? `clip-${curHost}` : '(none)', after: `clip-${m._resolvedInsertInto}` })
+        }
+      }
     }
   }
   if (pkg.channels) {
