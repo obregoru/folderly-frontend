@@ -583,9 +583,12 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                     )}
                     <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                       {/* Line 1 — always visible filename with position prefix */}
-                      <div className="text-[11px] font-medium text-ink truncate flex items-center gap-1.5" title={displayName}>
+                      <div className="text-[11px] font-medium text-ink truncate flex items-center gap-1.5" title={item._dbFileId != null ? `${displayName} · clip-${item._dbFileId}` : displayName}>
                         <span className="text-muted">{pos + 1}.</span>
                         <span className="truncate">{displayName}</span>
+                        {item._dbFileId != null && (
+                          <span className="text-[9px] text-[#6C5CE7]/80 font-mono flex-shrink-0">clip-{item._dbFileId}</span>
+                        )}
                         {itemIsPhoto && (
                           <span className="text-[9px] bg-[#6C5CE7]/10 text-[#6C5CE7] rounded-full px-1.5 py-0 font-medium flex-shrink-0">PHOTO</span>
                         )}

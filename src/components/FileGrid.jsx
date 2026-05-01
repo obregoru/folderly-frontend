@@ -419,7 +419,12 @@ export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer, Pho
                   className="w-full h-[120px] bg-ink flex items-center justify-center text-white text-[22px] cursor-pointer hover:bg-[#333]"
                 >▶</div>
               )}
-              <div className="text-[9px] text-muted py-1 px-1.5 whitespace-nowrap overflow-hidden text-ellipsis" title={fileName}>{fileName}</div>
+              <div className="text-[9px] text-muted py-1 px-1.5 whitespace-nowrap overflow-hidden text-ellipsis" title={item._dbFileId != null ? `${fileName} · clip-${item._dbFileId}` : fileName}>
+                {fileName}
+                {item._dbFileId != null && (
+                  <span className="text-[#6C5CE7]/80 font-mono ml-1">· clip-{item._dbFileId}</span>
+                )}
+              </div>
               <button
                 onClick={() => onRemove(item.id)}
                 className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-xs flex items-center justify-center cursor-pointer border-none z-[5]"
