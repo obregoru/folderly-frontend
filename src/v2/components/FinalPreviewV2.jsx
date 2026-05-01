@@ -1184,7 +1184,20 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
       // what the server ACTUALLY mixes.
       try {
         window.dispatchEvent(new CustomEvent('posty-render-final-result', {
-          detail: { draftId, mixLog: r?.mix_log || [], tookMs: r?.took_ms || null, applied: r?.applied || null },
+          detail: {
+            draftId,
+            mixLog: r?.mix_log || [],
+            tookMs: r?.took_ms || null,
+            applied: r?.applied || null,
+            // Final mp4/jpg URLs the BE just rendered. ChannelsPanelV2
+            // listens so the TikTok / GBP rows can show "Copy file URL"
+            // for manual upload to platforms that don't have a posting
+            // API (or where ours has been flaky). Stays in this event
+            // because nothing else needs it cross-cutting.
+            urls: Array.isArray(r?.final_urls) && r.final_urls.length
+              ? r.final_urls
+              : (r?.final_url ? [r.final_url] : []),
+          },
         }))
       } catch {}
       const urls = Array.isArray(r?.final_urls) && r.final_urls.length
@@ -1202,6 +1215,16 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
       const fileForName = (Array.isArray(files) && files.length)
         ? (files.find(f => f && (f.job_name || f.captions?.job_name)) || files[0])
         : null
+      // Pull the job description (hint_text "brief" portion) so the
+      // saved filename combines the job name and a short description
+      // slug — the user wanted both, not just the name. Failures here
+      // gracefully degrade to name-only, so a slow /jobs lookup never
+      // blocks the download.
+      let descriptionForName = ''
+      try {
+        const jobNow = await api.getJob(draftId)
+        descriptionForName = jobNow?.hint_text || ''
+      } catch { /* fall through with empty desc */ }
       const collected = []
       for (let i = 0; i < urls.length; i++) {
         const u = urls[i]
@@ -1219,7 +1242,7 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
         const suffix = urls.length > 1
           ? `final-${String(i + 1).padStart(2, '0')}-of-${String(urls.length).padStart(2, '0')}`
           : 'final'
-        collected.push({ blob, filename: buildDownloadName(fileForName, suffix, ext) })
+        collected.push({ blob, filename: buildDownloadName(fileForName, suffix, ext, descriptionForName) })
       }
       filesRef.current = collected
       setState('ready')

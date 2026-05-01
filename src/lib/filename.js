@@ -36,10 +36,26 @@ export function downloadBaseName(source, fallbackFile) {
   return 'posty-video'
 }
 
-// Full filename: base + optional suffix + extension.
-// Example: buildDownloadName(item, 'overlay', 'mp4') -> "my-candle-reveal-overlay.mp4"
-export function buildDownloadName(source, suffix = '', ext = 'mp4') {
+// Pull a short, sanitized "description" slug from a job description. The
+// hint_text field stores a brief and angles separated by `\n---\n`; we
+// only want the brief portion, capped to a small piece so the combined
+// filename stays under ~80 chars.
+function descriptionSlug(description, maxLen = 40) {
+  if (!description) return ''
+  const brief = String(description).split('\n---\n')[0] || ''
+  // Take up to ~6 words so we don't dump the whole brief into a filename.
+  const words = brief.trim().split(/\s+/).slice(0, 6).join(' ')
+  return sanitizeForFilename(words).slice(0, maxLen).replace(/-+$/g, '')
+}
+
+// Full filename: base + optional description + optional suffix + extension.
+// Example: buildDownloadName(item, 'final', 'mp4', 'A reveal of our Aug candle')
+//   -> "my-candle-reveal-a-reveal-of-our-aug-final.mp4"
+// description is optional — when omitted (or empty) the filename is just
+// base[-suffix].ext, same as before.
+export function buildDownloadName(source, suffix = '', ext = 'mp4', description = '') {
   const base = downloadBaseName(source)
+  const descPart = description ? `-${descriptionSlug(description)}` : ''
   const suffixPart = suffix ? `-${sanitizeForFilename(suffix)}` : ''
-  return `${base}${suffixPart}.${ext.replace(/^\./, '')}`
+  return `${base}${descPart}${suffixPart}.${ext.replace(/^\./, '')}`
 }

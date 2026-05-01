@@ -22,6 +22,15 @@ const CHANNELS = [
   { key: 'gbp',      label: 'Google Business',    icon: 'GBP', requiresVideo: false, platform: 'google',           captionKey: 'google',    aiName: 'Google Business' },
 ]
 
+// Channels where direct-API posting can be unreliable (TikTok rate-limits
+// non-business apps; GBP requires the local business owner to be signed in).
+// For these we surface the platform's manual upload page so the user can
+// drag-drop the rendered file when the API path fails or isn't available.
+const MANUAL_UPLOAD_URLS = {
+  tiktok: 'https://www.tiktok.com/tiktokstudio/upload',
+  gbp: 'https://business.google.com/posts',
+}
+
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
 function defaultScheduledAt() {
@@ -99,6 +108,36 @@ export default function ChannelsPanelV2({ draftId, jobSync, files, settings }) {
   const [aiSchedule, setAiSchedule] = useState(null)
   const [loadingAi, setLoadingAi] = useState(false)
   const [aiErr, setAiErr] = useState(null)
+
+  // URLs of the most recently rendered final mp4 (or jpgs for photo
+  // carousels). Populated by listening for the posty-render-final-result
+  // event that DownloadFinalButton fires after a render completes. The
+  // TikTok / GBP rows then expose a "Copy file URL" so the user can
+  // paste it into the platform's manual upload page when our scheduled
+  // post path doesn't fit (TikTok API limits, GBP owner-only sessions).
+  const [renderedFinalUrls, setRenderedFinalUrls] = useState([])
+  const [copiedKey, setCopiedKey] = useState(null)
+  useEffect(() => {
+    const onResult = (e) => {
+      if (!e?.detail) return
+      if (draftId && e.detail.draftId && e.detail.draftId !== draftId) return
+      if (Array.isArray(e.detail.urls)) setRenderedFinalUrls(e.detail.urls)
+    }
+    window.addEventListener('posty-render-final-result', onResult)
+    return () => window.removeEventListener('posty-render-final-result', onResult)
+  }, [draftId])
+
+  const copyFileUrl = async (chKey) => {
+    const url = renderedFinalUrls[0]
+    if (!url) return
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopiedKey(chKey)
+      setTimeout(() => setCopiedKey(prev => prev === chKey ? null : prev), 1500)
+    } catch {
+      window.prompt('Copy file URL:', url)
+    }
+  }
 
   useEffect(() => {
     if (!draftId) return
@@ -516,6 +555,36 @@ export default function ChannelsPanelV2({ draftId, jobSync, files, settings }) {
                       className="text-[9px] text-[#92400e] bg-[#fef3c7] border border-[#d97706]/40 rounded py-0.5 px-1.5 cursor-pointer disabled:opacity-50"
                       title={`Regenerate using the saved critique from Hints:\n\n${String(job.second_opinion).slice(0, 200)}`}
                     >{regenKey === c.key ? '🎯…' : '🎯 w/ critique'}</button>
+                  )}
+                </div>
+              )}
+
+              {/* Manual upload helpers — only on TikTok and GBP rows.
+                  Both platforms can be flaky over the API (TikTok rate
+                  limits non-business apps, GBP requires the location
+                  owner to be signed in), so the user often falls back
+                  to drag-dropping the rendered file into the platform's
+                  web UI. We surface the platform's upload page directly,
+                  plus a Copy file URL button once a final has rendered. */}
+              {MANUAL_UPLOAD_URLS[c.key] && (
+                <div className="mt-2 pt-2 border-t border-[#e5e5e5]/50 flex items-center gap-2 flex-wrap text-[9px]">
+                  <span className="text-muted">Manual upload:</span>
+                  <a
+                    href={MANUAL_UPLOAD_URLS[c.key]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#6C5CE7] underline"
+                  >
+                    {c.key === 'tiktok' ? 'TikTok Studio ↗' : 'Google Business posts ↗'}
+                  </a>
+                  {renderedFinalUrls.length > 0 ? (
+                    <button
+                      onClick={() => copyFileUrl(c.key)}
+                      className="text-[#2D9A5E] bg-white border border-[#2D9A5E] rounded py-0.5 px-1.5 cursor-pointer ml-auto"
+                      title="Copy the rendered final video URL — paste it into the platform's upload page or download from there"
+                    >{copiedKey === c.key ? '✓ Copied' : '📋 Copy file URL'}</button>
+                  ) : (
+                    <span className="text-muted italic ml-auto">Render final to enable copy URL</span>
                   )}
                 </div>
               )}
