@@ -17,6 +17,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
+import { parseFinalPackage, validateFinalPackage } from '../../lib/finalPackage'
 
 export default function ProducerChatPanel({ draftId, jobSync }) {
   const [messages, setMessages] = useState([])
@@ -142,6 +143,25 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
     }
     return null
   })()
+
+  // Pull the strict final-package JSON block out of the latest reply
+  // (if present + valid). When found, the panel shows the new
+  // "Review & apply" button instead of relying on the best-effort
+  // import path. Invalid blocks surface their first error so the user
+  // can ask the producer to fix and resend.
+  const finalPackage = useMemo(() => {
+    if (!lastAssistant) return { pkg: null, errors: null }
+    const parsed = parseFinalPackage(lastAssistant)
+    if (!parsed) return { pkg: null, errors: null }
+    const v = validateFinalPackage(parsed)
+    if (!v.ok) return { pkg: null, errors: v.errors }
+    return { pkg: parsed, errors: null }
+  }, [lastAssistant])
+
+  const sendFinalPackageRequest = () => {
+    if (streaming) return
+    setInput('Generate a final package for this draft.')
+  }
 
   const applyLatestReply = async () => {
     if (!lastAssistant || extractingLatest) return
@@ -443,20 +463,50 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
         )}
       </div>
 
+      {/* Final-package detected — strict JSON block in the reply. New
+          path that's atomic + diff-aware, replacing the flaky free-form
+          extractor for any reply that emits the contract. The fallback
+          "Apply latest reply" button below stays for prose-only replies. */}
+      {finalPackage.pkg && (
+        <button
+          onClick={() => alert('Phase 4: review modal coming next. Package detected and validated.')}
+          disabled={streaming}
+          className="w-full text-[11px] py-2 px-2 border-2 border-[#6C5CE7] text-white bg-[#6C5CE7] rounded cursor-pointer disabled:opacity-50 font-medium"
+          title="Apply the structured final package returned in the latest reply"
+        >📦 Final package detected — Review &amp; apply</button>
+      )}
+      {finalPackage.errors && (
+        <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">
+          Final-package block found but invalid: {finalPackage.errors.slice(0, 3).join('; ')}
+        </div>
+      )}
+
+      {/* Quick prompt — pre-fill the chat input with the final-package
+          trigger phrase so the user doesn't need to remember the magic
+          words. They can edit/extend before sending. */}
+      {!finalPackage.pkg && !streaming && (
+        <button
+          onClick={sendFinalPackageRequest}
+          className="w-full text-[10px] py-1.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer font-medium"
+          title="Pre-fills the chat with a request for a structured final package the app can apply atomically"
+        >📦 Generate final package</button>
+      )}
+
       {/* Apply-latest-reply — pull the structured fields (primary
           VO, segments, overlays, caption, hashtags) out of the most
           recent producer reply and run them through the same
           review-and-apply flow as the paste-import. The producer's
           prose stays unconstrained; the parse only happens when
-          the user clicks. */}
-      {lastAssistant && (
+          the user clicks. Falls back to this when no final-package
+          block is detected. */}
+      {lastAssistant && !finalPackage.pkg && (
         <button
           onClick={applyLatestReply}
           disabled={extractingLatest || streaming}
           className="w-full text-[10px] py-1.5 px-2 border border-[#2D9A5E]/50 text-[#2D9A5E] bg-[#f0faf4] rounded cursor-pointer disabled:opacity-50 font-medium"
           title="Extract overlays / voiceover / caption from the producer's last reply"
         >
-          {extractingLatest ? 'Extracting…' : '✨ Apply latest reply to draft'}
+          {extractingLatest ? 'Extracting…' : '✨ Apply latest reply to draft (best-effort)'}
         </button>
       )}
 
