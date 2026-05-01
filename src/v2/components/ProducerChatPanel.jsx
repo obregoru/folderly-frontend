@@ -17,9 +17,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api'
-import { parseFinalPackage, validateFinalPackage } from '../../lib/finalPackage'
+import { parseFinalPackage, validateFinalPackage, normalizeFinalPackage } from '../../lib/finalPackage'
+import FinalPackageReview from './FinalPackageReview'
 
-export default function ProducerChatPanel({ draftId, jobSync }) {
+export default function ProducerChatPanel({ draftId, jobSync, files }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -150,13 +151,19 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
   // import path. Invalid blocks surface their first error so the user
   // can ask the producer to fix and resend.
   const finalPackage = useMemo(() => {
-    if (!lastAssistant) return { pkg: null, errors: null }
+    if (!lastAssistant) return { pkg: null, errors: null, removed: [] }
     const parsed = parseFinalPackage(lastAssistant)
-    if (!parsed) return { pkg: null, errors: null }
+    if (!parsed) return { pkg: null, errors: null, removed: [] }
     const v = validateFinalPackage(parsed)
-    if (!v.ok) return { pkg: null, errors: v.errors }
-    return { pkg: parsed, errors: null }
-  }, [lastAssistant])
+    if (!v.ok) return { pkg: null, errors: v.errors, removed: [] }
+    // Normalize against current files so the modal can show resolved
+    // refs + the removed list (clips not present in the package).
+    const n = normalizeFinalPackage(parsed, files || [])
+    if (!n.ok) return { pkg: null, errors: n.errors, removed: [] }
+    return { pkg: n.resolved, errors: null, removed: n.removed }
+  }, [lastAssistant, files])
+
+  const [reviewOpen, setReviewOpen] = useState(false)
 
   const sendFinalPackageRequest = () => {
     if (streaming) return
@@ -469,11 +476,22 @@ export default function ProducerChatPanel({ draftId, jobSync }) {
           "Apply latest reply" button below stays for prose-only replies. */}
       {finalPackage.pkg && (
         <button
-          onClick={() => alert('Phase 4: review modal coming next. Package detected and validated.')}
+          onClick={() => setReviewOpen(true)}
           disabled={streaming}
           className="w-full text-[11px] py-2 px-2 border-2 border-[#6C5CE7] text-white bg-[#6C5CE7] rounded cursor-pointer disabled:opacity-50 font-medium"
           title="Apply the structured final package returned in the latest reply"
         >📦 Final package detected — Review &amp; apply</button>
+      )}
+      {reviewOpen && finalPackage.pkg && (
+        <FinalPackageReview
+          pkg={finalPackage.pkg}
+          removed={finalPackage.removed}
+          files={files}
+          draftId={draftId}
+          jobSync={jobSync}
+          onClose={() => setReviewOpen(false)}
+          onApplied={() => { /* keep open so the user sees per-section status */ }}
+        />
       )}
       {finalPackage.errors && (
         <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">

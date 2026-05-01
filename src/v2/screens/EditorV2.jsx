@@ -126,7 +126,7 @@ export default function EditorV2({
           />
         )}
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} settings={settings} />}
-        {safeActiveTool === 'producer' && <ProducerChatPanel draftId={draftId} jobSync={jobSync} />}
+        {safeActiveTool === 'producer' && <ProducerChatPanel draftId={draftId} jobSync={jobSync} files={files} />}
         {safeActiveTool === 'first2s' && <First2sPanel draftId={draftId} jobSync={jobSync} />}
         {/*
           VoiceoverPanelV2 stays MOUNTED on every tab — only its
