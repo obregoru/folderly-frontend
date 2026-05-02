@@ -64,6 +64,7 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
   const hostRef = useRef(null)
   const quillRef = useRef(null)
   const resizeObsRef = useRef(null)
+  const toolbarTouchHandlerRef = useRef(null)
   // JSON-stringified version of the runs[] we last emitted via onChange.
   // The runs-sync effect compares against this so a round-tripped value
   // (text-change → onChange → parent state → back here) is skipped.
@@ -192,6 +193,27 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
           // Default editor text (no explicit size class) renders at
           // the overlay-level default font size, scaled the same way.
           '.ql-editor { font-size: calc(var(--posty-rte-base-size, 60px) * var(--posty-rte-scale, 0.3)) !important; }',
+          // iOS Safari: Quill's snow-theme pickers (size/font/color)
+          // open on tap but option taps frequently don't register
+          // because iOS's 300ms tap delay synthesizes a delayed
+          // mousedown that races Quill's outside-tap close listener.
+          // Net result: the picker stays open and the format never
+          // applies. touch-action: manipulation removes the tap
+          // delay entirely; user-select prevents the focus-stealing
+          // text selection that interferes with the option click.
+          '.ql-snow .ql-picker, .ql-snow .ql-picker-label, .ql-snow .ql-picker-item {',
+          '  touch-action: manipulation;',
+          '  -webkit-tap-highlight-color: rgba(108, 92, 231, 0.2);',
+          '}',
+          '.ql-snow .ql-picker-options {',
+          '  -webkit-user-select: none;',
+          '  user-select: none;',
+          // Larger tap targets for picker items on touch devices
+          '}',
+          '@media (pointer: coarse) {',
+          '  .ql-snow .ql-picker-item { padding: 8px 10px !important; min-height: 36px; line-height: 20px; }',
+          '  .ql-snow .ql-picker-options { max-height: 60vh; overflow-y: auto; }',
+          '}',
         ].join('\n')
         document.head.appendChild(style)
       }
@@ -237,6 +259,55 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
         placeholder: placeholder || 'Type your overlay text…',
       })
       quillRef.current = q
+
+      // iOS Safari fix for the size/font/color pickers. Quill's
+      // built-in option-tap path goes through mousedown handlers
+      // that race iOS's outside-tap close listener — net result:
+      // tapping a size like "60" opens the picker, then the option
+      // tap closes the picker without applying the format. Workaround:
+      // intercept touchend on picker-item elements, apply the format
+      // through Quill's API directly, then manually close the picker.
+      // The desktop click path is untouched.
+      const toolbarEl = hostRef.current.previousElementSibling // .ql-toolbar lives right before the editor host
+      if (toolbarEl) {
+        const onPickerTouchEnd = (ev) => {
+          const item = ev.target.closest('.ql-picker-item')
+          if (!item) return
+          const picker = item.closest('.ql-picker')
+          if (!picker) return
+          const formatName = ['ql-size', 'ql-font', 'ql-color', 'ql-background', 'ql-align']
+            .find(c => picker.classList.contains(c))?.replace('ql-', '')
+          if (!formatName) return
+          ev.preventDefault()
+          ev.stopPropagation()
+          const dataValue = item.getAttribute('data-value') || null
+          // Use the saved range or fall back to selecting all text so
+          // a tap-without-selection still does something useful.
+          let range = q.getSelection(true)
+          if (!range || range.length === 0) {
+            const len = q.getLength()
+            if (len > 0) {
+              q.setSelection(0, len - 1, 'silent')
+              range = q.getSelection(true)
+            }
+          }
+          if (range) {
+            q.format(formatName, dataValue, 'user')
+          }
+          // Close the picker and update the label so the visible
+          // selection state matches what we just applied.
+          picker.classList.remove('ql-expanded')
+          const label = picker.querySelector('.ql-picker-label')
+          if (label) {
+            label.setAttribute('aria-expanded', 'false')
+            if (dataValue) label.setAttribute('data-value', dataValue)
+            else label.removeAttribute('data-value')
+          }
+        }
+        toolbarEl.addEventListener('touchend', onPickerTouchEnd, true)
+        // Track the cleanup so the unmount path can remove the listener.
+        toolbarTouchHandlerRef.current = { el: toolbarEl, fn: onPickerTouchEnd }
+      }
 
       // Strip color / background / size / font on paste so pasted
       // content (e.g. text copied from a webpage with dark CSS,
@@ -332,7 +403,14 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
       })
       setLoaded(true)
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      const h = toolbarTouchHandlerRef.current
+      if (h?.el && h?.fn) {
+        h.el.removeEventListener('touchend', h.fn, true)
+        toolbarTouchHandlerRef.current = null
+      }
+    }
     // Mount-once effect — Quill is initialized on first render and
     // reused across re-renders. The runs[] sync effect below handles
     // external updates without recreating the editor.
