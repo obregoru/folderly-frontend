@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
 
+// Round to 2 decimals so float arithmetic doesn't surface noise like
+// 0.20000000000000007 in the slider's number input. Returns a Number,
+// not a string, so the input's controlled value stays well-typed.
+const round2 = (n) => {
+  const x = Number(n)
+  if (!Number.isFinite(x)) return 0
+  return Math.round(x * 100) / 100
+}
+
 /**
  * Shared photo controls for video-merge contexts:
  *   - Duration slider (aka "trim" for a still) — 0.5–15s, default 5s
@@ -54,7 +63,7 @@ export function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
         min={0.5}
         max={15}
         step={0.5}
-        value={value}
+        value={round2(value)}
         onChange={e => setValue(Number(e.target.value))}
         onMouseUp={e => commit(e.target.value)}
         onTouchEnd={e => commit(e.target.value)}
@@ -66,7 +75,7 @@ export function PhotoDurationControl({ item, onInvalidateMerge, onSaveTrim }) {
         min={0.5}
         max={15}
         step={0.5}
-        value={value}
+        value={round2(value)}
         onChange={e => setValue(Number(e.target.value) || 0)}
         onBlur={e => commit(e.target.value)}
         className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-12 text-right px-1 py-0.5"
@@ -129,7 +138,7 @@ export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
         min={-2}
         max={2}
         step={0.1}
-        value={display}
+        value={round2(display)}
         onChange={e => setDisplay(Number(e.target.value))}
         onMouseUp={e => commit(e.target.value)}
         onTouchEnd={e => commit(e.target.value)}
@@ -141,7 +150,7 @@ export function PhotoZoomControl({ item, onInvalidateMerge, onSaveMotion }) {
         min={-2}
         max={2}
         step={0.1}
-        value={display}
+        value={round2(display)}
         onChange={e => setDisplay(Number(e.target.value) || 0)}
         onBlur={e => commit(e.target.value)}
         className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-14 text-right px-1 py-0.5"
@@ -185,7 +194,7 @@ export function PhotoRotateControl({ item, onInvalidateMerge, onSaveMotion }) {
         min={-180}
         max={180}
         step={1}
-        value={value}
+        value={round2(value)}
         onChange={e => setValue(Number(e.target.value))}
         onMouseUp={e => commit(e.target.value)}
         onTouchEnd={e => commit(e.target.value)}
@@ -197,7 +206,7 @@ export function PhotoRotateControl({ item, onInvalidateMerge, onSaveMotion }) {
         min={-180}
         max={180}
         step={1}
-        value={value}
+        value={round2(value)}
         onChange={e => setValue(Number(e.target.value) || 0)}
         onBlur={e => commit(e.target.value)}
         className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-14 text-right px-1 py-0.5"
@@ -254,7 +263,7 @@ export function PhotoPanControl({ item, onInvalidateMerge, onSaveMotion }) {
         <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap w-12">Pan X</span>
         <input
           type="range" min={-100} max={100} step={1}
-          value={x}
+          value={round2(x)}
           onChange={e => setX(Number(e.target.value))}
           onMouseUp={e => commitX(e.target.value)}
           onTouchEnd={e => commitX(e.target.value)}
@@ -263,7 +272,7 @@ export function PhotoPanControl({ item, onInvalidateMerge, onSaveMotion }) {
         />
         <input
           type="number" min={-100} max={100} step={1}
-          value={x}
+          value={round2(x)}
           onChange={e => setX(Number(e.target.value) || 0)}
           onBlur={e => commitX(e.target.value)}
           className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-14 text-right px-1 py-0.5"
@@ -277,7 +286,7 @@ export function PhotoPanControl({ item, onInvalidateMerge, onSaveMotion }) {
         <span className="text-[10px] text-[#6C5CE7] font-medium whitespace-nowrap w-12">Pan Y</span>
         <input
           type="range" min={-100} max={100} step={1}
-          value={y}
+          value={round2(y)}
           onChange={e => setY(Number(e.target.value))}
           onMouseUp={e => commitY(e.target.value)}
           onTouchEnd={e => commitY(e.target.value)}
@@ -286,7 +295,7 @@ export function PhotoPanControl({ item, onInvalidateMerge, onSaveMotion }) {
         />
         <input
           type="number" min={-100} max={100} step={1}
-          value={y}
+          value={round2(y)}
           onChange={e => setY(Number(e.target.value) || 0)}
           onBlur={e => commitY(e.target.value)}
           className="text-[11px] font-semibold text-[#6C5CE7] border border-[#6C5CE7]/30 rounded bg-white w-14 text-right px-1 py-0.5"
@@ -321,6 +330,36 @@ export function PhotoMotionControl({ item, onInvalidateMerge, onSaveMotion }) {
   )
 }
 
+// One-click reset of zoom/rotate/pan to the natural-fit defaults.
+// For 9:16 source photos this lands the image edge-to-edge inside
+// the export frame; for landscape/square sources it centers the
+// 9:16 crop without zoom or rotation. Doesn't touch motion or
+// duration — those are creative choices, not framing fixes.
+export function PhotoFitToFrameButton({ item, onInvalidateMerge, onSaveMotion }) {
+  const isAlreadyFit =
+    (Number(item._photoZoom) === 1.0 || item._photoZoom == null) &&
+    !Number(item._photoRotate) &&
+    !Number(item._photoOffsetX) &&
+    !Number(item._photoOffsetY)
+  const reset = () => {
+    item._photoZoom = 1.0
+    item._photoRotate = 0
+    item._photoOffsetX = 0
+    item._photoOffsetY = 0
+    onInvalidateMerge?.()
+    onSaveMotion?.(item)
+  }
+  return (
+    <button
+      type="button"
+      onClick={reset}
+      disabled={isAlreadyFit}
+      className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50 disabled:cursor-default font-medium hover:bg-[#f3f0ff] self-start"
+      title="Reset zoom/rotate/pan so the photo fits the export frame edge-to-edge. Doesn't change motion or duration."
+    >⤢ Fit to frame</button>
+  )
+}
+
 /**
  * Stacked combo: duration slider above, motion picker below. Drop this
  * under a photo tile or next to a photo row.
@@ -333,6 +372,7 @@ export default function PhotoDurationBar({ item, onInvalidateMerge, onSaveTrim, 
       <PhotoZoomControl     item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
       <PhotoRotateControl   item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
       <PhotoPanControl      item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
+      <PhotoFitToFrameButton item={item} onInvalidateMerge={onInvalidateMerge} onSaveMotion={onSaveMotion} />
     </div>
   )
 }
