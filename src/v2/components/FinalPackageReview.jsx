@@ -338,12 +338,22 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
               className="text-[11px] py-1.5 px-3 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
             >{applyResults ? 'Done' : 'Cancel'}</button>
             {!applyResults && !willDeleteClips && (
-              <button
-                type="button"
-                onClick={handleApply}
-                disabled={applying || loading || totalChanges === 0}
-                className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
-              >{applying ? 'Applying…' : `Apply ${totalChanges} change${totalChanges === 1 ? '' : 's'}`}</button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  disabled={applying || loading || totalChanges === 0}
+                  className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+                  title="Apply the package and verify each section persisted. Doesn't generate audio or set font sizes."
+                >{mode === 'apply' ? (progressMsg || 'Applying…') : `Apply ${totalChanges} change${totalChanges === 1 ? '' : 's'}`}</button>
+                <button
+                  type="button"
+                  onClick={handleApplyAndGenerate}
+                  disabled={applying || loading || totalChanges === 0}
+                  className="text-[11px] py-1.5 px-3 bg-gradient-to-r from-[#6C5CE7] to-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+                  title="Apply + verify, set recommended font sizes for overlays and captions, then generate TTS audio for any voiceover segment that doesn't have audio yet."
+                >{mode === 'apply-and-generate' ? (progressMsg || 'Working…') : `⚡ Apply & generate`}</button>
+              </>
             )}
             {!applyResults && willDeleteClips && !confirmingDestructive && (
               <button
@@ -351,7 +361,7 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
                 onClick={() => setConfirmingDestructive(true)}
                 disabled={applying || loading || totalChanges === 0}
                 className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
-              >{`Apply ${totalChanges} change${totalChanges === 1 ? '' : 's'}`}</button>
+              >{`Apply ${totalChanges} change${totalChanges === 1 ? '' : 's'} (deletes clips)`}</button>
             )}
             {!applyResults && willDeleteClips && confirmingDestructive && (
               <>
@@ -366,11 +376,41 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
                   disabled={applying}
                   className="text-[11px] py-1.5 px-3 bg-[#c0392b] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
                   title={`Will delete ${removed.length} clip${removed.length === 1 ? '' : 's'} that aren't in the package`}
-                >{applying ? 'Applying…' : `⚠ Confirm: delete ${removed.length} clip${removed.length === 1 ? '' : 's'} & apply`}</button>
+                >{mode === 'apply' ? (progressMsg || 'Applying…') : `⚠ Confirm: delete ${removed.length} clip${removed.length === 1 ? '' : 's'} & apply`}</button>
+                <button
+                  type="button"
+                  onClick={handleApplyAndGenerate}
+                  disabled={applying}
+                  className="text-[11px] py-1.5 px-3 bg-gradient-to-r from-[#c0392b] to-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+                  title="Confirm delete + apply + generate audio + set font sizes"
+                >{mode === 'apply-and-generate' ? (progressMsg || 'Working…') : `⚠ Confirm & generate`}</button>
               </>
             )}
           </div>
         </div>
+
+        {/* Verify mismatches — surface in the modal too, not just the popup,
+            so the user can keep them visible while reviewing. */}
+        {verifyResult && !verifyResult.ok && (
+          <div className="px-4 py-3 border-t border-[#c0392b]/30 bg-[#fdf2f1] space-y-1">
+            <div className="text-[11px] font-semibold text-[#c0392b]">⚠ Verification failed for {verifyResult.mismatches.length} field(s):</div>
+            {verifyResult.mismatches.slice(0, 8).map((m, i) => (
+              <div key={i} className="text-[10px] text-[#c0392b]">
+                <span className="font-mono">{m.section}.{m.label}</span> — expected <b>"{String(m.expected).slice(0, 60)}"</b>, got <b>"{String(m.actual).slice(0, 60)}"</b>
+              </div>
+            ))}
+            {verifyResult.mismatches.length > 8 && (
+              <div className="text-[10px] text-[#c0392b] italic">…and {verifyResult.mismatches.length - 8} more</div>
+            )}
+          </div>
+        )}
+        {generationStats && (
+          <div className="px-4 py-2 border-t border-[#e5e5e5] bg-[#f0faf4] text-[10px] text-[#0a4d2c]">
+            ⚡ Generated {generationStats.generated} voice{generationStats.generated === 1 ? '' : 's'}
+            {generationStats.failed > 0 ? ` · ${generationStats.failed} failed` : ''}
+            {generationStats.error ? ` · ${generationStats.error}` : ''}
+          </div>
+        )}
       </div>
     </div>
   )
