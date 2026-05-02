@@ -10,6 +10,8 @@ import {
   applyVoice, applyOverrides, applyHooks,
   applyVoiceover, applyOverlays, applyChannels,
   applyMedia, computeDiffs,
+  verifyApply, applyRecommendedFontSizes, recommendFontSizes,
+  generateMissingVoiceovers,
 } from '../lib/finalPackageApply'
 
 const SECTION_ORDER = [
@@ -31,11 +33,21 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
   const [applying, setApplying] = useState(false)
   const [applyResults, setApplyResults] = useState(null)
   const [applyErrors, setApplyErrors] = useState([])
+  const [progressMsg, setProgressMsg] = useState('')
+  const [verifyResult, setVerifyResult] = useState(null) // { ok, mismatches[] }
+  const [generationStats, setGenerationStats] = useState(null) // { generated, failed, ... }
+  const [tenantSettings, setTenantSettings] = useState(null)
   // Two-step confirm when the apply will delete clips. The user
   // explicitly asked for an "are you sure" gate on destructive ops —
   // a single click takes the safe path; a clip-delete requires a
   // visible second click on a red button.
   const [confirmingDestructive, setConfirmingDestructive] = useState(false)
+  // Tracks which button is mid-flight so the other one disables.
+  const [mode, setMode] = useState(null) // 'apply' | 'apply-and-generate' | null
+
+  useEffect(() => {
+    api.getSettings().then(s => setTenantSettings(s || null)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!draftId) return
@@ -70,14 +82,12 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
   // entirely (applyMedia returns 'skip').
   const willDeleteClips = enabled.media && Array.isArray(removed) && removed.length > 0
 
-  const handleApply = async () => {
-    if (!currentJob) return
-    setApplying(true); setApplyErrors([]); setApplyResults(null)
+  // Run the per-section appliers. Shared by both buttons.
+  const runApply = async () => {
     try { await jobSync?.flushPendingSave?.() } catch { /* keep going */ }
     const results = {}
     const errors = []
     const firstFileDbId = currentJob.files?.[0]?.id || null
-
     for (const s of presentSections) {
       if (!enabled[s.key]) { results[s.key] = 'skip'; continue }
       try {
@@ -93,25 +103,131 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
         errors.push(`${s.label}: ${e?.message || String(e)}`)
       }
     }
+    return { results, errors }
+  }
 
-    setApplyResults(results)
-    setApplyErrors(errors)
-    setApplying(false)
+  const handleApply = async () => {
+    if (!currentJob) return
+    setMode('apply'); setApplying(true)
+    setApplyErrors([]); setApplyResults(null); setVerifyResult(null); setGenerationStats(null); setProgressMsg('')
+    const { results, errors } = await runApply()
+    setApplyResults(results); setApplyErrors(errors)
 
-    // Refresh job state so other tabs show new values immediately.
+    // Verify everything actually persisted. The user asked us to
+    // confirm, not just trust the per-section 200 response.
+    setProgressMsg('Verifying changes…')
+    const v = await verifyApply(pkg, draftId, removed).catch(e => ({
+      ok: false,
+      mismatches: [{ section: 'verify', label: 'verify call', expected: 'ok', actual: `error: ${e?.message || e}` }],
+    }))
+    setVerifyResult(v)
+    setProgressMsg('')
+    setApplying(false); setMode(null)
+
+    // Refresh local state in all tabs.
     try { await jobSync?.loadJob?.(draftId) } catch { /* non-fatal */ }
 
-    // Build a one-line summary the chat panel can echo back as a
-    // system-style message, so the conversation reflects what was
-    // applied (and what was skipped/errored). Also fires a custom
-    // event for any other listener that wants the same signal.
-    const summary = buildApplySummary(results, diffs, removed)
+    if (!v.ok) {
+      const lines = v.mismatches.slice(0, 8).map(m => `• ${m.section}.${m.label}: expected "${m.expected}", got "${m.actual}"`)
+      const more = v.mismatches.length > 8 ? `\n…and ${v.mismatches.length - 8} more` : ''
+      alert(`Apply verification FAILED for ${v.mismatches.length} field${v.mismatches.length === 1 ? '' : 's'}:\n\n${lines.join('\n')}${more}\n\nReview the modal for which sections didn't land.`)
+    }
+
+    const summary = buildApplySummary(results, diffs, removed) + (v.ok ? '' : ` · ⚠ ${v.mismatches.length} verify mismatch(es)`)
     try {
       window.dispatchEvent(new CustomEvent('posty-final-package-applied', {
-        detail: { draftId, results, summary },
+        detail: { draftId, results, summary, verified: v.ok },
       }))
     } catch {}
     if (typeof onApplied === 'function') onApplied(results, summary)
+  }
+
+  // Apply + verify + recommend & set font sizes + generate any missing
+  // voiceover audio. Runs sequentially so the popup error path can
+  // bail at the first concrete failure (apply → verify → fonts → tts).
+  // Skips merge regeneration for now — flagged as a TODO.
+  const handleApplyAndGenerate = async () => {
+    if (!currentJob) return
+    setMode('apply-and-generate'); setApplying(true)
+    setApplyErrors([]); setApplyResults(null); setVerifyResult(null); setGenerationStats(null); setProgressMsg('Applying sections…')
+
+    const { results, errors } = await runApply()
+    setApplyResults(results); setApplyErrors(errors)
+
+    setProgressMsg('Verifying changes…')
+    const v = await verifyApply(pkg, draftId, removed).catch(e => ({
+      ok: false,
+      mismatches: [{ section: 'verify', label: 'verify call', expected: 'ok', actual: `error: ${e?.message || e}` }],
+    }))
+    setVerifyResult(v)
+    if (!v.ok) {
+      setProgressMsg(''); setApplying(false); setMode(null)
+      try { await jobSync?.loadJob?.(draftId) } catch {}
+      const lines = v.mismatches.slice(0, 8).map(m => `• ${m.section}.${m.label}: expected "${m.expected}", got "${m.actual}"`)
+      alert(`Apply verification FAILED — skipping voice generation.\n\n${lines.join('\n')}\n\nFix the failing sections in the modal and try again.`)
+      return
+    }
+
+    // Re-fetch the job AFTER apply+verify so font/TTS steps see the
+    // freshest state (segments have new ids, captions have new text).
+    setProgressMsg('Refreshing job state…')
+    let freshJob = currentJob
+    try { freshJob = await api.getJob(draftId) || currentJob } catch {}
+
+    setProgressMsg('Setting recommended font sizes…')
+    let fontRec = null
+    try {
+      fontRec = await applyRecommendedFontSizes(pkg, draftId, freshJob)
+    } catch (e) {
+      console.warn('[apply+gen] font sizes failed:', e?.message)
+    }
+
+    setProgressMsg('Generating voiceover audio…')
+    let genStats = { generated: 0, failed: 0, skipped: 0 }
+    try {
+      // Re-fetch so applyRecommendedFontSizes hasn't stale-poisoned us.
+      let freshJob2 = freshJob
+      try { freshJob2 = await api.getJob(draftId) || freshJob } catch {}
+      genStats = await generateMissingVoiceovers(
+        draftId, freshJob2, tenantSettings,
+        (msg) => setProgressMsg(msg),
+      )
+    } catch (e) {
+      console.error('[apply+gen] tts failed:', e?.message)
+      genStats = { generated: 0, failed: -1, skipped: 0, error: e?.message }
+    }
+    setGenerationStats(genStats)
+
+    setProgressMsg('')
+    setApplying(false); setMode(null)
+
+    try { await jobSync?.loadJob?.(draftId) } catch {}
+
+    const mediaChangedFlag = Array.isArray(pkg.media) && pkg.media.length > 0
+    const summary = buildApplySummary(results, diffs, removed)
+      + (fontRec?.captionBase ? ` · captions ${fontRec.captionBase}px` : '')
+      + (Object.keys(fontRec?.overlays || {}).length > 0 ? ` · overlay sizes set` : '')
+      + (genStats.generated > 0 ? ` · ${genStats.generated} voice${genStats.generated === 1 ? '' : 's'} generated` : '')
+      + (genStats.failed > 0 ? ` · ⚠ ${genStats.failed} TTS failed` : '')
+      + (genStats.error ? ` · ⚠ ${genStats.error}` : '')
+      + (mediaChangedFlag ? ' · ⚠ media changed — re-merge in Merge tab' : '')
+
+    try {
+      window.dispatchEvent(new CustomEvent('posty-final-package-applied', {
+        detail: { draftId, results, summary, verified: true, generated: genStats },
+      }))
+    } catch {}
+    if (typeof onApplied === 'function') onApplied(results, summary)
+
+    // If TTS had errors, surface a popup so the user knows
+    if (genStats.error) {
+      alert(`Voiceover generation issue: ${genStats.error}`)
+    } else if (genStats.failed > 0) {
+      alert(`${genStats.failed} voiceover segment(s) failed to generate. Check the Voiceover tab to retry individually.`)
+    }
+    if (mediaChangedFlag) {
+      alert('Media was changed by the package. Re-merge in the Merge tab so the voiceover bakes against the new clip order.')
+    }
   }
 
   return (

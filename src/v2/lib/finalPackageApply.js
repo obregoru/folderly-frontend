@@ -406,3 +406,246 @@ function trim(v, n = 80) {
   const s = String(v)
   return s.length > n ? s.slice(0, n) + '…' : s
 }
+
+// After apply, fetch the job fresh and compare each section against
+// what the package said should land. Returns { ok, mismatches[] }.
+// Each mismatch is { section, label, expected, actual } for the popup.
+// "ok" reports from applyXxx aren't trustworthy — the API call may
+// have 200'd but the BE might have dropped a field, or our local
+// patch didn't include all the columns we expected. Verifying against
+// the fresh DB snapshot is the only reliable confirmation.
+export async function verifyApply(pkg, draftId, removed) {
+  const mismatches = []
+  let job = null
+  try {
+    job = await api.getJob(draftId)
+  } catch (e) {
+    return { ok: false, mismatches: [{ section: 'fetch', label: 'reload job', expected: 'job data', actual: `error: ${e?.message || e}` }] }
+  }
+  if (!job) return { ok: false, mismatches: [{ section: 'fetch', label: 'reload job', expected: 'job data', actual: 'null' }] }
+
+  const gr = job.generation_rules || {}
+
+  if (pkg.voice) {
+    for (const k of ['tone', 'pov', 'marketing_intensity']) {
+      if (pkg.voice[k] !== undefined && (gr.voice?.[k] || '') !== (pkg.voice[k] || '')) {
+        mismatches.push({ section: 'voice', label: `voice.${k}`, expected: pkg.voice[k], actual: gr.voice?.[k] || '(unset)' })
+      }
+    }
+    if (pkg.voice.off_topic !== undefined && !!gr.off_topic !== !!pkg.voice.off_topic) {
+      mismatches.push({ section: 'voice', label: 'voice.off_topic', expected: !!pkg.voice.off_topic, actual: !!gr.off_topic })
+    }
+  }
+  if (pkg.overrides) {
+    const co = gr.overrides || {}
+    for (const k of Object.keys(pkg.overrides)) {
+      if ((co[k] || '') !== (pkg.overrides[k] || '')) {
+        mismatches.push({ section: 'overrides', label: `overrides.${k}`, expected: trim(pkg.overrides[k]), actual: trim(co[k]) })
+      }
+    }
+  }
+  if (pkg.hooks?.selected !== undefined) {
+    const cur = (gr.hooks?.selected?.text) || gr.hooks?.selected || ''
+    if (cur !== pkg.hooks.selected) {
+      mismatches.push({ section: 'hooks', label: 'hooks.selected', expected: trim(pkg.hooks.selected), actual: trim(cur) })
+    }
+  }
+  if (Array.isArray(pkg.voiceover)) {
+    const segs = (job.voiceover_settings?.segments || [])
+    // Match by text — id can drift if applyVoiceover assigned a fresh id.
+    for (const expected of pkg.voiceover) {
+      const wanted = String(expected.text || '').trim()
+      if (!wanted) continue
+      const found = segs.find(s => String(s.text || '').trim() === wanted)
+      if (!found) {
+        mismatches.push({ section: 'voiceover', label: `vo segment "${trim(wanted, 40)}"`, expected: 'present', actual: 'missing' })
+      } else if (expected.showCaption === false && !found.hideCaption) {
+        mismatches.push({ section: 'voiceover', label: `vo "${trim(wanted, 30)}".hideCaption`, expected: true, actual: !!found.hideCaption })
+      }
+    }
+  }
+  if (pkg.overlays) {
+    const co = job.overlay_settings || {}
+    for (const slot of ['opening', 'middle', 'closing']) {
+      if (!pkg.overlays[slot]) continue
+      const expectedText = pkg.overlays[slot].text || ''
+      const actualText = co[`${slot}Text`] || ''
+      if (expectedText !== actualText) {
+        mismatches.push({ section: 'overlays', label: `overlays.${slot}.text`, expected: trim(expectedText), actual: trim(actualText) })
+      }
+    }
+  }
+  if (pkg.channels) {
+    const f0 = job.files?.[0] || {}
+    const cc = (typeof f0.captions === 'object' && f0.captions) || {}
+    for (const k of Object.keys(pkg.channels)) {
+      const expected = pkg.channels[k]
+      if (!expected || typeof expected !== 'object') continue
+      const existing = (typeof cc[k] === 'object' && cc[k]) ? cc[k] : (typeof cc[k] === 'string' ? { text: cc[k] } : {})
+      if (typeof expected.caption === 'string' && (existing.text || '') !== expected.caption) {
+        mismatches.push({ section: 'channels', label: `${k}.caption`, expected: trim(expected.caption), actual: trim(existing.text) })
+      }
+    }
+  }
+  if (Array.isArray(pkg.media)) {
+    const curFiles = job.files || []
+    const expectedOrder = pkg.media.map(m => Number(m._resolvedDbId)).filter(Boolean)
+    // Sort current files by file_order to compare against pkg.media order.
+    const sortedCur = curFiles.slice().sort((a, b) => (Number(a.file_order) || 0) - (Number(b.file_order) || 0))
+    const actualOrder = sortedCur.map(f => Number(f.id))
+    // Only verify the ordered slice that matches package length — extras
+    // beyond pkg.media should have been removed.
+    if (expectedOrder.join(',') !== actualOrder.slice(0, expectedOrder.length).join(',')) {
+      mismatches.push({ section: 'media', label: 'order', expected: expectedOrder.map(id => `clip-${id}`).join(', '), actual: actualOrder.map(id => `clip-${id}`).join(', ') })
+    }
+    if (Array.isArray(removed)) {
+      for (const r of removed) {
+        if (r._dbFileId == null) continue
+        if (curFiles.some(f => Number(f.id) === Number(r._dbFileId))) {
+          mismatches.push({ section: 'media', label: `clip-${r._dbFileId}`, expected: 'deleted', actual: 'still present' })
+        }
+      }
+    }
+  }
+  return { ok: mismatches.length === 0, mismatches, job }
+}
+
+// Recommend per-slot overlay font sizes + a default-caption-style
+// base_font_size based on text length. Sizes are in pixels for the
+// 1080×1920 export canvas, matching the existing slider range.
+// Shorter strings get bigger fonts; the LR thresholds are tuned to
+// what looks readable in the editor's first-2s preview.
+export function recommendFontSizes(pkg) {
+  const out = { overlays: {}, captionBase: null }
+  const sizeFor = (text) => {
+    const len = String(text || '').length
+    if (len === 0) return null
+    if (len <= 8) return 110
+    if (len <= 20) return 90
+    if (len <= 40) return 72
+    if (len <= 70) return 58
+    return 50
+  }
+  if (pkg.overlays) {
+    for (const slot of ['opening', 'middle', 'closing']) {
+      const t = pkg.overlays[slot]?.text
+      const sz = sizeFor(t)
+      if (sz != null) out.overlays[slot] = sz
+    }
+  }
+  if (Array.isArray(pkg.voiceover) && pkg.voiceover.length > 0) {
+    // Word-timing captions show ~1–3 words at a time, so we pick from
+    // the AVERAGE word count of the longest segment line. ~12 words/
+    // segment is the sweet spot for ~1.6s segments. Anything denser
+    // gets a smaller font so the line doesn't wrap on a phone.
+    const wordCounts = pkg.voiceover.map(s => String(s.text || '').trim().split(/\s+/).length)
+    const maxWords = Math.max(...wordCounts, 0)
+    if (maxWords > 0) {
+      out.captionBase = maxWords <= 5 ? 95 : maxWords <= 9 ? 80 : maxWords <= 14 ? 68 : 56
+    }
+  }
+  return out
+}
+
+// Patch the job's overlay_settings with the recommended per-slot font
+// sizes. Only writes the slots present in the recommendation; preserves
+// any per-slot fields the user already set explicitly (color, yPct,
+// fontFamily) — the recommender only suggests sizes.
+export async function applyRecommendedFontSizes(pkg, draftId, currentJob) {
+  const rec = recommendFontSizes(pkg)
+  const promises = []
+  if (Object.keys(rec.overlays).length > 0) {
+    const cur = currentJob.overlay_settings || {}
+    const next = { ...cur }
+    if (rec.overlays.opening != null) next.openingFontSize = rec.overlays.opening
+    if (rec.overlays.middle != null)  next.middleFontSize  = rec.overlays.middle
+    if (rec.overlays.closing != null) next.closingFontSize = rec.overlays.closing
+    promises.push(api.updateJob(draftId, { overlay_settings: next }))
+  }
+  if (rec.captionBase != null) {
+    // Save into default_caption_style.base_font_size; cascade pushes
+    // it to every per-segment caption_styles row that doesn't have an
+    // explicit override.
+    promises.push(
+      api.cascadeJobDefaultCaptionStyle(draftId, { base_font_size: rec.captionBase })
+        .catch(e => { console.warn('[font cascade] failed:', e?.message); throw e })
+    )
+  }
+  await Promise.all(promises)
+  return rec
+}
+
+// Generate TTS for any VO segment that lacks an audio key. Sequential
+// (ElevenLabs rate-limits + we want predictable progress reporting).
+// Voice resolution order:
+//   1. seg.voiceId (per-segment override)
+//   2. voiceover_settings.voiceId (job default)
+//   3. tenantSettings.elevenlabs_voice_id (tenant default — set
+//      per-tenant in Settings; e.g. Poppy & Thyme = "Layla - excited
+//      (Cloned)")
+// If the job has no voiceId but a tenant default exists, we PROMOTE
+// that default into voiceover_settings.voiceId before generating so
+// the same voice is used on subsequent regenerations and the tab UI
+// reflects the actual choice instead of an empty dropdown.
+export async function generateMissingVoiceovers(draftId, currentJob, tenantSettings, onProgress) {
+  const vo = currentJob.voiceover_settings || {}
+  const segs = Array.isArray(vo.segments) ? vo.segments : []
+  const tenantDefaultVoice = tenantSettings?.elevenlabs_voice_id || null
+  const fallbackVoice = vo.voiceId || tenantDefaultVoice
+  const needsAudio = segs.filter(s => s && s.text && !s.audioKey)
+  if (needsAudio.length === 0) return { generated: 0, failed: 0, skipped: 0 }
+  if (!fallbackVoice) {
+    return {
+      generated: 0,
+      failed: 0,
+      skipped: needsAudio.length,
+      error: 'No voice configured — set a default voice in the tenant Settings (Voice section) first.',
+    }
+  }
+  // Promote tenant default into job-level voiceId so the UI reflects
+  // it next time the user opens the Voiceover tab.
+  let promotedVoiceId = vo.voiceId || null
+  if (!vo.voiceId && tenantDefaultVoice) {
+    promotedVoiceId = tenantDefaultVoice
+  }
+
+  let generated = 0
+  let failed = 0
+  const updatedSegs = segs.slice()
+
+  for (let i = 0; i < needsAudio.length; i++) {
+    const seg = needsAudio[i]
+    onProgress?.(`Generating voice ${i + 1}/${needsAudio.length}…`)
+    try {
+      const speed = Number(seg.speed) || 1.0
+      const r = await api.textToSpeech(seg.text.trim(), seg.voiceId || fallbackVoice, {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0,
+        use_speaker_boost: true,
+        speed,
+      })
+      if (r?.error) throw new Error(r.error)
+      const saveRes = await api.saveVoiceoverSegment(
+        r.audio_base64, draftId, seg.id, r.media_type || 'audio/mpeg', r.word_timings
+      )
+      const audioKey = saveRes?.audio_key || null
+      if (!audioKey) throw new Error('Server returned no audio_key')
+      const idx = updatedSegs.findIndex(s => s.id === seg.id)
+      if (idx >= 0) updatedSegs[idx] = { ...updatedSegs[idx], audioKey, voiceId: seg.voiceId || fallbackVoice }
+      generated += 1
+    } catch (e) {
+      console.error('[generateMissing] failed for', seg.id, e?.message)
+      failed += 1
+    }
+  }
+
+  // Persist the new audio keys + the promoted voiceId back into voiceover_settings.
+  if (generated > 0 || promotedVoiceId !== vo.voiceId) {
+    await api.updateJob(draftId, {
+      voiceover_settings: { ...vo, voiceId: promotedVoiceId, segments: updatedSegs },
+    })
+  }
+
+  return { generated, failed, skipped: 0, voiceUsed: fallbackVoice }
+}
