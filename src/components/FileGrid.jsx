@@ -198,8 +198,10 @@ function RestoredMedia({ item, isVideo, onClick }) {
   // frame INSIDE — see ImageThumb for the same treatment. Videos
   // keep their height-by-aspect treatment because they're trim/
   // duration controlled, not crop framed.
+  // Photo tile aspect matches the export (9:16). Constrained max-width
+  // so portrait tiles don't blow up too tall in the grid.
   const tileStyle = isPhoto
-    ? { aspectRatio: '16 / 9' }
+    ? { aspectRatio: '9 / 16', maxWidth: '180px', marginInline: 'auto' }
     : { height: isPortrait ? 260 : 120 }
   const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
   return (
@@ -237,6 +239,10 @@ function RestoredMedia({ item, isVideo, onClick }) {
                 src={src}
                 className="w-full h-full"
                 style={{
+                  // Tile is 9:16 (the export aspect) so cover fills
+                  // edge-to-edge; matches the BE photoToVideo crop
+                  // for landscape/square sources. Contain when zoom<1
+                  // so the user can see the letterboxed preview.
                   objectFit: z < 1 ? 'contain' : 'cover',
                   transform: `rotate(${r}deg) scale(${z}) translate(${-ox}%, ${-oy}%)`,
                   transformOrigin: 'center center',
@@ -245,16 +251,7 @@ function RestoredMedia({ item, isVideo, onClick }) {
                 onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
                 onError={e => { e.target.style.display = 'none' }}
               />
-              <div
-                className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 pointer-events-none"
-                style={{
-                  aspectRatio: '9 / 16',
-                  border: '2px dashed rgba(255, 255, 255, 0.55)',
-                  boxSizing: 'border-box',
-                }}
-                aria-hidden="true"
-              />
-              <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white rounded px-1 py-0.5 pointer-events-none">9:16 export</span>
+              <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white rounded px-1 py-0.5 pointer-events-none">9:16</span>
             </>
           )
         })()
@@ -268,12 +265,11 @@ function ImageThumb({ file, zoom, rotate, offsetX, offsetY, onClick }) {
   const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
   const [aspect, setAspect] = useState(() => file._imgAspect || null)
   useEffect(() => { if (aspect != null) file._imgAspect = aspect }, [aspect])
-  // Photo tile is 16:9 (landscape, matching the video tiles' general
-  // height/feel). Inside, a 9:16 dashed outline marks the actual
-  // export frame. The image fills the WHOLE 16:9 tile so the user
-  // can see what's being cropped (anything outside the 9:16 outline
-  // = not in the video). When zoom > 1 the image extends beyond the
-  // outline visibly. overflow:hidden clips at the outer tile bounds.
+  // Photo tile aspect = the export aspect (9:16). What you see in the
+  // tile is what gets exported. Cover crops to the 9:16 frame for
+  // landscape/square sources (matching the BE photoToVideo middle
+  // crop) and fills edge-to-edge for 9:16 sources. zoom > 1 magnifies
+  // past the frame edges (visible as cropped); zoom < 1 letterboxes.
   const z = Number(zoom) > 0 ? Number(zoom) : 1.0
   const r = Number.isFinite(Number(rotate)) ? Number(rotate) : 0
   // Pan offsets are -100..+100 percent (BE clamp range). For the
@@ -287,8 +283,8 @@ function ImageThumb({ file, zoom, rotate, offsetX, offsetY, onClick }) {
   return (
     <div
       onClick={onClick}
-      className="w-full block bg-black overflow-hidden cursor-pointer hover:opacity-80 relative"
-      style={{ aspectRatio: '16 / 9' }}
+      className="w-full block bg-black overflow-hidden cursor-pointer hover:opacity-80 relative mx-auto"
+      style={{ aspectRatio: '9 / 16', maxWidth: '180px' }}
     >
       <img
         src={src}
@@ -296,32 +292,12 @@ function ImageThumb({ file, zoom, rotate, offsetX, offsetY, onClick }) {
         className="w-full h-full"
         style={{
           imageOrientation: 'from-image',
-          // contain when zoom<1 (letterboxed); cover when >=1 (fills
-          // the tile, parts outside the 9:16 outline = cropped from
-          // the export).
           objectFit: z < 1 ? 'contain' : 'cover',
-          // Translate first so the pan is in original-coords, then
-          // scale + rotate. Sign is inverted — moving the FRAME
-          // right (positive offsetX in the BE) means visually the
-          // image shifts LEFT in the preview to land on the new
-          // crop region.
           transform: `rotate(${r}deg) scale(${z}) translate(${-ox}%, ${-oy}%)`,
           transformOrigin: 'center center',
         }}
       />
-      {/* 9:16 outline — height fills the tile, width = height*9/16
-          via aspect-ratio. Centered horizontally. Dashed white at
-          ~55% opacity is visible on most photos without dominating. */}
-      <div
-        className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 pointer-events-none"
-        style={{
-          aspectRatio: '9 / 16',
-          border: '2px dashed rgba(255, 255, 255, 0.55)',
-          boxSizing: 'border-box',
-        }}
-        aria-hidden="true"
-      />
-      <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white rounded px-1 py-0.5 pointer-events-none">9:16 export</span>
+      <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white rounded px-1 py-0.5 pointer-events-none">9:16</span>
     </div>
   )
 }
