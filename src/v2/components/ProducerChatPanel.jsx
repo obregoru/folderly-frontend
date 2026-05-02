@@ -258,6 +258,11 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
   // Track which extracted fields the user wants to apply. Default ON
   // for every field present so the typical case is "click Apply".
   const [applyChoices, setApplyChoices] = useState({})
+  // Per-field status after applySelection runs — { primary: 'ok',
+  // openingOverlay: 'error', segments: 'skip', ... }. Surfaces in
+  // ParsedReview as a green/red badge next to each checkbox so the
+  // user sees exactly what landed and what didn't.
+  const [applyStatus, setApplyStatus] = useState({})
   useEffect(() => {
     if (!parsed) { setApplyChoices({}); return }
     setApplyChoices({
@@ -278,7 +283,9 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
   // otherwise we copy them to clipboard so the user can paste manually.
   const applySelection = async () => {
     if (!parsed) return
-    setApplying(true); setApplyErr(null); setApplyMsg(null)
+    setApplying(true); setApplyErr(null); setApplyMsg(null); setApplyStatus({})
+    const status = {}
+    const mark = (key, s) => { status[key] = s }
     try {
       const summary = []
       // 1. Voiceover (primary + segments). Delegate to jobSync's
@@ -286,78 +293,90 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
       //    (segments[].id, audioKey:null on primary, etc.) stays clean.
       const wantsVo = applyChoices.primary || applyChoices.segments
       if (wantsVo && jobSync?.saveVoiceoverSettings) {
-        const cur = await api.getJob(draftId).catch(() => ({}))
-        const existing = Array.isArray(cur?.voiceover_settings?.segments) ? cur.voiceover_settings.segments : []
-        // Replace the synthetic primary entry's text if applicable —
-        // audio re-generation is left to the user (this only changes
-        // text + segment scaffolding).
-        let nextSegs = [...existing]
-        if (applyChoices.primary && parsed.primary) {
-          const idx = nextSegs.findIndex(s => s?.id === '__primary__')
-          if (idx >= 0) {
-            nextSegs[idx] = { ...nextSegs[idx], text: parsed.primary, audioKey: null }
-          } else {
-            nextSegs.unshift({ id: '__primary__', text: parsed.primary, startTime: 0, audioKey: null, duration: null })
+        try {
+          const cur = await api.getJob(draftId).catch(() => ({}))
+          const existing = Array.isArray(cur?.voiceover_settings?.segments) ? cur.voiceover_settings.segments : []
+          let nextSegs = [...existing]
+          if (applyChoices.primary && parsed.primary) {
+            const idx = nextSegs.findIndex(s => s?.id === '__primary__')
+            if (idx >= 0) {
+              nextSegs[idx] = { ...nextSegs[idx], text: parsed.primary, audioKey: null }
+            } else {
+              nextSegs.unshift({ id: '__primary__', text: parsed.primary, startTime: 0, audioKey: null, duration: null })
+            }
           }
-        }
-        if (applyChoices.segments && Array.isArray(parsed.segments)) {
-          // Drop any existing non-primary segments so the imported
-          // timeline replaces the old one cleanly. User can re-run
-          // generate-segment audio after applying.
-          nextSegs = nextSegs.filter(s => s?.id === '__primary__')
-          for (const s of parsed.segments) {
-            if (!s?.text) continue
-            nextSegs.push({
-              id: `seg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-              text: String(s.text),
-              startTime: Number(s.startTime) || 0,
-              audioKey: null,
-              duration: null,
-            })
+          if (applyChoices.segments && Array.isArray(parsed.segments)) {
+            nextSegs = nextSegs.filter(s => s?.id === '__primary__')
+            for (const s of parsed.segments) {
+              if (!s?.text) continue
+              nextSegs.push({
+                id: `seg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+                text: String(s.text),
+                startTime: Number(s.startTime) || 0,
+                audioKey: null,
+                duration: null,
+              })
+            }
           }
+          jobSync.saveVoiceoverSettings({ segments: nextSegs })
+          if (applyChoices.primary) { mark('primary', 'ok'); summary.push('primary VO text') }
+          if (applyChoices.segments) { mark('segments', 'ok'); summary.push(`${parsed.segments.length} segment text(s)`) }
+        } catch (e) {
+          if (applyChoices.primary) mark('primary', 'error')
+          if (applyChoices.segments) mark('segments', 'error')
         }
-        jobSync.saveVoiceoverSettings({ segments: nextSegs })
-        if (applyChoices.primary) summary.push('primary VO text')
-        if (applyChoices.segments) summary.push(`${parsed.segments.length} segment text(s)`)
+      } else {
+        if (applyChoices.primary) mark('primary', 'skip')
+        if (applyChoices.segments) mark('segments', 'skip')
       }
 
-      // 2. Overlays — patch only the chosen fields, dispatch the
-      //    same posty-overlay-change event the OverlaysPanelV2 uses
-      //    so the in-editor preview updates immediately.
+      // 2. Overlays — patch only the chosen fields. Each slot tracks
+      //    its own success so a single overlay save error doesn't
+      //    mask the others.
       const overlayPatch = {}
       if (applyChoices.openingOverlay && parsed.overlays?.opening) overlayPatch.openingText = parsed.overlays.opening
       if (applyChoices.middleOverlay && parsed.overlays?.middle) overlayPatch.middleText = parsed.overlays.middle
       if (applyChoices.closingOverlay && parsed.overlays?.closing) overlayPatch.closingText = parsed.overlays.closing
       if (Object.keys(overlayPatch).length > 0) {
-        const existing = (typeof window !== 'undefined' && window._postyOverlays) || {}
-        const next = { ...existing, ...overlayPatch }
         try {
+          const existing = (typeof window !== 'undefined' && window._postyOverlays) || {}
+          const next = { ...existing, ...overlayPatch }
           if (typeof window !== 'undefined') {
             window._postyOverlays = next
             window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: next }))
           }
-        } catch {}
-        jobSync?.saveOverlaySettings?.(next)
-        summary.push(`${Object.keys(overlayPatch).length} overlay field(s)`)
+          jobSync?.saveOverlaySettings?.(next)
+          if (applyChoices.openingOverlay && parsed.overlays?.opening) mark('openingOverlay', 'ok')
+          if (applyChoices.middleOverlay && parsed.overlays?.middle) mark('middleOverlay', 'ok')
+          if (applyChoices.closingOverlay && parsed.overlays?.closing) mark('closingOverlay', 'ok')
+          summary.push(`${Object.keys(overlayPatch).length} overlay field(s)`)
+        } catch (e) {
+          if (applyChoices.openingOverlay) mark('openingOverlay', 'error')
+          if (applyChoices.middleOverlay) mark('middleOverlay', 'error')
+          if (applyChoices.closingOverlay) mark('closingOverlay', 'error')
+        }
       }
 
-      // 3. Platform caption + hashtags — no shared state hook to
-      //    plug into reliably across all panels yet, so copy to
-      //    clipboard so the user can paste into the active platform's
-      //    caption box. Better than silently dropping the data.
+      // 3. Platform caption + hashtags — clipboard write.
       if (applyChoices.platformCaption && parsed.platformCaption) {
-        await navigator.clipboard.writeText(parsed.platformCaption).catch(() => {})
-        summary.push('caption (copied to clipboard)')
+        try {
+          await navigator.clipboard.writeText(parsed.platformCaption)
+          mark('platformCaption', 'ok'); summary.push('caption (copied to clipboard)')
+        } catch { mark('platformCaption', 'error') }
       }
       if (applyChoices.hashtags && Array.isArray(parsed.hashtags) && parsed.hashtags.length > 0) {
-        const tags = parsed.hashtags.map(t => t.startsWith('#') ? t : `#${t}`).join(' ')
-        await navigator.clipboard.writeText(tags).catch(() => {})
-        summary.push('hashtags (copied to clipboard)')
+        try {
+          const tags = parsed.hashtags.map(t => t.startsWith('#') ? t : `#${t}`).join(' ')
+          await navigator.clipboard.writeText(tags)
+          mark('hashtags', 'ok'); summary.push('hashtags (copied to clipboard)')
+        } catch { mark('hashtags', 'error') }
       }
 
+      setApplyStatus(status)
       setApplyMsg(summary.length ? `✓ Applied: ${summary.join(', ')}` : 'Nothing selected to apply.')
     } catch (e) {
       setApplyErr(e?.message || String(e))
+      setApplyStatus(status)
     } finally {
       setApplying(false)
     }
@@ -525,16 +544,17 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           recent producer reply and run them through the same
           review-and-apply flow as the paste-import. The producer's
           prose stays unconstrained; the parse only happens when
-          the user clicks. Falls back to this when no final-package
-          block is detected. */}
-      {lastAssistant && !finalPackage.pkg && (
+          the user clicks. Stays available even when a final-package
+          block is detected so the user can choose between the
+          strict modal flow (📦) and the per-field checkbox flow (✨). */}
+      {lastAssistant && (
         <button
           onClick={applyLatestReply}
           disabled={extractingLatest || streaming}
           className="w-full text-[10px] py-1.5 px-2 border border-[#2D9A5E]/50 text-[#2D9A5E] bg-[#f0faf4] rounded cursor-pointer disabled:opacity-50 font-medium"
-          title="Extract overlays / voiceover / caption from the producer's last reply"
+          title="Extract overlays / voiceover / caption from the producer's last reply with per-field checkboxes"
         >
-          {extractingLatest ? 'Extracting…' : '✨ Apply latest reply to draft (best-effort)'}
+          {extractingLatest ? 'Extracting…' : (finalPackage.pkg ? '✨ Apply latest reply (per-field)' : '✨ Apply latest reply to draft (best-effort)')}
         </button>
       )}
 
@@ -551,8 +571,9 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           applying={applying}
           applyErr={applyErr}
           applyMsg={applyMsg}
+          applyStatus={applyStatus}
           onApply={applySelection}
-          onClear={() => { setParsed(null); setParsedSource(null); setApplyErr(null); setApplyMsg(null) }}
+          onClear={() => { setParsed(null); setParsedSource(null); setApplyErr(null); setApplyMsg(null); setApplyStatus({}) }}
         />
       )}
 
@@ -640,7 +661,7 @@ function ChatBubble({ role, content, streaming }) {
   )
 }
 
-function ParsedReview({ parsed, source, choices, setChoices, applying, applyErr, applyMsg, onApply, onClear }) {
+function ParsedReview({ parsed, source, choices, setChoices, applying, applyErr, applyMsg, applyStatus, onApply, onClear }) {
   const sourceLabel = source === 'latest'
     ? 'Extracted from latest producer reply'
     : 'Extracted from pasted text'
@@ -678,25 +699,36 @@ function ParsedReview({ parsed, source, choices, setChoices, applying, applyErr,
       {fields.length === 0 && (
         <div className="text-[10px] text-muted italic">No structured fields detected in the {source === 'latest' ? 'reply' : 'paste'}.</div>
       )}
-      {fields.map(f => (
-        <label
-          key={f.key}
-          className={`flex items-start gap-2 text-[10px] border rounded p-1.5 cursor-pointer ${
-            has(f.key) && choices[f.key] ? 'border-[#2D9A5E]/40 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-[#fafafa]'
-          }`}
-        >
-          <input
-            type="checkbox"
-            checked={!!choices[f.key]}
-            onChange={() => toggle(f.key)}
-            className="mt-0.5"
-          />
-          <div className="flex-1 min-w-0">
-            <div className="font-medium">{f.label}</div>
-            <div className="font-mono text-[10px] text-muted whitespace-pre-wrap break-words">{f.value}</div>
-          </div>
-        </label>
-      ))}
+      {fields.map(f => {
+        const status = applyStatus?.[f.key]
+        return (
+          <label
+            key={f.key}
+            className={`flex items-start gap-2 text-[10px] border rounded p-1.5 cursor-pointer ${
+              status === 'ok' ? 'border-[#2D9A5E] bg-[#f0faf4]'
+                : status === 'error' ? 'border-[#c0392b] bg-[#fdf2f1]'
+                : has(f.key) && choices[f.key] ? 'border-[#2D9A5E]/40 bg-[#f0faf4]'
+                : 'border-[#e5e5e5] bg-[#fafafa]'
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={!!choices[f.key]}
+              onChange={() => toggle(f.key)}
+              className="mt-0.5"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium flex items-center gap-1.5">
+                <span>{f.label}</span>
+                {status === 'ok' && <span className="text-[9px] text-[#2D9A5E] bg-white border border-[#2D9A5E]/40 rounded px-1 py-0.5">✓ applied</span>}
+                {status === 'error' && <span className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b]/40 rounded px-1 py-0.5">✕ failed</span>}
+                {status === 'skip' && <span className="text-[9px] text-muted bg-white border border-[#e5e5e5] rounded px-1 py-0.5">skipped</span>}
+              </div>
+              <div className="font-mono text-[10px] text-muted whitespace-pre-wrap break-words">{f.value}</div>
+            </div>
+          </label>
+        )
+      })}
       <button
         onClick={onApply}
         disabled={applying || fields.length === 0}
