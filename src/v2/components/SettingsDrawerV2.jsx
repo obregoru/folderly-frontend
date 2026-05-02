@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api'
 import AiLogRow from './AiLogRow'
+import OverlayDefaultsForm from './OverlayDefaultsForm'
 
 /**
  * SettingsDrawerV2 — real forms for the high-leverage settings. Writes
@@ -127,6 +128,15 @@ export default function SettingsDrawerV2({ open, onClose, settings: settingsProp
             desc="OAuth + credentials for FB/IG, TikTok, YouTube, GBP, Pinterest, X, WordPress"
           >
             <ConnectionsForm settings={settings} onRefresh={refresh} />
+          </SectionCard>
+
+          <SectionCard
+            icon="🅰️" label="Overlay defaults"
+            open={expanded === 'overlay-defaults'}
+            onToggle={() => toggle('overlay-defaults')}
+            desc="Tenant-wide font, color, size, and Y placement for overlays + VO captions. New jobs inherit these; the producer's Apply &amp; generate flow uses them when setting font sizes."
+          >
+            <OverlayDefaultsForm settings={settings} onSaved={refresh} />
           </SectionCard>
 
           <SectionCard

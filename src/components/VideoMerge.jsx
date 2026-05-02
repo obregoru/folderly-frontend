@@ -94,6 +94,29 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     }
   }, [])
 
+  // Listen for an external trigger (the producer's Apply & generate
+  // flow fires this after media changes). Re-runs handleMerge with
+  // the current videoFiles, then dispatches posty-merge-complete with
+  // ok/err so the caller can await the result.
+  const handleMergeRef = useRef(null)
+  useEffect(() => {
+    const onTrigger = async (ev) => {
+      try {
+        const fn = handleMergeRef.current
+        if (!fn) {
+          window.dispatchEvent(new CustomEvent('posty-merge-complete', { detail: { ok: false, error: 'merge handler not ready' } }))
+          return
+        }
+        await fn()
+        window.dispatchEvent(new CustomEvent('posty-merge-complete', { detail: { ok: true } }))
+      } catch (e) {
+        window.dispatchEvent(new CustomEvent('posty-merge-complete', { detail: { ok: false, error: e?.message || String(e) } }))
+      }
+    }
+    window.addEventListener('posty-trigger-merge', onTrigger)
+    return () => window.removeEventListener('posty-trigger-merge', onTrigger)
+  }, [])
+
   // Probe duration directly for any clip that doesn't yet have one.
   // Uses a hidden <video> element; works for both File blobs and public URLs.
   useEffect(() => {
@@ -425,6 +448,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     clearPreviewMerge()
     setMerging(false)
   }
+
+  // Keep the ref pointing at the latest handleMerge closure so the
+  // posty-trigger-merge listener always invokes a function that sees
+  // current videoFiles/transition props instead of a stale capture.
+  handleMergeRef.current = handleMerge
 
   const handleSave = async () => {
     // If we have no blob ref (e.g. resumed draft), fetch it from the URL

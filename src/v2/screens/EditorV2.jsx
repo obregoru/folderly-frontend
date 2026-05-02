@@ -160,6 +160,7 @@ export default function EditorV2({
             }
           </div>
           <DownloadFinalButton draftId={draftId} jobSync={jobSync} files={files} />
+          <SaveAsTenantDefaultButton draftId={draftId} />
           {/* Auto-appears after the first Download press; refreshes
               every subsequent press. Mirrors the BE mix logic so what
               you see in the table is exactly what landed in the mp4. */}
@@ -339,5 +340,74 @@ function PlaceholderPanel({ label, note }) {
         Open real app →
       </a>
     </div>
+  )
+}
+
+// One-click "use this job's overlay + caption styling as my tenant
+// default for all future drafts." Reads the job's overlay_settings
+// + default_caption_style, translates into the tenant's
+// default_overlay_style shape, and writes via api.saveSettings. The
+// next new draft inherits these on creation; the producer's Apply &
+// generate flow also reads them.
+function SaveAsTenantDefaultButton({ draftId }) {
+  const [state, setState] = useState('idle') // idle | working | done | error
+  const [msg, setMsg] = useState('')
+  const handle = async () => {
+    if (!draftId || state === 'working') return
+    if (!confirm('Use THIS draft\'s overlay font, color, sizes, and Y placement (plus the VO caption style) as your tenant\'s defaults?\n\nNew drafts will inherit this. Existing drafts are unaffected.')) return
+    setState('working'); setMsg('')
+    try {
+      const [job, captionStyle] = await Promise.all([
+        api.getJob(draftId),
+        api.getJobDefaultCaptionStyle(draftId).catch(() => ({ caption_style: null })),
+      ])
+      const overlay = job?.overlay_settings || {}
+      const cap = captionStyle?.caption_style || {}
+      const layout = (cap.layout_config && typeof cap.layout_config === 'object') ? cap.layout_config : {}
+      const payload = {}
+      // Color/family/outline — use whichever the job has set, prefer
+      // explicit slot values then fall back to the global.
+      if (overlay.fontColor) payload.fontColor = overlay.fontColor
+      if (overlay.fontFamily) payload.fontFamily = overlay.fontFamily
+      if (overlay.fontOutline) payload.fontOutline = overlay.fontOutline
+      if (overlay.outlineWidth != null) payload.outlineWidth = Number(overlay.outlineWidth)
+      // Per-slot font sizes
+      if (overlay.openingFontSize != null) payload.openingFontSize = Number(overlay.openingFontSize)
+      if (overlay.middleFontSize  != null) payload.middleFontSize  = Number(overlay.middleFontSize)
+      if (overlay.closingFontSize != null) payload.closingFontSize = Number(overlay.closingFontSize)
+      // Per-slot Y placements
+      if (overlay.openingYPct != null) payload.openingYPct = Number(overlay.openingYPct)
+      if (overlay.middleYPct  != null) payload.middleYPct  = Number(overlay.middleYPct)
+      if (overlay.closingYPct != null) payload.closingYPct = Number(overlay.closingYPct)
+      // VO caption styling — pull from default_caption_style; fall
+      // through to overlay font color when caption-specific isn't set.
+      if (cap.base_font_size != null) payload.captionFontSize = Number(cap.base_font_size)
+      if (cap.font_color) payload.fontColor = payload.fontColor || cap.font_color
+      if (cap.font_outline) payload.fontOutline = payload.fontOutline || cap.font_outline
+      if (cap.outline_width != null) payload.outlineWidth = payload.outlineWidth ?? Number(cap.outline_width)
+      if (cap.font_family) payload.fontFamily = payload.fontFamily || cap.font_family
+      if (layout.verticalPosition != null) payload.captionYPct = Number(layout.verticalPosition)
+
+      await api.saveSettings({ default_overlay_style: payload })
+      setState('done'); setMsg(`Saved ${Object.keys(payload).length} field(s).`)
+      setTimeout(() => { setState('idle'); setMsg('') }, 3000)
+    } catch (e) {
+      setState('error'); setMsg(e?.message || String(e))
+      setTimeout(() => { setState('idle'); setMsg('') }, 4000)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      disabled={!draftId || state === 'working'}
+      className="text-[10px] py-1 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50 self-start hover:bg-[#f3f0ff]"
+      title="Save this draft's overlay/caption styling as your tenant's defaults. New drafts will inherit these."
+    >
+      {state === 'working' ? 'Saving…'
+        : state === 'done' ? `✓ ${msg}`
+        : state === 'error' ? `✕ ${msg.slice(0, 40)}`
+        : '💾 Save as tenant default'}
+    </button>
   )
 }

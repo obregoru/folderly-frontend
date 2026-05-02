@@ -184,6 +184,34 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
       console.warn('[apply+gen] font sizes failed:', e?.message)
     }
 
+    // Auto merge regen — only when media changed and the user kept
+    // the media section enabled. Cross-tab orchestration: dispatch
+    // posty-trigger-merge, await posty-merge-complete with a 90s
+    // timeout (large merges can take a while). On failure or timeout
+    // we surface a popup but still proceed to TTS so a slow merge
+    // doesn't block voice generation.
+    const mediaChanged = enabled.media && Array.isArray(pkg.media) && pkg.media.length > 0
+      && Array.isArray(diffs.media) && diffs.media.length > 0
+    if (mediaChanged) {
+      setProgressMsg('Re-merging video with new clip order…')
+      const mergeResult = await new Promise((resolve) => {
+        const onComplete = (ev) => {
+          window.removeEventListener('posty-merge-complete', onComplete)
+          resolve(ev?.detail || { ok: false, error: 'no detail' })
+        }
+        window.addEventListener('posty-merge-complete', onComplete)
+        window.dispatchEvent(new CustomEvent('posty-trigger-merge', { detail: { reason: 'final-package-media-change' } }))
+        // Hard timeout so a hung merge doesn't lock the modal forever.
+        setTimeout(() => {
+          window.removeEventListener('posty-merge-complete', onComplete)
+          resolve({ ok: false, error: 'merge timeout (90s)' })
+        }, 90_000)
+      })
+      if (!mergeResult.ok) {
+        console.warn('[apply+gen] auto merge failed:', mergeResult.error)
+      }
+    }
+
     setProgressMsg('Generating voiceover audio…')
     let genStats = { generated: 0, failed: 0, skipped: 0 }
     try {
@@ -205,14 +233,13 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
 
     try { await jobSync?.loadJob?.(draftId) } catch {}
 
-    const mediaChangedFlag = Array.isArray(pkg.media) && pkg.media.length > 0
     const summary = buildApplySummary(results, diffs, removed)
-      + (fontRec?.captionBase ? ` · captions ${fontRec.captionBase}px` : '')
+      + (fontRec?.tenantApplied ? ` · tenant defaults applied` : (fontRec?.captionBase ? ` · captions ${fontRec.captionBase}px` : ''))
       + (Object.keys(fontRec?.overlays || {}).length > 0 ? ` · overlay sizes set` : '')
+      + (mediaChanged ? ' · merge regenerated' : '')
       + (genStats.generated > 0 ? ` · ${genStats.generated} voice${genStats.generated === 1 ? '' : 's'} generated` : '')
       + (genStats.failed > 0 ? ` · ⚠ ${genStats.failed} TTS failed` : '')
       + (genStats.error ? ` · ⚠ ${genStats.error}` : '')
-      + (mediaChangedFlag ? ' · ⚠ media changed — re-merge in Merge tab' : '')
 
     try {
       window.dispatchEvent(new CustomEvent('posty-final-package-applied', {
@@ -221,14 +248,10 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
     } catch {}
     if (typeof onApplied === 'function') onApplied(results, summary)
 
-    // If TTS had errors, surface a popup so the user knows
     if (genStats.error) {
       alert(`Voiceover generation issue: ${genStats.error}`)
     } else if (genStats.failed > 0) {
       alert(`${genStats.failed} voiceover segment(s) failed to generate. Check the Voiceover tab to retry individually.`)
-    }
-    if (mediaChangedFlag) {
-      alert('Media was changed by the package. Re-merge in the Merge tab so the voiceover bakes against the new clip order.')
     }
   }
 
