@@ -1118,6 +1118,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           text={text} setText={setText}
           voiceId={voiceId} hasElevenLabs={hasElevenLabs}
           runningScript={runningScript}
+          draftId={draftId}
           onGenerateAll={generateFromScript}
           onRecordWithTeleprompter={() => {
             const parsed = parseScript(text)
@@ -2073,11 +2074,31 @@ function SegmentTransitionControl({ draftId }) {
   )
 }
 
-function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGenerateAll, onRecordWithTeleprompter, onApplyAsCaptions }) {
+function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, draftId, onGenerateAll, onRecordWithTeleprompter, onApplyAsCaptions }) {
   const parsed = parseScript(text)
   const lineCount = (parsed.primary ? 1 : 0) + parsed.segments.length
   const hasParsed = lineCount > 0
   const canAi = hasElevenLabs && !!voiceId
+  // Speech-to-text from the merged video / single clip. Pulls audio
+  // from the job, runs ElevenLabs Scribe, drops the formatted script
+  // into this textarea. Confirms first when there's existing text so
+  // a misclick doesn't wipe a draft script.
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcribeErr, setTranscribeErr] = useState(null)
+  const handleTranscribe = async () => {
+    if (!draftId || transcribing) return
+    if (text.trim() && !confirm('This will REPLACE the current script with the transcription of your video. Continue?')) return
+    setTranscribing(true); setTranscribeErr(null)
+    try {
+      const r = await api.transcribeMergedVideo(draftId)
+      if (!r?.script) throw new Error('Server returned no script')
+      setText(r.script)
+    } catch (e) {
+      setTranscribeErr(e?.message || String(e))
+    } finally {
+      setTranscribing(false)
+    }
+  }
 
   return (
     <div className="space-y-2">
@@ -2100,7 +2121,20 @@ function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, onGen
         ) : (
           <span>No timestamps detected yet — use <code>[m:ss]</code> format.</span>
         )}
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={handleTranscribe}
+          disabled={transcribing || !draftId}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50 hover:bg-[#f3f0ff]"
+          title="Run speech-to-text on the merged video (or your single clip) and drop the result here as a timestamped script."
+        >{transcribing ? 'Transcribing…' : '🎙→📝 Transcribe video'}</button>
       </div>
+      {transcribeErr && (
+        <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">
+          {transcribeErr}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-1.5">
         <button

@@ -197,6 +197,20 @@ export const applyTenantDefaultsToJob = (jobId) =>
     return r.json()
   })
 
+// Speech-to-text the merged video (or the single-clip fallback).
+// Returns a [m:ss]-formatted script the Voice tab's Script field can
+// drop in directly.
+export const transcribeMergedVideo = (jobId) =>
+  fetch(api(`/jobs/${jobId}/transcribe-merged`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `transcribeMergedVideo failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Voice analysis
 export const analyzeVoice = (examples) =>
   fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())
