@@ -160,7 +160,10 @@ export default function EditorV2({
             }
           </div>
           <DownloadFinalButton draftId={draftId} jobSync={jobSync} files={files} />
-          <SaveAsTenantDefaultButton draftId={draftId} />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <SaveAsTenantDefaultButton draftId={draftId} />
+            <ApplyTenantDefaultsButton draftId={draftId} jobSync={jobSync} />
+          </div>
           {/* Auto-appears after the first Download press; refreshes
               every subsequent press. Mirrors the BE mix logic so what
               you see in the table is exactly what landed in the mp4. */}
@@ -408,6 +411,50 @@ function SaveAsTenantDefaultButton({ draftId }) {
         : state === 'done' ? `✓ ${msg}`
         : state === 'error' ? `✕ ${msg.slice(0, 40)}`
         : '💾 Save as tenant default'}
+    </button>
+  )
+}
+
+// Inverse of SaveAsTenantDefaultButton: pushes the tenant's saved
+// default_overlay_style INTO this job. Useful when you've been
+// iterating on a draft, then realize the tenant defaults have
+// drifted from what you've got — one click brings the draft back in
+// line with the brand. Cascades the new caption defaults down to
+// every per-segment caption_styles row so existing VO captions pick
+// up the new sizing/Y instead of staying on stale per-segment
+// overrides. Refreshes the local job state via jobSync.loadJob so
+// every panel reflects the new values without a hard reload.
+function ApplyTenantDefaultsButton({ draftId, jobSync }) {
+  const [state, setState] = useState('idle')
+  const [msg, setMsg] = useState('')
+  const handle = async () => {
+    if (!draftId || state === 'working') return
+    if (!confirm('Apply your tenant\'s overlay defaults (font, color, sizes, Y placements) to THIS draft?\n\nThis will overwrite the draft\'s existing overlay + VO caption styling. Per-segment caption overrides will also be reset to the new defaults.')) return
+    setState('working'); setMsg('')
+    try {
+      const r = await api.applyTenantDefaultsToJob(draftId)
+      if (!r?.ok) throw new Error(r?.error || 'Apply failed')
+      setState('done')
+      setMsg(`Applied · ${r.cascaded_segment_rows || 0} segment(s) updated`)
+      try { await jobSync?.loadJob?.(draftId) } catch {}
+      setTimeout(() => { setState('idle'); setMsg('') }, 3000)
+    } catch (e) {
+      setState('error'); setMsg(e?.message || String(e))
+      setTimeout(() => { setState('idle'); setMsg('') }, 4000)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      disabled={!draftId || state === 'working'}
+      className="text-[10px] py-1 px-2 border border-[#2D9A5E]/40 text-[#2D9A5E] bg-white rounded cursor-pointer disabled:opacity-50 self-start hover:bg-[#f0faf4]"
+      title="Apply your tenant's overlay/caption defaults to this draft, overwriting its current styling. Cascades to every VO segment."
+    >
+      {state === 'working' ? 'Applying…'
+        : state === 'done' ? `✓ ${msg}`
+        : state === 'error' ? `✕ ${msg.slice(0, 40)}`
+        : '🎨 Apply tenant defaults'}
     </button>
   )
 }

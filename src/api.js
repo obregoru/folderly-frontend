@@ -184,6 +184,19 @@ export const duplicateJobFile = (jobId, fileId) =>
     return r.json()
   })
 
+// Push tenant default_overlay_style into an existing job's
+// overlay_settings + default_caption_style + cascade to segments.
+export const applyTenantDefaultsToJob = (jobId) =>
+  fetch(api(`/jobs/${jobId}/apply-tenant-defaults`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `applyTenantDefaultsToJob failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Voice analysis
 export const analyzeVoice = (examples) =>
   fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())
