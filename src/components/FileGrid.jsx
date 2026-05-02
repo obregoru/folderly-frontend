@@ -351,7 +351,7 @@ function SortableTile({ item, children }) {
   )
 }
 
-export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer, PhotoDurationBar }) {
+export default function FileGrid({ files, onRemove, onReorder, onDuplicate, VideoTrimmer, PhotoDurationBar }) {
   const [previewItem, setPreviewItem] = useState(null)
 
   // Only put the sensors together when we actually have more than one
@@ -428,7 +428,23 @@ export default function FileGrid({ files, onRemove, onReorder, VideoTrimmer, Pho
               <button
                 onClick={() => onRemove(item.id)}
                 className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-xs flex items-center justify-center cursor-pointer border-none z-[5]"
+                title="Remove from this draft"
               >&times;</button>
+              {/* Duplicate — server-side copy of the source storage
+                  object + a new job_files row with all the same per-clip
+                  settings (trim, photo motion/zoom/rotate/offsets, speed,
+                  captions, post_destinations). Lets the user keep an
+                  edited variant alongside the original without re-
+                  uploading from disk. Only visible once the file is
+                  persisted (_dbFileId set). */}
+              {item._dbFileId != null && onDuplicate && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onDuplicate(item) }}
+                  disabled={item._duplicating}
+                  className="absolute top-1 right-6 w-[18px] h-[18px] rounded-full bg-[#6C5CE7]/85 hover:bg-[#6C5CE7] text-white text-[10px] flex items-center justify-center cursor-pointer border-none z-[5] disabled:opacity-50"
+                  title="Duplicate this clip with all its settings"
+                >{item._duplicating ? '…' : '⎘'}</button>
+              )}
               {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
               {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
               {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}

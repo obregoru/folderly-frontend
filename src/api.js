@@ -173,6 +173,16 @@ export const duplicateJob = (id, opts = {}) => fetch(api(`/jobs/${id}/duplicate`
 export const addJobFile = (jobId, data) => fetch(api(`/jobs/${jobId}/files`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const updateJobFile = (jobId, fileId, data) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
 export const deleteJobFile = (jobId, fileId) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
+export const duplicateJobFile = (jobId, fileId) =>
+  fetch(api(`/jobs/${jobId}/files/${fileId}/duplicate`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `duplicateJobFile failed (${r.status})`)
+    }
+    return r.json()
+  })
 
 // Voice analysis
 export const analyzeVoice = (examples) =>

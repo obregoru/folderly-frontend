@@ -30,7 +30,7 @@ import ChannelsPanelV2 from '../components/ChannelsPanelV2'
  * this phase; they'll be ported one by one in phases 3+.
  */
 export default function EditorV2({
-  draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles,
+  draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles, duplicateFile,
 }) {
   const [activeTool, setActiveTool] = useState('clips')
   // Shared ref to the FinalPreview <video>. Every tool that wants to
@@ -118,6 +118,7 @@ export default function EditorV2({
             addFiles={addFiles}
             removeFile={removeFile}
             reorderFiles={reorderFiles}
+            duplicateFile={duplicateFile}
             jobSync={jobSync}
             onlyPhotos={onlyPhotos}
             combinePhotosAsVideo={combinePhotosAsVideo}
@@ -169,7 +170,7 @@ export default function EditorV2({
   )
 }
 
-function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reorderFiles, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos, draftId }) {
+function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reorderFiles, duplicateFile, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos, draftId }) {
   // Show the merge UI when:
   //   - There's at least one video (mixed draft or video-only), OR
   //   - It's a photo-only draft with 2+ items and the user opted into
@@ -238,6 +239,7 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           files={files}
           onRemove={removeFile}
           onReorder={reorderFiles}
+          onDuplicate={duplicateFile}
           VideoTrimmer={VideoTrimmer}
           // Only surface the photo duration + motion controls under
           // photo tiles when this draft is actually going to combine

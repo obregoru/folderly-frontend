@@ -352,6 +352,66 @@ export default function App() {
     jobSync.deleteFileFromJob(id)
   }
 
+  // Duplicate a clip — server-side storage copy + new job_files row
+  // with the same per-clip settings. The new entry is appended after
+  // the source so the user sees it immediately. Source must be
+  // persisted (have a _dbFileId); otherwise there's nothing to copy on
+  // the server. While the copy is in flight we mark the source's
+  // _duplicating flag so the button shows a spinner.
+  const duplicateFile = useCallback(async (sourceItem) => {
+    if (!sourceItem?._dbFileId) return
+    const jobId = jobSync.jobId
+    if (!jobId) return
+    sourceItem._duplicating = true
+    setFiles(prev => prev.map(f => f.id === sourceItem.id ? { ...f } : f))
+    try {
+      const r = await api.duplicateJobFile(jobId, sourceItem._dbFileId)
+      const f = r?.file
+      if (!f?.id) throw new Error('Server returned no file')
+      const localId = Math.random().toString(36).slice(2)
+      const newEntry = {
+        id: localId,
+        file: null,
+        isImg: f.media_type?.startsWith('image/'),
+        parsed: { occasions: [], products: [], moments: [] },
+        status: null,
+        captions: f.captions && Object.keys(f.captions).length ? f.captions : null,
+        uploadResult: { original_temp_path: f.upload_key, uuid: null },
+        _trimStart: Number(f.trim_start) || 0,
+        _trimEnd: f.trim_end ?? null,
+        _speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
+        _insertIntoFileId: null,
+        _insertAtSec: 0,
+        _dbFileId: f.id,
+        _photoMotion: f.photo_to_video_motion || null,
+        _photoZoom: Number(f.photo_to_video_zoom) > 0 ? Number(f.photo_to_video_zoom) : 1.0,
+        _photoRotate: Number.isFinite(Number(f.photo_to_video_rotate)) ? Number(f.photo_to_video_rotate) : 0,
+        _photoOffsetX: Number.isFinite(Number(f.photo_to_video_offset_x)) ? Number(f.photo_to_video_offset_x) : 0,
+        _photoOffsetY: Number.isFinite(Number(f.photo_to_video_offset_y)) ? Number(f.photo_to_video_offset_y) : 0,
+        _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
+        _restored: true,
+        _tenantSlug: api.tenantSlug(),
+        _uploadKey: f.upload_key,
+        _publicUrl: f.public_url || null,
+        _filename: f.filename,
+        _mediaType: f.media_type,
+      }
+      // Insert right after the source so the duplicate sits next to its
+      // origin. If the source is gone for some reason, append to the end.
+      setFiles(prev => {
+        const idx = prev.findIndex(x => x.id === sourceItem.id)
+        const without = prev.map(f => f.id === sourceItem.id ? { ...f, _duplicating: false } : f)
+        if (idx < 0) return [...without, newEntry]
+        return [...without.slice(0, idx + 1), newEntry, ...without.slice(idx + 1)]
+      })
+    } catch (e) {
+      console.error('[duplicateFile] failed:', e?.message || e)
+      sourceItem._duplicating = false
+      setFiles(prev => prev.map(f => f.id === sourceItem.id ? { ...f, _duplicating: false } : f))
+      alert('Duplicate failed: ' + (e?.message || e))
+    }
+  }, [jobSync, setFiles])
+
   // Reorder files — keeps the merge list, file grid, trimmers, and voiceover
   // monitor all pointing at the same first clip. Persists the new file_order
   // back to the server so the draft resumes in the same order.
