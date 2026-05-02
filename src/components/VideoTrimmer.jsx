@@ -437,6 +437,148 @@ export default function VideoTrimmer({ item }) {
           }}
         />
       </div>
+      <FirstHalfSecondInspector src={src} />
+    </div>
+  )
+}
+
+// Inspector for the first 0.5 seconds of a video clip. TikTok and
+// IG Reels prioritize motion in the first ~0.5s for retention; this
+// surfaces what's actually playing in that window so the user can
+// decide whether the opening clip needs a recut. Two modes:
+//   • Loop play — auto-loops 0.0→0.5s repeatedly, stops on Pause
+//   • Frame-step — six tap targets (0.0/0.1/0.2/0.3/0.4/0.5) that
+//     pause + seek to that timestamp so the user can compare frames
+//
+// Mounts its own visible <video> element rather than reusing the
+// trim strip's offscreen one so the user actually SEES the frame.
+function FirstHalfSecondInspector({ src }) {
+  const videoRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [activeFrame, setActiveFrame] = useState(null) // 0.0 | 0.1 ... 0.5 | null
+  const [looping, setLooping] = useState(false)
+  const loopRafRef = useRef(null)
+  const FRAMES = [0, 0.1, 0.2, 0.3, 0.4, 0.5]
+  const LOOP_END = 0.5
+
+  // Stop loop + cleanup when collapsed or unmounted.
+  useEffect(() => {
+    if (!open && looping) setLooping(false)
+    if (!open) {
+      const v = videoRef.current
+      if (v) try { v.pause() } catch {}
+    }
+    return () => {
+      if (loopRafRef.current) cancelAnimationFrame(loopRafRef.current)
+    }
+  }, [open, looping])
+
+  // Loop driver. Watches currentTime via rAF; when it crosses LOOP_END,
+  // seek back to 0. Browsers' built-in <video loop> attribute can't
+  // restrict the loop range, hence this manual driver.
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !looping) return
+    let cancelled = false
+    const tick = () => {
+      if (cancelled) return
+      if (v.currentTime >= LOOP_END - 0.01) {
+        try { v.currentTime = 0 } catch {}
+      }
+      loopRafRef.current = requestAnimationFrame(tick)
+    }
+    try {
+      v.muted = true
+      v.currentTime = 0
+      const p = v.play()
+      if (p && typeof p.then === 'function') p.catch(() => { /* autoplay block */ })
+    } catch {}
+    loopRafRef.current = requestAnimationFrame(tick)
+    return () => {
+      cancelled = true
+      if (loopRafRef.current) cancelAnimationFrame(loopRafRef.current)
+      try { v.pause() } catch {}
+    }
+  }, [looping])
+
+  const seekTo = (t) => {
+    setLooping(false)
+    setActiveFrame(t)
+    const v = videoRef.current
+    if (!v) return
+    try {
+      v.pause()
+      v.currentTime = Math.max(0, Number(t))
+    } catch {}
+  }
+
+  if (!src) return null
+
+  return (
+    <div className="mt-1 border-t border-[#e5e5e5] pt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="text-[10px] text-[#6C5CE7] bg-transparent border-none cursor-pointer flex items-center gap-1"
+        title="Inspect the first 0.5 seconds of this clip — TikTok / Reels weighs motion here heavily for retention."
+      >
+        <span>{open ? '▾' : '▸'}</span>
+        <span>🔬 First 0.5s inspector</span>
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1.5">
+          <div className="flex items-start gap-2">
+            <video
+              ref={videoRef}
+              src={src}
+              muted
+              playsInline
+              preload="auto"
+              crossOrigin={src.startsWith('blob:') ? undefined : 'anonymous'}
+              className="w-[120px] h-[180px] bg-black rounded object-contain flex-shrink-0"
+              onLoadedMetadata={() => {
+                const v = videoRef.current
+                if (v) try { v.currentTime = 0 } catch {}
+              }}
+            />
+            <div className="flex-1 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setLooping(v => !v)}
+                  className={`text-[10px] py-1 px-2 rounded cursor-pointer font-medium border ${
+                    looping
+                      ? 'bg-[#c0392b] text-white border-[#c0392b]'
+                      : 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+                  }`}
+                  title={looping ? 'Stop the 0-0.5s loop' : 'Loop just the first half-second on repeat'}
+                >{looping ? '⏸ Stop loop' : '▶ Loop 0–0.5s'}</button>
+                <span className="text-[9px] text-muted">
+                  {looping ? 'looping…' : (activeFrame != null ? `paused @ ${activeFrame.toFixed(1)}s` : 'idle')}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 flex-wrap">
+                {FRAMES.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => seekTo(t)}
+                    className={`text-[10px] py-1 px-2 rounded cursor-pointer font-mono border ${
+                      activeFrame === t
+                        ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7] font-bold'
+                        : 'border-[#e5e5e5] bg-white text-ink hover:border-[#6C5CE7]/50'
+                    }`}
+                    title={`Jump to ${t.toFixed(1)} seconds`}
+                  >{t.toFixed(1)}s</button>
+                ))}
+              </div>
+              <div className="text-[9px] text-muted italic">
+                TikTok and Reels weight motion in the first ~0.5s heavily for retention. If clip 1 is static here, recut.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
