@@ -174,10 +174,12 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
     let freshJob = currentJob
     try { freshJob = await api.getJob(draftId) || currentJob } catch {}
 
-    setProgressMsg('Setting recommended font sizes…')
+    setProgressMsg(tenantSettings?.default_overlay_style && Object.keys(tenantSettings.default_overlay_style).length > 0
+      ? 'Applying tenant overlay defaults + font sizes…'
+      : 'Setting recommended font sizes…')
     let fontRec = null
     try {
-      fontRec = await applyRecommendedFontSizes(pkg, draftId, freshJob)
+      fontRec = await applyRecommendedFontSizes(pkg, draftId, freshJob, tenantSettings)
     } catch (e) {
       console.warn('[apply+gen] font sizes failed:', e?.message)
     }

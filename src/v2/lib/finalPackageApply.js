@@ -547,32 +547,75 @@ export function recommendFontSizes(pkg) {
   return out
 }
 
-// Patch the job's overlay_settings with the recommended per-slot font
-// sizes. Only writes the slots present in the recommendation; preserves
-// any per-slot fields the user already set explicitly (color, yPct,
-// fontFamily) — the recommender only suggests sizes.
-export async function applyRecommendedFontSizes(pkg, draftId, currentJob) {
+// Resolution order for font sizes / colors / Y placement:
+//   1. Tenant default (tenantSettings.default_overlay_style)
+//   2. Text-length-based recommender (recommendFontSizes)
+//   3. Existing job value preserved when neither above applies
+// Tenant beats recommender — the user explicitly asked for "use these
+// when the producer's final package is applied". Recommender only
+// fills in slots the tenant hasn't customized.
+export async function applyRecommendedFontSizes(pkg, draftId, currentJob, tenantSettings) {
   const rec = recommendFontSizes(pkg)
+  const tenantDef = (tenantSettings?.default_overlay_style && typeof tenantSettings.default_overlay_style === 'object')
+    ? tenantSettings.default_overlay_style : {}
+  const pick = (tenantKey, recKey) => {
+    const tv = tenantDef[tenantKey]
+    if (tv != null && tv !== '') return Number(tv)
+    return rec.overlays?.[recKey] ?? null
+  }
+
+  const cur = currentJob.overlay_settings || {}
+  const next = { ...cur }
+  let touchedOverlays = false
+
+  // Per-slot font sizes
+  const open = pick('openingFontSize', 'opening')
+  const mid  = pick('middleFontSize',  'middle')
+  const clos = pick('closingFontSize', 'closing')
+  if (open != null && pkg.overlays?.opening) { next.openingFontSize = open; touchedOverlays = true }
+  if (mid  != null && pkg.overlays?.middle)  { next.middleFontSize  = mid;  touchedOverlays = true }
+  if (clos != null && pkg.overlays?.closing) { next.closingFontSize = clos; touchedOverlays = true }
+
+  // Tenant-level color/outline/family/Y placement when set — copied
+  // even when the package didn't touch overlays, since these are
+  // brand-level invariants the user asked us to apply on every
+  // final-package run.
+  if (tenantDef.fontColor) {
+    next.fontColor = tenantDef.fontColor
+    next.openingFontColor = tenantDef.fontColor
+    next.middleFontColor = tenantDef.fontColor
+    next.closingFontColor = tenantDef.fontColor
+    touchedOverlays = true
+  }
+  if (tenantDef.fontFamily)   { next.fontFamily = tenantDef.fontFamily; touchedOverlays = true }
+  if (tenantDef.fontOutline)  { next.fontOutline = tenantDef.fontOutline; touchedOverlays = true }
+  if (tenantDef.outlineWidth != null) { next.outlineWidth = Number(tenantDef.outlineWidth); touchedOverlays = true }
+  if (tenantDef.openingYPct != null) { next.openingYPct = Number(tenantDef.openingYPct); touchedOverlays = true }
+  if (tenantDef.middleYPct != null)  { next.middleYPct  = Number(tenantDef.middleYPct);  touchedOverlays = true }
+  if (tenantDef.closingYPct != null) { next.closingYPct = Number(tenantDef.closingYPct); touchedOverlays = true }
+
   const promises = []
-  if (Object.keys(rec.overlays).length > 0) {
-    const cur = currentJob.overlay_settings || {}
-    const next = { ...cur }
-    if (rec.overlays.opening != null) next.openingFontSize = rec.overlays.opening
-    if (rec.overlays.middle != null)  next.middleFontSize  = rec.overlays.middle
-    if (rec.overlays.closing != null) next.closingFontSize = rec.overlays.closing
+  if (touchedOverlays) {
     promises.push(api.updateJob(draftId, { overlay_settings: next }))
   }
-  if (rec.captionBase != null) {
-    // Save into default_caption_style.base_font_size; cascade pushes
-    // it to every per-segment caption_styles row that doesn't have an
-    // explicit override.
+
+  // Caption (word-timing) styling. Tenant captionFontSize beats the
+  // text-length recommender. Tenant captionYPct sets layout vertical
+  // placement.
+  const captionSize = (tenantDef.captionFontSize != null && tenantDef.captionFontSize !== '')
+    ? Number(tenantDef.captionFontSize)
+    : rec.captionBase
+  if (captionSize != null) {
+    const body = { base_font_size: captionSize }
+    if (tenantDef.captionYPct != null) body.vertical_position = Number(tenantDef.captionYPct)
     promises.push(
-      api.cascadeJobDefaultCaptionStyle(draftId, { base_font_size: rec.captionBase })
+      api.cascadeJobDefaultCaptionStyle(draftId, body)
         .catch(e => { console.warn('[font cascade] failed:', e?.message); throw e })
     )
   }
+
   await Promise.all(promises)
-  return rec
+  return { ...rec, tenantApplied: Object.keys(tenantDef).length > 0 }
 }
 
 // Generate TTS for any VO segment that lacks an audio key. Sequential
