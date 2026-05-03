@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import * as api from '../api'
 
 /**
  * iOS-style filmstrip video trimmer. Lives at the file level (one per
@@ -437,7 +438,7 @@ export default function VideoTrimmer({ item }) {
           }}
         />
       </div>
-      <FirstHalfSecondInspector src={src} trimStart={trimStart} videoDuration={videoDuration} />
+      <FirstHalfSecondInspector src={src} trimStart={trimStart} videoDuration={videoDuration} item={item} />
     </div>
   )
 }
@@ -452,12 +453,39 @@ export default function VideoTrimmer({ item }) {
 //
 // Mounts its own visible <video> element rather than reusing the
 // trim strip's offscreen one so the user actually SEES the frame.
-function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0 }) {
+function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item = null }) {
   const videoRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [activeFrame, setActiveFrame] = useState(null) // 0.0 | 0.1 ... 0.5 | null
   const [looping, setLooping] = useState(false)
   const loopRafRef = useRef(null)
+  // TikTok-tuned vision analysis state. Held inside the inspector so
+  // the user can run it on demand and the result stays visible while
+  // they iterate on the clip.
+  const [reviewing, setReviewing] = useState(false)
+  const [review, setReview] = useState(null) // { overall_score, ..., suggestions[] }
+  const [reviewErr, setReviewErr] = useState(null)
+  // The job/file ids are needed to invoke the BE. _dbFileId lives on
+  // every persisted clip; without one (fresh upload still in flight)
+  // we hide the TikTok review button rather than fail mid-call. The
+  // draftId comes from sessionStorage (set when the user opens a job)
+  // since VideoTrimmer doesn't take draftId as a prop.
+  const dbFileId = item?._dbFileId || null
+  const draftId = typeof window !== 'undefined' ? sessionStorage.getItem('posty_active_job') : null
+  const canReview = !!(dbFileId && draftId)
+  const runReview = async () => {
+    if (!canReview || reviewing) return
+    setReviewing(true); setReviewErr(null)
+    try {
+      const r = await api.tiktokFirstHalfReview(draftId, dbFileId)
+      if (!r?.analysis) throw new Error('No analysis returned')
+      setReview(r.analysis)
+    } catch (e) {
+      setReviewErr(e?.message || String(e))
+    } finally {
+      setReviewing(false)
+    }
+  }
   // Frame offsets are relative to the TRIM START, not the file's
   // origin. The user trimmed the first N seconds off; "first 0.5s of
   // the clip" means the half-second after that cut.
@@ -591,10 +619,79 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0 }) {
               <div className="text-[9px] text-muted italic">
                 TikTok and Reels weight motion in the first ~0.5s heavily for retention. If clip 1 is static here, recut.
               </div>
+              {canReview && (
+                <div className="pt-1.5 border-t border-[#e5e5e5] flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={runReview}
+                    disabled={reviewing}
+                    className="text-[10px] py-1 px-2 border border-[#000] bg-black text-white rounded cursor-pointer disabled:opacity-50 font-medium"
+                    title="Run an AI vision analysis on these 6 frames with TikTok-specific scoring (motion, subject clarity, contrast, pattern interrupt, face/eye contact)"
+                  >{reviewing ? '🔍 Analyzing…' : '🎵 TikTok 0.5s review'}</button>
+                  {review && (
+                    <span className="text-[10px] text-muted">
+                      Overall: <span className="font-bold text-ink">{review.overall_score}/10</span>
+                    </span>
+                  )}
+                </div>
+              )}
+              {reviewErr && (
+                <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5 mt-1">
+                  {reviewErr}
+                </div>
+              )}
             </div>
           </div>
+          {review && (
+            <div className="mt-2 border border-[#e5e5e5] rounded p-2 space-y-1.5 bg-[#fafafa]">
+              <div className="text-[10px] font-medium text-ink">{review.verdict || 'Analysis complete'}</div>
+              <div className="grid grid-cols-2 gap-1 text-[10px]">
+                <ScoreRow label="Motion velocity" value={review.motion_velocity} />
+                <ScoreRow label="Subject clarity" value={review.subject_clarity} />
+                <ScoreRow label="Contrast / pop" value={review.contrast_pop} />
+                <ScoreRow label="Pattern interrupt" value={review.pattern_interrupt} />
+                <ScoreRow label="Face / eye contact" value={review.face_eye_contact} />
+                <ScoreRow label="Overall" value={review.overall_score} bold />
+              </div>
+              {Array.isArray(review.frame_notes) && review.frame_notes.length > 0 && (
+                <div className="border-t border-[#e5e5e5] pt-1.5">
+                  <div className="text-[9px] uppercase tracking-wide text-muted mb-0.5">Frame-by-frame</div>
+                  {review.frame_notes.map((fn, i) => (
+                    <div key={i} className="text-[10px] flex items-start gap-1.5">
+                      <span className="font-mono text-muted shrink-0">{Number(fn.t).toFixed(1)}s</span>
+                      <span className={`font-bold shrink-0 ${fn.score >= 7 ? 'text-[#2D9A5E]' : fn.score >= 5 ? 'text-[#d97706]' : 'text-[#c0392b]'}`}>{fn.score}/10</span>
+                      <span className="text-ink break-words">{fn.note}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {Array.isArray(review.suggestions) && review.suggestions.length > 0 && (
+                <div className="border-t border-[#e5e5e5] pt-1.5">
+                  <div className="text-[9px] uppercase tracking-wide text-muted mb-0.5">Suggestions</div>
+                  {review.suggestions.map((s, i) => (
+                    <div key={i} className="text-[10px] flex items-start gap-1.5">
+                      <span className="text-[#6C5CE7] shrink-0">▸</span>
+                      <span className="text-ink break-words">{s}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+function ScoreRow({ label, value, bold = false }) {
+  const v = Number(value)
+  if (!Number.isFinite(v)) return null
+  const color = v >= 7 ? '#2D9A5E' : v >= 5 ? '#d97706' : '#c0392b'
+  return (
+    <div className={`flex items-center justify-between bg-white border border-[#e5e5e5] rounded px-1.5 py-0.5 ${bold ? 'font-bold' : ''}`}>
+      <span className="text-muted">{label}</span>
+      <span style={{ color }}>{v}/10</span>
     </div>
   )
 }

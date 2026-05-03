@@ -214,6 +214,20 @@ export const transcribeMergedVideo = (jobId) =>
     return r.json()
   })
 
+// TikTok-tuned vision review of the first 0.5 seconds of a video clip.
+// Returns { ok, analysis: {overall_score, motion_velocity, ...,
+// frame_notes[], suggestions[]} } the inspector renders inline.
+export const tiktokFirstHalfReview = (jobId, fileId) =>
+  fetch(api(`/jobs/${jobId}/files/${fileId}/tiktok-half-review`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `tiktokFirstHalfReview failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Voice analysis
 export const analyzeVoice = (examples) =>
   fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())
