@@ -437,7 +437,7 @@ export default function VideoTrimmer({ item }) {
           }}
         />
       </div>
-      <FirstHalfSecondInspector src={src} />
+      <FirstHalfSecondInspector src={src} trimStart={trimStart} videoDuration={videoDuration} />
     </div>
   )
 }
@@ -452,14 +452,22 @@ export default function VideoTrimmer({ item }) {
 //
 // Mounts its own visible <video> element rather than reusing the
 // trim strip's offscreen one so the user actually SEES the frame.
-function FirstHalfSecondInspector({ src }) {
+function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0 }) {
   const videoRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [activeFrame, setActiveFrame] = useState(null) // 0.0 | 0.1 ... 0.5 | null
   const [looping, setLooping] = useState(false)
   const loopRafRef = useRef(null)
+  // Frame offsets are relative to the TRIM START, not the file's
+  // origin. The user trimmed the first N seconds off; "first 0.5s of
+  // the clip" means the half-second after that cut.
+  const start = Math.max(0, Number(trimStart) || 0)
+  const cap = videoDuration > 0 ? Math.max(0, videoDuration - start) : Infinity
+  const LOOP_LEN = Math.min(0.5, cap || 0.5)
+  const LOOP_END = start + LOOP_LEN
   const FRAMES = [0, 0.1, 0.2, 0.3, 0.4, 0.5]
-  const LOOP_END = 0.5
+    .filter(t => t <= LOOP_LEN + 1e-6)
+    .map(t => start + t)
 
   // Stop loop + cleanup when collapsed or unmounted.
   useEffect(() => {
@@ -474,22 +482,22 @@ function FirstHalfSecondInspector({ src }) {
   }, [open, looping])
 
   // Loop driver. Watches currentTime via rAF; when it crosses LOOP_END,
-  // seek back to 0. Browsers' built-in <video loop> attribute can't
-  // restrict the loop range, hence this manual driver.
+  // seek back to the trim start. Browsers' built-in <video loop>
+  // attribute can't restrict the loop range, hence this manual driver.
   useEffect(() => {
     const v = videoRef.current
     if (!v || !looping) return
     let cancelled = false
     const tick = () => {
       if (cancelled) return
-      if (v.currentTime >= LOOP_END - 0.01) {
-        try { v.currentTime = 0 } catch {}
+      if (v.currentTime >= LOOP_END - 0.01 || v.currentTime < start - 0.01) {
+        try { v.currentTime = start } catch {}
       }
       loopRafRef.current = requestAnimationFrame(tick)
     }
     try {
       v.muted = true
-      v.currentTime = 0
+      v.currentTime = start
       const p = v.play()
       if (p && typeof p.then === 'function') p.catch(() => { /* autoplay block */ })
     } catch {}
@@ -499,7 +507,7 @@ function FirstHalfSecondInspector({ src }) {
       if (loopRafRef.current) cancelAnimationFrame(loopRafRef.current)
       try { v.pause() } catch {}
     }
-  }, [looping])
+  }, [looping, start, LOOP_END])
 
   const seekTo = (t) => {
     setLooping(false)
@@ -538,7 +546,7 @@ function FirstHalfSecondInspector({ src }) {
               className="w-[120px] h-[180px] bg-black rounded object-contain flex-shrink-0"
               onLoadedMetadata={() => {
                 const v = videoRef.current
-                if (v) try { v.currentTime = 0 } catch {}
+                if (v) try { v.currentTime = start } catch {}
               }}
             />
             <div className="flex-1 space-y-1.5">
@@ -551,26 +559,34 @@ function FirstHalfSecondInspector({ src }) {
                       ? 'bg-[#c0392b] text-white border-[#c0392b]'
                       : 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
                   }`}
-                  title={looping ? 'Stop the 0-0.5s loop' : 'Loop just the first half-second on repeat'}
-                >{looping ? '⏸ Stop loop' : '▶ Loop 0–0.5s'}</button>
+                  title={looping ? 'Stop the 0-0.5s loop' : `Loop the first ${LOOP_LEN.toFixed(1)}s after the trim cut on repeat`}
+                >{looping ? '⏸ Stop loop' : `▶ Loop 0–${LOOP_LEN.toFixed(1)}s`}</button>
                 <span className="text-[9px] text-muted">
-                  {looping ? 'looping…' : (activeFrame != null ? `paused @ ${activeFrame.toFixed(1)}s` : 'idle')}
+                  {looping ? 'looping…' : (activeFrame != null ? `paused @ ${(activeFrame - start).toFixed(1)}s into clip` : 'idle')}
                 </span>
+                {start > 0 && (
+                  <span className="text-[9px] text-muted italic ml-auto">
+                    from trim @ {start.toFixed(1)}s
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1 flex-wrap">
-                {FRAMES.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => seekTo(t)}
-                    className={`text-[10px] py-1 px-2 rounded cursor-pointer font-mono border ${
-                      activeFrame === t
-                        ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7] font-bold'
-                        : 'border-[#e5e5e5] bg-white text-ink hover:border-[#6C5CE7]/50'
-                    }`}
-                    title={`Jump to ${t.toFixed(1)} seconds`}
-                  >{t.toFixed(1)}s</button>
-                ))}
+                {FRAMES.map((t) => {
+                  const label = (t - start).toFixed(1)
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => seekTo(t)}
+                      className={`text-[10px] py-1 px-2 rounded cursor-pointer font-mono border ${
+                        Math.abs((activeFrame ?? -999) - t) < 0.001
+                          ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7] font-bold'
+                          : 'border-[#e5e5e5] bg-white text-ink hover:border-[#6C5CE7]/50'
+                      }`}
+                      title={`Jump to ${label}s into the clip (${t.toFixed(1)}s in the source video)`}
+                    >{label}s</button>
+                  )
+                })}
               </div>
               <div className="text-[9px] text-muted italic">
                 TikTok and Reels weight motion in the first ~0.5s heavily for retention. If clip 1 is static here, recut.

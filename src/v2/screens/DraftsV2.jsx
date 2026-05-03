@@ -38,9 +38,14 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
   }
 
   const autoName = async (j) => {
+    // Manual button click — force regen even if a user-set name is
+    // already in place. The user clicked "auto-name" explicitly, so
+    // they want a new one. (BE preserves existing names by default
+    // for the silent post-upload trigger.)
+    if (j.job_name && j.job_name.trim() && !confirm(`Replace "${j.job_name}" with an AI-generated name?`)) return
     setAutoNamingId(j.uuid)
     try {
-      const r = await api.autoNameJob(j.uuid)
+      const r = await api.autoNameJob(j.uuid, { force: true })
       if (r?.error) throw new Error(r.error)
       if (jobSync.refreshJobList) await jobSync.refreshJobList()
     } catch (e) {

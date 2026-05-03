@@ -215,6 +215,14 @@ export default function AppV2() {
         attempt++
         try {
           const r = await api.autoNameJob(activeJobId)
+          // BE preserves user-set names — skip silently when it does.
+          // Without this guard the FE used to overwrite the local
+          // nameDraft with the BE's returned (still-user-set) value
+          // and trigger a no-op updateJob round-trip.
+          if (r?.skipped) {
+            console.log(`[addFiles] auto-name skipped — user-set name preserved`)
+            break
+          }
           if (r?.job_name) {
             setNameDraft(prev => isOwnedByUs(prev) ? r.job_name : prev)
             try { await api.updateJob(activeJobId, { job_name: r.job_name }) } catch {}
