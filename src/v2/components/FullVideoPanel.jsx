@@ -50,6 +50,11 @@ export default function FullVideoPanel({ draftId, jobSync }) {
     reels: emptySlot(),
     shorts: emptySlot(),
   })
+  // Click-to-zoom lightbox for individual frame review. The user
+  // wants to inspect what the AI saw at each timestamp side-by-side
+  // with the dimension scores + suggestions — small thumbnails
+  // weren't enough to read overlay legibility / contrast issues.
+  const [zoomedFrame, setZoomedFrame] = useState(null)
 
   // Hydrate every platform's saved analysis on mount in parallel —
   // tabs feel populated instantly even though three calls fired.
@@ -306,27 +311,61 @@ export default function FullVideoPanel({ draftId, jobSync }) {
           )}
 
           {slot.thumbs.length > 0 && (
-            <details className="border border-[#e5e5e5] rounded p-2">
-              <summary className="text-[10px] font-medium cursor-pointer text-muted uppercase tracking-wide">
-                Sampled frames ({slot.thumbs.length})
+            <details className="border border-[#e5e5e5] rounded p-2" open>
+              <summary className="text-[10px] font-medium cursor-pointer text-muted uppercase tracking-wide flex items-center gap-2">
+                <span>Frames the AI reviewed ({slot.thumbs.length})</span>
+                <span className="text-[8px] text-[#2D9A5E] font-bold normal-case tracking-normal">SAVED</span>
+                <span className="text-[9px] text-muted normal-case tracking-normal italic">click any frame to enlarge</span>
               </summary>
               <div className="mt-2 grid grid-cols-4 gap-1">
                 {slot.thumbs.map((t, i) => {
                   const src = t.dataUrl || (t.base64 && t.mediaType ? `data:${t.mediaType};base64,${t.base64}` : null)
                   if (!src) return null
                   return (
-                    <div key={i} className="relative">
-                      <img src={src} alt={`frame at ${t.t}s`} className="w-full rounded border border-[#e5e5e5]" />
-                      <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] font-mono text-center py-0.5">
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setZoomedFrame({ src, t: Number(t.t) || 0, idx: i, total: slot.thumbs.length, platform: active })}
+                      className="relative p-0 border-none bg-transparent cursor-zoom-in"
+                      title={`Frame at ${Number(t.t).toFixed(2)}s — click to enlarge`}
+                    >
+                      <img src={src} alt={`frame at ${t.t}s`} className="w-full rounded border border-[#e5e5e5] hover:border-[#6C5CE7]" />
+                      <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] font-mono text-center py-0.5 pointer-events-none rounded-b">
                         {Number(t.t).toFixed(1)}s
                       </span>
-                    </div>
+                    </button>
                   )
                 })}
               </div>
             </details>
           )}
         </>
+      )}
+
+      {/* Full-size frame lightbox. Tap or click to dismiss. The frame
+          image is rendered at the AI's exact extracted resolution so
+          the user sees precisely what was analyzed. */}
+      {zoomedFrame && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setZoomedFrame(null)}
+        >
+          <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center gap-2" onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setZoomedFrame(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10"
+            >&times;</button>
+            <img src={zoomedFrame.src} alt={`frame at ${zoomedFrame.t}s`} className="max-w-full max-h-[80vh] rounded shadow-2xl" />
+            <div className="bg-white rounded px-3 py-1.5 text-[11px] font-mono">
+              <span className="text-[#6C5CE7] font-bold">{zoomedFrame.platform}</span>
+              <span className="mx-2 text-muted">•</span>
+              <span>frame {zoomedFrame.idx + 1} of {zoomedFrame.total}</span>
+              <span className="mx-2 text-muted">•</span>
+              <span>t = {zoomedFrame.t.toFixed(2)}s</span>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
