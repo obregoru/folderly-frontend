@@ -398,6 +398,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   const generate = async () => {
     if (!text.trim() || !voiceId) return
     setGenerating(true)
+    try { window.dispatchEvent(new CustomEvent('posty-vo-busy', { detail: { busy: true } })) } catch {}
     try {
       const r = await api.textToSpeech(text.trim(), voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: Number(primarySpeed) || 1.0 })
       if (r?.error) throw new Error(r.error)
@@ -435,6 +436,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       alert('TTS failed: ' + e.message)
     }
     setGenerating(false)
+    try { window.dispatchEvent(new CustomEvent('posty-vo-busy', { detail: { busy: false } })) } catch {}
   }
 
   // --- Mic recording (primary) ---
@@ -615,6 +617,11 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   const generateSegment = async (seg) => {
     if (!seg.text?.trim() || !seg.voiceId) return
     updateSegment(seg.id, { generating: true })
+    // Broadcast busy state so downstream consumers (Download Final
+    // button, etc.) can disable themselves while TTS is in flight.
+    // Counter-style on the listener side handles overlapping calls
+    // (e.g. generateAllMissing iterating through segments).
+    try { window.dispatchEvent(new CustomEvent('posty-vo-busy', { detail: { busy: true } })) } catch {}
     try {
       const segSpeed = Number(seg.speed) || 1.0
       const r = await api.textToSpeech(seg.text.trim(), seg.voiceId, { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: segSpeed })
@@ -641,6 +648,8 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     } catch (e) {
       updateSegment(seg.id, { generating: false })
       alert(`Segment generate failed: ${e.message}`)
+    } finally {
+      try { window.dispatchEvent(new CustomEvent('posty-vo-busy', { detail: { busy: false } })) } catch {}
     }
   }
   // Write a VO script from the draft's hints + generated captions + visuals.

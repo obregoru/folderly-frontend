@@ -322,6 +322,10 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   const handleMerge = async () => {
     setMerging(true)
     setError(null)
+    // Broadcast busy state so the Download Final button (and any
+    // other downstream consumer) can disable itself while a merge is
+    // in flight. Mirrored on every exit path below via setMerging(false).
+    try { window.dispatchEvent(new CustomEvent('posty-merge-busy', { detail: { busy: true } })) } catch {}
     setProgress('Uploading clips...')
     // Clear the stale merged result immediately so it's obvious a new merge is in progress
     if (mergedUrl) {
@@ -447,6 +451,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     // badge disappears and the authoritative "Merged" render shows.
     clearPreviewMerge()
     setMerging(false)
+    try { window.dispatchEvent(new CustomEvent('posty-merge-busy', { detail: { busy: false } })) } catch {}
   }
 
   // Keep the ref pointing at the latest handleMerge closure so the

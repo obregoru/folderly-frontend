@@ -1309,30 +1309,86 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
     }
   }
 
+  // External busy state — counts merge + voiceover-generation events
+  // dispatched from VideoMerge / VoiceoverPanelV2. While anything
+  // upstream is in flight, the Download/Share button greys out and
+  // the label flips to a context-specific message so the user knows
+  // why they can't tap. Counter (not boolean) so concurrent VO calls
+  // from generateAllMissing don't toggle false → true rapidly between
+  // segments.
+  const [extBusy, setExtBusy] = useState({ merge: false, voCount: 0 })
+  useEffect(() => {
+    const onMerge = (e) => setExtBusy(prev => ({ ...prev, merge: !!e?.detail?.busy }))
+    const onVo = (e) => setExtBusy(prev => ({
+      ...prev,
+      voCount: Math.max(0, prev.voCount + (e?.detail?.busy ? 1 : -1)),
+    }))
+    window.addEventListener('posty-merge-busy', onMerge)
+    window.addEventListener('posty-vo-busy', onVo)
+    return () => {
+      window.removeEventListener('posty-merge-busy', onMerge)
+      window.removeEventListener('posty-vo-busy', onVo)
+    }
+  }, [])
+
   const handleClick = () => {
     if (state === 'rendering' || state === 'saving') return
+    if (extBusy.merge || extBusy.voCount > 0) return
     if (state === 'ready') { shareOrSave(); return }
     // idle, error, done — kick off a fresh render
     filesRef.current = []
     renderAndStage()
   }
 
+  // Re-render path. Visible when the user has already rendered + saved
+  // (state 'ready' or 'done') so they can iterate without reloading
+  // the page. Just clears the cached files + kicks renderAndStage.
+  const handleRegenerate = () => {
+    if (state === 'rendering' || state === 'saving') return
+    if (extBusy.merge || extBusy.voCount > 0) return
+    filesRef.current = []
+    setMsg('')
+    renderAndStage()
+  }
+
   const count = filesRef.current?.length || 0
   const countLabel = count > 1 ? ` (${count})` : ''
-  const label = state === 'rendering' ? 'Rendering final…'
+  const externallyBusyLabel = extBusy.merge
+    ? '⏳ Merge in progress…'
+    : extBusy.voCount > 0
+      ? '⏳ Generating voice…'
+      : null
+  const label = externallyBusyLabel
+    ? externallyBusyLabel
+    : state === 'rendering' ? 'Rendering final…'
     : state === 'saving' ? (canMobileShare ? 'Opening share sheet…' : 'Saving…')
     : state === 'ready' ? (canMobileShare ? `📤 Tap again to share${countLabel}` : `⬇ Tap again to save${countLabel}`)
     : state === 'done' ? '✓ Saved'
     : state === 'error' ? (msg ? `Error: ${msg.slice(0, 80)} — tap to retry` : 'Error — tap to retry')
     : '⬇ Download final'
-  const disabled = state === 'rendering' || state === 'saving'
+  const disabled = state === 'rendering' || state === 'saving' || extBusy.merge || extBusy.voCount > 0
+  // Show the regenerate button once the user has a rendered final on
+  // hand (state 'ready' = rendered but not yet saved; 'done' = saved).
+  // Hidden mid-render / mid-save / when external work is busy.
+  const showRegenerate = (state === 'ready' || state === 'done') && !disabled
   return (
-    <button
-      onClick={handleClick}
-      disabled={disabled}
-      className="w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
-      title="Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share."
-    >{label}</button>
+    <div className="space-y-1.5">
+      <button
+        onClick={handleClick}
+        disabled={disabled}
+        className="w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
+        title={externallyBusyLabel
+          ? 'Wait for the upstream task to finish before rendering the final.'
+          : 'Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share.'}
+      >{label}</button>
+      {showRegenerate && (
+        <button
+          onClick={handleRegenerate}
+          className="w-full py-1.5 bg-white text-[#6C5CE7] text-[11px] font-medium border border-[#6C5CE7] rounded cursor-pointer"
+          title="Re-render the final from the current draft state — use after editing overlays, voiceover, or media."
+        >🔄 Regenerate final</button>
+      )}
+    </div>
   )
 }
 
