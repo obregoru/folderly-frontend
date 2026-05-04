@@ -758,12 +758,18 @@ export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime
       preview_seconds: typeof previewSeconds === 'number' ? previewSeconds : undefined,
     }),
   }).then(async r => {
+    // BE flushes headers + sends keepalive whitespace during slow
+    // renders (Railway proxy timeout workaround), so it can't change
+    // status mid-stream — slow-path errors come back as 200 with
+    // { error } in the body. Check both shapes.
     if (!r.ok) {
       let msg = `Render failed (${r.status})`
       try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
       throw new Error(msg)
     }
-    return r.json()
+    const data = await r.json()
+    if (data?.error) throw new Error(data.error)
+    return data
   })
 
 // ElevenLabs Scribe STT — transcribes a recorded audio blob into
