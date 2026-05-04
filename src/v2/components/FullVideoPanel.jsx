@@ -59,6 +59,25 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
   // with the dimension scores + suggestions — small thumbnails
   // weren't enough to read overlay legibility / contrast issues.
   const [zoomedFrame, setZoomedFrame] = useState(null)
+  // Source-mp4 preview lightbox. Lets the user see the actual file
+  // the analyzer would download next, plus its identifying key/uuid
+  // so mismatches (analyzer using merge instead of final, or stale
+  // final, etc.) are flag-able by storage path. Cleared by the modal
+  // close button or backdrop click.
+  const [sourcePreview, setSourcePreview] = useState(null)
+  const [loadingSource, setLoadingSource] = useState(false)
+  const openSourcePreview = async () => {
+    if (!draftId || loadingSource) return
+    setLoadingSource(true)
+    try {
+      const r = await api.fullVideoAnalysisSource(draftId)
+      setSourcePreview(r)
+    } catch (e) {
+      setSourcePreview({ error: e?.message || String(e) })
+    } finally {
+      setLoadingSource(false)
+    }
+  }
 
   // Seek the FinalPreview <video> to a given timestamp. Used by
   // timeline note clicks AND frame-thumbnail clicks so the user can
@@ -239,17 +258,28 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
             Per-platform end-to-end vision analysis. Each platform has its own scoring criteria — TikTok rewards motion + curiosity, Reels rewards aesthetic + brand cohesion, Shorts rewards CTA + clarity. Reads the first-2s analysis (if you've run it) to ground the hook scoring.
           </div>
         </div>
-        <button
-          type="button"
-          onClick={runAll}
-          disabled={!draftId || anyAnalyzing}
-          className="text-[11px] py-1.5 px-3 bg-gradient-to-r from-[#6C5CE7] to-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap self-start"
-          title="Run all three platform analyses in parallel against whatever final / merge is currently in storage. Render the final via Download Final BEFORE running this if you want overlays + captions in the analyzed pixels."
-        >
-          {anyAnalyzing
-            ? `Analyzing… ${PLATFORMS.filter(p => slots[p.key].analysis).length}/3`
-            : (allHave ? '⚡ Re-analyze all 3' : '⚡ Analyze all 3')}
-        </button>
+        <div className="flex flex-col gap-1.5 self-start">
+          <button
+            type="button"
+            onClick={runAll}
+            disabled={!draftId || anyAnalyzing}
+            className="text-[11px] py-1.5 px-3 bg-gradient-to-r from-[#6C5CE7] to-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+            title="Run all three platform analyses in parallel against whatever final / merge is currently in storage. Render the final via Download Final BEFORE running this if you want overlays + captions in the analyzed pixels."
+          >
+            {anyAnalyzing
+              ? `Analyzing… ${PLATFORMS.filter(p => slots[p.key].analysis).length}/3`
+              : (allHave ? '⚡ Re-analyze all 3' : '⚡ Analyze all 3')}
+          </button>
+          <button
+            type="button"
+            onClick={openSourcePreview}
+            disabled={!draftId || loadingSource}
+            className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+            title="Preview the exact mp4 the analyzer would use right now, plus its storage key for mismatch reports."
+          >
+            {loadingSource ? 'Loading…' : '🎥 Preview source mp4'}
+          </button>
+        </div>
       </div>
 
       {/* Source-of-truth nudge — analyzer reads what's in storage,
@@ -500,6 +530,90 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
             </details>
           )}
         </>
+      )}
+
+      {/* Source-mp4 preview lightbox. Plays the exact file the
+          analyzer would download next, with its storage key + job
+          uuid + render timestamps shown below so mismatches are
+          flag-able. */}
+      {sourcePreview && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setSourcePreview(null)}
+        >
+          <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center gap-2" onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setSourcePreview(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10"
+            >&times;</button>
+            {sourcePreview.error ? (
+              <div className="bg-white rounded p-4 text-[12px] text-[#c0392b]">
+                Failed to load source preview: {sourcePreview.error}
+              </div>
+            ) : !sourcePreview.source_kind ? (
+              <div className="bg-white rounded p-4 text-[12px] text-muted">
+                {sourcePreview.message || 'No source video available yet.'}
+              </div>
+            ) : (
+              <>
+                {sourcePreview.public_url ? (
+                  <video
+                    src={sourcePreview.public_url}
+                    controls
+                    autoPlay
+                    playsInline
+                    className="max-w-full max-h-[70vh] rounded shadow-2xl bg-black"
+                  />
+                ) : (
+                  <div className="bg-white rounded p-4 text-[12px] text-muted">No public URL available — file may have been removed from storage.</div>
+                )}
+                <div className="bg-white rounded px-3 py-2 text-[11px] font-mono space-y-0.5 max-w-[90vw]">
+                  <div>
+                    <span className={`font-bold ${
+                      sourcePreview.source_kind === 'final' ? 'text-[#2D9A5E]'
+                      : sourcePreview.source_kind === 'final-stale' ? 'text-[#f5a623]'
+                      : 'text-[#c0392b]'
+                    }`}>
+                      {sourcePreview.source_kind === 'final' && '✓ FINAL (current)'}
+                      {sourcePreview.source_kind === 'final-stale' && '⚠ FINAL (stale)'}
+                      {sourcePreview.source_kind === 'merge' && '⛔ MERGE (no captions/overlays baked)'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted">job:</span>{' '}
+                    <span className="select-all">{sourcePreview.job_uuid}</span>
+                  </div>
+                  <div className="break-all">
+                    <span className="text-muted">file:</span>{' '}
+                    <span className="select-all">{sourcePreview.source_filename}</span>
+                  </div>
+                  <details>
+                    <summary className="text-muted cursor-pointer text-[10px]">full storage key</summary>
+                    <div className="text-[10px] break-all select-all bg-[#f7f7f7] rounded p-1 mt-1">
+                      {sourcePreview.source_key}
+                    </div>
+                  </details>
+                  {sourcePreview.final_rendered_at && (
+                    <div>
+                      <span className="text-muted">final rendered:</span>{' '}
+                      {new Date(sourcePreview.final_rendered_at).toLocaleString()}
+                    </div>
+                  )}
+                  {sourcePreview.updated_at && (
+                    <div>
+                      <span className="text-muted">job updated:</span>{' '}
+                      {new Date(sourcePreview.updated_at).toLocaleString()}
+                    </div>
+                  )}
+                  <div className="text-[9px] italic text-muted pt-1 font-sans">
+                    Copy any field above when reporting a mismatch.
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Full-size frame lightbox. Tap or click to dismiss. The frame

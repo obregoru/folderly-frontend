@@ -265,6 +265,20 @@ export const fullVideoAnalysisLast = (draftId, platform) =>
       return r.json()
     })
 
+// Returns the exact mp4 the analyzer WOULD use right now: source_kind,
+// source_key (canonical id — full storage path), source_filename,
+// public_url for playback, plus timestamps. Cheap GET — no analysis,
+// just metadata + URL resolution.
+export const fullVideoAnalysisSource = (draftId) =>
+  fetch(api(`/jobs/${draftId}/producer/analyze-full/source`), { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `fullVideoAnalysisSource failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Voice analysis
 export const analyzeVoice = (examples) =>
   fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())
