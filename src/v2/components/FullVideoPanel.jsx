@@ -41,6 +41,10 @@ const emptySlot = () => ({
   stage: '',
   err: null,
   hydratedFromDisk: false,
+  // Set to true when the user re-renders the final after this slot
+  // was last analyzed — surfaces a "re-analyze" banner so the user
+  // doesn't keep looking at frames captured against an older mp4.
+  finalIsNewer: false,
 })
 
 export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
@@ -98,9 +102,11 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
                 frames_used: r.frames_used,
                 source_kind: r.source_kind,
                 analyzedAt: r.analyzedAt,
+                finalRenderedAt: r.final_rendered_at || null,
               },
               thumbs: Array.isArray(r.frame_thumbs) ? r.frame_thumbs : [],
               hydratedFromDisk: true,
+              finalIsNewer: !!r.final_is_newer_than_analysis,
             },
           }))
         }
@@ -108,6 +114,25 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
     })
     return () => { cancelled = true }
   }, [draftId])
+
+  // Listen for fresh final-render events. When the user kicks off a
+  // Download Final / Regenerate elsewhere in the editor and it
+  // succeeds, mark every platform's stored analysis as out-of-date
+  // so the user gets a clear nudge to re-analyze instead of silently
+  // looking at frames captured against the previous mp4.
+  useEffect(() => {
+    const onRendered = () => {
+      setSlots(prev => {
+        const next = { ...prev }
+        for (const k of Object.keys(next)) {
+          if (next[k]?.analysis) next[k] = { ...next[k], finalIsNewer: true }
+        }
+        return next
+      })
+    }
+    window.addEventListener('posty-render-final-result', onRendered)
+    return () => window.removeEventListener('posty-render-final-result', onRendered)
+  }, [])
 
   const setSlot = (platform, patch) => {
     setSlots(prev => ({ ...prev, [platform]: { ...prev[platform], ...patch } }))
@@ -140,6 +165,7 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
         analyzing: false,
         stage: '',
         err: null,
+        finalIsNewer: false,
       })
     } catch (e) {
       setSlot(platform, { err: e?.message || String(e), analyzing: false, stage: '' })
@@ -157,7 +183,13 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
     setRefreshing(true)
     setSlot(platform, { analyzing: true, err: null, stage: 'rendering final…', hydratedFromDisk: false })
     try {
-      await api.renderFinal({ jobUuid: draftId })
+      const renderResult = await api.renderFinal({ jobUuid: draftId })
+      // Notify the rest of the editor (Channels, AudioMixLog, etc.)
+      // that a fresh final landed — same shape FinalPreviewV2 dispatches
+      // so listeners stay in sync.
+      try {
+        window.dispatchEvent(new CustomEvent('posty-render-final-result', { detail: renderResult }))
+      } catch {}
       setSlot(platform, { stage: 'analyzing…' })
       const r = await api.analyzeFullVideo(draftId, platform)
       if (!r?.analysis) throw new Error('No analysis returned')
@@ -173,6 +205,7 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
         analyzing: false,
         stage: '',
         err: null,
+        finalIsNewer: false,
       })
     } catch (e) {
       setSlot(platform, { err: e?.message || String(e), analyzing: false, stage: '' })
@@ -281,6 +314,24 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
       {slot.err && (
         <div className="text-[11px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">
           {slot.err}
+        </div>
+      )}
+
+      {slot.finalIsNewer && (
+        <div className="text-[12px] rounded p-2.5 flex items-start gap-2 bg-[#fdf2f1] border-2 border-[#c0392b] text-[#8a1f15]">
+          <div className="flex-1">
+            <div className="font-bold mb-0.5">⛔ Your final mp4 is newer than this analysis</div>
+            <div className="text-[11px] leading-snug">
+              You've rendered the final since these frames were captured. The frames + scores below reflect the OLDER mp4. Click below to re-run the analysis against your current final.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => run(active)}
+            disabled={slot.analyzing}
+            className="text-[10px] font-bold py-1.5 px-2.5 bg-[#c0392b] text-white rounded border-none cursor-pointer disabled:opacity-50 whitespace-nowrap self-start"
+            title="Reads the current final mp4 and replaces these frames + scores."
+          >🔄 Re-analyze now</button>
         </div>
       )}
 
