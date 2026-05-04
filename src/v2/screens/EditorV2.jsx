@@ -216,9 +216,13 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           onPicked={(picked) => {
             // Inject the freshly imported file into the local files
             // state so it appears in the panel immediately. Shape
-            // mirrors what addFiles would produce for an uploaded
-            // local file: the editor reads ._uploadKey / ._dbFileId /
-            // _filename / _previewUrl off these entries.
+            // mirrors what useJobSync.loadJob produces for restored
+            // files — the lightbox + RestoredMedia tile both require
+            // _restored:true plus _publicUrl/_uploadKey/_tenantSlug
+            // to resolve a preview source. Without these, the tile
+            // falls through to "No preview available — file needs to
+            // be re-uploaded" because the lightbox source-resolver
+            // returns null.
             const imp = picked?.imported || {}
             const isImg = String(picked?.media_type || '').toLowerCase().startsWith('image/')
             const entry = {
@@ -228,8 +232,13 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
               parsed: { occasions: [], products: [], moments: [] },
               status: 'done',
               captions: null,
-              _previewUrl: imp.public_url || null,
+              uploadResult: { original_temp_path: imp.upload_key, uuid: null },
+              _trimStart: 0,
+              _trimEnd: null,
+              _restored: true,
+              _tenantSlug: api.tenantSlug?.() || null,
               _uploadKey: imp.upload_key || null,
+              _publicUrl: imp.public_url || null,
               _filename: imp.filename || picked?.filename,
               _mediaType: imp.media_type || picked?.media_type,
               _dbFileId: imp.id || null,
