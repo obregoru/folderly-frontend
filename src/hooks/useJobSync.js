@@ -418,6 +418,10 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
             _publicUrl: f.public_url || null,
+            // BE flagged this row's storage object as missing — used by
+            // the tile to render a clear "Source missing" placeholder
+            // instead of letting <video> fire a 400 against the dead URL.
+            _storageMissing: !!f.storage_missing,
             _filename: f.filename,
             _mediaType: f.media_type,
             _overlaySettings: job.overlay_settings || {},

@@ -391,7 +391,17 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
               {reorderEnabled && (
                 <span className="absolute bottom-6 left-1 z-[5] text-white bg-[#6C5CE7]/90 rounded-full text-[9px] font-bold w-[18px] h-[18px] flex items-center justify-center leading-none pointer-events-none">{i + 1}</span>
               )}
-              {isImg && item.file ? (
+              {item._storageMissing ? (
+                /* BE GET /jobs/:id flagged this row's storage object as
+                   missing. Render a static warning placeholder instead
+                   of RestoredMedia / VideoThumb — those would fire a
+                   <video> request against the dead URL and log a 400. */
+                <div className="w-full h-[120px] bg-[#fdf2f1] border-b border-[#c0392b]/30 flex flex-col items-center justify-center text-[#c0392b] text-center px-2 gap-0.5">
+                  <span className="text-[20px]">⚠</span>
+                  <span className="text-[9px] font-medium leading-tight">Source file missing</span>
+                  <span className="text-[8px] text-[#c0392b]/80 leading-tight">Skip ⊘ or remove ✕</span>
+                </div>
+              ) : isImg && item.file ? (
                 <ImageThumb
                   file={item.file}
                   zoom={item._photoZoom}
@@ -456,9 +466,10 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
               {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
               {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}
             </div>
-            {/* Trim bar right under its video */}
-            {isVideo && VideoTrimmer && <VideoTrimmer item={item} />}
-            {isImg && PhotoDurationBar && <PhotoDurationBar item={item} />}
+            {/* Trim bar right under its video — hidden when the source
+                file is missing (no point trying to seek into a dead URL). */}
+            {isVideo && VideoTrimmer && !item._storageMissing && <VideoTrimmer item={item} />}
+            {isImg && PhotoDurationBar && !item._storageMissing && <PhotoDurationBar item={item} />}
           </>
         )
         // Only wrap with SortableTile when reorder is enabled — otherwise
