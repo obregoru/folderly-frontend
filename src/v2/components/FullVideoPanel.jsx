@@ -122,21 +122,53 @@ export default function FullVideoPanel({ draftId, jobSync }) {
   const slot = slots[active]
   const platformDef = PLATFORMS.find(p => p.key === active)
 
+  // Kick off all three platforms in parallel. Each call is
+  // independent — they update their own slot, so the UI shows three
+  // tabs cycling through analyzing → done independently. The first
+  // one to finish is viewable immediately; the others stream in.
+  // Skips platforms that are already in-flight to avoid double-firing
+  // when the user mashes the button mid-batch.
+  const runAll = () => {
+    if (!draftId) return
+    PLATFORMS.forEach(p => {
+      if (slots[p.key].analyzing) return
+      run(p.key)
+    })
+  }
+  const anyAnalyzing = PLATFORMS.some(p => slots[p.key].analyzing)
+  const allHave = PLATFORMS.every(p => slots[p.key].analysis)
+
   return (
     <div className="space-y-3">
-      <div>
-        <div className="text-[12px] font-medium">🎞️ Full video review</div>
-        <div className="text-[10px] text-muted">
-          Per-platform end-to-end vision analysis. Each platform has its own scoring criteria — TikTok rewards motion + curiosity, Reels rewards aesthetic + brand cohesion, Shorts rewards CTA + clarity. Reads the first-2s analysis (if you've run it) to ground the hook scoring.
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <div className="text-[12px] font-medium">🎞️ Full video review</div>
+          <div className="text-[10px] text-muted">
+            Per-platform end-to-end vision analysis. Each platform has its own scoring criteria — TikTok rewards motion + curiosity, Reels rewards aesthetic + brand cohesion, Shorts rewards CTA + clarity. Reads the first-2s analysis (if you've run it) to ground the hook scoring.
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={runAll}
+          disabled={!draftId || anyAnalyzing}
+          className="text-[11px] py-1.5 px-3 bg-gradient-to-r from-[#6C5CE7] to-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap self-start"
+          title="Run all three platform analyses in parallel — each finishes independently and updates its own tab as soon as it's ready."
+        >
+          {anyAnalyzing
+            ? `Analyzing… ${PLATFORMS.filter(p => slots[p.key].analysis).length}/3`
+            : (allHave ? '⚡ Re-analyze all 3' : '⚡ Analyze all 3')}
+        </button>
       </div>
 
-      {/* Platform tabs */}
+      {/* Platform tabs. Each tab shows a small spinner glyph while
+          that platform is mid-analysis so the user can see which of
+          the three is still in flight when "Analyze all 3" is running. */}
       <div className="grid grid-cols-3 gap-1">
         {PLATFORMS.map(p => {
           const has = !!slots[p.key].analysis
           const isActive = active === p.key
           const score = slots[p.key].analysis?.overall_score
+          const isAnalyzing = slots[p.key].analyzing
           return (
             <button
               key={p.key}
@@ -148,12 +180,15 @@ export default function FullVideoPanel({ draftId, jobSync }) {
             >
               <span>{p.emoji}</span>
               <span>{p.label}</span>
-              {has && Number.isFinite(Number(score)) && (
+              {isAnalyzing && (
+                <span className={`text-[10px] ${isActive ? 'text-white/90' : 'text-[#6C5CE7]'}`}>⏳</span>
+              )}
+              {!isAnalyzing && has && Number.isFinite(Number(score)) && (
                 <span className={`text-[10px] font-mono px-1 py-0 rounded ${
                   isActive ? 'bg-white/20' : 'bg-[#f3f0ff] text-[#6C5CE7]'
                 }`}>{score}/10</span>
               )}
-              {!has && <span className="text-[9px] opacity-60">—</span>}
+              {!isAnalyzing && !has && <span className="text-[9px] opacity-60">—</span>}
             </button>
           )
         })}
