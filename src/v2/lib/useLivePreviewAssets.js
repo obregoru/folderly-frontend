@@ -114,6 +114,10 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
           const durMs = Number(seg.duration) > 0
             ? Math.round(Number(seg.duration) * 1000)
             : (lastWordEnd > 0 ? lastWordEnd + 300 : 3000)
+          // Per-segment trailing-end trim (matches the BE render path).
+          // Applied to the on-screen end time only; audio still plays
+          // through unchanged.
+          const trimMs = Math.max(0, Math.min(durMs - 100, Math.round((Number(seg.captionEndTrim) || 0) * 1000)))
           const resolvedStyle = cs ? snakeToCamelCaptionStyle(cs)
             : (defaultCs ? snakeToCamelCaptionStyle(defaultCs) : null)
           const isFirst = idx === 0
@@ -121,7 +125,7 @@ export function useLivePreviewAssets(draftId, { enabled = true } = {}) {
           return {
             _segmentId: seg.id,
             startMs,
-            endMs: startMs + durMs,
+            endMs: startMs + durMs - trimMs,
             text: seg.text || '',
             wordTimings: wt,
             captionStyle: resolvedStyle,

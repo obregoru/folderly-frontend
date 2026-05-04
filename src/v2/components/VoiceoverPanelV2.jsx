@@ -104,6 +104,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         // and the BE filter (`!s.hideCaption`) saw no flag → captions
         // rendered even though the user had switched them off.
         ...(s.hideCaption ? { hideCaption: true } : {}),
+        // Optional per-segment trim of the trailing caption end time.
+        // Used to fade a caption out earlier than the audio so a fast
+        // VO segment doesn't visually overlap the next one. Stored as
+        // seconds (0.01 precision). Omitted when zero so we don't
+        // bloat the JSONB on rows that don't need it.
+        ...(Number(s.captionEndTrim) > 0 ? { captionEndTrim: Number(s.captionEndTrim) } : {}),
       })))
       // Hydrate the persisted primary voice (job.voiceover_audio_key)
       // into panel state so the user can SEE and DISCARD it. Without
@@ -196,6 +202,11 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // (voiceover audio still mixes). Omitted when false so we don't
       // bloat the voiceover_settings JSONB on existing rows.
       ...(s.hideCaption ? { hideCaption: true } : {}),
+      // Trim seconds off the trailing end of this caption only — used
+      // to keep adjacent captions from visually overlapping when the
+      // next segment fires before the previous one fades. Audio is
+      // unaffected; only the on-screen end time shifts.
+      ...(Number(s.captionEndTrim) > 0 ? { captionEndTrim: Number(s.captionEndTrim) } : {}),
     }))
     saveVoiceoverSettingsFn({
       segments: clean,
@@ -1565,6 +1576,35 @@ function SegmentRow({ seg, number, voices, defaultVoiceId, draftId, jobHideCapti
                 : 'Toggle whether this segment\'s caption text shows up in the preview + final video. The voiceover audio keeps playing either way. Word_timings stay in the DB so you can re-enable any time.'
             }
           >{(jobHideCaptions || seg.hideCaption) ? '🚫 caption off' : '👁 caption on'}</button>
+        )}
+        {/* Per-segment trailing trim — shaves N seconds off the caption's
+            on-screen END time only (audio is unaffected). Use when two
+            captions visually run into each other. Default 0; range 0-5
+            with 0.01 precision. Hidden when the caption is disabled
+            for this segment (job-level off OR per-segment off). */}
+        {draftId && hasAudio && !(jobHideCaptions || seg.hideCaption) && (
+          <label
+            className="flex items-center gap-1 text-[9px] text-muted bg-white border border-[#e5e5e5] rounded px-1.5 py-0.5"
+            title="Shave seconds off the trailing end of THIS caption only. Audio plays through unchanged — the caption just fades out earlier so it doesn't visually overlap the next one. 2-decimal precision."
+          >
+            <span>trim end:</span>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              step={0.01}
+              value={Number.isFinite(Number(seg.captionEndTrim)) ? Number(seg.captionEndTrim) : 0}
+              onChange={e => {
+                const raw = e.target.value
+                const n = raw === '' ? 0 : Number(raw)
+                if (!Number.isFinite(n)) return
+                const clamped = Math.max(0, Math.min(5, Math.round(n * 100) / 100))
+                onChange({ captionEndTrim: clamped > 0 ? clamped : 0 })
+              }}
+              className="w-12 text-[9px] border border-[#e5e5e5] rounded py-0 px-1 bg-white text-right"
+            />
+            <span>s</span>
+          </label>
         )}
         <span
           className="font-mono text-[9px] rounded px-1.5 py-0.5 border ml-auto"
