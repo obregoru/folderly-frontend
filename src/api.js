@@ -272,6 +272,11 @@ export const fullVideoAnalysisLast = (draftId, platform) =>
 export const fullVideoAnalysisSource = (draftId) =>
   fetch(api(`/jobs/${draftId}/producer/analyze-full/source`), { credentials: 'include' })
     .then(async r => {
+      if (r.status === 404) {
+        // Distinguish "BE deploy hasn't landed yet" (route missing)
+        // from a real failure so the FE can show a friendlier hint.
+        throw new Error('Backend deploy in progress — try again in a moment.')
+      }
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
         throw new Error(e.error || `fullVideoAnalysisSource failed (${r.status})`)
