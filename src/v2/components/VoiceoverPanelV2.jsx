@@ -574,6 +574,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         ...(patch.hideCaption != null
           ? { hideCaption: !!patch.hideCaption }
           : (existing?.hideCaption ? { hideCaption: true } : {})),
+        // Per-primary trailing-end caption trim. Same semantics as
+        // the timed-segment captionEndTrim: 0..5s in 0.01 steps;
+        // omitted when zero so we don't bloat the JSONB.
+        ...(patch.captionEndTrim != null
+          ? (Number(patch.captionEndTrim) > 0 ? { captionEndTrim: Number(patch.captionEndTrim) } : {})
+          : (Number(existing?.captionEndTrim) > 0 ? { captionEndTrim: Number(existing.captionEndTrim) } : {})),
       }
       if (idx >= 0) {
         const copy = prev.slice()
@@ -1215,6 +1221,10 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
                 upsertPrimarySegment({ text: newText })
               }}
               onToggleHideCaption={() => upsertPrimarySegment({ hideCaption: !primarySeg.hideCaption })}
+              // Generic field patch — used for captionEndTrim (and any
+              // future per-primary metadata). upsertPrimarySegment
+              // merges the patch onto the existing __primary__ entry.
+              onChangeMeta={(patch) => upsertPrimarySegment(patch)}
             />
           )}
           <div className="flex items-center gap-3 text-[10px]">
@@ -1691,7 +1701,7 @@ function SegmentRow({ seg, number, voices, defaultVoiceId, draftId, jobHideCapti
 // synthetic __primary__ segment. Mirrors SegmentRow's logic but
 // without the per-segment text/voice/speed inputs (those already
 // live in the AI/Record/Paste tabs).
-function PrimaryControls({ draftId, primarySeg, audioUrl, jobHideCaptions, onTextChange, onToggleHideCaption }) {
+function PrimaryControls({ draftId, primarySeg, audioUrl, jobHideCaptions, onTextChange, onToggleHideCaption, onChangeMeta }) {
   const segId = primarySeg.id
   const hasAudio = !!audioUrl
 
@@ -1804,6 +1814,36 @@ function PrimaryControls({ draftId, primarySeg, audioUrl, jobHideCaptions, onTex
               : 'Toggle whether the primary voiceover caption shows up in the preview + final video. The audio still plays either way.'
           }
         >{(jobHideCaptions || primarySeg.hideCaption) ? '🚫 caption off' : '👁 caption on'}</button>
+
+        {/* Same per-segment trailing-end trim as the timed segments
+            below. Lets the user fade the primary caption out earlier
+            than the audio so it doesn't visually run into segment #2.
+            Hidden when the caption is suppressed (job-level off OR
+            primary off) since trimming an invisible caption is a no-op. */}
+        {!(jobHideCaptions || primarySeg.hideCaption) && onChangeMeta && (
+          <label
+            className="flex items-center gap-1 text-[9px] text-muted bg-white border border-[#e5e5e5] rounded px-1.5 py-0.5"
+            title="Shave seconds off the trailing end of the primary caption only. Audio plays through unchanged. 2-decimal precision."
+          >
+            <span>trim end:</span>
+            <input
+              type="number"
+              min={0}
+              max={5}
+              step={0.01}
+              value={Number.isFinite(Number(primarySeg.captionEndTrim)) ? Number(primarySeg.captionEndTrim) : 0}
+              onChange={e => {
+                const raw = e.target.value
+                const n = raw === '' ? 0 : Number(raw)
+                if (!Number.isFinite(n)) return
+                const clamped = Math.max(0, Math.min(5, Math.round(n * 100) / 100))
+                onChangeMeta({ captionEndTrim: clamped > 0 ? clamped : 0 })
+              }}
+              className="w-12 text-[9px] border border-[#e5e5e5] rounded py-0 px-1 bg-white text-right"
+            />
+            <span>s</span>
+          </label>
+        )}
 
         <button
           type="button"

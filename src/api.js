@@ -228,6 +228,20 @@ export const tiktokFirstHalfReview = (jobId, fileId) =>
     return r.json()
   })
 
+// End-to-end TikTok analyzer over the WHOLE final video (sister of
+// analyzeFirstTwoSec). Returns { ok, analysis, duration_sec,
+// frames_used, frame_thumbs[], source_kind }.
+export const analyzeFullVideo = (draftId) =>
+  fetch(api(`/jobs/${draftId}/producer/analyze-full`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `analyzeFullVideo failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Voice analysis
 export const analyzeVoice = (examples) =>
   fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())

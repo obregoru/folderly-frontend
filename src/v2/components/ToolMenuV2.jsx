@@ -9,11 +9,13 @@ const ALL_TOOLS = [
   { key: 'captions',  icon: '✨', label: 'Content',  forModes: ['photo-post', 'video'], primary: true },
   { key: 'voiceover', icon: '🎤', label: 'Voice',    forModes: ['video'] },
   { key: 'overlays',  icon: '📝', label: 'Overlays', forModes: ['video'] },
-  // First 2s is an audit step — sits right before Channels so the
-  // user's flow is "build → audit → publish" rather than auditing in
-  // the middle of authoring.
-  { key: 'first2s',   icon: '🎯', label: 'First 2s', forModes: ['video'] },
-  { key: 'channels',  icon: '📤', label: 'Channels', forModes: ['photo-post', 'video'] },
+  // First 2s + Full video are audit steps — sit right before
+  // Channels so the user's flow is "build → audit → publish" rather
+  // than auditing in the middle of authoring. First 2s scores the
+  // hook; Full video scores the entire composition end-to-end.
+  { key: 'first2s',   icon: '🎯', label: 'First 2s',  forModes: ['video'] },
+  { key: 'fullvideo', icon: '🎞️', label: 'Full video', forModes: ['video'] },
+  { key: 'channels',  icon: '📤', label: 'Channels',   forModes: ['photo-post', 'video'] },
 ]
 
 /**

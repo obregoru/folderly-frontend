@@ -15,6 +15,7 @@ import OverlaysPanelV2 from '../components/OverlaysPanelV2'
 import PostTextPanelV2 from '../components/PostTextPanelV2'
 import ProducerChatPanel from '../components/ProducerChatPanel'
 import First2sPanel from '../components/First2sPanel'
+import FullVideoPanel from '../components/FullVideoPanel'
 import ChannelsPanelV2 from '../components/ChannelsPanelV2'
 
 /**
@@ -129,6 +130,7 @@ export default function EditorV2({
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} settings={settings} />}
         {safeActiveTool === 'producer' && <ProducerChatPanel draftId={draftId} jobSync={jobSync} files={files} />}
         {safeActiveTool === 'first2s' && <First2sPanel draftId={draftId} jobSync={jobSync} />}
+        {safeActiveTool === 'fullvideo' && <FullVideoPanel draftId={draftId} jobSync={jobSync} />}
         {/*
           VoiceoverPanelV2 stays MOUNTED on every tab — only its
           visibility toggles. Its playback-sync useEffect owns the
