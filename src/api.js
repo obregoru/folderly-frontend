@@ -238,11 +238,17 @@ export const analyzeFullVideo = (draftId, platform) =>
     credentials: 'include',
     body: JSON.stringify({ platform }),
   }).then(async r => {
+    // The BE flushes headers early + sends keepalive whitespace
+    // while waiting on Claude (Railway proxy timeout workaround), so
+    // it can't change status mid-stream — errors come back as 200
+    // with { error } in the JSON body. Check for both shapes.
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
       throw new Error(e.error || `analyzeFullVideo failed (${r.status})`)
     }
-    return r.json()
+    const data = await r.json()
+    if (data?.error) throw new Error(data.error)
+    return data
   })
 
 // Hydrate the most recent persisted full-video analysis for a specific
