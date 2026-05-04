@@ -85,20 +85,27 @@ export default function FullVideoPanel({ draftId, jobSync }) {
     setSlots(prev => ({ ...prev, [platform]: { ...prev[platform], ...patch } }))
   }
 
-  const run = async (platform) => {
+  // skipBake is true when called from runAll — that path bakes the
+  // final ONCE upfront and shares it across all three platform
+  // analyses. Without this, runAll fires three concurrent renderFinal
+  // calls that race against each other and waste server time
+  // re-rendering the same final three times.
+  const run = async (platform, { skipBake = false } = {}) => {
     if (!draftId) return
     const cur = slots[platform]
     if (cur.analyzing) return
-    setSlot(platform, { analyzing: true, err: null, stage: 'baking', hydratedFromDisk: false })
+    setSlot(platform, { analyzing: true, err: null, stage: skipBake ? 'analyzing' : 'baking', hydratedFromDisk: false })
     try {
-      try {
-        if (typeof api.renderFinal === 'function') {
-          await api.renderFinal({ jobUuid: draftId })
+      if (!skipBake) {
+        try {
+          if (typeof api.renderFinal === 'function') {
+            await api.renderFinal({ jobUuid: draftId })
+          }
+        } catch (e) {
+          console.warn('[full-video] auto-bake failed, analyzing merge instead:', e?.message)
         }
-      } catch (e) {
-        console.warn('[full-video] auto-bake failed, analyzing merge instead:', e?.message)
+        setSlot(platform, { stage: 'analyzing' })
       }
-      setSlot(platform, { stage: 'analyzing' })
       const r = await api.analyzeFullVideo(draftId, platform)
       if (!r?.analysis) throw new Error('No analysis returned')
       setSlot(platform, {
@@ -122,17 +129,32 @@ export default function FullVideoPanel({ draftId, jobSync }) {
   const slot = slots[active]
   const platformDef = PLATFORMS.find(p => p.key === active)
 
-  // Kick off all three platforms in parallel. Each call is
-  // independent — they update their own slot, so the UI shows three
-  // tabs cycling through analyzing → done independently. The first
-  // one to finish is viewable immediately; the others stream in.
-  // Skips platforms that are already in-flight to avoid double-firing
-  // when the user mashes the button mid-batch.
-  const runAll = () => {
+  // Kick off all three platforms in parallel — but bake the final
+  // ONCE upfront. Without sharing the bake, runAll fires three
+  // renderFinal calls that race + waste server work re-rendering
+  // the same final three times. Each platform's analyze call still
+  // pulls the same fresh final mp4 from storage so they all see the
+  // baked overlays + captions.
+  const runAll = async () => {
     if (!draftId) return
+    // Mark all not-already-analyzing platforms as baking up front so
+    // tabs reflect the shared status while the single renderFinal runs.
     PLATFORMS.forEach(p => {
       if (slots[p.key].analyzing) return
-      run(p.key)
+      setSlot(p.key, { analyzing: true, err: null, stage: 'baking', hydratedFromDisk: false })
+    })
+    try {
+      if (typeof api.renderFinal === 'function') {
+        await api.renderFinal({ jobUuid: draftId })
+      }
+    } catch (e) {
+      console.warn('[full-video runAll] auto-bake failed, analyzing merge instead:', e?.message)
+    }
+    PLATFORMS.forEach(p => {
+      // Re-check for in-flight in case a per-tab analyze fired between
+      // the upfront bake and the per-platform fan-out.
+      if (slots[p.key].analyzing && slots[p.key].stage !== 'baking') return
+      run(p.key, { skipBake: true })
     })
   }
   const anyAnalyzing = PLATFORMS.some(p => slots[p.key].analyzing)
