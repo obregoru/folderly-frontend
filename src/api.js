@@ -242,6 +242,20 @@ export const analyzeFullVideo = (draftId) =>
     return r.json()
   })
 
+// Hydrate the most recent persisted full-video analysis. Returns
+// { analysis, analyzedAt, duration_sec, frames_used, source_kind,
+// frame_thumbs[] } with dataUrl-style thumbs. analysis is null when
+// the panel has never been run for this draft.
+export const fullVideoAnalysisLast = (draftId) =>
+  fetch(api(`/jobs/${draftId}/producer/analyze-full/last`), { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `fullVideoAnalysisLast failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Voice analysis
 export const analyzeVoice = (examples) =>
   fetch(api('/generate/analyze-voice'), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify({ examples }) }).then(r => r.json())

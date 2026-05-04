@@ -5,7 +5,7 @@
 // before analysis when the cached final is stale, so the analyzed
 // frames carry the latest captions/overlays burned in.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../../api'
 
 const DIMENSIONS = [
@@ -27,13 +27,39 @@ export default function FullVideoPanel({ draftId, jobSync }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [stage, setStage] = useState('') // 'baking' | 'analyzing' | 'parsing'
   const [analysis, setAnalysis] = useState(null)
-  const [meta, setMeta] = useState(null) // { duration_sec, frames_used, source_kind }
+  const [meta, setMeta] = useState(null) // { duration_sec, frames_used, source_kind, analyzedAt? }
   const [thumbs, setThumbs] = useState([])
   const [err, setErr] = useState(null)
+  const [hydratedFromDisk, setHydratedFromDisk] = useState(false)
+
+  // Hydrate the most-recent saved analysis on mount so the panel
+  // doesn't blank-state every time the user navigates away. Saved
+  // rows include the sampled-frame thumbnails so the strip below
+  // still renders without a re-analyze. analysis stays null when
+  // no row exists for this draft yet.
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    api.fullVideoAnalysisLast(draftId).then(r => {
+      if (cancelled) return
+      if (r?.analysis) {
+        setAnalysis(r.analysis)
+        setMeta({
+          duration_sec: r.duration_sec,
+          frames_used: r.frames_used,
+          source_kind: r.source_kind,
+          analyzedAt: r.analyzedAt,
+        })
+        setThumbs(Array.isArray(r.frame_thumbs) ? r.frame_thumbs : [])
+        setHydratedFromDisk(true)
+      }
+    }).catch(() => { /* no prior analysis is fine */ })
+    return () => { cancelled = true }
+  }, [draftId])
 
   const run = async () => {
     if (!draftId || analyzing) return
-    setAnalyzing(true); setErr(null); setStage('baking')
+    setAnalyzing(true); setErr(null); setStage('baking'); setHydratedFromDisk(false)
     try {
       // Auto-bake the final so overlays + captions are in the pixels.
       // If render-final is unavailable or fails, fall through to
@@ -96,6 +122,9 @@ export default function FullVideoPanel({ draftId, jobSync }) {
               <div className="text-[11px] text-muted flex-1">
                 {meta?.duration_sec != null && (
                   <>{meta.duration_sec.toFixed(1)}s · {meta.frames_used} frames sampled · source: {meta.source_kind}</>
+                )}
+                {hydratedFromDisk && meta?.analyzedAt && (
+                  <span className="ml-2 italic">— last run {new Date(meta.analyzedAt).toLocaleString()}</span>
                 )}
               </div>
             </div>
@@ -185,18 +214,24 @@ export default function FullVideoPanel({ draftId, jobSync }) {
                 Sampled frames ({thumbs.length})
               </summary>
               <div className="mt-2 grid grid-cols-4 gap-1">
-                {thumbs.map((t, i) => (
-                  <div key={i} className="relative">
-                    <img
-                      src={`data:${t.mediaType};base64,${t.base64}`}
-                      alt={`frame at ${t.t}s`}
-                      className="w-full rounded border border-[#e5e5e5]"
-                    />
-                    <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] font-mono text-center py-0.5">
-                      {Number(t.t).toFixed(1)}s
-                    </span>
-                  </div>
-                ))}
+                {thumbs.map((t, i) => {
+                  // Fresh-analyze response uses { base64, mediaType }; the
+                  // /last hydrate route uses { dataUrl }. Render either.
+                  const src = t.dataUrl || (t.base64 && t.mediaType ? `data:${t.mediaType};base64,${t.base64}` : null)
+                  if (!src) return null
+                  return (
+                    <div key={i} className="relative">
+                      <img
+                        src={src}
+                        alt={`frame at ${t.t}s`}
+                        className="w-full rounded border border-[#e5e5e5]"
+                      />
+                      <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] font-mono text-center py-0.5">
+                        {Number(t.t).toFixed(1)}s
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </details>
           )}
