@@ -221,6 +221,12 @@ export default function FullVideoPanel({ draftId, jobSync }) {
         </div>
       )}
 
+      {slot.meta?.source_kind === 'merge-stale-final' && (
+        <div className="text-[11px] bg-[#fff7e6] border border-[#f5a623] rounded p-2 text-[#8a4b00]">
+          <span className="font-medium">⚠ Final video is stale —</span> showing the merged-clip cut (no baked overlays/voiceover). Hit <span className="font-medium">Download Final</span>, then re-analyze to score the rendered version.
+        </div>
+      )}
+
       {slot.analysis && (
         <>
           <div className="border border-[#e5e5e5] rounded p-2 bg-[#fafafa] space-y-2">
