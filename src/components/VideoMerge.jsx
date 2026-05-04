@@ -82,11 +82,15 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   // merge_settings on mount (and whenever jobId changes). Without
   // this, the merge type defaulted to 'crossfade' on every reopen
   // even after the user picked 'none' and merged.
+  //
+  // Critical: re-close the hydration gate at the START of each new
+  // jobId so the auto-save effect can't fire the default 'crossfade'
+  // before getJob returns. Without the reset, a mount sequence of
+  // jobId=undefined → uuid would auto-save the default value back
+  // over the saved one before hydration finished.
   useEffect(() => {
-    if (!jobId) {
-      transitionHydrated.current = true
-      return
-    }
+    transitionHydrated.current = false
+    if (!jobId) return
     let cancelled = false
     import('../api').then(api => {
       api.getJob(jobId).then(job => {
