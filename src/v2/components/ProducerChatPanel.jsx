@@ -260,23 +260,25 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
     }
   }
 
-  // Import the saved full-video review into the chat as a user
-  // message. Mirrors importAnalysisForPlatform but uses the saved
-  // analyze-full row + the full-video formatter (no per-platform
-  // branching — the full review's response already carries per-
-  // platform scores in one document).
-  const importFullVideoReview = async () => {
+  // Import the saved full-video review for ONE platform into chat as
+  // a user message. Each platform has its own saved row with its own
+  // scoring + suggestions, so importing a different platform pulls
+  // a different document. The producer can then iterate on that
+  // platform's specific feedback in conversation.
+  const importFullVideoReview = async (platform) => {
     if (!draftId || streaming || importingFull) return
     setImportingFull(true)
     setImportFullError(null)
     try {
-      const r = await api.fullVideoAnalysisLast(draftId)
+      const r = await api.fullVideoAnalysisLast(draftId, platform)
       const analysis = r?.analysis
       if (!analysis) {
-        setImportFullError('No full-video review saved yet — run the analyzer in the 🎞️ Full video tab first.')
+        const labels = { tiktok: 'TikTok', reels: 'Reels', shorts: 'YouTube Shorts' }
+        setImportFullError(`No ${labels[platform] || platform} full-video review saved yet — run that platform's analyzer in the 🎞️ Full video tab first.`)
         return
       }
       const text = formatFullVideoAnalysis(analysis, {
+        platform,
         analyzedAt: r?.analyzedAt,
         durationSec: r?.duration_sec,
         framesUsed: r?.frames_used,
@@ -521,16 +523,29 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
         {import2sError && <span className="text-[9px] text-[#c0392b]">{import2sError}</span>}
       </div>
 
-      {/* Import-from-full-video. Single button — full review covers
-          all three platforms in one go. */}
+      {/* Import-from-full-video. Three buttons — each pulls the saved
+          per-platform analysis (TikTok / Reels / Shorts have separate
+          scoring criteria + saved rows). */}
       <div className="flex items-center gap-1.5 flex-wrap text-[10px] bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-1.5">
         <span className="font-medium text-[#6C5CE7]">🎞️ Import full review:</span>
         <button
-          onClick={importFullVideoReview}
+          onClick={() => importFullVideoReview('tiktok')}
           disabled={!draftId || streaming || importingFull}
           className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
-          title="Send the latest end-to-end full-video review (all 12 dimensions + per-platform scores + suggestions) to the producer for follow-up tactical advice."
-        >Send to producer</button>
+          title="Send the saved TikTok full-video review to the producer"
+        >🎵 TikTok</button>
+        <button
+          onClick={() => importFullVideoReview('reels')}
+          disabled={!draftId || streaming || importingFull}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send the saved Reels full-video review to the producer"
+        >📸 Reels</button>
+        <button
+          onClick={() => importFullVideoReview('shorts')}
+          disabled={!draftId || streaming || importingFull}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send the saved YouTube Shorts full-video review to the producer"
+        >▶️ Shorts</button>
         {importingFull && <span className="text-[9px] text-muted italic">loading…</span>}
         {importFullError && <span className="text-[9px] text-[#c0392b]">{importFullError}</span>}
       </div>
@@ -923,35 +938,22 @@ function formatFirst2sAnalysisForPlatform(analysis, platform, analyzedAt) {
   return lines.join('\n')
 }
 
-// Format the saved full-video review as a chat message. Covers all
-// twelve dimensions, per-platform scores, suggestions, and the
-// timeline notes — same content the panel renders, formatted as
-// readable prose so the producer can riff on it in chat. No platform
-// branching: the full-video response already carries TikTok / Reels /
-// Shorts adjustments side-by-side.
+// Format ONE platform's saved full-video review as a chat message.
+// Each platform has its own scored review + suggestions, so the
+// formatter doesn't need to compare across platforms — that's a
+// separate import per platform.
 function formatFullVideoAnalysis(analysis, meta = {}) {
   const lines = []
+  const platformLabels = { tiktok: 'TikTok', reels: 'Instagram Reels', shorts: 'YouTube Shorts' }
+  const platformLabel = platformLabels[meta.platform] || meta.platform || 'platform'
   const dur = Number(meta.durationSec) > 0 ? `${Number(meta.durationSec).toFixed(1)}s` : '?'
-  lines.push(`These are the results of the END-TO-END full-video review (${dur}, ${meta.framesUsed || '?'} frames sampled, source: ${meta.sourceKind || '?'}):`)
+  lines.push(`These are the results of the ${platformLabel}-specific full-video review (${dur}, ${meta.framesUsed || '?'} frames sampled, source: ${meta.sourceKind || '?'}):`)
   lines.push('')
   if (typeof analysis.overall_score === 'number') {
-    lines.push(`OVERALL: ${analysis.overall_score}/10`)
+    lines.push(`${platformLabel.toUpperCase()} OVERALL: ${analysis.overall_score}/10`)
   }
   if (analysis.verdict) {
     lines.push(`Verdict: ${analysis.verdict}`)
-  }
-
-  // Per-platform scores
-  if (analysis.platforms && typeof analysis.platforms === 'object') {
-    lines.push('')
-    lines.push('Per-platform overall:')
-    for (const [key, label] of [['tiktok', 'TikTok'], ['reels', 'Instagram Reels'], ['shorts', 'YouTube Shorts']]) {
-      const p = analysis.platforms[key]
-      if (!p) continue
-      const adj = Number(p.adjustment)
-      const adjStr = Number.isFinite(adj) ? ` (${adj > 0 ? '+' : ''}${adj} vs base)` : ''
-      lines.push(`  - ${label}: ${p.overall_score}/10${adjStr}${p.reason ? ` — ${p.reason}` : ''}`)
-    }
   }
 
   // Twelve dimension scores
@@ -1000,7 +1002,7 @@ function formatFullVideoAnalysis(analysis, meta = {}) {
     lines.push(`(Analyzed ${new Date(meta.analyzedAt).toLocaleString()}.)`)
   }
   lines.push('')
-  lines.push('Given this end-to-end review, what concrete changes would you prioritize? Call out anything specific to TikTok vs Reels vs Shorts where the adjustments above show meaningful differences.')
+  lines.push(`Given this ${platformLabel}-specific review, what concrete changes would you prioritize to improve ${platformLabel} performance? Stay focused on what matters for ${platformLabel}'s audience and algorithm — don't generalize across platforms.`)
   return lines.join('\n')
 }
 

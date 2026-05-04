@@ -228,12 +228,15 @@ export const tiktokFirstHalfReview = (jobId, fileId) =>
     return r.json()
   })
 
-// End-to-end TikTok analyzer over the WHOLE final video (sister of
-// analyzeFirstTwoSec). Returns { ok, analysis, duration_sec,
-// frames_used, frame_thumbs[], source_kind }.
-export const analyzeFullVideo = (draftId) =>
+// End-to-end platform-specific analyzer. Each platform has its own
+// scoring criteria + saved row. Caller picks one of: 'tiktok', 'reels',
+// 'shorts'.
+export const analyzeFullVideo = (draftId, platform) =>
   fetch(api(`/jobs/${draftId}/producer/analyze-full`), {
-    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+    method: 'POST',
+    headers: { ...h(), ...csrf() },
+    credentials: 'include',
+    body: JSON.stringify({ platform }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
@@ -242,12 +245,12 @@ export const analyzeFullVideo = (draftId) =>
     return r.json()
   })
 
-// Hydrate the most recent persisted full-video analysis. Returns
-// { analysis, analyzedAt, duration_sec, frames_used, source_kind,
-// frame_thumbs[] } with dataUrl-style thumbs. analysis is null when
-// the panel has never been run for this draft.
-export const fullVideoAnalysisLast = (draftId) =>
-  fetch(api(`/jobs/${draftId}/producer/analyze-full/last`), { credentials: 'include' })
+// Hydrate the most recent persisted full-video analysis for a specific
+// platform. Returns { analysis, analyzedAt, duration_sec, frames_used,
+// source_kind, frame_thumbs[], platform }. analysis is null when the
+// panel has never been run for this platform.
+export const fullVideoAnalysisLast = (draftId, platform) =>
+  fetch(api(`/jobs/${draftId}/producer/analyze-full/last?platform=${encodeURIComponent(platform)}`), { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
