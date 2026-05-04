@@ -61,6 +61,12 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   // is implemented by App.jsx and persists the new order to the server.
   const [transition, setTransition] = useState('crossfade')
   const [transDuration, setTransDuration] = useState(1)
+  // Track whether we've hydrated transition + transDuration from the
+  // job's saved merge_settings yet. Without this gate the auto-save
+  // effect below would fire on the initial mount with the default
+  // values BEFORE we've heard back from the job, overwriting the
+  // saved choice with 'crossfade' on every reload.
+  const transitionHydrated = useRef(false)
   const [merging, setMerging] = useState(false)
   const [progress, setProgress] = useState('')
   const [mergedUrl, setMergedUrl] = useState(() => restoredMergeUrl || window._postyMergedVideo?.url || null)
@@ -71,6 +77,49 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   useEffect(() => {
     if (restoredMergeUrl && !mergedUrl) setMergedUrl(restoredMergeUrl)
   }, [restoredMergeUrl])
+
+  // Hydrate transition + transDuration from the job's saved
+  // merge_settings on mount (and whenever jobId changes). Without
+  // this, the merge type defaulted to 'crossfade' on every reopen
+  // even after the user picked 'none' and merged.
+  useEffect(() => {
+    if (!jobId) {
+      transitionHydrated.current = true
+      return
+    }
+    let cancelled = false
+    import('../api').then(api => {
+      api.getJob(jobId).then(job => {
+        if (cancelled) return
+        const ms = job?.merge_settings || {}
+        if (typeof ms.transition === 'string') setTransition(ms.transition)
+        if (Number.isFinite(Number(ms.transitionDuration))) {
+          setTransDuration(Number(ms.transitionDuration))
+        }
+        transitionHydrated.current = true
+      }).catch(() => { transitionHydrated.current = true })
+    })
+    return () => { cancelled = true }
+  }, [jobId])
+
+  // Auto-save on change. Debounced so dragging the duration slider
+  // doesn't fire 60 PUTs. Skipped until the hydrate effect above has
+  // committed so we don't overwrite the saved value with the
+  // useState default on first render.
+  useEffect(() => {
+    if (!jobId || !transitionHydrated.current) return
+    const t = setTimeout(() => {
+      import('../api').then(api => {
+        api.updateJob(jobId, {
+          merge_settings: {
+            transition,
+            transitionDuration: Number(transDuration) || 1,
+          },
+        }).catch(e => console.warn('[VideoMerge] save merge_settings failed:', e?.message))
+      })
+    }, 600)
+    return () => clearTimeout(t)
+  }, [jobId, transition, transDuration])
 
   // Re-render when any item's duration becomes known (from VideoTrimmer) OR
   // when the user commits a new trim range. Both are mutations React can't
