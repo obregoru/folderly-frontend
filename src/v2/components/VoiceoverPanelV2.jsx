@@ -675,9 +675,23 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
     }
   }
 
+  // True while "Generate all missing" is iterating through pending
+  // segments. Drives the button's loading state — caption flips to
+  // "Generating…" + disabled. try/finally guarantees the flag clears
+  // even when generateSegment throws partway through (otherwise the
+  // button would stay greyed out forever after an error).
+  const [generatingAll, setGeneratingAll] = useState(false)
   const generateAllMissing = async () => {
-    const pending = segments.filter(s => s.text?.trim() && !s.audioUrl)
-    for (const s of pending) await generateSegment(s)
+    if (generatingAll) return
+    setGeneratingAll(true)
+    try {
+      const pending = segments.filter(s => s.text?.trim() && !s.audioUrl)
+      for (const s of pending) {
+        await generateSegment(s)
+      }
+    } finally {
+      setGeneratingAll(false)
+    }
   }
 
   // ---- Teleprompter + script-driven record -----------------------------
@@ -1314,11 +1328,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             disabled={!hasElevenLabs}
             className="flex-1 min-w-[100px] text-[10px] py-1.5 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-40"
           >+ Add segment</button>
-          {segments.some(s => s.text?.trim() && !s.audioUrl) && (
+          {(segments.some(s => s.text?.trim() && !s.audioUrl) || generatingAll) && (
             <button
               onClick={generateAllMissing}
-              className="flex-1 min-w-[100px] text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
-            >Generate all missing</button>
+              disabled={generatingAll}
+              className="flex-1 min-w-[100px] text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >{generatingAll ? 'Generating…' : 'Generate all missing'}</button>
           )}
         </div>
         {(segments.some(s => s.text?.trim()) || (text && text.trim())) && (
