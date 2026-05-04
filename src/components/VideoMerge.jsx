@@ -398,14 +398,36 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
       if (videoFiles.length < 1) {
         throw new Error('Need at least one clip to process.')
       }
+      // Filter out clips the user toggled "skip" on. Stays in the job
+      // (loaded from job_files.skip_in_merge) but doesn't get sent to
+      // /merge-videos. If a host with attached B-roll inserts is
+      // skipped, its inserts have no host left to attach to and would
+      // be dropped by the BE anyway — drop them here too so the
+      // counts in the progress bar match what the BE actually merges.
+      const activeFiles = videoFiles.filter(f => !f?._skipInMerge)
+      const skippedHostDbIds = new Set(
+        videoFiles
+          .filter(f => f?._skipInMerge && f._insertIntoFileId == null && f._dbFileId != null)
+          .map(f => f._dbFileId)
+      )
+      const mergeFiles = activeFiles.filter(f => {
+        if (f?._insertIntoFileId != null && skippedHostDbIds.has(f._insertIntoFileId)) return false
+        return true
+      })
+      if (mergeFiles.length < 1) {
+        throw new Error('All clips are skipped — un-skip at least one to merge.')
+      }
+      if (mergeFiles.length < videoFiles.length) {
+        console.log(`[merge] excluding ${videoFiles.length - mergeFiles.length} skipped clip(s) from payload`)
+      }
       const clips = []
-      for (let i = 0; i < videoFiles.length; i++) {
-        const item = videoFiles[i]
+      for (let i = 0; i < mergeFiles.length; i++) {
+        const item = mergeFiles[i]
         const photo = isPhotoItem(item)
         const niceName = item.file?.name || item._filename || 'Untitled'
         let uploadKey = item.uploadResult?.original_temp_path || null
         if (!uploadKey) {
-          setProgress(`Uploading clip ${i + 1}/${videoFiles.length} (${niceName})...`)
+          setProgress(`Uploading clip ${i + 1}/${mergeFiles.length} (${niceName})...`)
           try {
             const result = await api.uploadFile(item.file, null, null, {}, null, jobId)
             item.uploadResult = result
@@ -414,7 +436,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             throw new Error(`Upload clip ${i + 1} failed: ${e.message}`)
           }
         } else {
-          setProgress(`Preparing clip ${i + 1}/${videoFiles.length} (${niceName})...`)
+          setProgress(`Preparing clip ${i + 1}/${mergeFiles.length} (${niceName})...`)
         }
         if (photo) {
           // Photo clip — trim_end is the display duration; motion
@@ -426,7 +448,10 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
           let photoInsertHostIdx = null
           if (item._insertIntoFileId != null) {
             let hostCount = 0
-            for (const f of videoFiles) {
+            // Walk mergeFiles (post-skip filter) so the index lines up
+            // with the BE's hosts-only list — videoFiles would
+            // include skipped clips and shift the index.
+            for (const f of mergeFiles) {
               if (!f) continue
               const isInsert = f._insertIntoFileId != null
               if (f._dbFileId === item._insertIntoFileId && !isInsert) {
@@ -457,7 +482,9 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
           let insertHostIdx = null
           if (item._insertIntoFileId != null) {
             let hostCount = 0
-            for (const f of videoFiles) {
+            // Same as the photo branch: walk the post-skip set so
+            // host indices match the BE's hosts-only list.
+            for (const f of mergeFiles) {
               if (!f) continue
               const isInsert = f._insertIntoFileId != null
               if (f._dbFileId === item._insertIntoFileId && !isInsert) {

@@ -255,6 +255,20 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           onRemove={removeFile}
           onReorder={reorderFiles}
           onDuplicate={duplicateFile}
+          onToggleSkip={(it) => {
+            const next = !it._skipInMerge
+            // Optimistic local update so the tile dims immediately;
+            // saveFileSkip persists in the background. Invalidate the
+            // current merge cache so VideoMerge knows it needs a fresh
+            // run with the new clip set.
+            setFiles?.(prev => prev.map(f => f.id === it.id ? { ...f, _skipInMerge: next } : f))
+            jobSync.saveFileSkip?.({ ...it, _skipInMerge: next })
+            if (typeof window !== 'undefined' && window._postyMergedVideo) {
+              try { URL.revokeObjectURL(window._postyMergedVideo.url) } catch {}
+              window._postyMergedVideo = null
+              try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+            }
+          }}
           VideoTrimmer={VideoTrimmer}
           // Only surface the photo duration + motion controls under
           // photo tiles when this draft is actually going to combine

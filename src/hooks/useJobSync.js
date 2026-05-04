@@ -199,6 +199,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip skip flag — when true, VideoMerge filters this clip out
+  // of the merge payload (clip stays in the job, just doesn't render).
+  const saveFileSkip = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        skip_in_merge: !!file._skipInMerge,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save skip failed:', e.message)
+    }
+  }, [])
+
   // Save Ken Burns motion for a still photo. Used when the photo is part
   // of a video merge (photo-to-video-segment). Column already exists on
   // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
@@ -395,6 +410,10 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _photoOffsetX: Number.isFinite(Number(f.photo_to_video_offset_x)) ? Number(f.photo_to_video_offset_x) : 0,
             _photoOffsetY: Number.isFinite(Number(f.photo_to_video_offset_y)) ? Number(f.photo_to_video_offset_y) : 0,
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
+            // Per-clip skip toggle. When true, VideoMerge filters this
+            // clip out before posting to /merge-videos so it stays in
+            // the job (un-skippable from the tile) but doesn't render.
+            _skipInMerge: !!f.skip_in_merge,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
@@ -540,6 +559,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileTrim,
     saveFileSpeed,
     saveFileInsertOverlay,
+    saveFileSkip,
     saveFilePhotoMotion,
     saveFileTrimThumbs,
     saveFileCaptions,

@@ -327,7 +327,7 @@ function SortableTile({ item, children }) {
   )
 }
 
-export default function FileGrid({ files, onRemove, onReorder, onDuplicate, VideoTrimmer, PhotoDurationBar }) {
+export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onToggleSkip, VideoTrimmer, PhotoDurationBar }) {
   const [previewItem, setPreviewItem] = useState(null)
 
   // Only put the sensors together when we actually have more than one
@@ -362,9 +362,24 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, Vide
         const isVideo = item.file?.type?.startsWith('video/') || item._mediaType?.startsWith('video/')
         const isImg = item.isImg || item._mediaType?.startsWith('image/')
         const fileName = item.file?.name || item._filename || 'Untitled'
+        const isSkipped = !!item._skipInMerge
         const tile = ({ dragHandle } = {}) => (
           <>
-            <div className="border border-border rounded-sm overflow-hidden bg-white relative">
+            <div className={`border border-border rounded-sm overflow-hidden bg-white relative ${isSkipped ? 'opacity-50' : ''}`}>
+              {/* Diagonal-stripe overlay for skipped clips — visible at
+                  a glance without hiding the thumbnail. pointer-events
+                  none so it doesn't eat clicks on the tile / buttons. */}
+              {isSkipped && (
+                <div
+                  className="absolute inset-0 z-[4] pointer-events-none"
+                  style={{
+                    background: 'repeating-linear-gradient(45deg, rgba(192,57,43,0.18) 0 8px, transparent 8px 16px)',
+                  }}
+                />
+              )}
+              {isSkipped && (
+                <span className="absolute bottom-1 right-1 z-[5] text-white bg-[#c0392b] text-[9px] font-bold rounded px-1.5 py-0.5 leading-none pointer-events-none">SKIPPED</span>
+              )}
               {reorderEnabled && (
                 <span
                   {...(dragHandle || {})}
@@ -420,6 +435,22 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, Vide
                   className="absolute top-1 right-6 w-[18px] h-[18px] rounded-full bg-[#6C5CE7]/85 hover:bg-[#6C5CE7] text-white text-[10px] flex items-center justify-center cursor-pointer border-none z-[5] disabled:opacity-50"
                   title="Duplicate this clip with all its settings"
                 >{item._duplicating ? '…' : '⎘'}</button>
+              )}
+              {/* Skip toggle — when on, VideoMerge filters this clip
+                  from the merge payload. Lets users preview / produce
+                  without a particular clip without removing it. Only
+                  exposed once the file is persisted (_dbFileId set);
+                  the helper expects the BE row to exist. */}
+              {item._dbFileId != null && onToggleSkip && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggleSkip(item) }}
+                  className={`absolute top-1 right-11 w-[18px] h-[18px] rounded-full text-white text-[10px] flex items-center justify-center cursor-pointer border-none z-[5] ${
+                    isSkipped
+                      ? 'bg-[#2D9A5E]/85 hover:bg-[#2D9A5E]'
+                      : 'bg-[#c0392b]/70 hover:bg-[#c0392b]'
+                  }`}
+                  title={isSkipped ? 'Include this clip in the merge' : 'Skip this clip from the merge (keeps it in the draft)'}
+                >{isSkipped ? '↻' : '⊘'}</button>
               )}
               {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
               {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
