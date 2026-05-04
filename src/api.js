@@ -758,10 +758,7 @@ export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime
       preview_seconds: typeof previewSeconds === 'number' ? previewSeconds : undefined,
     }),
   }).then(async r => {
-    // BE flushes headers + sends keepalive whitespace during slow
-    // renders (Railway proxy timeout workaround), so it can't change
-    // status mid-stream — slow-path errors come back as 200 with
-    // { error } in the body. Check both shapes.
+    // Defensive: handle both shapes (status-coded and 200 + body.error).
     if (!r.ok) {
       let msg = `Render failed (${r.status})`
       try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
