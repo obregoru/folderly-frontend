@@ -43,7 +43,7 @@ const emptySlot = () => ({
   hydratedFromDisk: false,
 })
 
-export default function FullVideoPanel({ draftId, jobSync }) {
+export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
   const [active, setActive] = useState('tiktok')
   const [slots, setSlots] = useState({
     tiktok: emptySlot(),
@@ -55,6 +55,29 @@ export default function FullVideoPanel({ draftId, jobSync }) {
   // with the dimension scores + suggestions — small thumbnails
   // weren't enough to read overlay legibility / contrast issues.
   const [zoomedFrame, setZoomedFrame] = useState(null)
+
+  // Seek the FinalPreview <video> to a given timestamp. Used by
+  // timeline note clicks AND frame-thumbnail clicks so the user can
+  // jump to whatever moment the analyzer is talking about and see
+  // it in motion / context. Pauses on seek so the user can scrub
+  // around without the video running away from them.
+  const seekPreview = (sec) => {
+    const v = previewRef?.current?.getVideo?.()
+    if (!v) return
+    const t = Math.max(0, Number(sec) || 0)
+    try {
+      if (!v.paused) v.pause()
+      // currentTime sometimes throws on iOS Safari before metadata
+      // loads — wrap so a transient failure doesn't blow up the click.
+      v.currentTime = t
+      // Scroll the preview into view so the user actually sees the
+      // result — clicking a timeline note while scrolled to the
+      // bottom of the panel did nothing visible without this.
+      try { v.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) } catch {}
+    } catch (e) {
+      console.warn('[FullVideoPanel] seek failed:', e?.message)
+    }
+  }
 
   // Hydrate every platform's saved analysis on mount in parallel —
   // tabs feel populated instantly even though three calls fired.
@@ -347,21 +370,28 @@ export default function FullVideoPanel({ draftId, jobSync }) {
 
           {Array.isArray(slot.analysis.timeline_notes) && slot.analysis.timeline_notes.length > 0 && (
             <div className="border border-[#e5e5e5] rounded p-2 space-y-1">
-              <div className="text-[10px] font-medium text-muted uppercase tracking-wide">Timeline</div>
+              <div className="text-[10px] font-medium text-muted uppercase tracking-wide flex items-center gap-2">
+                <span>Timeline</span>
+                <span className="text-[8px] normal-case tracking-normal italic text-[#6C5CE7]">click any row to jump the preview to that timestamp</span>
+              </div>
               {slot.analysis.timeline_notes.map((tn, i) => {
                 const flag = String(tn.flag || '').toLowerCase()
                 const isRed = flag === 'red'
                 const isGreen = flag === 'green'
+                const t = Number(tn.t) || 0
                 return (
-                  <div
+                  <button
                     key={i}
-                    className={`text-[10px] flex items-start gap-1.5 rounded px-1 py-0.5 ${
+                    type="button"
+                    onClick={() => seekPreview(t)}
+                    title={`Jump preview to ${t.toFixed(1)}s`}
+                    className={`w-full text-left text-[10px] flex items-start gap-1.5 rounded px-1 py-0.5 border-none cursor-pointer hover:bg-[#f3f0ff] hover:ring-1 hover:ring-[#6C5CE7]/40 ${
                       isRed ? 'bg-[#fdf2f1] border border-[#c0392b]/30'
                       : isGreen ? 'bg-[#f0faf4] border border-[#2D9A5E]/30'
-                      : ''
+                      : 'bg-transparent'
                     }`}
                   >
-                    <span className="font-mono text-muted shrink-0 w-10">{Number(tn.t).toFixed(1)}s</span>
+                    <span className="font-mono text-[#6C5CE7] shrink-0 w-10 underline">{t.toFixed(1)}s</span>
                     {isRed && (
                       <span className="shrink-0" title="Problem flagged at this frame">🚩</span>
                     )}
@@ -375,7 +405,7 @@ export default function FullVideoPanel({ draftId, jobSync }) {
                     >
                       {tn.note}
                     </span>
-                  </div>
+                  </button>
                 )
               })}
             </div>
@@ -386,7 +416,7 @@ export default function FullVideoPanel({ draftId, jobSync }) {
               <summary className="text-[10px] font-medium cursor-pointer text-muted uppercase tracking-wide flex items-center gap-2">
                 <span>Frames the AI reviewed ({slot.thumbs.length})</span>
                 <span className="text-[8px] text-[#2D9A5E] font-bold normal-case tracking-normal">SAVED</span>
-                <span className="text-[9px] text-muted normal-case tracking-normal italic">click any frame to enlarge</span>
+                <span className="text-[9px] text-muted normal-case tracking-normal italic">shift+click a frame to seek preview, click to enlarge</span>
               </summary>
               <div className="mt-2 grid grid-cols-4 gap-1">
                 {slot.thumbs.map((t, i) => {
@@ -396,9 +426,17 @@ export default function FullVideoPanel({ draftId, jobSync }) {
                     <button
                       key={i}
                       type="button"
-                      onClick={() => setZoomedFrame({ src, t: Number(t.t) || 0, idx: i, total: slot.thumbs.length, platform: active })}
+                      onClick={(ev) => {
+                        // shift+click → seek preview to this timestamp (no zoom)
+                        // plain click → enlarge (existing behavior)
+                        if (ev.shiftKey) {
+                          seekPreview(Number(t.t) || 0)
+                          return
+                        }
+                        setZoomedFrame({ src, t: Number(t.t) || 0, idx: i, total: slot.thumbs.length, platform: active })
+                      }}
                       className="relative p-0 border-none bg-transparent cursor-zoom-in"
-                      title={`Frame at ${Number(t.t).toFixed(2)}s — click to enlarge`}
+                      title={`Frame at ${Number(t.t).toFixed(2)}s — click to enlarge, shift+click to seek preview`}
                     >
                       <img src={src} alt={`frame at ${t.t}s`} className="w-full rounded border border-[#e5e5e5] hover:border-[#6C5CE7]" />
                       <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[8px] font-mono text-center py-0.5 pointer-events-none rounded-b">
@@ -428,12 +466,18 @@ export default function FullVideoPanel({ draftId, jobSync }) {
               className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white text-ink text-lg flex items-center justify-center shadow cursor-pointer border-none z-10"
             >&times;</button>
             <img src={zoomedFrame.src} alt={`frame at ${zoomedFrame.t}s`} className="max-w-full max-h-[80vh] rounded shadow-2xl" />
-            <div className="bg-white rounded px-3 py-1.5 text-[11px] font-mono">
+            <div className="bg-white rounded px-3 py-1.5 text-[11px] font-mono flex items-center gap-3">
               <span className="text-[#6C5CE7] font-bold">{zoomedFrame.platform}</span>
-              <span className="mx-2 text-muted">•</span>
+              <span className="text-muted">•</span>
               <span>frame {zoomedFrame.idx + 1} of {zoomedFrame.total}</span>
-              <span className="mx-2 text-muted">•</span>
+              <span className="text-muted">•</span>
               <span>t = {zoomedFrame.t.toFixed(2)}s</span>
+              <button
+                type="button"
+                onClick={() => { seekPreview(zoomedFrame.t); setZoomedFrame(null) }}
+                className="ml-2 text-[10px] py-1 px-2 bg-[#6C5CE7] text-white rounded border-none cursor-pointer font-sans"
+                title="Close lightbox + seek the preview to this moment"
+              >🎯 Jump preview here</button>
             </div>
           </div>
         </div>
