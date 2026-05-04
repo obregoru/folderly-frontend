@@ -85,27 +85,19 @@ export default function FullVideoPanel({ draftId, jobSync }) {
     setSlots(prev => ({ ...prev, [platform]: { ...prev[platform], ...patch } }))
   }
 
-  // skipBake is true when called from runAll — that path bakes the
-  // final ONCE upfront and shares it across all three platform
-  // analyses. Without this, runAll fires three concurrent renderFinal
-  // calls that race against each other and waste server time
-  // re-rendering the same final three times.
-  const run = async (platform, { skipBake = false } = {}) => {
+  // The analyzer reads whatever video is currently in storage — final
+  // mp4 if one's been rendered (overlays + captions in the pixels),
+  // merged source otherwise (text-only context for those layers).
+  // We deliberately do NOT trigger renderFinal here. Auto-baking
+  // surfaced rotation bugs in the merge pipeline that re-baking the
+  // final could trigger; making the bake an explicit user action via
+  // the Download Final button removes that surface entirely.
+  const run = async (platform) => {
     if (!draftId) return
     const cur = slots[platform]
     if (cur.analyzing) return
-    setSlot(platform, { analyzing: true, err: null, stage: skipBake ? 'analyzing' : 'baking', hydratedFromDisk: false })
+    setSlot(platform, { analyzing: true, err: null, stage: 'analyzing', hydratedFromDisk: false })
     try {
-      if (!skipBake) {
-        try {
-          if (typeof api.renderFinal === 'function') {
-            await api.renderFinal({ jobUuid: draftId })
-          }
-        } catch (e) {
-          console.warn('[full-video] auto-bake failed, analyzing merge instead:', e?.message)
-        }
-        setSlot(platform, { stage: 'analyzing' })
-      }
       const r = await api.analyzeFullVideo(draftId, platform)
       if (!r?.analysis) throw new Error('No analysis returned')
       setSlot(platform, {
@@ -129,32 +121,14 @@ export default function FullVideoPanel({ draftId, jobSync }) {
   const slot = slots[active]
   const platformDef = PLATFORMS.find(p => p.key === active)
 
-  // Kick off all three platforms in parallel — but bake the final
-  // ONCE upfront. Without sharing the bake, runAll fires three
-  // renderFinal calls that race + waste server work re-rendering
-  // the same final three times. Each platform's analyze call still
-  // pulls the same fresh final mp4 from storage so they all see the
-  // baked overlays + captions.
-  const runAll = async () => {
+  // Kick off all three platforms in parallel against whatever final
+  // / merge is currently in storage. No bake step — user controls
+  // when the final is regenerated via Download Final.
+  const runAll = () => {
     if (!draftId) return
-    // Mark all not-already-analyzing platforms as baking up front so
-    // tabs reflect the shared status while the single renderFinal runs.
     PLATFORMS.forEach(p => {
       if (slots[p.key].analyzing) return
-      setSlot(p.key, { analyzing: true, err: null, stage: 'baking', hydratedFromDisk: false })
-    })
-    try {
-      if (typeof api.renderFinal === 'function') {
-        await api.renderFinal({ jobUuid: draftId })
-      }
-    } catch (e) {
-      console.warn('[full-video runAll] auto-bake failed, analyzing merge instead:', e?.message)
-    }
-    PLATFORMS.forEach(p => {
-      // Re-check for in-flight in case a per-tab analyze fired between
-      // the upfront bake and the per-platform fan-out.
-      if (slots[p.key].analyzing && slots[p.key].stage !== 'baking') return
-      run(p.key, { skipBake: true })
+      run(p.key)
     })
   }
   const anyAnalyzing = PLATFORMS.some(p => slots[p.key].analyzing)
@@ -174,12 +148,22 @@ export default function FullVideoPanel({ draftId, jobSync }) {
           onClick={runAll}
           disabled={!draftId || anyAnalyzing}
           className="text-[11px] py-1.5 px-3 bg-gradient-to-r from-[#6C5CE7] to-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap self-start"
-          title="Run all three platform analyses in parallel — each finishes independently and updates its own tab as soon as it's ready."
+          title="Run all three platform analyses in parallel against whatever final / merge is currently in storage. Render the final via Download Final BEFORE running this if you want overlays + captions in the analyzed pixels."
         >
           {anyAnalyzing
             ? `Analyzing… ${PLATFORMS.filter(p => slots[p.key].analysis).length}/3`
             : (allHave ? '⚡ Re-analyze all 3' : '⚡ Analyze all 3')}
         </button>
+      </div>
+
+      {/* Source-of-truth nudge — analyzer reads what's in storage,
+          doesn't render anything itself. User controls the bake via
+          Download Final at the top of the editor. Without this, users
+          re-ran analyses expecting them to reflect the latest overlay
+          edits, but the analyzer was reading a stale final and
+          scoring against it. */}
+      <div className="text-[10px] text-muted bg-[#fafafa] border border-[#e5e5e5] rounded p-2">
+        <span className="font-medium text-ink">⚠ Reads the most recently rendered final.</span> Hit <span className="font-medium">Download Final</span> in the preview before analyzing if you've changed overlays, voiceover, or media. The analyzer never re-renders — keeps it from re-running the merge pipeline against your clips.
       </div>
 
       {/* Platform tabs. Each tab shows a small spinner glyph while
@@ -223,7 +207,7 @@ export default function FullVideoPanel({ draftId, jobSync }) {
           className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
         >
           {slot.analyzing
-            ? (slot.stage === 'baking' ? 'Rendering final…' : slot.stage === 'analyzing' ? `Analyzing for ${platformDef.label}…` : 'Working…')
+            ? `Analyzing for ${platformDef.label}…`
             : (slot.analysis ? `Re-analyze for ${platformDef.label}` : `Analyze for ${platformDef.label}`)}
         </button>
         {slot.meta?.analyzedAt && slot.hydratedFromDisk && (
