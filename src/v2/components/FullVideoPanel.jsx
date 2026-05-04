@@ -226,9 +226,14 @@ export default function FullVideoPanel({ draftId, jobSync }) {
         </div>
       )}
 
-      {slot.meta?.source_kind === 'merge-stale-final' && (
+      {slot.meta?.source_kind === 'final-stale' && (
         <div className="text-[11px] bg-[#fff7e6] border border-[#f5a623] rounded p-2 text-[#8a4b00]">
-          <span className="font-medium">⚠ Final video is stale —</span> showing the merged-clip cut (no baked overlays/voiceover). Hit <span className="font-medium">Download Final</span>, then re-analyze to score the rendered version.
+          <span className="font-medium">⚠ Reading your last rendered final —</span> the draft has been edited since this render, so the captions / overlays in the frames may not exactly match your current settings. Hit <span className="font-medium">Download Final</span> for an up-to-date render, then re-analyze.
+        </div>
+      )}
+      {slot.meta?.source_kind === 'merge' && (
+        <div className="text-[11px] bg-[#fff7e6] border border-[#f5a623] rounded p-2 text-[#8a4b00]">
+          <span className="font-medium">⚠ No final render yet —</span> the AI is reading the merged clips without overlays / voiceover captions baked in. It scores caption + overlay dimensions from the metadata, not from the frames. Render the final and re-analyze for a frame-accurate review.
         </div>
       )}
 
