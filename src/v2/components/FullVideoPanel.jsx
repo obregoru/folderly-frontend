@@ -123,6 +123,41 @@ export default function FullVideoPanel({ draftId, jobSync }) {
     }
   }
 
+  // One-click "render the final, then re-analyze" — bypasses the user
+  // having to switch panels, hit Download Final, wait, come back, and
+  // hit Re-analyze. The render step is what bakes overlays + voiceover
+  // captions into the mp4 pixels, so without it the analyzer sees
+  // bare merged clips and grades caption / overlay dimensions blind.
+  const [refreshing, setRefreshing] = useState(false)
+  const renderAndReanalyze = async (platform) => {
+    if (!draftId || refreshing) return
+    setRefreshing(true)
+    setSlot(platform, { analyzing: true, err: null, stage: 'rendering final…', hydratedFromDisk: false })
+    try {
+      await api.renderFinal({ jobUuid: draftId })
+      setSlot(platform, { stage: 'analyzing…' })
+      const r = await api.analyzeFullVideo(draftId, platform)
+      if (!r?.analysis) throw new Error('No analysis returned')
+      setSlot(platform, {
+        analysis: r.analysis,
+        meta: {
+          duration_sec: r.duration_sec,
+          frames_used: r.frames_used,
+          source_kind: r.source_kind,
+          analyzedAt: new Date().toISOString(),
+        },
+        thumbs: Array.isArray(r.frame_thumbs) ? r.frame_thumbs : [],
+        analyzing: false,
+        stage: '',
+        err: null,
+      })
+    } catch (e) {
+      setSlot(platform, { err: e?.message || String(e), analyzing: false, stage: '' })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const slot = slots[active]
   const platformDef = PLATFORMS.find(p => p.key === active)
 
@@ -226,14 +261,45 @@ export default function FullVideoPanel({ draftId, jobSync }) {
         </div>
       )}
 
-      {slot.meta?.source_kind === 'final-stale' && (
-        <div className="text-[11px] bg-[#fff7e6] border border-[#f5a623] rounded p-2 text-[#8a4b00]">
-          <span className="font-medium">⚠ Reading your last rendered final —</span> the draft has been edited since this render, so the captions / overlays in the frames may not exactly match your current settings. Hit <span className="font-medium">Download Final</span> for an up-to-date render, then re-analyze.
-        </div>
-      )}
-      {slot.meta?.source_kind === 'merge' && (
-        <div className="text-[11px] bg-[#fff7e6] border border-[#f5a623] rounded p-2 text-[#8a4b00]">
-          <span className="font-medium">⚠ No final render yet —</span> the AI is reading the merged clips without overlays / voiceover captions baked in. It scores caption + overlay dimensions from the metadata, not from the frames. Render the final and re-analyze for a frame-accurate review.
+      {slot.meta && slot.meta.source_kind !== 'final' && (
+        <div className={`text-[12px] rounded p-2.5 flex items-start gap-2 ${
+          slot.meta.source_kind === 'merge'
+            ? 'bg-[#fdf2f1] border-2 border-[#c0392b] text-[#8a1f15]'
+            : 'bg-[#fff7e6] border border-[#f5a623] text-[#8a4b00]'
+        }`}>
+          <div className="flex-1">
+            <div className="font-bold mb-0.5">
+              {slot.meta.source_kind === 'merge' && '⛔ Captions / overlays NOT in these frames'}
+              {slot.meta.source_kind === 'final-stale' && '⚠ Frames may be out of date'}
+              {slot.meta.source_kind === 'raw' && '⛔ Single-clip preview, no overlays / voiceover'}
+            </div>
+            <div className="text-[11px] leading-snug">
+              {slot.meta.source_kind === 'merge' && (
+                <>
+                  These frames came from the unrendered merge — voiceover captions and opening/middle/closing overlays haven't been baked in. The AI scores caption / overlay dimensions from <em>metadata only</em>. Click below to render the final mp4 with everything baked in and re-analyze.
+                </>
+              )}
+              {slot.meta.source_kind === 'final-stale' && (
+                <>
+                  Frames came from your last rendered final, but you've edited the draft since. Captions / overlays you see may not match your current settings. Click below to re-render with current settings + re-analyze.
+                </>
+              )}
+              {slot.meta.source_kind === 'raw' && (
+                <>
+                  No merge yet — these frames are from a single raw clip. Configure your timeline, render the final, then re-analyze.
+                </>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => renderAndReanalyze(active)}
+            disabled={refreshing || slot.analyzing}
+            className="text-[10px] font-bold py-1.5 px-2.5 bg-[#6C5CE7] text-white rounded border-none cursor-pointer disabled:opacity-50 whitespace-nowrap self-start"
+            title="Renders the final mp4 (overlays + captions baked in), then re-runs the analysis against the freshly rendered video."
+          >
+            {refreshing ? 'Rendering…' : '🎬 Render + Re-analyze'}
+          </button>
         </div>
       )}
 
