@@ -73,6 +73,12 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
   // exactly what users saw as "typing backwards / RTL".
   const lastEmittedRef = useRef('__init__')
   const [loaded, setLoaded] = useState(false)
+  // Surfaces a fallback <textarea> when Quill fails to load (network
+  // hiccup, CSP block, or stale chunk). Without this the host div
+  // stays empty and the editor appears "locked" — the user can click
+  // it but no input area exists. The fallback writes back to the
+  // same runs[] schema (single run, no styling).
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const D = defaults || { color: '#ffffff', fontFamily: 'Inter', fontSize: 60 }
 
@@ -83,10 +89,23 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
     if (quillRef.current) return
     let cancelled = false
     ;(async () => {
-      const QuillMod = await import('quill')
+      let QuillMod
+      try {
+        QuillMod = await import('quill')
+      } catch (e) {
+        console.error('[RichTextEditor] Quill failed to load:', e)
+        if (!cancelled) setLoadFailed(true)
+        return
+      }
       // Quill ships its theme CSS as a side-effect import; pulling
       // it here keeps the bundle in one chunk.
-      await import('quill/dist/quill.snow.css')
+      try {
+        await import('quill/dist/quill.snow.css')
+      } catch (e) {
+        console.error('[RichTextEditor] Quill CSS failed to load:', e)
+        if (!cancelled) setLoadFailed(true)
+        return
+      }
       if (cancelled) return
       const Quill = QuillMod.default || QuillMod
 
@@ -478,8 +497,37 @@ export default function RichTextEditor({ runs, onChange, defaults, placeholder }
     }
   }, [])
 
+  // Plain-text fallback used when Quill itself can't be loaded.
+  // Writes back as a single styleless run so the rest of the export
+  // pipeline keeps working.
+  if (loadFailed) {
+    const flat = Array.isArray(runs) ? runs.map(r => String(r?.text ?? '')).join('') : ''
+    return (
+      <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
+        <div className="text-[10px] text-[#c0392b]">Rich-text editor failed to load — using plain text fallback. Reload the page to retry.</div>
+        <textarea
+          className="w-full text-[13px] border border-[#e5e5e5] rounded p-2 min-h-[80px]"
+          value={flat}
+          placeholder={placeholder || 'Type your overlay text…'}
+          onChange={e => {
+            const t = e.target.value
+            onChange(t.length > 0 ? [{ text: t }] : null)
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-white border border-[#e5e5e5] rounded">
+    <div className="bg-white border border-[#e5e5e5] rounded relative">
+      {/* While Quill is still loading the host div is empty and the
+          editor looks "locked" — surfacing a visible loading state
+          keeps users from poking an unmounted contenteditable. */}
+      {!loaded && (
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] text-muted italic z-10 pointer-events-none">
+          Loading editor…
+        </div>
+      )}
       {/* Quill mounts into this div. Min-height keeps the toolbar +
           editor visible while the chunk loads. */}
       <div ref={hostRef} style={{ minHeight: 120 }} />
