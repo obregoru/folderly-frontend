@@ -981,13 +981,17 @@ function formatFullVideoAnalysis(analysis, meta = {}) {
   }
 
   // Timeline notes — keep concise; producer doesn't need every frame
-  // verbatim, but the cadence is useful context.
+  // verbatim, but the cadence is useful context. Flagged frames get
+  // a red/green marker so the producer sees the problem/win moments
+  // without needing the panel open.
   if (Array.isArray(analysis.timeline_notes) && analysis.timeline_notes.length > 0) {
     lines.push('')
     lines.push('Frame-by-frame timeline:')
     for (const tn of analysis.timeline_notes) {
       const t = Number(tn.t) >= 0 ? `${Number(tn.t).toFixed(1)}s` : '?'
-      lines.push(`  - [${t}] ${tn.note || ''}`)
+      const flag = String(tn.flag || '').toLowerCase()
+      const marker = flag === 'red' ? '🚩 ' : flag === 'green' ? '✅ ' : ''
+      lines.push(`  - [${t}] ${marker}${tn.note || ''}`)
     }
   }
 

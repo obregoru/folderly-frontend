@@ -282,12 +282,36 @@ export default function FullVideoPanel({ draftId, jobSync }) {
           {Array.isArray(slot.analysis.timeline_notes) && slot.analysis.timeline_notes.length > 0 && (
             <div className="border border-[#e5e5e5] rounded p-2 space-y-1">
               <div className="text-[10px] font-medium text-muted uppercase tracking-wide">Timeline</div>
-              {slot.analysis.timeline_notes.map((tn, i) => (
-                <div key={i} className="text-[10px] flex items-start gap-1.5">
-                  <span className="font-mono text-muted shrink-0 w-10">{Number(tn.t).toFixed(1)}s</span>
-                  <span className="text-ink break-words">{tn.note}</span>
-                </div>
-              ))}
+              {slot.analysis.timeline_notes.map((tn, i) => {
+                const flag = String(tn.flag || '').toLowerCase()
+                const isRed = flag === 'red'
+                const isGreen = flag === 'green'
+                return (
+                  <div
+                    key={i}
+                    className={`text-[10px] flex items-start gap-1.5 rounded px-1 py-0.5 ${
+                      isRed ? 'bg-[#fdf2f1] border border-[#c0392b]/30'
+                      : isGreen ? 'bg-[#f0faf4] border border-[#2D9A5E]/30'
+                      : ''
+                    }`}
+                  >
+                    <span className="font-mono text-muted shrink-0 w-10">{Number(tn.t).toFixed(1)}s</span>
+                    {isRed && (
+                      <span className="shrink-0" title="Problem flagged at this frame">🚩</span>
+                    )}
+                    {isGreen && (
+                      <span className="shrink-0" title="Strong moment — keep this">✅</span>
+                    )}
+                    <span
+                      className={`break-words ${
+                        isRed ? 'text-[#c0392b]' : isGreen ? 'text-[#0a4d2c]' : 'text-ink'
+                      }`}
+                    >
+                      {tn.note}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           )}
 
