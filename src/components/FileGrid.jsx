@@ -188,9 +188,34 @@ function VideoThumb({ file, onClick, className, itemId }) {
 
 // Restored file thumbnail — measures aspect ratio on load so vertical
 // videos get the tall layout (260px) like fresh portrait uploads.
-function RestoredMedia({ item, isVideo, onClick }) {
+function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
   const [aspect, setAspect] = useState(() => item._videoDuration && item._videoAspect ? item._videoAspect : null)
   useEffect(() => { if (aspect != null) item._videoAspect = aspect }, [aspect, item])
+  // Local fallback for the case where the BE didn't yet flag the row
+  // as storage_missing (e.g. an old deploy still serving). When the
+  // video / img errors out trying to load the source, flip this flag
+  // and render the same warning placeholder the BE-flagged rows show.
+  // Also call onStorageMissing so the parent can lift the flag into
+  // the files state — that's what unmounts VideoTrimmer + suppresses
+  // re-fetches on subsequent renders.
+  const [loadFailed, setLoadFailed] = useState(!!item._storageMissing)
+  const markMissing = () => {
+    if (loadFailed) return
+    item._storageMissing = true
+    setLoadFailed(true)
+    if (typeof onStorageMissing === 'function') {
+      try { onStorageMissing(item.id) } catch {}
+    }
+  }
+  if (loadFailed) {
+    return (
+      <div onClick={onClick} className="w-full h-[120px] bg-[#fdf2f1] border-b border-[#c0392b]/30 flex flex-col items-center justify-center text-[#c0392b] text-center px-2 gap-0.5 cursor-pointer">
+        <span className="text-[20px]">⚠</span>
+        <span className="text-[9px] font-medium leading-tight">Source file missing</span>
+        <span className="text-[8px] text-[#c0392b]/80 leading-tight">Skip ⊘ or remove ✕</span>
+      </div>
+    )
+  }
   const isPortrait = aspect != null && aspect < 1
   const isPhoto = !isVideo
   // Photo tiles render in a 16:9 outer container (matches video
@@ -223,6 +248,7 @@ function RestoredMedia({ item, isVideo, onClick }) {
             if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
           }}
           onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
+          onError={markMissing}
         />
       ) : (
         // Photo thumb on a restored draft. Same 16:9 outer + 9:16
@@ -249,7 +275,7 @@ function RestoredMedia({ item, isVideo, onClick }) {
                   imageOrientation: 'from-image',
                 }}
                 onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
-                onError={e => { e.target.style.display = 'none' }}
+                onError={markMissing}
               />
               <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white rounded px-1 py-0.5 pointer-events-none">9:16</span>
             </>
@@ -327,7 +353,7 @@ function SortableTile({ item, children }) {
   )
 }
 
-export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onToggleSkip, VideoTrimmer, PhotoDurationBar }) {
+export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onToggleSkip, onStorageMissing, VideoTrimmer, PhotoDurationBar }) {
   const [previewItem, setPreviewItem] = useState(null)
 
   // Only put the sensors together when we actually have more than one
@@ -413,7 +439,7 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
               ) : isVideo && item.file ? (
                 <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
               ) : item._restored && (item._publicUrl || item._uploadKey) ? (
-                <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} />
+                <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} onStorageMissing={onStorageMissing} />
               ) : (
                 <div
                   onClick={() => setPreviewItem(item)}

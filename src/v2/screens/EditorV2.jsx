@@ -255,6 +255,15 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           onRemove={removeFile}
           onReorder={reorderFiles}
           onDuplicate={duplicateFile}
+          onStorageMissing={(itemId) => {
+            // Client-side fallback: a tile's <video>/<img> errored
+            // loading the source. Lift the flag into files state so
+            // VideoTrimmer / PhotoDurationBar unmount and the merge
+            // filter sees the missing flag. Bridges the gap between
+            // FE deploy and BE deploy lag — once BE GET /jobs:id
+            // sets storage_missing on response, this is a no-op.
+            setFiles?.(prev => prev.map(f => f.id === itemId ? { ...f, _storageMissing: true } : f))
+          }}
           onToggleSkip={(it) => {
             const next = !it._skipInMerge
             // Optimistic local update so the tile dims immediately;

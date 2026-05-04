@@ -398,13 +398,17 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
       if (videoFiles.length < 1) {
         throw new Error('Need at least one clip to process.')
       }
-      // Filter out clips the user toggled "skip" on. Stays in the job
-      // (loaded from job_files.skip_in_merge) but doesn't get sent to
-      // /merge-videos. If a host with attached B-roll inserts is
-      // skipped, its inserts have no host left to attach to and would
-      // be dropped by the BE anyway — drop them here too so the
-      // counts in the progress bar match what the BE actually merges.
-      const activeFiles = videoFiles.filter(f => !f?._skipInMerge)
+      // Filter out clips the user toggled "skip" on, plus any clip
+      // whose source file is missing from storage (BE flagged or FE
+      // detected via <video>/<img> onError) — sending those would
+      // produce "Clip N: no media data" on the server. Stays in the
+      // job (loaded from job_files.skip_in_merge) but doesn't get
+      // sent to /merge-videos. If a host with attached B-roll
+      // inserts is skipped, its inserts have no host left to attach
+      // to and would be dropped by the BE anyway — drop them here
+      // too so the counts in the progress bar match what the BE
+      // actually merges.
+      const activeFiles = videoFiles.filter(f => !f?._skipInMerge && !f?._storageMissing)
       const skippedHostDbIds = new Set(
         videoFiles
           .filter(f => f?._skipInMerge && f._insertIntoFileId == null && f._dbFileId != null)
