@@ -205,6 +205,11 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
   // workflow.
   const [importing2s, setImporting2s] = useState(false)
   const [import2sError, setImport2sError] = useState(null)
+  // Full-video import (sister of the per-platform first-2s import).
+  // No platform branching — the full review already carries scores
+  // for tiktok/reels/shorts so we send the whole report in one go.
+  const [importingFull, setImportingFull] = useState(false)
+  const [importFullError, setImportFullError] = useState(null)
   const importAnalysisForPlatform = async (platform) => {
     if (!draftId || streaming || importing2s) return
     setImporting2s(true)
@@ -252,6 +257,59 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
       setImport2sError(e?.message || String(e))
     } finally {
       setImporting2s(false)
+    }
+  }
+
+  // Import the saved full-video review into the chat as a user
+  // message. Mirrors importAnalysisForPlatform but uses the saved
+  // analyze-full row + the full-video formatter (no per-platform
+  // branching — the full review's response already carries per-
+  // platform scores in one document).
+  const importFullVideoReview = async () => {
+    if (!draftId || streaming || importingFull) return
+    setImportingFull(true)
+    setImportFullError(null)
+    try {
+      const r = await api.fullVideoAnalysisLast(draftId)
+      const analysis = r?.analysis
+      if (!analysis) {
+        setImportFullError('No full-video review saved yet — run the analyzer in the 🎞️ Full video tab first.')
+        return
+      }
+      const text = formatFullVideoAnalysis(analysis, {
+        analyzedAt: r?.analyzedAt,
+        durationSec: r?.duration_sec,
+        framesUsed: r?.frames_used,
+        sourceKind: r?.source_kind,
+      })
+      const next = [...messages, { role: 'user', content: text }]
+      setMessages(next)
+      setInput('')
+      setStreaming(true)
+      setStreamText('')
+      setErr(null)
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      try {
+        const { fullText, error } = await api.producerChat(draftId, {
+          messages: next,
+          signal: ctrl.signal,
+          onChunk: (_, full) => setStreamText(full),
+        })
+        if (error) setErr(error)
+        setMessages(prev => [...prev, { role: 'assistant', content: fullText || '' }])
+        setStreamText('')
+      } catch (e) {
+        if (e?.name !== 'AbortError') setErr(e?.message || String(e))
+        setStreamText('')
+      } finally {
+        setStreaming(false)
+        abortRef.current = null
+      }
+    } catch (e) {
+      setImportFullError(e?.message || String(e))
+    } finally {
+      setImportingFull(false)
     }
   }
 
@@ -461,6 +519,20 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
         >Shorts</button>
         {importing2s && <span className="text-[9px] text-muted italic">loading…</span>}
         {import2sError && <span className="text-[9px] text-[#c0392b]">{import2sError}</span>}
+      </div>
+
+      {/* Import-from-full-video. Single button — full review covers
+          all three platforms in one go. */}
+      <div className="flex items-center gap-1.5 flex-wrap text-[10px] bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-1.5">
+        <span className="font-medium text-[#6C5CE7]">🎞️ Import full review:</span>
+        <button
+          onClick={importFullVideoReview}
+          disabled={!draftId || streaming || importingFull}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send the latest end-to-end full-video review (all 12 dimensions + per-platform scores + suggestions) to the producer for follow-up tactical advice."
+        >Send to producer</button>
+        {importingFull && <span className="text-[9px] text-muted italic">loading…</span>}
+        {importFullError && <span className="text-[9px] text-[#c0392b]">{importFullError}</span>}
       </div>
 
       <div className="flex gap-1.5">
@@ -848,6 +920,87 @@ function formatFirst2sAnalysisForPlatform(analysis, platform, analyzedAt) {
   }
   lines.push('')
   lines.push(`Given this analysis, what changes would you suggest to make this video stronger for ${label}?`)
+  return lines.join('\n')
+}
+
+// Format the saved full-video review as a chat message. Covers all
+// twelve dimensions, per-platform scores, suggestions, and the
+// timeline notes — same content the panel renders, formatted as
+// readable prose so the producer can riff on it in chat. No platform
+// branching: the full-video response already carries TikTok / Reels /
+// Shorts adjustments side-by-side.
+function formatFullVideoAnalysis(analysis, meta = {}) {
+  const lines = []
+  const dur = Number(meta.durationSec) > 0 ? `${Number(meta.durationSec).toFixed(1)}s` : '?'
+  lines.push(`These are the results of the END-TO-END full-video review (${dur}, ${meta.framesUsed || '?'} frames sampled, source: ${meta.sourceKind || '?'}):`)
+  lines.push('')
+  if (typeof analysis.overall_score === 'number') {
+    lines.push(`OVERALL: ${analysis.overall_score}/10`)
+  }
+  if (analysis.verdict) {
+    lines.push(`Verdict: ${analysis.verdict}`)
+  }
+
+  // Per-platform scores
+  if (analysis.platforms && typeof analysis.platforms === 'object') {
+    lines.push('')
+    lines.push('Per-platform overall:')
+    for (const [key, label] of [['tiktok', 'TikTok'], ['reels', 'Instagram Reels'], ['shorts', 'YouTube Shorts']]) {
+      const p = analysis.platforms[key]
+      if (!p) continue
+      const adj = Number(p.adjustment)
+      const adjStr = Number.isFinite(adj) ? ` (${adj > 0 ? '+' : ''}${adj} vs base)` : ''
+      lines.push(`  - ${label}: ${p.overall_score}/10${adjStr}${p.reason ? ` — ${p.reason}` : ''}`)
+    }
+  }
+
+  // Twelve dimension scores
+  const dims = [
+    ['hook_strength',          'Hook strength'],
+    ['curiosity_gap',          'Curiosity gap'],
+    ['mid_pacing',             'Mid pacing'],
+    ['closing_impact',         'Closing impact'],
+    ['ending_completion',      'Ending completion'],
+    ['vo_visual_sync',         'VO/visual sync'],
+    ['caption_legibility',     'Caption legibility'],
+    ['overlay_placement',      'Overlay placement'],
+    ['overlay_color_contrast', 'Overlay color contrast'],
+    ['audio_visual_synergy',   'A/V synergy'],
+    ['rewatch_value',          'Rewatch value'],
+    ['brand_clarity',          'Brand clarity'],
+  ]
+  const present = dims.filter(([k]) => typeof analysis[k] === 'number')
+  if (present.length) {
+    lines.push('')
+    lines.push('Dimension scores (1–10):')
+    for (const [key, label] of present) {
+      lines.push(`  - ${label.padEnd(24)} ${analysis[key]}/10`)
+    }
+  }
+
+  // Timeline notes — keep concise; producer doesn't need every frame
+  // verbatim, but the cadence is useful context.
+  if (Array.isArray(analysis.timeline_notes) && analysis.timeline_notes.length > 0) {
+    lines.push('')
+    lines.push('Frame-by-frame timeline:')
+    for (const tn of analysis.timeline_notes) {
+      const t = Number(tn.t) >= 0 ? `${Number(tn.t).toFixed(1)}s` : '?'
+      lines.push(`  - [${t}] ${tn.note || ''}`)
+    }
+  }
+
+  if (Array.isArray(analysis.suggestions) && analysis.suggestions.length > 0) {
+    lines.push('')
+    lines.push('Suggestions from the analyzer:')
+    analysis.suggestions.forEach((s, i) => lines.push(`  ${i + 1}. ${s}`))
+  }
+
+  if (meta.analyzedAt) {
+    lines.push('')
+    lines.push(`(Analyzed ${new Date(meta.analyzedAt).toLocaleString()}.)`)
+  }
+  lines.push('')
+  lines.push('Given this end-to-end review, what concrete changes would you prioritize? Call out anything specific to TikTok vs Reels vs Shorts where the adjustments above show meaningful differences.')
   return lines.join('\n')
 }
 
