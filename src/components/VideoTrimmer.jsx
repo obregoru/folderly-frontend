@@ -409,14 +409,21 @@ export default function VideoTrimmer({ item }) {
               // Also notify ResultCard preview (tracked by ref, no data attribute)
               try { window.dispatchEvent(new CustomEvent('posty-trim-scrub', { detail: { itemId: item.id, time: t } })) } catch {}
             }
+            // Minimum gap between trim handles. Lowered from 0.5s to
+            // 0.2s so users can build rapid-cut loop montages with
+            // sub-half-second clips (TikTok hard cuts at 0.2-0.3s
+            // are a real pattern). Below 0.2s the audio mix can pop
+            // and ffmpeg's concat filter sometimes drops frames, so
+            // 0.2 is the floor.
+            const MIN_TRIM = 0.2
             const onMove = (ev) => {
               const t = toTime(ev.clientX)
               let target
               if (dragging === 'start') {
-                target = Math.min(t, (trimEndRef.current ?? videoDuration) - 0.5)
+                target = Math.min(t, (trimEndRef.current ?? videoDuration) - MIN_TRIM)
                 setTrimStart(target)
               } else {
-                const v = Math.max(t, trimStartRef.current + 0.5)
+                const v = Math.max(t, trimStartRef.current + MIN_TRIM)
                 setTrimEnd(v >= videoDuration - 0.05 ? null : v)
                 target = v >= videoDuration - 0.05 ? videoDuration - 0.1 : v
               }
