@@ -55,7 +55,7 @@ function SortableClipRow({ id, children }) {
  * Lets users reorder clips, pick a transition, and merge into a single MP4.
  * The merged result becomes a virtual file item that the post flow can use.
  */
-export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl, onSaveTrim, onSaveMotion }) {
+export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl, onSaveTrim, onSaveMotion, onDuplicate }) {
   // The merge list now uses the natural order of videoFiles so reordering here
   // flows back to the file grid + voiceover preview. onReorder(fromIdx, toIdx)
   // is implemented by App.jsx and persists the new order to the server.
@@ -798,6 +798,19 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                         disabled={pos === videoFiles.length - 1}
                         className="text-[10px] text-muted hover:text-ink disabled:opacity-30 bg-transparent border-none cursor-pointer px-1"
                       >&#9660;</button>
+                      {/* Duplicate — server-side copy, lands at the end
+                          of the order list. Lets users build rapid-cut
+                          loops (clip A, clip B, A, C, A) without
+                          re-uploading. Only enabled once the row is
+                          persisted (_dbFileId set). */}
+                      {item._dbFileId != null && onDuplicate && (
+                        <button
+                          onClick={() => onDuplicate(item)}
+                          disabled={item._duplicating}
+                          className="text-[11px] text-[#6C5CE7] hover:text-[#5847d4] disabled:opacity-30 bg-transparent border-none cursor-pointer px-1 leading-none"
+                          title="Duplicate this clip — server-side copy lands at the end. Great for rapid-cut loops."
+                        >{item._duplicating ? '…' : '⎘'}</button>
+                      )}
                     </div>
                       </div>
                       {/* Line 3 (photo rows only): full-width duration

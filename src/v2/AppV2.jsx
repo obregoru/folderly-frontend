@@ -327,11 +327,13 @@ export default function AppV2() {
         _filename: f.filename,
         _mediaType: f.media_type,
       }
+      // Append to the end so the duplicate matches its server-side
+      // file_order (BE inserts at MAX+1). Lets users build rapid-cut
+      // loops by duplicating + reordering with the up/down arrows
+      // instead of having the new copy nest right under the source.
       setFiles(prev => {
-        const idx = prev.findIndex(x => x.id === sourceItem.id)
-        const without = prev.map(f => f.id === sourceItem.id ? { ...f, _duplicating: false } : f)
-        if (idx < 0) return [...without, newEntry]
-        return [...without.slice(0, idx + 1), newEntry, ...without.slice(idx + 1)]
+        const cleared = prev.map(f => f.id === sourceItem.id ? { ...f, _duplicating: false } : f)
+        return [...cleared, newEntry]
       })
     } catch (e) {
       console.error('[duplicateFile] failed:', e?.message || e)
