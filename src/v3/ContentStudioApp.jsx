@@ -77,9 +77,9 @@ export default function ContentStudioApp() {
         </nav>
         <a
           href="/"
-          className="text-[10px] text-muted hover:text-ink underline ml-2"
-          title="Back to the V2 video editor"
-        >← V2 editor</a>
+          className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0 no-underline whitespace-nowrap ml-2"
+          title="Back to the V2 social-media drafts (video editor + scheduling)"
+        >🎬 Social posts</a>
       </header>
       <main className="max-w-[1100px] mx-auto p-4">
         {screen === 'dashboard' && <ContentStudioDashboard />}
