@@ -247,3 +247,37 @@ export const deleteBlogImage = (postId, imageId) =>
     }
     return r.json()
   })
+
+// ── WP publish / unpublish ────────────────────────────────────────
+// Publish a 'ready' draft to the tenant's WordPress site. Slow
+// (image uploads + post create + Yoast meta). wpStatus options:
+//   'publish' (default) → live immediately
+//   'draft'             → land in WP Admin as draft for review
+//   'private'           → published but only visible to logged-in users
+export const publishBlogPost = (id, opts = {}) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}/publish`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ wp_status: opts.wpStatus || 'publish' }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `publishBlogPost failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Flip the WP post back to draft. Local status returns to 'ready'.
+export const unpublishBlogPost = (id) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}/unpublish`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `unpublishBlogPost failed (${r.status})`)
+    }
+    return r.json()
+  })

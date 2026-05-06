@@ -124,6 +124,8 @@ function BlogPostEditor({ id, onBack }) {
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(null)
+  const [publishing, setPublishing] = useState(false)
+  const [publishMode, setPublishMode] = useState('publish') // 'publish' | 'draft'
 
   // Local edit buffers — separate from `post` so unsaved changes
   // aren't lost on a Generate run.
@@ -199,6 +201,40 @@ function BlogPostEditor({ id, onBack }) {
     }
   }
 
+  const handlePublish = async () => {
+    if (!post || isDirty) {
+      setError(isDirty ? 'Save your edits before publishing.' : 'No post to publish.')
+      return
+    }
+    if (!confirm(`Publish "${post.title}" to WordPress as ${publishMode === 'draft' ? 'a draft (visible only in WP Admin)' : 'LIVE on the site'}?`)) return
+    setPublishing(true)
+    setError(null)
+    try {
+      const updated = await api.publishBlogPost(post.id, { wpStatus: publishMode })
+      setPost(updated)
+    } catch (e) {
+      setError(e?.message || String(e))
+      load() // pick up status='failed' + publish_metadata.error
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  const handleUnpublish = async () => {
+    if (!post) return
+    if (!confirm(`Unpublish "${post.title}"? This flips the WP post back to draft (it's no longer visible to readers but stays in WP Admin).`)) return
+    setPublishing(true)
+    setError(null)
+    try {
+      const updated = await api.unpublishBlogPost(post.id)
+      setPost(updated)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   if (loading) return <div className="text-[12px] text-muted">Loading…</div>
   if (!post) return <div className="text-[12px] text-[#c0392b]">{error || 'Not found'}</div>
 
@@ -229,20 +265,23 @@ function BlogPostEditor({ id, onBack }) {
             <div className="text-[14px] font-bold text-ink">{value('title')}</div>
             <div className="text-[10px] text-muted">/{value('slug')}</div>
           </div>
-          <div className="flex flex-col gap-1 self-start">
+          <div className="flex flex-col gap-1 self-start min-w-[180px]">
+            {/* Generate is always visible (Generate / Regenerate) */}
             <button
               type="button"
               onClick={handleGenerate}
-              disabled={generating}
+              disabled={generating || publishing}
               className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
             >
               {generating ? 'Generating…' : (hasBody ? '✨ Regenerate' : '✨ Generate article')}
             </button>
-            {hasBody && (
+
+            {/* Mark ready / drafting toggle once body exists */}
+            {hasBody && post.status !== 'published' && post.status !== 'scheduled' && (
               <button
                 type="button"
                 onClick={handleStatusToggle}
-                disabled={saving}
+                disabled={saving || publishing}
                 className={`text-[10px] py-1 px-2 border rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap ${
                   post.status === 'ready'
                     ? 'border-[#d97706] text-[#d97706] bg-white'
@@ -252,11 +291,82 @@ function BlogPostEditor({ id, onBack }) {
                 {post.status === 'ready' ? '↩ Mark drafting' : '✓ Mark ready'}
               </button>
             )}
+
+            {/* Publish flow — only when 'ready' or 'failed' + has body */}
+            {hasBody && (post.status === 'ready' || post.status === 'failed') && (
+              <>
+                <select
+                  value={publishMode}
+                  onChange={e => setPublishMode(e.target.value)}
+                  disabled={publishing}
+                  className="text-[10px] py-1 px-2 border border-[#e5e5e5] rounded cursor-pointer disabled:opacity-50"
+                  title="WP publish status"
+                >
+                  <option value="publish">→ Publish live</option>
+                  <option value="draft">→ Push as WP draft</option>
+                  <option value="private">→ Publish private</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={handlePublish}
+                  disabled={publishing || isDirty}
+                  className="text-[11px] py-1.5 px-3 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-40 font-medium whitespace-nowrap"
+                  title={isDirty ? 'Save your edits before publishing' : 'Push to WordPress with full SEO fields + images'}
+                >
+                  {publishing ? 'Publishing…' : '🚀 Publish to WordPress'}
+                </button>
+              </>
+            )}
+
+            {/* Unpublish (back to WP draft) — when published / scheduled */}
+            {hasBody && (post.status === 'published' || post.status === 'scheduled') && (
+              <button
+                type="button"
+                onClick={handleUnpublish}
+                disabled={publishing}
+                className="text-[10px] py-1 px-2 border border-[#d97706] text-[#d97706] bg-white rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+                title="Flip the WP post back to draft. Stays in WP Admin; not visible to readers."
+              >
+                {publishing ? 'Working…' : '↩ Unpublish (→ WP draft)'}
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Live URL once published */}
+        {post.wp_post_url && (
+          <div className="mt-2 text-[10px] flex items-center gap-2">
+            <span className="text-muted">Live:</span>
+            <a
+              href={post.wp_post_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#6C5CE7] underline truncate"
+              title={post.wp_post_url}
+            >{post.wp_post_url}</a>
+            {post.wp_post_id && <span className="text-muted">· wp #{post.wp_post_id}</span>}
+            {post.published_at && <span className="text-muted">· {new Date(post.published_at).toLocaleString()}</span>}
+          </div>
+        )}
+
+        {/* Surface publish failure detail when status='failed' */}
+        {post.status === 'failed' && post.publish_metadata?.error && (
+          <div className="mt-2 bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2 text-[10px] text-[#c0392b]">
+            <b>Publish failed:</b> {post.publish_metadata.error}
+            {post.publish_metadata.failed_at && (
+              <span className="text-muted ml-2">at {new Date(post.publish_metadata.failed_at).toLocaleString()}</span>
+            )}
+          </div>
+        )}
+
         {generating && (
           <div className="text-[10px] text-muted italic mt-2">
             Claude is writing the full article. ~30-90s. Internal-link candidates pulled from your indexed posts.
+          </div>
+        )}
+        {publishing && (
+          <div className="text-[10px] text-muted italic mt-2">
+            Uploading {(post.images || []).length} image{(post.images || []).length === 1 ? '' : 's'} to WordPress, resolving categories + tags, posting with Yoast meta. ~20-60s.
           </div>
         )}
       </div>
