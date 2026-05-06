@@ -173,7 +173,7 @@ export default function ContentConfig() {
       <PromotedBusinessSection
         value={promotedBusiness}
         onChange={setPromotedBusiness}
-        onSave={() => save('promoted', { promoted_business: promotedBusiness })}
+        onSave={(fresh) => save('promoted', { promoted_business: fresh })}
         saving={savingSection === 'promoted'}
         saved={savedFlash === 'promoted'}
       />
@@ -287,11 +287,51 @@ function PromotedBusinessSection({ value, onChange, onSave, saving, saved }) {
   const v = value || {}
   const patch = (k, val) => onChange({ ...v, [k]: val })
 
+  // owned_categories is a string in the input but an array in the
+  // saved config. Tracking a local string state lets the user type
+  // spaces, commas, and trailing whitespace without each keystroke
+  // round-tripping through split/trim/filter (which ate spaces and
+  // trailing commas while typing). Sync to the array on blur and on
+  // initial load.
+  const [categoriesText, setCategoriesText] = useState(
+    Array.isArray(v.owned_categories) ? v.owned_categories.join(', ') : ''
+  )
+  // Re-sync if the upstream array changes (e.g. after a save round-
+  // trips and we receive the canonical array back from the BE).
+  useEffect(() => {
+    const incoming = Array.isArray(v.owned_categories) ? v.owned_categories.join(', ') : ''
+    // Only adopt the upstream value when the local string would
+    // round-trip to the same array — prevents stomping mid-typing
+    // when the parent re-renders for an unrelated reason.
+    const localAsArray = categoriesText.split(',').map(s => s.trim()).filter(Boolean)
+    const upstreamArr = Array.isArray(v.owned_categories) ? v.owned_categories : []
+    const sameArray = localAsArray.length === upstreamArr.length
+      && localAsArray.every((s, i) => s === upstreamArr[i])
+    if (!sameArray) setCategoriesText(incoming)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v.owned_categories])
+
+  const commitCategories = () => {
+    const parsed = categoriesText.split(',').map(s => s.trim()).filter(Boolean)
+    patch('owned_categories', parsed)
+  }
+
+  // Build the canonical value at save-time. categoriesText is the
+  // source of truth for owned_categories (the upstream array gets
+  // re-synced via the effect above on round-trip). Avoids the async
+  // race where blur → patch → setState lags behind the Save click.
+  const handleSave = () => {
+    const parsed = categoriesText.split(',').map(s => s.trim()).filter(Boolean)
+    const fresh = { ...(v || {}), owned_categories: parsed }
+    onChange(fresh)        // sync parent state for next render
+    onSave(fresh)          // pass fresh value directly — no closure staleness
+  }
+
   return (
     <Section
       title="Promoted business"
       hint='The anchor brand (if any) — feature within its service radius for owned categories. Leave blank for editorial-only sites.'
-      onSave={onSave}
+      onSave={handleSave}
       saving={saving}
       saved={saved}
     >
@@ -350,8 +390,9 @@ function PromotedBusinessSection({ value, onChange, onSave, saving, saved }) {
           <label className="text-[10px] font-medium block mb-0.5">Owned categories (comma-separated)</label>
           <input
             type="text"
-            value={Array.isArray(v.owned_categories) ? v.owned_categories.join(', ') : ''}
-            onChange={e => patch('owned_categories', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+            value={categoriesText}
+            onChange={e => setCategoriesText(e.target.value)}
+            onBlur={commitCategories}
             placeholder="candle bar, perfume bar, soap bar"
             className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5"
           />
