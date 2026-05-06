@@ -148,3 +148,45 @@ export const listBlogPosts = () =>
       }
       return r.json()
     })
+
+// Single draft, full row (includes body_md + generation metadata).
+export const getBlogPost = (id) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getBlogPost failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Manual edit. Pass any subset of editable fields.
+export const updateBlogPost = (id, patch) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}`, {
+    method: 'PUT',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(patch || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateBlogPost failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Run full article generation. Slow (60-90s) — caller should show
+// a "generating" UI and poll/refresh when the response lands.
+export const generateBlogPost = (id, opts = {}) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}/generate`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ target_word_count: opts.targetWordCount }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `generateBlogPost failed (${r.status})`)
+    }
+    return r.json()
+  })
