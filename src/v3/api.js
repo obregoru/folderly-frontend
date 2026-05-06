@@ -299,8 +299,15 @@ export const publishBlogPost = (id, opts = {}) =>
 // Top-K internal-link candidates for a draft, with similarity scores.
 // Drives the editor's "swap a link" UI so the user can see which
 // existing posts the model considered.
-export const getLinkCandidates = (postId, k = 12) =>
-  fetch(`${apiBase()}/content/blog-posts/${postId}/link-candidates?k=${k}`, { credentials: 'include' })
+//
+// constraintModeOverride: 'open' | 'match_post_categories' | null
+//   When set, overrides the saved per-draft / per-template constraint
+//   FOR THIS QUERY ONLY — useful for "show me what's out there if I
+//   relaxed the rule" exploration without changing saved settings.
+export const getLinkCandidates = (postId, k = 12, constraintModeOverride = null) => {
+  const params = new URLSearchParams({ k: String(k) })
+  if (constraintModeOverride) params.set('constraint_mode', constraintModeOverride)
+  return fetch(`${apiBase()}/content/blog-posts/${postId}/link-candidates?${params}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -308,6 +315,7 @@ export const getLinkCandidates = (postId, k = 12) =>
       }
       return r.json()
     })
+}
 
 // Flip the WP post back to draft. Local status returns to 'ready'.
 export const unpublishBlogPost = (id) =>

@@ -624,17 +624,19 @@ function Field({ label, hint, children }) {
 function InternalLinksManager({ post, value, onChange }) {
   const links = Array.isArray(value) ? value : []
   const [candidates, setCandidates] = useState(null)
+  const [constraint, setConstraint] = useState(null)
   const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [showCandidates, setShowCandidates] = useState(false)
 
   // URLs already linked — used to mark candidates as "already used".
   const linkedUrls = new Set(links.map(l => l.url))
 
-  const loadCandidates = async () => {
+  const loadCandidates = async (overrideMode = null) => {
     setLoadingCandidates(true)
     try {
-      const r = await api.getLinkCandidates(post.id, 12)
+      const r = await api.getLinkCandidates(post.id, 12, overrideMode)
       setCandidates(r?.candidates || [])
+      setConstraint(r?.constraint || null)
       setShowCandidates(true)
     } catch (e) {
       console.warn('[link-candidates]', e?.message)
@@ -715,6 +717,38 @@ function InternalLinksManager({ post, value, onChange }) {
       {/* Candidate browser */}
       {showCandidates && (
         <div className="border-t border-[#e5e5e5] pt-2 mt-2">
+          {/* Constraint badge + override toggle */}
+          {constraint && (
+            <div className="flex items-center gap-2 mb-2 text-[10px] flex-wrap">
+              <span className="text-muted">Link constraint:</span>
+              <span className={`font-mono rounded px-1.5 py-0.5 ${
+                constraint.mode === 'match_post_categories'
+                  ? 'bg-[#fef3c7] text-[#92400e]'
+                  : 'bg-[#f3f0ff] text-[#6C5CE7]'
+              }`}>
+                {constraint.mode}
+              </span>
+              {constraint.mode === 'match_post_categories' && Array.isArray(constraint.applied_categories) && (
+                <span className="text-muted italic">
+                  filtering on: {constraint.applied_categories.join(', ') || '(none — falling back to open)'}
+                </span>
+              )}
+              {constraint.fell_back_to_open && (
+                <span className="text-[#d97706]">⚠ no draft categories — fell back to open</span>
+              )}
+              {/* Toggle this query between modes without changing
+                  the saved override — useful for "show me what's
+                  out there if I relaxed the constraint" exploration. */}
+              <button
+                type="button"
+                onClick={() => loadCandidates(constraint.mode === 'open' ? 'match_post_categories' : 'open')}
+                className="ml-auto text-[10px] py-0.5 px-2 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+                title="Re-run with the OTHER mode just for this view (doesn't change saved settings)"
+              >
+                {constraint.mode === 'open' ? 'Try match_post_categories →' : 'Try open →'}
+              </button>
+            </div>
+          )}
           <div className="text-[10px] text-muted mb-1">
             Top-K candidates by embedding similarity. Click any unlinked candidate to add it.
           </div>

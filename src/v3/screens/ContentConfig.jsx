@@ -54,6 +54,9 @@ export default function ContentConfig() {
   const [blogSchedule, setBlogSchedule] = useState(null)
   const [zerogptThreshold, setZerogptThreshold] = useState(null)
   const [mentionPrices, setMentionPrices] = useState(false)
+  // Per-template internal-link constraints. Object keyed by template:
+  // { shop_owner_ideas: { mode: 'open' | 'match_post_categories' }, ... }
+  const [linkConstraints, setLinkConstraints] = useState({})
 
   useEffect(() => {
     let cancelled = false
@@ -70,6 +73,7 @@ export default function ContentConfig() {
         setBlogSchedule(c.blog_schedule || null)
         setZerogptThreshold(c.zerogpt_threshold_percent ?? null)
         setMentionPrices(!!c.mention_prices_in_articles)
+        setLinkConstraints(c.link_constraints && typeof c.link_constraints === 'object' ? c.link_constraints : {})
       })
       .catch(e => { if (!cancelled) setError(e?.message || String(e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -234,6 +238,41 @@ export default function ContentConfig() {
         saving={savingSection === 'schedule'}
         saved={savedFlash === 'schedule'}
       />
+
+      {/* ── Internal-link constraints ─────────────────────────── */}
+      <Section
+        title="Internal-link constraints"
+        hint="Per-template rule for what counts as a valid internal-link target. 'Match post categories' restricts the AI to linking only to existing posts that share at least one category with the new article — keeps audience focus tight (no B2B article linking to consumer content)."
+        onSave={() => save('linkConstraints', { link_constraints: linkConstraints })}
+        saving={savingSection === 'linkConstraints'}
+        saved={savedFlash === 'linkConstraints'}
+        disabled={enabledTemplates.length === 0}
+        disabledHint="Enable a template above first."
+      >
+        {enabledTemplates.length === 0 ? (
+          <div className="text-[10px] text-muted italic">Enable a template above to configure its link constraint.</div>
+        ) : (
+          <div className="space-y-2">
+            {enabledTemplates.map(key => {
+              const t = ALL_TEMPLATES.find(x => x.key === key)
+              const mode = linkConstraints[key]?.mode || 'open'
+              return (
+                <div key={key} className="flex items-center gap-2">
+                  <label className="text-[11px] flex-1">{t?.label || key}</label>
+                  <select
+                    value={mode}
+                    onChange={e => setLinkConstraints(prev => ({ ...prev, [key]: { mode: e.target.value } }))}
+                    className="text-[11px] border border-[#e5e5e5] rounded p-1.5"
+                  >
+                    <option value="open">Open (any indexed post)</option>
+                    <option value="match_post_categories">Match post categories (same-audience only)</option>
+                  </select>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Section>
 
       {/* ── Article-generation rules ──────────────────────────── */}
       <Section
