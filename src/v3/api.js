@@ -435,6 +435,33 @@ export const recheckZeroGpt = (id) =>
     return r.json()
   })
 
+// Run a fresh drift-checker score (Haiku-backed self-critique against
+// the audience lock + template constraints).
+export const recheckDrift = (id) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}/drift-recheck`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `recheckDrift failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Calendar view: returns N weeks of cadence slots + scheduled / published
+// posts attached. weeks defaults to 4 (max 12).
+export const getSchedule = (weeks = 4) =>
+  fetch(`${apiBase()}/content/schedule?weeks=${weeks}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSchedule failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Flip the WP post back to draft. Local status returns to 'ready'.
 export const unpublishBlogPost = (id) =>
   fetch(`${apiBase()}/content/blog-posts/${id}/unpublish`, {

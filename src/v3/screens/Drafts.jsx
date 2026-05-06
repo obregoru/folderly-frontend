@@ -309,6 +309,24 @@ function BlogPostEditor({ id, onBack }) {
     }
   }
 
+  const handleRecheckDrift = async () => {
+    if (!post) return
+    setSaving(true)
+    setError(null)
+    try {
+      const r = await api.recheckDrift(post.id)
+      if (r.skipped) {
+        setError(`Drift check skipped: ${r.reason}`)
+      } else {
+        load()
+      }
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) return <div className="text-[12px] text-muted">Loading…</div>
   if (!post) return <div className="text-[12px] text-[#c0392b]">{error || 'Not found'}</div>
 
@@ -470,6 +488,48 @@ function BlogPostEditor({ id, onBack }) {
               disabled={saving || generating || publishing}
               className="text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer disabled:opacity-50"
             >↻ Recheck</button>
+          </div>
+        )}
+
+        {/* Drift row (audience-lock fit). Renders when we have a score
+            OR check timestamp. Reasoning + violations expandable below. */}
+        {(typeof post.drift_score === 'number' || post.last_drift_check) && (
+          <div className="mt-1 text-[10px]">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-muted">Drift:</span>
+              {typeof post.drift_score === 'number' ? (
+                <span className={`font-mono font-bold ${
+                  post.drift_score >= 8 ? 'text-[#2D9A5E]' : post.drift_score >= 6 ? 'text-[#d97706]' : 'text-[#c0392b]'
+                }`}>{post.drift_score.toFixed(1)}/10 audience fit</span>
+              ) : <span className="text-muted">no score</span>}
+              {post.last_drift_check && (
+                <span className="text-muted">· checked {new Date(post.last_drift_check).toLocaleString()}</span>
+              )}
+              <button
+                type="button"
+                onClick={handleRecheckDrift}
+                disabled={saving || generating || publishing}
+                className="text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer disabled:opacity-50"
+              >↻ Recheck</button>
+            </div>
+            {post.drift_metadata && (post.drift_metadata.reasoning || (post.drift_metadata.template_violations || []).length > 0) && (
+              <details className="ml-6 mt-1">
+                <summary className="text-[9px] text-muted cursor-pointer">Reasoning + violations</summary>
+                <div className="mt-1 text-[10px] space-y-1">
+                  {post.drift_metadata.audience_match && (
+                    <div><b>Audience match:</b> {post.drift_metadata.audience_match}</div>
+                  )}
+                  {post.drift_metadata.reasoning && (
+                    <div className="text-muted">{post.drift_metadata.reasoning}</div>
+                  )}
+                  {Array.isArray(post.drift_metadata.template_violations) && post.drift_metadata.template_violations.length > 0 && (
+                    <ul className="list-disc list-inside text-[#c0392b]">
+                      {post.drift_metadata.template_violations.map((v, i) => <li key={i}>{v}</li>)}
+                    </ul>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
         )}
 

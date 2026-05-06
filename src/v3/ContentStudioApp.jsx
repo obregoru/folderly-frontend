@@ -19,11 +19,12 @@ import ContentStudioDashboard from './screens/ContentStudioDashboard'
 import ContentConfig from './screens/ContentConfig'
 import TopicIdeation from './screens/TopicIdeation'
 import Drafts from './screens/Drafts'
+import Schedule from './screens/Schedule'
 
 export default function ContentStudioApp() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [screen, setScreen] = useState('dashboard') // 'dashboard' | 'ideation' | 'drafts' | 'config'
+  const [screen, setScreen] = useState('dashboard') // 'dashboard' | 'ideation' | 'drafts' | 'schedule' | 'config'
 
   // Mirror AppV2's auth bootstrap so V3 plays by the same rules.
   // Without setting api.tenantSlug from /me, every V3 endpoint call
@@ -71,6 +72,9 @@ export default function ContentStudioApp() {
           <NavButton active={screen === 'drafts'} onClick={() => setScreen('drafts')}>
             Drafts
           </NavButton>
+          <NavButton active={screen === 'schedule'} onClick={() => setScreen('schedule')}>
+            Schedule
+          </NavButton>
           <NavButton active={screen === 'config'} onClick={() => setScreen('config')}>
             Config
           </NavButton>
@@ -85,6 +89,7 @@ export default function ContentStudioApp() {
         {screen === 'dashboard' && <ContentStudioDashboard />}
         {screen === 'ideation' && <TopicIdeation />}
         {screen === 'drafts' && <Drafts />}
+        {screen === 'schedule' && <Schedule />}
         {screen === 'config' && <ContentConfig />}
       </main>
     </div>

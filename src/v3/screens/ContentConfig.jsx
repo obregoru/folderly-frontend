@@ -54,6 +54,7 @@ export default function ContentConfig() {
   const [evictStrategy, setEvictStrategy] = useState('sliding')
   const [blogSchedule, setBlogSchedule] = useState(null)
   const [zerogptThreshold, setZerogptThreshold] = useState(null)
+  const [driftThreshold, setDriftThreshold] = useState(null)
   const [mentionPrices, setMentionPrices] = useState(false)
   // Per-template internal-link constraints. Object keyed by template:
   // { shop_owner_ideas: { mode: 'open' | 'match_post_categories' }, ... }
@@ -73,6 +74,7 @@ export default function ContentConfig() {
         setEvictStrategy(c.blog_index_evict_strategy || 'sliding')
         setBlogSchedule(c.blog_schedule || null)
         setZerogptThreshold(c.zerogpt_threshold_percent ?? null)
+        setDriftThreshold(c.drift_threshold_score ?? null)
         setMentionPrices(!!c.mention_prices_in_articles)
         setLinkConstraints(c.link_constraints && typeof c.link_constraints === 'object' ? c.link_constraints : {})
       })
@@ -300,6 +302,28 @@ export default function ContentConfig() {
             </div>
           </div>
         </label>
+      </Section>
+
+      {/* ── Drift threshold ───────────────────────────────────── */}
+      <Section
+        title="Drift-checker threshold (optional)"
+        hint="Drafts scoring BELOW this on a 1-10 audience-fit scale get flagged for review. Drift uses Claude Haiku to score how well the article matches its template's audience lock — catches editorial drift ZeroGPT can't see (B2B article that drifted into consumer voice, etc.). Leave blank to disable."
+        onSave={() => save('drift', {
+          drift_threshold_score: driftThreshold === '' || driftThreshold == null ? null : Number(driftThreshold),
+        })}
+        saving={savingSection === 'drift'}
+        saved={savedFlash === 'drift'}
+      >
+        <div className="flex items-center gap-2">
+          <input
+            type="number" min="1" max="10" step="0.5"
+            value={driftThreshold ?? ''}
+            placeholder="(disabled)"
+            onChange={e => setDriftThreshold(e.target.value)}
+            className="text-[11px] border border-[#e5e5e5] rounded p-1.5 w-24"
+          />
+          <span className="text-[10px] text-muted">/ 10 (e.g. 7 means flag below 7/10)</span>
+        </div>
       </Section>
 
       {/* ── ZeroGPT threshold ─────────────────────────────────── */}
