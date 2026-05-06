@@ -475,3 +475,14 @@ export const unpublishBlogPost = (id) =>
     }
     return r.json()
   })
+
+// V3 Phase 7 — recent lifecycle events for the Dashboard panel.
+export const getActivity = (limit = 50) =>
+  fetch(`${apiBase()}/content/activity?limit=${limit}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getActivity failed (${r.status})`)
+      }
+      return r.json()
+    })

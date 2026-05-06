@@ -552,11 +552,33 @@ function BlogPostEditor({ id, onBack }) {
         {/* Surface publish failure detail when status='failed' */}
         {post.status === 'failed' && post.publish_metadata?.error && (
           <div className="mt-2 bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2 text-[10px] text-[#c0392b]">
-            <b>Publish failed:</b> {post.publish_metadata.error}
+            <b>Publish failed{post.publish_metadata.error_class ? ` (${post.publish_metadata.error_class})` : ''}:</b>{' '}
+            {post.publish_metadata.error}
             {post.publish_metadata.failed_at && (
               <span className="text-muted ml-2">at {new Date(post.publish_metadata.failed_at).toLocaleString()}</span>
             )}
+            {post.next_retry_at && new Date(post.next_retry_at).getTime() > Date.now() && (
+              <div className="mt-1 text-[#d97706]">
+                ⏱ Auto-retry scheduled at {new Date(post.next_retry_at).toLocaleString()}
+                {post.publish_metadata.next_retry_in_minutes != null && (
+                  <span className="text-muted"> (in {post.publish_metadata.next_retry_in_minutes}m)</span>
+                )}
+              </div>
+            )}
+            {!post.next_retry_at && post.publish_metadata.error_class === 'terminal' && (
+              <div className="mt-1 text-muted">Won't auto-retry — terminal error. Fix the cause and click 🚀 Publish now.</div>
+            )}
+            {!post.next_retry_at && post.publish_metadata.error_class !== 'terminal' && (
+              <div className="mt-1 text-muted">Retry budget exhausted. Click 🚀 Publish now to try again.</div>
+            )}
           </div>
+        )}
+
+        {/* Retry history — surfaces every attempt (newest first) when
+            we have any, even on successful posts. Useful for debugging
+            transient WP issues retroactively. */}
+        {Array.isArray(post.publish_attempts) && post.publish_attempts.length > 0 && (
+          <PublishAttemptsLog attempts={post.publish_attempts} />
         )}
 
         {generating && (
@@ -1399,6 +1421,51 @@ function SourceCandidate({ c }) {
         </div>
       )}
       {c.rationale && <div><b>Why:</b> {c.rationale}</div>}
+    </div>
+  )
+}
+
+// Collapsible publish-attempts log. Shows up under the failure block on
+// failed posts and under the published banner on successful posts so
+// you can see retry history retroactively.
+function PublishAttemptsLog({ attempts }) {
+  const [open, setOpen] = useState(false)
+  // Newest first.
+  const ordered = [...attempts].reverse()
+  const failed = ordered.filter(a => a && a.ok === false).length
+  const ok = ordered.filter(a => a && a.ok === true).length
+  return (
+    <div className="mt-2 text-[10px]">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="text-muted underline cursor-pointer bg-transparent border-none p-0"
+      >
+        {open ? '▼' : '▶'} Publish history ({ordered.length} attempt{ordered.length === 1 ? '' : 's'} · {ok} ok / {failed} failed)
+      </button>
+      {open && (
+        <ul className="mt-1 space-y-1 border border-[#e5e5e5] rounded p-2 bg-[#fafafa]">
+          {ordered.map((a, i) => (
+            <li key={i} className="flex items-start gap-2 font-mono text-[10px]">
+              <span className={a.ok ? 'text-[#2D9A5E]' : 'text-[#c0392b]'}>{a.ok ? '✓' : '✕'}</span>
+              <div className="flex-1 min-w-0">
+                <div>
+                  {new Date(a.attempted_at).toLocaleString()}
+                  {a.kind && <span className="text-muted ml-1">[{a.kind}]</span>}
+                  {a.duration_ms != null && <span className="text-muted ml-1">{a.duration_ms}ms</span>}
+                  {a.http_status && <span className="text-muted ml-1">HTTP {a.http_status}</span>}
+                </div>
+                {!a.ok && (
+                  <div className="text-[#c0392b] truncate" title={a.error_message}>
+                    {a.error_class || a.error_reason || ''}
+                    {a.error_message ? `: ${a.error_message}` : ''}
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
