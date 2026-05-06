@@ -430,6 +430,16 @@ export default function AppV2() {
             compile time. Lets users (and us) confirm exactly which
             commit is running in their browser without opening dev
             tools. Click to copy the hash for sharing in bug reports. */}
+        {/* V3 Content Studio link — opens the blog content system in
+            a new tab so the user doesn't lose their V2 editor state.
+            Same tenant context (auth cookie), separate route. */}
+        <a
+          href="/content-studio"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0 no-underline whitespace-nowrap"
+          title="Content Studio — V3 blog content system (opens in new tab)"
+        >📝 Content Studio</a>
         <button
           type="button"
           onClick={() => {
