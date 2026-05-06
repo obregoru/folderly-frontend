@@ -9,6 +9,30 @@ export default function ContentStudioDashboard() {
   const [indexCount, setIndexCount] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshSummary, setRefreshSummary] = useState(null)
+
+  const reloadIndexCount = async () => {
+    try {
+      const idx = await api.getContentIndex()
+      setIndexCount(Array.isArray(idx?.items) ? idx.items.length : 0)
+    } catch { /* keep prior count */ }
+  }
+
+  const handleRefreshIndex = async () => {
+    setRefreshing(true)
+    setRefreshSummary(null)
+    setError(null)
+    try {
+      const summary = await api.refreshContentIndex()
+      setRefreshSummary(summary)
+      await reloadIndexCount()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -57,6 +81,47 @@ export default function ContentStudioDashboard() {
           tone={indexCount > 0 ? 'good' : 'muted'}
           hint={indexCount === 0 ? 'No posts indexed yet (indexer wires up next).' : null}
         />
+      </div>
+
+      <div className="bg-white border border-[#e5e5e5] rounded p-3">
+        <div className="flex items-start gap-2">
+          <div className="flex-1">
+            <h3 className="text-[12px] font-medium">WordPress indexer</h3>
+            <p className="text-[10px] text-muted leading-snug">
+              Pull the most recent posts from your WP site, embed them, and store them as internal-link candidates.
+              Runs daily automatically; click below to trigger now.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleRefreshIndex}
+            disabled={refreshing}
+            className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+          >
+            {refreshing ? 'Indexing…' : '🔄 Refresh index'}
+          </button>
+        </div>
+        {refreshSummary && (
+          <div className="mt-2 text-[10px] bg-[#fafafa] border border-[#e5e5e5] rounded p-2 font-mono">
+            {refreshSummary.skipped && (
+              <div className="text-[#d97706]">Skipped: {refreshSummary.reason}</div>
+            )}
+            {!refreshSummary.skipped && (
+              <>
+                <div>posts seen: <b>{refreshSummary.posts_seen}</b></div>
+                <div>upserted: <b>{refreshSummary.upserts}</b></div>
+                <div>skipped (thin): {refreshSummary.skipped_thin}</div>
+                <div>soft-deleted: {refreshSummary.soft_deleted}</div>
+                <div>
+                  embeddings: <b>{refreshSummary.embeddings_succeeded}/{refreshSummary.embeddings_attempted}</b>
+                  {refreshSummary.embeddings_attempted > 0 && refreshSummary.embeddings_succeeded === 0 && (
+                    <span className="text-[#d97706] ml-2">— check OPENAI_API_KEY</span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {promoted && (
