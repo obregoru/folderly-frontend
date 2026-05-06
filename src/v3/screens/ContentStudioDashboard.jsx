@@ -19,12 +19,12 @@ export default function ContentStudioDashboard() {
     } catch { /* keep prior count */ }
   }
 
-  const handleRefreshIndex = async () => {
+  const handleRefreshIndex = async (forceReembed = false) => {
     setRefreshing(true)
     setRefreshSummary(null)
     setError(null)
     try {
-      const summary = await api.refreshContentIndex()
+      const summary = await api.refreshContentIndex({ forceReembed })
       setRefreshSummary(summary)
       await reloadIndexCount()
     } catch (e) {
@@ -92,14 +92,25 @@ export default function ContentStudioDashboard() {
               Runs daily automatically; click below to trigger now.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleRefreshIndex}
-            disabled={refreshing}
-            className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
-          >
-            {refreshing ? 'Indexing…' : '🔄 Refresh index'}
-          </button>
+          <div className="flex flex-col gap-1">
+            <button
+              type="button"
+              onClick={() => handleRefreshIndex(false)}
+              disabled={refreshing}
+              className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+            >
+              {refreshing ? 'Indexing…' : '🔄 Refresh index'}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleRefreshIndex(true)}
+              disabled={refreshing}
+              className="text-[10px] py-0.5 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+              title="Re-embed every indexed post regardless of modified_at. Use after switching embedding providers or when prior embedding calls failed."
+            >
+              ↻ Force re-embed all
+            </button>
+          </div>
         </div>
         {refreshSummary && (
           <div className="mt-2 text-[10px] bg-[#fafafa] border border-[#e5e5e5] rounded p-2 font-mono">

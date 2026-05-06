@@ -70,11 +70,15 @@ export const getContentIndex = () =>
     })
 
 // ── Manual indexer trigger ────────────────────────────────────────
-export const refreshContentIndex = () =>
+// opts.forceReembed: re-embed every indexed post regardless of
+// modified_at. Used when you've changed embedding providers or
+// want to back-fill rows whose previous embedding call failed.
+export const refreshContentIndex = (opts = {}) =>
   fetch(`${apiBase()}/content/index/refresh`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
+    body: JSON.stringify({ force_reembed: !!opts.forceReembed }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
@@ -82,6 +86,16 @@ export const refreshContentIndex = () =>
     }
     return r.json()
   })
+
+// ── Storage health ────────────────────────────────────────────────
+// Returns { configured: boolean }. Used by the editor to surface a
+// "image storage not configured" banner BEFORE the user attempts an
+// upload. Works without auth checks beyond the standard tenant
+// wrapper since the response is pure boolean state.
+export const getStorageStatus = () =>
+  fetch(`${apiBase()}/content/storage-status`, { credentials: 'include' })
+    .then(r => r.json())
+    .catch(() => ({ configured: false }))
 
 // ── Tenant WP taxonomy ────────────────────────────────────────────
 // Snapshot of categories + tags pulled by the WP indexer. Used for
@@ -281,6 +295,19 @@ export const publishBlogPost = (id, opts = {}) =>
     }
     return r.json()
   })
+
+// Top-K internal-link candidates for a draft, with similarity scores.
+// Drives the editor's "swap a link" UI so the user can see which
+// existing posts the model considered.
+export const getLinkCandidates = (postId, k = 12) =>
+  fetch(`${apiBase()}/content/blog-posts/${postId}/link-candidates?k=${k}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getLinkCandidates failed (${r.status})`)
+      }
+      return r.json()
+    })
 
 // Flip the WP post back to draft. Local status returns to 'ready'.
 export const unpublishBlogPost = (id) =>

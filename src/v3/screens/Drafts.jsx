@@ -581,25 +581,11 @@ function BlogPostEditor({ id, onBack }) {
             )}
           </Section>
 
-          <Section title={`Internal links (${(post.internal_links || []).length})`}>
-            {(post.internal_links || []).length === 0 ? (
-              <div className="text-[10px] text-muted italic">No internal links suggested.</div>
-            ) : (
-              <ul className="space-y-1">
-                {(post.internal_links || []).map((l, i) => (
-                  <li key={i} className="border border-[#e5e5e5] rounded p-2 text-[11px]">
-                    <div>
-                      <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">
-                        {l.anchor_text}
-                      </a>
-                      <span className="ml-2 text-[9px] text-muted font-mono">{l.url}</span>
-                    </div>
-                    {l.rationale && <div className="text-[10px] text-muted italic mt-0.5">{l.rationale}</div>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
+          <InternalLinksManager
+            post={post}
+            value={value('internal_links') || []}
+            onChange={v => setField('internal_links', v)}
+          />
 
           {post.generation_metadata && (
             <details className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2 text-[10px]">
@@ -630,6 +616,149 @@ function Field({ label, hint, children }) {
     </div>
   )
 }
+// ── Internal links manager ────────────────────────────────────────
+// Shows the model-picked links + lets the user remove them, plus
+// surfaces top-K candidates from the embedding retrieval that the
+// model DIDN'T pick so the user can add their own. Each candidate
+// shows its similarity score so the user can judge fit.
+function InternalLinksManager({ post, value, onChange }) {
+  const links = Array.isArray(value) ? value : []
+  const [candidates, setCandidates] = useState(null)
+  const [loadingCandidates, setLoadingCandidates] = useState(false)
+  const [showCandidates, setShowCandidates] = useState(false)
+
+  // URLs already linked — used to mark candidates as "already used".
+  const linkedUrls = new Set(links.map(l => l.url))
+
+  const loadCandidates = async () => {
+    setLoadingCandidates(true)
+    try {
+      const r = await api.getLinkCandidates(post.id, 12)
+      setCandidates(r?.candidates || [])
+      setShowCandidates(true)
+    } catch (e) {
+      console.warn('[link-candidates]', e?.message)
+    } finally {
+      setLoadingCandidates(false)
+    }
+  }
+
+  const removeLink = (i) => {
+    const next = links.filter((_, j) => j !== i)
+    onChange(next)
+  }
+
+  const addLink = (cand) => {
+    if (linkedUrls.has(cand.source_url)) return
+    // Default anchor text to the candidate's title; user edits in
+    // the row's input afterwards. rationale is empty for manual adds.
+    const next = [...links, {
+      url: cand.source_url,
+      anchor_text: cand.title,
+      rationale: 'Added manually',
+    }]
+    onChange(next)
+  }
+
+  const updateLink = (i, patch) => {
+    const next = links.map((l, j) => j === i ? { ...l, ...patch } : l)
+    onChange(next)
+  }
+
+  return (
+    <div className="bg-white border border-[#e5e5e5] rounded p-3 space-y-2">
+      <div className="flex items-center gap-2 mb-1">
+        <h3 className="text-[12px] font-medium flex-1">Internal links ({links.length})</h3>
+        <button
+          type="button"
+          onClick={() => showCandidates ? setShowCandidates(false) : loadCandidates()}
+          disabled={loadingCandidates}
+          className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+        >
+          {loadingCandidates ? 'Loading…' : (showCandidates ? '✕ Hide candidates' : '🔍 Browse all candidates')}
+        </button>
+      </div>
+
+      {/* Active links */}
+      {links.length === 0 ? (
+        <div className="text-[10px] text-muted italic">
+          No internal links yet. The article-generator picks 0–4 from the indexed posts; you can add more from "Browse all candidates" above.
+        </div>
+      ) : (
+        <ul className="space-y-1.5">
+          {links.map((l, i) => (
+            <li key={i} className="border border-[#e5e5e5] rounded p-2 text-[11px] space-y-1">
+              <div className="flex items-start gap-2">
+                <input
+                  type="text"
+                  value={l.anchor_text || ''}
+                  onChange={e => updateLink(i, { anchor_text: e.target.value })}
+                  className="flex-1 text-[11px] border border-[#e5e5e5] rounded p-1"
+                  placeholder="Anchor text"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeLink(i)}
+                  className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] bg-white rounded cursor-pointer"
+                  title="Remove this link"
+                >Remove</button>
+              </div>
+              <div className="text-[9px] text-muted font-mono break-all">
+                <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7]">{l.url}</a>
+              </div>
+              {l.rationale && <div className="text-[9px] text-muted italic">{l.rationale}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Candidate browser */}
+      {showCandidates && (
+        <div className="border-t border-[#e5e5e5] pt-2 mt-2">
+          <div className="text-[10px] text-muted mb-1">
+            Top-K candidates by embedding similarity. Click any unlinked candidate to add it.
+          </div>
+          {!candidates || candidates.length === 0 ? (
+            <div className="text-[10px] text-muted italic">No candidates returned. The tenant's content index may be empty or unembedded.</div>
+          ) : (
+            <ul className="space-y-1">
+              {candidates.map((c, i) => {
+                const used = linkedUrls.has(c.source_url)
+                return (
+                  <li key={i} className={`border rounded p-2 text-[11px] ${used ? 'border-[#2D9A5E]/30 bg-[#f0faf4]' : 'border-[#e5e5e5] bg-white hover:border-[#6C5CE7]/50'}`}>
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          {typeof c.similarity === 'number' && (
+                            <span className="text-[9px] font-mono bg-[#f3f0ff] text-[#6C5CE7] rounded px-1.5 py-0.5">
+                              {(c.similarity * 100).toFixed(0)}%
+                            </span>
+                          )}
+                          {used && <span className="text-[9px] bg-[#2D9A5E] text-white rounded px-1.5 py-0.5">linked</span>}
+                          <span className="text-[11px] font-medium truncate">{c.title}</span>
+                        </div>
+                        {c.excerpt && <div className="text-[9px] text-muted mt-0.5 line-clamp-2">{c.excerpt.slice(0, 200)}</div>}
+                        <div className="text-[9px] text-muted font-mono mt-0.5 break-all">{c.source_url}</div>
+                      </div>
+                      {!used && (
+                        <button
+                          type="button"
+                          onClick={() => addLink(c)}
+                          className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer whitespace-nowrap"
+                        >+ Add</button>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Categories / tags token input ─────────────────────────────────
 // Comma-separated text input + a <datalist> drawn from the tenant's
 // WP taxonomy. The datalist gives free-text autocomplete without
@@ -682,6 +811,13 @@ function ImageManager({ postId, images, onChange, setError }) {
   const [pendingFilename, setPendingFilename] = useState('')
   const [pendingAlt, setPendingAlt] = useState('')
   const [pendingRole, setPendingRole] = useState('inline')
+  // Pre-flight check: image storage must be configured before
+  // upload can succeed. Saves the user from picking a file +
+  // typing alt text only to be told it doesn't work.
+  const [storageOk, setStorageOk] = useState(true)
+  useEffect(() => {
+    api.getStorageStatus().then(s => setStorageOk(!!s?.configured))
+  }, [])
 
   const reset = () => {
     setPendingFile(null)
@@ -732,6 +868,13 @@ function ImageManager({ postId, images, onChange, setError }) {
         </div>
       </div>
 
+      {/* Storage-not-configured warning */}
+      {!storageOk && (
+        <div className="bg-[#fff7e6] border border-[#f5a623] rounded p-2 text-[11px] text-[#8a4b00]">
+          <b>Image upload disabled on this environment.</b> Image storage isn't configured locally — add <code className="font-mono text-[10px] bg-white px-1 rounded">SUPABASE_URL</code> and <code className="font-mono text-[10px] bg-white px-1 rounded">SUPABASE_SERVICE_KEY</code> to <code className="font-mono text-[10px] bg-white px-1 rounded">folderly-backend/.env</code> (use the same values as production), then restart Express. Article generation works without uploads — the model emits image specs the user can fulfill manually after publish.
+        </div>
+      )}
+
       {/* Upload form */}
       <div className="border border-dashed border-[#e5e5e5] rounded p-2 space-y-2">
         <div className="flex items-center gap-2">
@@ -739,7 +882,7 @@ function ImageManager({ postId, images, onChange, setError }) {
             type="file"
             accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/avif"
             onChange={e => handleFileSelected(e.target.files?.[0] || null)}
-            disabled={uploading}
+            disabled={uploading || !storageOk}
             className="text-[11px] flex-1"
           />
           {pendingFile && (
