@@ -253,6 +253,17 @@ export default function TopicIdeation() {
                       <div className="text-[12px] font-medium text-ink leading-tight">{c.title}</div>
                       <div className="text-[10px] text-muted mt-0.5 italic">{c.audience_hook}</div>
                       <div className="text-[10px] text-ink mt-1">{c.angle}</div>
+                      {Array.isArray(c.suggested_categories) && c.suggested_categories.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {c.suggested_categories.map((cat, j) => (
+                            <span
+                              key={j}
+                              className="text-[9px] bg-[#f3f0ff] text-[#6C5CE7] rounded px-1.5 py-0.5"
+                              title="WP category suggestion (editable on the draft)"
+                            >{cat}</span>
+                          ))}
+                        </div>
+                      )}
                       {Array.isArray(c.suggested_h2s) && c.suggested_h2s.length > 0 && (
                         <details className="mt-1">
                           <summary className="text-[9px] text-muted cursor-pointer">Suggested H2s ({c.suggested_h2s.length})</summary>

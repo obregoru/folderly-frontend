@@ -83,6 +83,20 @@ export const refreshContentIndex = () =>
     return r.json()
   })
 
+// ── Tenant WP taxonomy ────────────────────────────────────────────
+// Snapshot of categories + tags pulled by the WP indexer. Used for
+// FE autocomplete on the editor + read-only category chips on
+// ideation candidate cards.
+export const getTaxonomy = () =>
+  fetch(`${apiBase()}/content/taxonomy`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getTaxonomy failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // ── Topic ideation ────────────────────────────────────────────────
 // Run Claude + web_search to produce 8 candidate topics for the
 // chosen template. BE persists to blog_topics and returns the

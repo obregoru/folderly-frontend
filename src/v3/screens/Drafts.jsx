@@ -126,6 +126,9 @@ function BlogPostEditor({ id, onBack }) {
   const [savedFlash, setSavedFlash] = useState(null)
   const [publishing, setPublishing] = useState(false)
   const [publishMode, setPublishMode] = useState('publish') // 'publish' | 'draft'
+  // Tenant taxonomy snapshot — feeds the categories/tags datalists
+  // so the user picks from existing WP taxonomy by default.
+  const [taxonomy, setTaxonomy] = useState({ categories: [], tags: [] })
 
   // Local edit buffers — separate from `post` so unsaved changes
   // aren't lost on a Generate run.
@@ -146,6 +149,18 @@ function BlogPostEditor({ id, onBack }) {
   }
 
   useEffect(() => { load() }, [id])
+
+  // Pull the tenant's WP taxonomy once on mount. Used to populate
+  // the <datalist> behind the categories + tags inputs so the user
+  // gets autocomplete against real WP taxonomy.
+  useEffect(() => {
+    api.getTaxonomy()
+      .then(t => setTaxonomy({
+        categories: Array.isArray(t?.categories) ? t.categories : [],
+        tags: Array.isArray(t?.tags) ? t.tags : [],
+      }))
+      .catch(() => { /* taxonomy is best-effort; UI still works without */ })
+  }, [])
 
   const value = (field) => editBuf[field] !== undefined ? editBuf[field] : post?.[field]
   const setField = (field, v) => setEditBuf(prev => ({ ...prev, [field]: v }))
@@ -489,20 +504,54 @@ function BlogPostEditor({ id, onBack }) {
           </Section>
 
           <Section title="Categories & tags">
-            <Field label="Categories (comma-separated)">
-              <input
-                type="text"
-                value={(value('categories') || []).join(', ')}
-                onChange={e => setField('categories', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5"
+            <Field
+              label="Categories (comma-separated)"
+              hint={taxonomy.categories.length > 0 ? `${taxonomy.categories.length} existing on WP — pick from those when possible` : null}
+            >
+              <CategoryTokensInput
+                value={value('categories') || []}
+                onChange={v => setField('categories', v)}
+                options={taxonomy.categories}
               />
+              {taxonomy.categories.length > 0 && (
+                <details className="mt-1">
+                  <summary className="text-[9px] text-muted cursor-pointer">Show all {taxonomy.categories.length} existing categories</summary>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {taxonomy.categories.map(c => {
+                      const selected = (value('categories') || []).includes(c.name)
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => {
+                            const cur = value('categories') || []
+                            const next = selected
+                              ? cur.filter(x => x !== c.name)
+                              : [...new Set([...cur, c.name])]
+                            setField('categories', next)
+                          }}
+                          className={`text-[9px] py-0.5 px-1.5 border rounded cursor-pointer ${
+                            selected
+                              ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+                              : 'bg-white text-ink border-[#e5e5e5] hover:border-[#6C5CE7]/50'
+                          }`}
+                          title={c.count != null ? `${c.count} posts use this` : ''}
+                        >{c.name}{c.count ? ` · ${c.count}` : ''}</button>
+                      )
+                    })}
+                  </div>
+                </details>
+              )}
             </Field>
-            <Field label="Tags (comma-separated)">
-              <input
-                type="text"
-                value={(value('tags') || []).join(', ')}
-                onChange={e => setField('tags', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5"
+            <Field
+              label="Tags (comma-separated)"
+              hint={taxonomy.tags.length > 0 ? `${taxonomy.tags.length} existing on WP` : null}
+            >
+              <CategoryTokensInput
+                value={value('tags') || []}
+                onChange={v => setField('tags', v)}
+                options={taxonomy.tags}
+                listIdSuffix="tags"
               />
             </Field>
           </Section>
@@ -581,6 +630,46 @@ function Field({ label, hint, children }) {
     </div>
   )
 }
+// ── Categories / tags token input ─────────────────────────────────
+// Comma-separated text input + a <datalist> drawn from the tenant's
+// WP taxonomy. The datalist gives free-text autocomplete without
+// constraining the user to existing values — they can still type
+// a new category name and it'll save fine.
+function CategoryTokensInput({ value, onChange, options, listIdSuffix = 'categories' }) {
+  const [text, setText] = useState((value || []).join(', '))
+  // Re-sync when the upstream value changes (e.g. round-trip from save).
+  useEffect(() => {
+    const incoming = (value || []).join(', ')
+    if (incoming !== text) setText(incoming)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+  const listId = `taxonomy-${listIdSuffix}`
+  return (
+    <>
+      <input
+        type="text"
+        value={text}
+        onChange={e => setText(e.target.value)}
+        onBlur={() => {
+          // Parse on blur — keeps spaces typing-friendly during edits.
+          const parsed = text.split(',').map(s => s.trim()).filter(Boolean)
+          onChange(parsed)
+        }}
+        list={listId}
+        className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5"
+        placeholder={listIdSuffix === 'tags' ? 'e.g. shop hop, candle bar, beginner' : 'e.g. Candle Bar, Events'}
+      />
+      {Array.isArray(options) && options.length > 0 && (
+        <datalist id={listId}>
+          {options.map(o => (
+            <option key={o.id} value={o.name}>{o.count ? `${o.count} posts` : ''}</option>
+          ))}
+        </datalist>
+      )}
+    </>
+  )
+}
+
 // ── Image manager ─────────────────────────────────────────────────
 // Sits at the top of the BlogPostEditor body (above the Generate
 // button area, when present). Lets the user upload images that the
