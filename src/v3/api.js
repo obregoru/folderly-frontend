@@ -317,6 +317,58 @@ export const getLinkCandidates = (postId, k = 12, constraintModeOverride = null)
     })
 }
 
+// ── Schedule controls ─────────────────────────────────────────────
+// Force-schedule a 'ready' / 'flagged' / 'failed' draft. Pass an
+// explicit scheduledFor (Date or ISO string) to override the
+// cadence finder; omit to let the BE pick the next available slot
+// from the tenant's blog_schedule.
+export const scheduleBlogPost = (id, opts = {}) => {
+  const body = {}
+  if (opts.scheduledFor) body.scheduled_for = new Date(opts.scheduledFor).toISOString()
+  return fetch(`${apiBase()}/content/blog-posts/${id}/schedule`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(body),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `scheduleBlogPost failed (${r.status})`)
+    }
+    return r.json()
+  })
+}
+
+// Pull a 'scheduled' draft back to 'ready'. Clears scheduled_for.
+export const unscheduleBlogPost = (id) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}/unschedule`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `unscheduleBlogPost failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Run a fresh ZeroGPT score against the current body. Returns either
+// { ok: true, zerogpt_score, last_zerogpt_check } or { skipped: true,
+// reason } when the API key isn't configured.
+export const recheckZeroGpt = (id) =>
+  fetch(`${apiBase()}/content/blog-posts/${id}/zerogpt-recheck`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `recheckZeroGpt failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Flip the WP post back to draft. Local status returns to 'ready'.
 export const unpublishBlogPost = (id) =>
   fetch(`${apiBase()}/content/blog-posts/${id}/unpublish`, {

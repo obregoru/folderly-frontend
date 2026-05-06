@@ -103,8 +103,17 @@ export default function Drafts() {
                     <div className="text-[12px] font-medium text-ink truncate">{p.title}</div>
                     <div className="text-[9px] text-muted truncate">/{p.slug}</div>
                   </div>
-                  <div className="text-[9px] text-muted whitespace-nowrap text-right">
-                    {p.generated_at ? new Date(p.generated_at).toLocaleDateString() : 'not generated'}
+                  <div className="text-[9px] whitespace-nowrap text-right">
+                    {p.status === 'scheduled' && p.scheduled_for ? (
+                      <div className="text-[#3b82f6] font-medium">📅 {new Date(p.scheduled_for).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+                    ) : (
+                      <div className="text-muted">{p.generated_at ? new Date(p.generated_at).toLocaleDateString() : 'not generated'}</div>
+                    )}
+                    {typeof p.zerogpt_score === 'number' && (
+                      <div className={`text-[9px] mt-0.5 ${
+                        p.zerogpt_score >= 60 ? 'text-[#c0392b]' : p.zerogpt_score >= 30 ? 'text-[#d97706]' : 'text-[#2D9A5E]'
+                      }`} title="ZeroGPT score">{p.zerogpt_score.toFixed(0)}% AI</div>
+                    )}
                   </div>
                 </button>
               </li>
@@ -250,6 +259,55 @@ function BlogPostEditor({ id, onBack }) {
     }
   }
 
+  const handleSchedule = async () => {
+    if (!post || isDirty) {
+      setError(isDirty ? 'Save your edits before scheduling.' : 'No post to schedule.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      const updated = await api.scheduleBlogPost(post.id) // null → cadence finder
+      setPost(updated)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleUnschedule = async () => {
+    if (!post) return
+    setSaving(true)
+    setError(null)
+    try {
+      const updated = await api.unscheduleBlogPost(post.id)
+      setPost(updated)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRecheckZeroGpt = async () => {
+    if (!post) return
+    setSaving(true)
+    setError(null)
+    try {
+      const r = await api.recheckZeroGpt(post.id)
+      if (r.skipped) {
+        setError(`ZeroGPT skipped: ${r.reason}`)
+      } else {
+        load()
+      }
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) return <div className="text-[12px] text-muted">Loading…</div>
   if (!post) return <div className="text-[12px] text-[#c0392b]">{error || 'Not found'}</div>
 
@@ -307,8 +365,36 @@ function BlogPostEditor({ id, onBack }) {
               </button>
             )}
 
+            {/* Schedule flow — visible on 'ready' or 'flagged' drafts.
+                Schedule for a cadence slot (cron auto-publishes after
+                the edit window expires) OR publish immediately. */}
+            {hasBody && (post.status === 'ready' || post.status === 'flagged') && (
+              <button
+                type="button"
+                onClick={handleSchedule}
+                disabled={saving || publishing || isDirty}
+                className="text-[11px] py-1.5 px-3 bg-[#3b82f6] text-white border-none rounded cursor-pointer disabled:opacity-40 font-medium whitespace-nowrap"
+                title={isDirty ? 'Save your edits before scheduling' : 'Auto-pick the next cadence slot for this draft'}
+              >
+                📅 Schedule for next slot
+              </button>
+            )}
+
+            {/* Unschedule when 'scheduled' */}
+            {post.status === 'scheduled' && (
+              <button
+                type="button"
+                onClick={handleUnschedule}
+                disabled={saving || publishing}
+                className="text-[10px] py-1 px-2 border border-[#3b82f6] text-[#3b82f6] bg-white rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+                title="Pull this back to 'ready' (clears scheduled_for)"
+              >
+                ↩ Unschedule
+              </button>
+            )}
+
             {/* Publish flow — only when 'ready' or 'failed' + has body */}
-            {hasBody && (post.status === 'ready' || post.status === 'failed') && (
+            {hasBody && (post.status === 'ready' || post.status === 'failed' || post.status === 'flagged') && (
               <>
                 <select
                   value={publishMode}
@@ -326,9 +412,9 @@ function BlogPostEditor({ id, onBack }) {
                   onClick={handlePublish}
                   disabled={publishing || isDirty}
                   className="text-[11px] py-1.5 px-3 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-40 font-medium whitespace-nowrap"
-                  title={isDirty ? 'Save your edits before publishing' : 'Push to WordPress with full SEO fields + images'}
+                  title={isDirty ? 'Save your edits before publishing' : 'Push to WordPress now, skipping the cadence schedule'}
                 >
-                  {publishing ? 'Publishing…' : '🚀 Publish to WordPress'}
+                  {publishing ? 'Publishing…' : '🚀 Publish now'}
                 </button>
               </>
             )}
@@ -347,6 +433,44 @@ function BlogPostEditor({ id, onBack }) {
             )}
           </div>
         </div>
+
+        {/* Scheduled-for chip + edit-window context */}
+        {post.status === 'scheduled' && post.scheduled_for && (
+          <div className="mt-2 text-[10px] bg-[#dbeafe] border border-[#3b82f6]/30 text-[#1e40af] rounded p-2">
+            <b>📅 Auto-publishing on:</b> {new Date(post.scheduled_for).toLocaleString()}{' '}
+            <span className="text-[#1e40af]/70">
+              · scheduler runs every 60s · edits between now and then auto-revert this to 'ready' so the schedule re-evaluates
+            </span>
+          </div>
+        )}
+
+        {/* Flagged warning when ZeroGPT flipped status */}
+        {post.status === 'flagged' && (
+          <div className="mt-2 text-[10px] bg-[#fdf2f1] border border-[#c0392b]/30 text-[#8a1f15] rounded p-2">
+            <b>🚩 Flagged for review.</b> ZeroGPT score {typeof post.zerogpt_score === 'number' ? `${post.zerogpt_score.toFixed(1)}%` : '—'} exceeds the tenant threshold. Edit the body to reduce AI-detection signals (vary sentence length, drop hedging phrases, add specific details), then mark Ready again.
+          </div>
+        )}
+
+        {/* ZeroGPT row (always visible once we have a score, regardless of status) */}
+        {(typeof post.zerogpt_score === 'number' || post.last_zerogpt_check) && (
+          <div className="mt-2 text-[10px] flex items-center gap-2 flex-wrap">
+            <span className="text-muted">ZeroGPT:</span>
+            {typeof post.zerogpt_score === 'number' ? (
+              <span className={`font-mono font-bold ${
+                post.zerogpt_score >= 60 ? 'text-[#c0392b]' : post.zerogpt_score >= 30 ? 'text-[#d97706]' : 'text-[#2D9A5E]'
+              }`}>{post.zerogpt_score.toFixed(1)}% AI</span>
+            ) : <span className="text-muted">no score</span>}
+            {post.last_zerogpt_check && (
+              <span className="text-muted">· checked {new Date(post.last_zerogpt_check).toLocaleString()}</span>
+            )}
+            <button
+              type="button"
+              onClick={handleRecheckZeroGpt}
+              disabled={saving || generating || publishing}
+              className="text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer disabled:opacity-50"
+            >↻ Recheck</button>
+          </div>
+        )}
 
         {/* Live URL once published */}
         {post.wp_post_url && (
