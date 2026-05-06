@@ -190,3 +190,60 @@ export const generateBlogPost = (id, opts = {}) =>
     }
     return r.json()
   })
+
+// ── Blog post images (multipart) ──────────────────────────────────
+// Upload one image. file is a File / Blob; meta is optional and
+// accepts: filename (SEO slug), alt_text, caption, role, position_after_h2_index.
+export const uploadBlogImage = (postId, file, meta = {}) => {
+  const fd = new FormData()
+  fd.append('image', file)
+  if (meta.filename != null) fd.append('filename', meta.filename)
+  if (meta.alt_text != null) fd.append('alt_text', meta.alt_text)
+  if (meta.caption != null) fd.append('caption', meta.caption)
+  if (meta.role != null) fd.append('role', meta.role)
+  if (meta.position_after_h2_index != null) fd.append('position_after_h2_index', String(meta.position_after_h2_index))
+  // Don't set Content-Type — the browser fills in the multipart
+  // boundary automatically. Manually set csrf header only.
+  const c = getCsrfToken()
+  return fetch(`${apiBase()}/content/blog-posts/${postId}/images`, {
+    method: 'POST',
+    headers: c ? { 'x-csrf-token': c } : {},
+    credentials: 'include',
+    body: fd,
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `uploadBlogImage failed (${r.status})`)
+    }
+    return r.json()
+  })
+}
+
+// Edit metadata (filename, alt, caption, role, position).
+export const updateBlogImage = (postId, imageId, patch) =>
+  fetch(`${apiBase()}/content/blog-posts/${postId}/images/${imageId}`, {
+    method: 'PUT',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(patch || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateBlogImage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Delete an image (storage object + row).
+export const deleteBlogImage = (postId, imageId) =>
+  fetch(`${apiBase()}/content/blog-posts/${postId}/images/${imageId}`, {
+    method: 'DELETE',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `deleteBlogImage failed (${r.status})`)
+    }
+    return r.json()
+  })

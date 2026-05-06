@@ -267,10 +267,21 @@ function BlogPostEditor({ id, onBack }) {
         </div>
       )}
 
+      {/* Image upload — visible at all times, before AND after
+          generation. Pre-generation uploads inform the system prompt
+          (filenames + alt). Post-generation uploads can still be
+          added; regenerate to have the model re-incorporate them. */}
+      <ImageManager
+        postId={post.id}
+        images={post.images || []}
+        onChange={load}
+        setError={setError}
+      />
+
       {/* Empty-state if not yet generated */}
       {!hasBody && !generating && (
         <div className="bg-white border border-[#e5e5e5] rounded p-3 text-[11px] text-muted">
-          This draft is a skeleton — title + slug only. Click <b>Generate article</b> above to produce the full body, meta tags, image specs, and internal-link picks.
+          This draft is a skeleton — title + slug only. Upload images above (their SEO filenames + alt text feed into the article-generation prompt), then click <b>Generate article</b> to produce the full body, meta tags, and internal-link picks.
           {post.topic_candidates && Number.isInteger(post.source_topic_index) && post.topic_candidates[post.source_topic_index] && (
             <details className="mt-2">
               <summary className="text-[10px] text-[#6C5CE7] cursor-pointer">Source candidate</summary>
@@ -460,6 +471,314 @@ function Field({ label, hint, children }) {
     </div>
   )
 }
+// ── Image manager ─────────────────────────────────────────────────
+// Sits at the top of the BlogPostEditor body (above the Generate
+// button area, when present). Lets the user upload images that the
+// article-generation prompt will respect — pre-generation uploads
+// flow into the system prompt as USER-UPLOADED IMAGES so the model
+// references them in image_specs by filename + role.
+function ImageManager({ postId, images, onChange, setError }) {
+  const [uploading, setUploading] = useState(false)
+  const [pendingFile, setPendingFile] = useState(null)
+  const [pendingFilename, setPendingFilename] = useState('')
+  const [pendingAlt, setPendingAlt] = useState('')
+  const [pendingRole, setPendingRole] = useState('inline')
+
+  const reset = () => {
+    setPendingFile(null)
+    setPendingFilename('')
+    setPendingAlt('')
+    setPendingRole('inline')
+  }
+
+  const handleFileSelected = (file) => {
+    if (!file) return
+    setPendingFile(file)
+    // Seed filename from original (without extension), slugified.
+    const base = (file.name || '').replace(/\.[a-z0-9]+$/i, '')
+    setPendingFilename(base.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80))
+  }
+
+  const handleUpload = async () => {
+    if (!pendingFile) return
+    if (!pendingAlt.trim()) {
+      setError('Alt text is required (accessibility + SEO).')
+      return
+    }
+    setUploading(true)
+    setError(null)
+    try {
+      await api.uploadBlogImage(postId, pendingFile, {
+        filename: pendingFilename || undefined,
+        alt_text: pendingAlt,
+        role: pendingRole,
+      })
+      reset()
+      await onChange()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="bg-white border border-[#e5e5e5] rounded p-3 space-y-3">
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <h3 className="text-[12px] font-medium">Images ({images.length})</h3>
+          <p className="text-[10px] text-muted leading-snug">
+            Upload your images BEFORE generating the article. SEO filenames + alt text feed into the writer's prompt, so the article references the right images at the right positions. You can still upload after generating; click Regenerate to have the article incorporate the new images.
+          </p>
+        </div>
+      </div>
+
+      {/* Upload form */}
+      <div className="border border-dashed border-[#e5e5e5] rounded p-2 space-y-2">
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/avif"
+            onChange={e => handleFileSelected(e.target.files?.[0] || null)}
+            disabled={uploading}
+            className="text-[11px] flex-1"
+          />
+          {pendingFile && (
+            <button
+              type="button"
+              onClick={reset}
+              className="text-[10px] py-1 px-2 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+              disabled={uploading}
+            >Cancel</button>
+          )}
+        </div>
+        {pendingFile && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[9px] font-medium block mb-0.5">SEO filename (slug, no extension)</label>
+              <input
+                type="text"
+                value={pendingFilename}
+                onChange={e => setPendingFilename(e.target.value)}
+                className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 font-mono"
+                placeholder="e.g. macrame-keychain-shop-hop"
+                disabled={uploading}
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-medium block mb-0.5">Role</label>
+              <select
+                value={pendingRole}
+                onChange={e => setPendingRole(e.target.value)}
+                className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5"
+                disabled={uploading}
+              >
+                <option value="inline">Inline</option>
+                <option value="featured">Featured (hero)</option>
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="text-[9px] font-medium block mb-0.5">Alt text *</label>
+              <input
+                type="text"
+                value={pendingAlt}
+                onChange={e => setPendingAlt(e.target.value)}
+                className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5"
+                placeholder="Describe what's visible. Don't keyword-stuff. <125 chars."
+                maxLength={125}
+                disabled={uploading}
+              />
+              <div className="text-[9px] text-muted">{pendingAlt.length} / 125</div>
+            </div>
+            <div className="col-span-2">
+              <button
+                type="button"
+                onClick={handleUpload}
+                disabled={uploading || !pendingAlt.trim()}
+                className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+              >
+                {uploading ? 'Uploading…' : '⬆ Upload'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Existing images list */}
+      {images.length > 0 && (
+        <ul className="space-y-2">
+          {images.map(img => (
+            <ImageRow
+              key={img.id}
+              postId={postId}
+              image={img}
+              onChange={onChange}
+              setError={setError}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function ImageRow({ postId, image, onChange, setError }) {
+  const [editing, setEditing] = useState(false)
+  const [filename, setFilename] = useState(image.filename)
+  const [alt, setAlt] = useState(image.alt_text || '')
+  const [caption, setCaption] = useState(image.caption || '')
+  const [role, setRole] = useState(image.role)
+  const [position, setPosition] = useState(image.position_after_h2_index ?? '')
+  const [busy, setBusy] = useState(false)
+
+  // Re-sync local state if the image prop changes (e.g. after a save
+  // round-trip from elsewhere).
+  useEffect(() => {
+    setFilename(image.filename)
+    setAlt(image.alt_text || '')
+    setCaption(image.caption || '')
+    setRole(image.role)
+    setPosition(image.position_after_h2_index ?? '')
+  }, [image.id, image.filename, image.alt_text, image.caption, image.role, image.position_after_h2_index])
+
+  const handleSave = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.updateBlogImage(postId, image.id, {
+        filename,
+        alt_text: alt,
+        caption: caption || null,
+        role,
+        position_after_h2_index: position === '' ? null : Number(position),
+      })
+      setEditing(false)
+      await onChange()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm(`Delete "${image.filename}"? This removes the storage file and can't be undone.`)) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.deleteBlogImage(postId, image.id)
+      await onChange()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <li className="border border-[#e5e5e5] rounded p-2 flex gap-2">
+      <div className="flex-shrink-0 w-20 h-20 bg-[#fafafa] border border-[#e5e5e5] rounded overflow-hidden flex items-center justify-center">
+        {image.public_url
+          ? <img src={image.public_url} alt={image.alt_text || ''} className="w-full h-full object-cover" />
+          : <span className="text-[8px] text-muted">no preview</span>
+        }
+      </div>
+      <div className="flex-1 min-w-0">
+        {editing ? (
+          <div className="space-y-1.5 text-[11px]">
+            <input
+              type="text"
+              value={filename}
+              onChange={e => setFilename(e.target.value)}
+              className="w-full border border-[#e5e5e5] rounded p-1 font-mono text-[11px]"
+              placeholder="filename"
+            />
+            <input
+              type="text"
+              value={alt}
+              onChange={e => setAlt(e.target.value)}
+              className="w-full border border-[#e5e5e5] rounded p-1 text-[11px]"
+              placeholder="alt text"
+              maxLength={125}
+            />
+            <input
+              type="text"
+              value={caption}
+              onChange={e => setCaption(e.target.value)}
+              className="w-full border border-[#e5e5e5] rounded p-1 text-[11px]"
+              placeholder="caption (optional)"
+            />
+            <div className="flex gap-1">
+              <select
+                value={role}
+                onChange={e => setRole(e.target.value)}
+                className="flex-1 border border-[#e5e5e5] rounded p-1 text-[11px]"
+              >
+                <option value="inline">Inline</option>
+                <option value="featured">Featured</option>
+              </select>
+              <input
+                type="number"
+                value={position}
+                onChange={e => setPosition(e.target.value)}
+                className="w-24 border border-[#e5e5e5] rounded p-1 text-[11px]"
+                placeholder="after H2 #"
+                min="0"
+              />
+            </div>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={busy}
+                className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              >Save</button>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                disabled={busy}
+                className="text-[10px] py-1 px-2 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+              >Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[11px]">
+            <div className="flex items-center gap-1.5">
+              <span className={`text-[9px] uppercase tracking-wide rounded px-1.5 py-0.5 ${
+                image.role === 'featured'
+                  ? 'bg-[#fef3c7] text-[#92400e]'
+                  : 'bg-[#f3f0ff] text-[#6C5CE7]'
+              }`}>{image.role}</span>
+              <span className="font-mono text-[10px] text-muted truncate" title={image.filename}>
+                {image.filename}
+              </span>
+              {image.position_after_h2_index != null && (
+                <span className="text-[9px] text-muted">after H2 #{image.position_after_h2_index}</span>
+              )}
+            </div>
+            <div className="text-[10px] text-ink mt-0.5">{image.alt_text || <i className="text-[#c0392b]">missing alt text</i>}</div>
+            {image.caption && <div className="text-[10px] text-muted italic">{image.caption}</div>}
+            <div className="flex gap-1 mt-1">
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                disabled={busy}
+                className="text-[10px] py-0.5 px-1.5 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer disabled:opacity-50"
+              >Edit</button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={busy}
+                className="text-[10px] py-0.5 px-1.5 border border-[#c0392b] text-[#c0392b] bg-white rounded cursor-pointer disabled:opacity-50"
+              >Delete</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </li>
+  )
+}
+
 function SourceCandidate({ c }) {
   return (
     <div className="mt-1 text-[10px] space-y-1">

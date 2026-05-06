@@ -53,6 +53,7 @@ export default function ContentConfig() {
   const [evictStrategy, setEvictStrategy] = useState('sliding')
   const [blogSchedule, setBlogSchedule] = useState(null)
   const [zerogptThreshold, setZerogptThreshold] = useState(null)
+  const [mentionPrices, setMentionPrices] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -68,6 +69,7 @@ export default function ContentConfig() {
         setEvictStrategy(c.blog_index_evict_strategy || 'sliding')
         setBlogSchedule(c.blog_schedule || null)
         setZerogptThreshold(c.zerogpt_threshold_percent ?? null)
+        setMentionPrices(!!c.mention_prices_in_articles)
       })
       .catch(e => { if (!cancelled) setError(e?.message || String(e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -232,6 +234,30 @@ export default function ContentConfig() {
         saving={savingSection === 'schedule'}
         saved={savedFlash === 'schedule'}
       />
+
+      {/* ── Article-generation rules ──────────────────────────── */}
+      <Section
+        title="Article-generation rules"
+        hint="Tenant-level constraints that apply to every generated article body."
+        onSave={() => save('rules', { mention_prices_in_articles: mentionPrices })}
+        saving={savingSection === 'rules'}
+        saved={savedFlash === 'rules'}
+      >
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={mentionPrices}
+            onChange={e => setMentionPrices(e.target.checked)}
+            className="mt-0.5"
+          />
+          <div>
+            <div className="text-[11px] font-medium">Mention specific prices in articles</div>
+            <div className="text-[10px] text-muted leading-snug">
+              When OFF (default), the writer is told not to include any specific dollar amounts in the published body — prices vary by operator and surfacing them anchors consumer expectations. Cost hints in the audience lock are still used as constraints for ideation; just kept out of the prose.
+            </div>
+          </div>
+        </label>
+      </Section>
 
       {/* ── ZeroGPT threshold ─────────────────────────────────── */}
       <Section
