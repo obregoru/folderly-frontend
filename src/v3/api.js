@@ -262,6 +262,72 @@ export const updateBlogImage = (postId, imageId, patch) =>
     return r.json()
   })
 
+// ── WP media library ──────────────────────────────────────────────
+// Search/list the tenant's existing WP media — used by the editor's
+// "pick from existing image" picker. Avoids re-uploading content that
+// already exists on the WP site (and dodges any AI-generated-image
+// copyright concerns since we never generate or upload anything new
+// in this flow).
+export const listWpMedia = ({ search = '', page = 1, perPage = 24 } = {}) => {
+  const params = new URLSearchParams({ page: String(page), per_page: String(perPage) })
+  if (search) params.set('search', search)
+  return fetch(`${apiBase()}/content/wp-media?${params}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `listWpMedia failed (${r.status})`)
+      }
+      return r.json()
+    })
+}
+
+// Attach an existing WP media item to a draft. Skips the
+// upload-to-supabase step; resulting blog_post_images row has
+// wp_media_id pre-set so publish-time treats it as already-uploaded.
+export const attachWpMedia = (postId, mediaItem, { role = 'inline', positionAfterH2Index = null, altOverride = null, captionOverride = null } = {}) =>
+  fetch(`${apiBase()}/content/blog-posts/${postId}/images/from-wp`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({
+      wp_media_id: mediaItem.wp_id,
+      wp_url: mediaItem.url,
+      alt_text: altOverride != null ? altOverride : mediaItem.alt_text,
+      caption: captionOverride != null ? captionOverride : (mediaItem.caption || null),
+      mime_type: mediaItem.mime_type,
+      width: mediaItem.width,
+      height: mediaItem.height,
+      filename: mediaItem.slug || mediaItem.title || null,
+      role,
+      position_after_h2_index: positionAfterH2Index,
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `attachWpMedia failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Set or clear a category's default image. Pass mediaItem=null to clear.
+export const setCategoryDefaultImage = (taxonomyId, mediaItem) =>
+  fetch(`${apiBase()}/content/taxonomy/${taxonomyId}/default-image`, {
+    method: 'PUT',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(
+      mediaItem
+        ? { wp_media_id: mediaItem.wp_id, wp_url: mediaItem.url, alt_text: mediaItem.alt_text || '' }
+        : { wp_media_id: null }
+    ),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setCategoryDefaultImage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Delete an image (storage object + row).
 export const deleteBlogImage = (postId, imageId) =>
   fetch(`${apiBase()}/content/blog-posts/${postId}/images/${imageId}`, {

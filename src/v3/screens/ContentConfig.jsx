@@ -19,6 +19,7 @@
 
 import { useEffect, useState } from 'react'
 import * as api from '../api'
+import WpMediaPicker from '../components/WpMediaPicker'
 
 const ALL_TEMPLATES = [
   { key: 'experience_feature',  label: 'Experience feature',  hint: 'Single-business deep-dive profile' },
@@ -239,6 +240,9 @@ export default function ContentConfig() {
         saved={savedFlash === 'schedule'}
       />
 
+      {/* ── Category default images ───────────────────────────── */}
+      <CategoryDefaultsSection setError={setError} />
+
       {/* ── Internal-link constraints ─────────────────────────── */}
       <Section
         title="Internal-link constraints"
@@ -319,6 +323,132 @@ export default function ContentConfig() {
           <span className="text-[10px] text-muted">% (e.g. 30 means flag at 30% AI)</span>
         </div>
       </Section>
+    </div>
+  )
+}
+
+// ── Category default images ──────────────────────────────────────
+// Lists every WP category indexed for this tenant. For each, shows
+// the current default image (if set) + a "Pick" button to choose
+// one from the WP media library. At publish time, articles in this
+// category that DON'T have an explicit featured image fall back
+// to the category default. No AI-generated images, no copyright
+// surface — just an automated routing layer over content the
+// tenant already owns.
+function CategoryDefaultsSection({ setError }) {
+  const [categories, setCategories] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [pickerForCategoryId, setPickerForCategoryId] = useState(null)
+  const [busyId, setBusyId] = useState(null)
+
+  const reload = async () => {
+    setLoading(true)
+    try {
+      const r = await api.getTaxonomy()
+      setCategories(Array.isArray(r?.categories) ? r.categories : [])
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { reload() }, [])
+
+  const handlePick = async (mediaItem) => {
+    const categoryId = pickerForCategoryId
+    setPickerForCategoryId(null)
+    if (!categoryId) return
+    setBusyId(categoryId)
+    setError(null)
+    try {
+      await api.setCategoryDefaultImage(categoryId, mediaItem)
+      await reload()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleClear = async (categoryId) => {
+    setBusyId(categoryId)
+    setError(null)
+    try {
+      await api.setCategoryDefaultImage(categoryId, null)
+      await reload()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="bg-white border border-[#e5e5e5] rounded p-3">
+      <div className="flex items-start gap-2 mb-2">
+        <div className="flex-1">
+          <h3 className="text-[12px] font-medium">Category default images</h3>
+          <p className="text-[10px] text-muted leading-snug">
+            Pick a fallback image (from your WP media library) for each category. When an article publishes without an explicit featured image, the publisher uses its first category's default. No AI generation, no stock searches — only images you already own.
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-[10px] text-muted">Loading categories…</div>
+      ) : categories.length === 0 ? (
+        <div className="text-[10px] text-muted italic">
+          No categories indexed yet. Hit "🔄 Refresh index" on the Dashboard to pull them from your WP site.
+        </div>
+      ) : (
+        <ul className="space-y-1">
+          {categories.map(c => (
+            <li key={c.id} className="flex items-center gap-2 border border-[#e5e5e5] rounded p-1.5">
+              <div className="w-12 h-12 bg-[#fafafa] border border-[#e5e5e5] rounded flex-shrink-0 overflow-hidden">
+                {c.default_image_url ? (
+                  <img
+                    src={c.default_image_url}
+                    alt={c.default_image_alt || c.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[14px] text-muted">—</div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[11px] font-medium truncate">{c.name}</div>
+                <div className="text-[9px] text-muted">
+                  {c.count} post{c.count === 1 ? '' : 's'}
+                  {c.default_image_url && (
+                    <> · default set</>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickerForCategoryId(c.id)}
+                disabled={busyId === c.id}
+                className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              >📚 {c.default_image_url ? 'Change' : 'Pick'}</button>
+              {c.default_image_url && (
+                <button
+                  type="button"
+                  onClick={() => handleClear(c.id)}
+                  disabled={busyId === c.id}
+                  className="text-[10px] py-1 px-2 border border-[#c0392b] text-[#c0392b] bg-white rounded cursor-pointer disabled:opacity-50"
+                >Clear</button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <WpMediaPicker
+        open={pickerForCategoryId != null}
+        onClose={() => setPickerForCategoryId(null)}
+        onPick={handlePick}
+        title={`Pick default image for "${categories.find(c => c.id === pickerForCategoryId)?.name || 'category'}"`}
+      />
     </div>
   )
 }

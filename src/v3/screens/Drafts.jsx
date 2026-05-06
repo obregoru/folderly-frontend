@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react'
 import * as api from '../api'
+import WpMediaPicker from '../components/WpMediaPicker'
 
 const STATUS_TONE = {
   drafting:   { color: '#94a3b8', label: 'Drafting' },
@@ -969,6 +970,12 @@ function ImageManager({ postId, images, onChange, setError }) {
   const [pendingFilename, setPendingFilename] = useState('')
   const [pendingAlt, setPendingAlt] = useState('')
   const [pendingRole, setPendingRole] = useState('inline')
+  // WP-media picker modal state. Opening it offers an alternative
+  // to the file-upload path: pick an image already on the WP site
+  // (already licensed, already has alt text) and skip our storage
+  // entirely.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerRole, setPickerRole] = useState('inline')
   // Pre-flight check: image storage must be configured before
   // upload can succeed. Saves the user from picking a file +
   // typing alt text only to be told it doesn't work.
@@ -976,6 +983,17 @@ function ImageManager({ postId, images, onChange, setError }) {
   useEffect(() => {
     api.getStorageStatus().then(s => setStorageOk(!!s?.configured))
   }, [])
+
+  const handlePickFromWp = async (mediaItem) => {
+    setPickerOpen(false)
+    setError(null)
+    try {
+      await api.attachWpMedia(postId, mediaItem, { role: pickerRole })
+      await onChange()
+    } catch (e) {
+      setError(e?.message || String(e))
+    }
+  }
 
   const reset = () => {
     setPendingFile(null)
@@ -1026,10 +1044,38 @@ function ImageManager({ postId, images, onChange, setError }) {
         </div>
       </div>
 
-      {/* Storage-not-configured warning */}
+      {/* Pick from WP library — always available, even when our
+          storage isn't configured. Best path for users with images
+          already on the WP site. */}
+      <div className="flex items-center gap-2 text-[11px]">
+        <span className="text-muted">Quick add:</span>
+        <button
+          type="button"
+          onClick={() => { setPickerRole('featured'); setPickerOpen(true) }}
+          className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer"
+          title="Pick a featured (hero) image from your existing WP media library"
+        >📚 Pick featured from WP</button>
+        <button
+          type="button"
+          onClick={() => { setPickerRole('inline'); setPickerOpen(true) }}
+          className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer"
+          title="Pick an inline image from your existing WP media library"
+        >📚 Pick inline from WP</button>
+      </div>
+
+      <WpMediaPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPick={handlePickFromWp}
+        title={`Pick ${pickerRole === 'featured' ? 'a featured (hero)' : 'an inline'} image`}
+      />
+
+      {/* Storage-not-configured warning. Note: "📚 Pick from WP"
+          above STILL WORKS without storage — only file upload here
+          requires Supabase. */}
       {!storageOk && (
         <div className="bg-[#fff7e6] border border-[#f5a623] rounded p-2 text-[11px] text-[#8a4b00]">
-          <b>Image upload disabled on this environment.</b> Image storage isn't configured locally — add <code className="font-mono text-[10px] bg-white px-1 rounded">SUPABASE_URL</code> and <code className="font-mono text-[10px] bg-white px-1 rounded">SUPABASE_SERVICE_KEY</code> to <code className="font-mono text-[10px] bg-white px-1 rounded">folderly-backend/.env</code> (use the same values as production), then restart Express. Article generation works without uploads — the model emits image specs the user can fulfill manually after publish.
+          <b>File upload disabled.</b> Image storage isn't configured locally — add <code className="font-mono text-[10px] bg-white px-1 rounded">SUPABASE_URL</code> and <code className="font-mono text-[10px] bg-white px-1 rounded">SUPABASE_SERVICE_KEY</code> to <code className="font-mono text-[10px] bg-white px-1 rounded">folderly-backend/.env</code> for fresh uploads. The "📚 Pick from WP" buttons above still work — they reference your existing WP media library and skip our storage entirely.
         </div>
       )}
 
