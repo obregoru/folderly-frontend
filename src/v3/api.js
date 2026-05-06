@@ -70,8 +70,6 @@ export const getContentIndex = () =>
     })
 
 // ── Manual indexer trigger ────────────────────────────────────────
-// Phase 0 stub — BE returns { stub: true }. Real refresh logic
-// lands when lib/wp-indexer.js ships.
 export const refreshContentIndex = () =>
   fetch(`${apiBase()}/content/index/refresh`, {
     method: 'POST',
@@ -84,3 +82,69 @@ export const refreshContentIndex = () =>
     }
     return r.json()
   })
+
+// ── Topic ideation ────────────────────────────────────────────────
+// Run Claude + web_search to produce 8 candidate topics for the
+// chosen template. BE persists to blog_topics and returns the
+// candidates inline so the UI shows them immediately.
+export const ideateTopics = ({ template, promptText }) =>
+  fetch(`${apiBase()}/content/topics/ideate`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ template, prompt_text: promptText }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `ideateTopics failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// List recent ideation runs.
+export const listTopics = () =>
+  fetch(`${apiBase()}/content/topics`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `listTopics failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Fetch one ideation run by id (with full candidates + accept state).
+export const getTopic = (id) =>
+  fetch(`${apiBase()}/content/topics/${id}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getTopic failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Accept candidate(s) → BE creates blog_posts rows in 'drafting' status.
+export const acceptTopics = (topicId, indices) =>
+  fetch(`${apiBase()}/content/topics/${topicId}/accept`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ indices }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `acceptTopics failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// ── Blog drafts list ──────────────────────────────────────────────
+export const listBlogPosts = () =>
+  fetch(`${apiBase()}/content/blog-posts`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `listBlogPosts failed (${r.status})`)
+      }
+      return r.json()
+    })
