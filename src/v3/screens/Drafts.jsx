@@ -179,6 +179,25 @@ function BlogPostEditor({ id, onBack }) {
 
   const flashSaved = () => { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500) }
 
+  // Cmd+S / Ctrl+S → Save. The default browser behavior (save HTML
+  // page) is rarely useful in this editor and shadows the most-natural
+  // muscle memory for "persist my edits". Only triggers when there
+  // are unsaved changes to avoid surprising the user with a no-op save
+  // request.
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        if (isDirty && !saving) handleSave()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+    // handleSave isn't in deps because re-binding on every editBuf
+    // tick is wasteful — we read isDirty/saving inside the handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty, saving])
+
   // generate / regenerate. Style hint is one of:
   //   null                       — default prompt
   //   'more_conversational'      — preset key, BE expands
@@ -643,10 +662,12 @@ function BlogPostEditor({ id, onBack }) {
         </div>
       )}
 
-      {/* Save bar — only when dirty */}
+      {/* Save bar — only when dirty. Sticky so it tracks the user as
+          they scroll into the body field; otherwise it scrolls out of
+          view and edits feel "lost" because the action is invisible. */}
       {isDirty && hasBody && (
-        <div className="bg-[#fff7e6] border border-[#f5a623] rounded p-2 flex items-center gap-2 text-[11px] text-[#8a4b00]">
-          <div className="flex-1">Unsaved changes ({Object.keys(editBuf).length} field{Object.keys(editBuf).length === 1 ? '' : 's'})</div>
+        <div className="sticky top-0 z-20 bg-[#fff7e6] border border-[#f5a623] rounded p-2 flex items-center gap-2 text-[11px] text-[#8a4b00] shadow-md">
+          <div className="flex-1 font-medium">⚠ Unsaved changes ({Object.keys(editBuf).length} field{Object.keys(editBuf).length === 1 ? '' : 's'})</div>
           <button
             type="button"
             onClick={() => setEditBuf({})}
@@ -657,7 +678,8 @@ function BlogPostEditor({ id, onBack }) {
             onClick={handleSave}
             disabled={saving}
             className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
-          >{saving ? 'Saving…' : 'Save'}</button>
+            title="Save (⌘S / Ctrl+S)"
+          >{saving ? 'Saving…' : 'Save (⌘S)'}</button>
         </div>
       )}
       {savedFlash && (
