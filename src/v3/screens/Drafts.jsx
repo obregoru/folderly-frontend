@@ -505,7 +505,7 @@ function BlogPostEditor({ id, onBack }) {
             score={post.zerogpt_score}
             checkedAt={post.last_zerogpt_check}
             metadata={post.zerogpt_metadata}
-            threshold={post.zerogpt_threshold_percent}
+            threshold={post.effective_zerogpt_threshold_percent}
             body={value('body_md')}
             onRecheck={handleRecheckZeroGpt}
             recheckDisabled={saving || generating || publishing}
@@ -525,7 +525,7 @@ function BlogPostEditor({ id, onBack }) {
         {/* Flagged warning when ZeroGPT flipped status */}
         {post.status === 'flagged' && (
           <div className="mt-2 text-[10px] bg-[#fdf2f1] border border-[#c0392b]/30 text-[#8a1f15] rounded p-2">
-            <b>🚩 Flagged for review.</b> ZeroGPT score {typeof post.zerogpt_score === 'number' ? `${post.zerogpt_score.toFixed(1)}%` : '—'} exceeds the tenant threshold. Edit the body to reduce AI-detection signals (vary sentence length, drop hedging phrases, add specific details), then mark Ready again.
+            <b>🚩 Flagged for review.</b> ZeroGPT score {typeof post.zerogpt_score === 'number' ? `${post.zerogpt_score.toFixed(1)}%` : '—'} exceeds the {typeof post.effective_zerogpt_threshold_percent === 'number' ? `${post.effective_zerogpt_threshold_percent}% threshold for ${post.template}` : 'tenant threshold'}. Edit the body to reduce AI-detection signals (vary sentence length, drop hedging phrases, add specific details), then mark Ready again.
           </div>
         )}
 
