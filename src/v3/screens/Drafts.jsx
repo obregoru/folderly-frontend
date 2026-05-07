@@ -487,6 +487,7 @@ function BlogPostEditor({ id, onBack }) {
             checkedAt={post.last_zerogpt_check}
             metadata={post.zerogpt_metadata}
             threshold={post.zerogpt_threshold_percent}
+            body={value('body_md')}
             onRecheck={handleRecheckZeroGpt}
             recheckDisabled={saving || generating || publishing}
           />
@@ -1675,8 +1676,9 @@ function RegenerateMenu({ disabled, generating, hasFlaggedSentences, onPick }) {
 //   - score 30-59   → amber band, "Mixed. Tighten the AI tells."
 //   - score < 30    → green band, "Looks human."
 //   - no score yet  → neutral band, "Not scored yet — click Recheck"
-function ZeroGptPanel({ score, checkedAt, metadata, threshold, onRecheck, recheckDisabled }) {
+function ZeroGptPanel({ score, checkedAt, metadata, threshold, body, onRecheck, recheckDisabled }) {
   const [open, setOpen] = useState(false)
+  const [view, setView] = useState('inline') // 'inline' | 'list'
   const sentences = Array.isArray(metadata?.sentences) ? metadata.sentences : []
   const hasScore = typeof score === 'number'
 
@@ -1758,16 +1760,106 @@ function ZeroGptPanel({ score, checkedAt, metadata, threshold, onRecheck, rechec
       </div>
       {open && sentences.length > 0 && (
         <div className="border-t bg-[#fdf2f1] p-3 space-y-2" style={{ borderColor: band.border }}>
-          <div className="text-[10px] uppercase tracking-wide text-[#8a1f15]">
-            These {sentences.length} sentence{sentences.length === 1 ? '' : 's'} read as AI-generated. Rewrite each with more specific details, contractions, and a real human voice — or use the <b>🔦 Fix AI-flagged sentences</b> option in the regenerate dropdown.
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-[10px] uppercase tracking-wide text-[#8a1f15] flex-1">
+              {sentences.length} sentence{sentences.length === 1 ? '' : 's'} flagged as AI-generated. Edit them in the body field above, or use <b>🔦 Fix AI-flagged sentences</b> from the regenerate dropdown.
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-muted">View:</span>
+              <button
+                type="button"
+                onClick={() => setView('inline')}
+                className={`text-[9px] py-0.5 px-1.5 rounded border cursor-pointer ${
+                  view === 'inline' ? 'bg-[#c0392b] text-white border-[#c0392b]' : 'bg-white text-muted border-[#c0392b]/30'
+                }`}
+                title="Show the article body with flagged sentences highlighted in context"
+              >📖 In context</button>
+              <button
+                type="button"
+                onClick={() => setView('list')}
+                className={`text-[9px] py-0.5 px-1.5 rounded border cursor-pointer ${
+                  view === 'list' ? 'bg-[#c0392b] text-white border-[#c0392b]' : 'bg-white text-muted border-[#c0392b]/30'
+                }`}
+                title="Compact list of just the flagged sentences"
+              >📋 List</button>
+            </div>
           </div>
-          <ul className="space-y-1.5">
-            {sentences.map((s, i) => (
-              <li key={i} className="text-[11px] bg-white border border-[#c0392b]/30 rounded p-2">
-                <mark className="bg-[#fce4ec] text-[#c0392b] px-1 rounded">{s}</mark>
-              </li>
-            ))}
-          </ul>
+          {view === 'inline' && body && (
+            <BodyWithHighlights body={body} flaggedSentences={sentences} />
+          )}
+          {view === 'list' && (
+            <ul className="space-y-1.5">
+              {sentences.map((s, i) => (
+                <li key={i} className="text-[11px] bg-white border border-[#c0392b]/30 rounded p-2">
+                  <mark className="bg-[#fce4ec] text-[#c0392b] px-1 rounded">{s}</mark>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Render the article body as plain-readable text with each flagged
+// sentence wrapped in <mark>. Strategy: walk through the flagged
+// sentences and progressively split the body into [unflagged, flagged,
+// unflagged, ...] segments. Renders inside a whitespace-preserving
+// container so paragraph breaks survive (markdown ## and ** chars are
+// kept as-is — readable enough; user has the textarea above for
+// actual editing).
+function BodyWithHighlights({ body, flaggedSentences }) {
+  if (!body) return null
+  if (!flaggedSentences || flaggedSentences.length === 0) {
+    return (
+      <div className="bg-white border border-[#e5e5e5] rounded p-3 text-[12px] leading-relaxed font-sans whitespace-pre-wrap">
+        {body}
+      </div>
+    )
+  }
+
+  // Build list of segments. Each iteration splits all current "unflagged"
+  // segments on the next flagged sentence. Sentences may not appear
+  // verbatim if they spanned a markdown link; in that case the segment
+  // stays unflagged. Showing some flags inline is still strictly better
+  // than showing none.
+  let segments = [{ text: body, isFlagged: false }]
+  for (const sentence of flaggedSentences) {
+    const trimmed = sentence.trim()
+    if (!trimmed) continue
+    const next = []
+    for (const seg of segments) {
+      if (seg.isFlagged) { next.push(seg); continue }
+      const idx = seg.text.indexOf(trimmed)
+      if (idx === -1) { next.push(seg); continue }
+      if (idx > 0) next.push({ text: seg.text.slice(0, idx), isFlagged: false })
+      next.push({ text: trimmed, isFlagged: true })
+      const rest = seg.text.slice(idx + trimmed.length)
+      if (rest) next.push({ text: rest, isFlagged: false })
+    }
+    segments = next
+  }
+
+  const matchedCount = segments.filter(s => s.isFlagged).length
+  const unmatchedCount = flaggedSentences.length - matchedCount
+
+  return (
+    <div>
+      <div className="bg-white border border-[#e5e5e5] rounded p-3 text-[12px] leading-relaxed font-sans whitespace-pre-wrap">
+        {segments.map((seg, i) =>
+          seg.isFlagged ? (
+            <mark key={i} className="bg-[#fce4ec] text-[#c0392b] px-1 rounded" title="ZeroGPT flagged this sentence">
+              {seg.text}
+            </mark>
+          ) : (
+            <span key={i}>{seg.text}</span>
+          )
+        )}
+      </div>
+      {unmatchedCount > 0 && (
+        <div className="mt-1 text-[9px] text-muted italic">
+          Note: {unmatchedCount} flagged sentence{unmatchedCount === 1 ? '' : 's'} couldn't be located inline (likely altered by an edit since the last check). Switch to 📋 List view to see them, or click ↻ Recheck above to re-score the current body.
         </div>
       )}
     </div>
