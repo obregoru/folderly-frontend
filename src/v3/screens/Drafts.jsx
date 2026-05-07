@@ -454,8 +454,11 @@ function BlogPostEditor({ id, onBack }) {
               </button>
             )}
 
-            {/* Publish flow — only when 'ready' or 'failed' + has body */}
-            {hasBody && (post.status === 'ready' || post.status === 'failed' || post.status === 'flagged') && (
+            {/* Publish flow — operator override allowed from any non-empty,
+                non-in-flight state. Including scheduled (= "publish now,
+                skip cadence") and flagged (= "I've reviewed, override the
+                AI-detection flag"). */}
+            {hasBody && ['ready', 'failed', 'flagged', 'scheduled'].includes(post.status) && (
               <>
                 <select
                   value={publishMode}
