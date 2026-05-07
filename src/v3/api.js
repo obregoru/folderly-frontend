@@ -486,3 +486,56 @@ export const getActivity = (limit = 50) =>
       }
       return r.json()
     })
+
+// V3 follow-up — search free-stock photo providers (Pexels today).
+// Returns { configured, items: [...], next_page, ... } or
+// { configured: false, reason } when the provider isn't set up.
+export const searchFreePhotos = ({ query, page = 1, perPage = 24, provider = 'pexels' } = {}) => {
+  const params = new URLSearchParams({
+    q: query || '',
+    page: String(page),
+    per_page: String(perPage),
+    provider,
+  })
+  return fetch(`${apiBase()}/content/free-photos?${params}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `searchFreePhotos failed (${r.status})`)
+      }
+      return r.json()
+    })
+}
+
+// Attach a free-stock photo to a draft. The server downloads the bytes
+// from the provider URL and stores in our blog_post_images table just
+// like a direct upload. Pass the full normalized photo object the
+// search returned + role/position options.
+export const attachFreePhoto = (postId, photo, { role = 'inline', positionAfterH2Index = null, altOverride = null, captionOverride = null, searchQuery = null } = {}) =>
+  fetch(`${apiBase()}/content/blog-posts/${postId}/images/from-free-photo`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({
+      provider: photo.provider,
+      id: photo.id,
+      full: photo.full,
+      photographer: photo.photographer,
+      photographer_url: photo.photographer_url,
+      source_page: photo.source_page,
+      license: photo.license,
+      license_url: photo.license_url,
+      alt: photo.alt,
+      alt_override: altOverride,
+      caption: captionOverride,
+      role,
+      position_after_h2_index: positionAfterH2Index,
+      search_query: searchQuery,
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `attachFreePhoto failed (${r.status})`)
+    }
+    return r.json()
+  })
