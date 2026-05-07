@@ -1755,6 +1755,18 @@ function ZeroGptPanel({ score, checkedAt, metadata, threshold, body, onRecheck, 
                 title="Sentences ZeroGPT identified as AI-likely. These are the lines to rewrite."
               >🔦 {open ? 'Hide' : 'Show'} flagged ({sentences.length})</button>
             )}
+            {hasScore && sentences.length === 0 && metadata && Object.keys(metadata).length > 0 && (
+              <span
+                className="text-[9px] text-muted italic"
+                title="ZeroGPT returned a score but no per-sentence flags. May happen on shorter bodies or when AI-likeness is spread thinly across the whole article."
+              >· no per-sentence flags from this check</span>
+            )}
+            {hasScore && (!metadata || Object.keys(metadata).length === 0) && (
+              <span
+                className="text-[9px] text-muted italic"
+                title="The score predates the sentence-capture feature. Click ↻ Recheck for a fresh score that includes per-sentence flags."
+              >· click ↻ Recheck to get per-sentence flags</span>
+            )}
           </div>
         </div>
       </div>
