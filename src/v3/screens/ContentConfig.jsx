@@ -54,6 +54,10 @@ export default function ContentConfig() {
   const [evictStrategy, setEvictStrategy] = useState('sliding')
   const [blogSchedule, setBlogSchedule] = useState(null)
   const [zerogptThreshold, setZerogptThreshold] = useState(null)
+  // Per-template override map for ZeroGPT threshold. shop_owner_ideas
+  // typically wants ~50% (bullet content has a higher floor); narrative
+  // templates default to the global value.
+  const [zerogptThresholdByTemplate, setZerogptThresholdByTemplate] = useState({})
   const [driftThreshold, setDriftThreshold] = useState(null)
   const [mentionPrices, setMentionPrices] = useState(false)
   // Per-template internal-link constraints. Object keyed by template:
@@ -74,6 +78,11 @@ export default function ContentConfig() {
         setEvictStrategy(c.blog_index_evict_strategy || 'sliding')
         setBlogSchedule(c.blog_schedule || null)
         setZerogptThreshold(c.zerogpt_threshold_percent ?? null)
+        setZerogptThresholdByTemplate(
+          c.zerogpt_threshold_by_template && typeof c.zerogpt_threshold_by_template === 'object'
+            ? c.zerogpt_threshold_by_template
+            : {}
+        )
         setDriftThreshold(c.drift_threshold_score ?? null)
         setMentionPrices(!!c.mention_prices_in_articles)
         setLinkConstraints(c.link_constraints && typeof c.link_constraints === 'object' ? c.link_constraints : {})
@@ -329,22 +338,65 @@ export default function ContentConfig() {
       {/* ── ZeroGPT threshold ─────────────────────────────────── */}
       <Section
         title="ZeroGPT threshold (optional)"
-        hint="Drafts scoring above this % AI-detected get flagged for manual review and won't auto-schedule. Leave blank to disable the gate (score is still saved)."
-        onSave={() => save('zerogpt', {
-          zerogpt_threshold_percent: zerogptThreshold === '' || zerogptThreshold == null ? null : Number(zerogptThreshold),
-        })}
+        hint="Drafts scoring above this % AI-detected get flagged for manual review and won't auto-schedule. Default applies to all templates; per-template overrides below."
+        onSave={() => {
+          // Build the threshold-by-template map. Empty values clear the
+          // override (BE drops null/undefined entries).
+          const cleaned = {}
+          for (const [k, v] of Object.entries(zerogptThresholdByTemplate)) {
+            if (v === '' || v == null) continue
+            const n = Number(v)
+            if (Number.isInteger(n) && n >= 0 && n <= 100) cleaned[k] = n
+          }
+          return save('zerogpt', {
+            zerogpt_threshold_percent: zerogptThreshold === '' || zerogptThreshold == null ? null : Number(zerogptThreshold),
+            zerogpt_threshold_by_template: cleaned,
+          })
+        }}
         saving={savingSection === 'zerogpt'}
         saved={savedFlash === 'zerogpt'}
       >
-        <div className="flex items-center gap-2">
-          <input
-            type="number" min="0" max="100"
-            value={zerogptThreshold ?? ''}
-            placeholder="(disabled)"
-            onChange={e => setZerogptThreshold(e.target.value)}
-            className="text-[11px] border border-[#e5e5e5] rounded p-1.5 w-24"
-          />
-          <span className="text-[10px] text-muted">% (e.g. 30 means flag at 30% AI)</span>
+        <div className="space-y-3">
+          <div>
+            <div className="text-[11px] font-medium text-ink mb-1">Default threshold (all templates)</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min="0" max="100"
+                value={zerogptThreshold ?? ''}
+                placeholder="(disabled)"
+                onChange={e => setZerogptThreshold(e.target.value)}
+                className="text-[11px] border border-[#e5e5e5] rounded p-1.5 w-24"
+              />
+              <span className="text-[10px] text-muted">% (e.g. 30 means flag at 30% AI)</span>
+            </div>
+          </div>
+          <div className="border-t border-[#e5e5e5] pt-2">
+            <div className="text-[11px] font-medium text-ink mb-0.5">Per-template overrides (optional)</div>
+            <div className="text-[10px] text-muted mb-2 leading-snug">
+              Different templates have different realistic AI-detection floors. Bullet-heavy briefs (shop_owner_ideas) sit around 35-45% even when human-written; narrative articles can hit under 25%. Override per template here. Blank uses the default above.
+            </div>
+            <div className="space-y-1.5">
+              {['shop_owner_ideas', 'experience_feature', 'regional_roundup', 'trend_piece', 'seasonal_roundup'].map(tpl => {
+                const val = zerogptThresholdByTemplate[tpl]
+                const enabled = enabledTemplates.includes(tpl)
+                const recommended = tpl === 'shop_owner_ideas' ? 50 : 30
+                return (
+                  <div key={tpl} className={`flex items-center gap-2 text-[11px] ${enabled ? '' : 'opacity-50'}`}>
+                    <span className="font-mono w-44 truncate" title={tpl}>{tpl}</span>
+                    <input
+                      type="number" min="0" max="100"
+                      value={val ?? ''}
+                      placeholder={`default (${zerogptThreshold ?? '—'})`}
+                      onChange={e => setZerogptThresholdByTemplate(m => ({ ...m, [tpl]: e.target.value }))}
+                      className="text-[11px] border border-[#e5e5e5] rounded p-1 w-28"
+                    />
+                    <span className="text-[10px] text-muted">% · recommended: {recommended}</span>
+                    {!enabled && <span className="text-[9px] text-muted italic">(template not enabled)</span>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       </Section>
     </div>
