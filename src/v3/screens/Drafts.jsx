@@ -1704,34 +1704,56 @@ function ZeroGptPanel({ score, checkedAt, metadata, threshold, body, onRecheck, 
   const sentences = Array.isArray(metadata?.sentences) ? metadata.sentences : []
   const hasScore = typeof score === 'number'
 
-  // Color band + label per score range. Threshold-aware copy when the
-  // tenant configured one — "exceeds your X% threshold" reads better
-  // than a generic "high".
+  // Color bands. Three cases:
+  //   1. No score → neutral (haven't checked yet)
+  //   2. Threshold set → relative bands:
+  //        score >= threshold       → red (flagged)
+  //        score >= 0.7 * threshold → amber ("approaching")
+  //        score <  0.7 * threshold → green (well below)
+  //   3. No threshold set → fall back to fixed 30/60 ranges so the
+  //      panel still gives a useful visual without configuration.
+  const RED   = { bg: '#fdf2f1', border: '#c0392b', text: '#8a1f15', accent: '#c0392b' }
+  const AMBER = { bg: '#fff7e6', border: '#d97706', text: '#7c4a00', accent: '#d97706' }
+  const GREEN = { bg: '#ecfdf5', border: '#0a4d2c', text: '#064e3b', accent: '#0a4d2c' }
+  const NEUTRAL = { bg: '#f5f5f5', border: '#e5e5e5', text: '#6b7280', accent: '#9ca3af' }
+
   let band, headline, sub, label
   if (!hasScore) {
-    band = { bg: '#f5f5f5', border: '#e5e5e5', text: '#6b7280', accent: '#9ca3af' }
+    band = NEUTRAL
     headline = 'Not scored yet'
     sub = 'Click Recheck to score this draft against ZeroGPT.'
     label = '—'
-  } else if (score >= 60) {
-    band = { bg: '#fdf2f1', border: '#c0392b', text: '#8a1f15', accent: '#c0392b' }
-    headline = 'Looks AI-generated'
-    sub = threshold != null && score > threshold
-      ? `Above your ${threshold}% threshold. Rewrite the flagged sentences before publishing.`
-      : 'Strong AI signals. Rewrite the flagged sentences before publishing.'
+  } else if (typeof threshold === 'number') {
+    // Threshold-relative coloring (the operator's actual gate).
+    const approachingFloor = threshold * 0.7
     label = `${score.toFixed(0)}%`
-  } else if (score >= 30) {
-    band = { bg: '#fff7e6', border: '#d97706', text: '#7c4a00', accent: '#d97706' }
-    headline = 'Mixed signal'
-    sub = 'Some AI tells. Use the regenerate dropdown or rewrite flagged sentences to push this lower.'
-    label = `${score.toFixed(0)}%`
+    if (score >= threshold) {
+      band = RED
+      headline = 'Above threshold'
+      sub = `${score.toFixed(1)}% is at or above your ${threshold}% threshold for this template. Flagged for review — rewrite or regenerate before publishing.`
+    } else if (score >= approachingFloor) {
+      band = AMBER
+      headline = 'Approaching threshold'
+      sub = `${score.toFixed(1)}% is below your ${threshold}% threshold but close. Technically OK to schedule — tighten if you can.`
+    } else {
+      band = GREEN
+      headline = 'Well below threshold'
+      sub = `${score.toFixed(1)}% — comfortably under your ${threshold}% threshold. Safe to schedule / publish.`
+    }
   } else {
-    band = { bg: '#ecfdf5', border: '#0a4d2c', text: '#064e3b', accent: '#0a4d2c' }
-    headline = 'Looks human'
-    sub = threshold != null
-      ? `Under your ${threshold}% threshold. Safe to schedule / publish.`
-      : 'Low AI signal. Safe to schedule / publish.'
+    // No threshold configured — use fixed ranges so the panel is
+    // still informative.
     label = `${score.toFixed(0)}%`
+    if (score >= 60) {
+      band = RED; headline = 'Looks AI-generated'
+      sub = 'Strong AI signals. Configure a threshold for this template under Config → ZeroGPT to gate publishing.'
+    } else if (score >= 30) {
+      band = AMBER; headline = 'Mixed signal'
+      sub = 'Some AI tells. Configure a threshold for this template under Config → ZeroGPT to gate publishing.'
+    } else {
+      band = GREEN; headline = 'Looks human'
+      sub = 'Low AI signal. Configure a threshold for this template under Config → ZeroGPT to gate publishing.'
+    }
   }
 
   return (
