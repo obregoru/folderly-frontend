@@ -473,23 +473,13 @@ function BlogPostEditor({ id, onBack }) {
 
         {/* ZeroGPT row (always visible once we have a score, regardless of status) */}
         {(typeof post.zerogpt_score === 'number' || post.last_zerogpt_check) && (
-          <div className="mt-2 text-[10px] flex items-center gap-2 flex-wrap">
-            <span className="text-muted">ZeroGPT:</span>
-            {typeof post.zerogpt_score === 'number' ? (
-              <span className={`font-mono font-bold ${
-                post.zerogpt_score >= 60 ? 'text-[#c0392b]' : post.zerogpt_score >= 30 ? 'text-[#d97706]' : 'text-[#2D9A5E]'
-              }`}>{post.zerogpt_score.toFixed(1)}% AI</span>
-            ) : <span className="text-muted">no score</span>}
-            {post.last_zerogpt_check && (
-              <span className="text-muted">· checked {new Date(post.last_zerogpt_check).toLocaleString()}</span>
-            )}
-            <button
-              type="button"
-              onClick={handleRecheckZeroGpt}
-              disabled={saving || generating || publishing}
-              className="text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer disabled:opacity-50"
-            >↻ Recheck</button>
-          </div>
+          <ZeroGptRow
+            score={post.zerogpt_score}
+            checkedAt={post.last_zerogpt_check}
+            metadata={post.zerogpt_metadata}
+            onRecheck={handleRecheckZeroGpt}
+            recheckDisabled={saving || generating || publishing}
+          />
         )}
 
         {/* Drift row (audience-lock fit). Renders when we have a score
@@ -1508,6 +1498,59 @@ function PublishAttemptsLog({ attempts }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  )
+}
+
+// ZeroGPT score row + (when present) expandable list of the per-sentence
+// flags from the most recent check. Mirrors V2's ResultCard pattern of
+// surfacing exactly which prose ZeroGPT thought was AI-generated, but
+// in panel form rather than inline <mark> tags — the editor body lives
+// in a plain textarea so we can't decorate it without a richtext layer.
+function ZeroGptRow({ score, checkedAt, metadata, onRecheck, recheckDisabled }) {
+  const [open, setOpen] = useState(false)
+  const sentences = Array.isArray(metadata?.sentences) ? metadata.sentences : []
+  return (
+    <div className="mt-2 text-[10px]">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-muted">ZeroGPT:</span>
+        {typeof score === 'number' ? (
+          <span className={`font-mono font-bold ${
+            score >= 60 ? 'text-[#c0392b]' : score >= 30 ? 'text-[#d97706]' : 'text-[#2D9A5E]'
+          }`}>{score.toFixed(1)}% AI</span>
+        ) : <span className="text-muted">no score</span>}
+        {checkedAt && (
+          <span className="text-muted">· checked {new Date(checkedAt).toLocaleString()}</span>
+        )}
+        <button
+          type="button"
+          onClick={onRecheck}
+          disabled={recheckDisabled}
+          className="text-[9px] py-0.5 px-1.5 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer disabled:opacity-50"
+        >↻ Recheck</button>
+        {sentences.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            className="text-[9px] py-0.5 px-1.5 border border-[#c0392b]/40 text-[#c0392b] bg-[#fdf2f1] rounded cursor-pointer"
+            title="Sentences ZeroGPT identified as AI-likely. These are the lines to rewrite."
+          >🔦 {open ? 'Hide' : 'Show'} flagged ({sentences.length})</button>
+        )}
+      </div>
+      {open && sentences.length > 0 && (
+        <div className="mt-1 bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2 space-y-1">
+          <div className="text-[9px] text-muted uppercase tracking-wide">
+            ZeroGPT thinks these {sentences.length} sentence{sentences.length === 1 ? '' : 's'} read as AI-generated. Rewrite them with more specific details, contractions, varied length, and a real human voice.
+          </div>
+          <ul className="space-y-1">
+            {sentences.map((s, i) => (
+              <li key={i} className="text-[11px] text-[#c0392b] bg-white border border-[#c0392b]/20 rounded p-1.5">
+                <mark className="bg-[#fce4ec] text-[#c0392b] px-0.5 rounded">{s}</mark>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   )
