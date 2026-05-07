@@ -205,12 +205,26 @@ export const updateBlogPost = (id, patch) =>
 
 // Run full article generation. Slow (60-90s) — caller should show
 // a "generating" UI and poll/refresh when the response lands.
+//
+// opts.styleHint: optional preset key or free-form critique string.
+//   Presets recognized by BE: 'more_conversational', 'more_concise',
+//   'fix_flagged_sentences', 'more_specific'. Anything else lands as
+//   a custom hint applied verbatim (max 1000 chars).
+//
+// opts.useFlaggedSentences: when true, BE pulls the saved
+//   zerogpt_metadata.sentences off the row and tells Claude to rewrite
+//   each one. Combine with styleHint='fix_flagged_sentences' for the
+//   "fix what ZeroGPT flagged" flow.
 export const generateBlogPost = (id, opts = {}) =>
   fetch(`${apiBase()}/content/blog-posts/${id}/generate`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
-    body: JSON.stringify({ target_word_count: opts.targetWordCount }),
+    body: JSON.stringify({
+      target_word_count: opts.targetWordCount,
+      style_hint: opts.styleHint || null,
+      use_flagged_sentences: !!opts.useFlaggedSentences,
+    }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))

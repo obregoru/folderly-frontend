@@ -179,12 +179,23 @@ function BlogPostEditor({ id, onBack }) {
 
   const flashSaved = () => { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500) }
 
-  const handleGenerate = async () => {
+  // generate / regenerate. Style hint is one of:
+  //   null                       — default prompt
+  //   'more_conversational'      — preset key, BE expands
+  //   'more_concise'             — preset key, BE expands
+  //   'fix_flagged_sentences'    — preset key + use_flagged_sentences=true
+  //   'more_specific'            — preset key, BE expands
+  //   '<free-form text>'         — custom critique applied verbatim
+  const handleGenerate = async (opts = {}) => {
     if (!post) return
     setGenerating(true)
     setError(null)
     try {
-      const updated = await api.generateBlogPost(post.id, { targetWordCount: 900 })
+      const updated = await api.generateBlogPost(post.id, {
+        targetWordCount: 900,
+        styleHint: opts.styleHint || null,
+        useFlaggedSentences: !!opts.useFlaggedSentences,
+      })
       setPost(updated)
       setEditBuf({})
     } catch (e) {
@@ -359,15 +370,26 @@ function BlogPostEditor({ id, onBack }) {
             <div className="text-[10px] text-muted">/{value('slug')}</div>
           </div>
           <div className="flex flex-col gap-1 self-start min-w-[180px]">
-            {/* Generate is always visible (Generate / Regenerate) */}
-            <button
-              type="button"
-              onClick={handleGenerate}
-              disabled={generating || publishing}
-              className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
-            >
-              {generating ? 'Generating…' : (hasBody ? '✨ Regenerate' : '✨ Generate article')}
-            </button>
+            {/* Generate is always visible. For first-generate it's a
+                plain button. For regenerate (body already exists) it's
+                a dropdown so the user can pick a style override. */}
+            {hasBody ? (
+              <RegenerateMenu
+                disabled={generating || publishing}
+                generating={generating}
+                hasFlaggedSentences={Array.isArray(post.zerogpt_metadata?.sentences) && post.zerogpt_metadata.sentences.length > 0}
+                onPick={(opts) => handleGenerate(opts)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleGenerate()}
+                disabled={generating || publishing}
+                className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+              >
+                {generating ? 'Generating…' : '✨ Generate article'}
+              </button>
+            )}
 
             {/* Mark ready / drafting toggle once body exists */}
             {hasBody && post.status !== 'published' && post.status !== 'scheduled' && (
@@ -1498,6 +1520,141 @@ function PublishAttemptsLog({ attempts }) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  )
+}
+
+// Regenerate button with style-hint dropdown. The first-generate path
+// is just a plain button (no dropdown — there's nothing to refine yet).
+// Once a body exists, this menu lets the user pick a style override
+// to apply on top of the standard guidelines.
+function RegenerateMenu({ disabled, generating, hasFlaggedSentences, onPick }) {
+  const [open, setOpen] = useState(false)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customText, setCustomText] = useState('')
+
+  const presets = [
+    { key: null,                       label: '✨ Regenerate (default)',     hint: 'Re-run with the standard prompt.' },
+    { key: 'more_conversational',      label: '🗣 More conversational',       hint: 'Like a friend explaining over coffee. Heavy on contractions.' },
+    { key: 'more_concise',             label: '✂️ More concise',              hint: 'Cut ~25%. Same info, fewer words.' },
+    { key: 'more_specific',            label: '🎯 More specific',             hint: 'Replace generalities with concrete details and numbers.' },
+  ]
+
+  const handlePick = (key) => {
+    setOpen(false)
+    if (key === '__fix_flagged') {
+      onPick({ styleHint: 'fix_flagged_sentences', useFlaggedSentences: true })
+    } else {
+      onPick({ styleHint: key })
+    }
+  }
+
+  const handleCustom = (e) => {
+    e?.preventDefault()
+    if (!customText.trim()) return
+    setOpen(false); setCustomOpen(false)
+    onPick({ styleHint: customText.trim() })
+    setCustomText('')
+  }
+
+  return (
+    <div className="relative">
+      <div className="flex">
+        <button
+          type="button"
+          onClick={() => onPick({})}
+          disabled={disabled}
+          className="text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded-l cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap flex-1"
+          title="Re-run article generation with the standard prompt"
+        >
+          {generating ? 'Generating…' : '✨ Regenerate'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          disabled={disabled}
+          className="text-[11px] py-1.5 px-2 bg-[#6C5CE7] text-white border-none rounded-r border-l border-l-white/30 cursor-pointer disabled:opacity-50 font-medium"
+          title="Pick a style override"
+        >▾</button>
+      </div>
+      {open && (
+        <div
+          className="absolute right-0 mt-1 w-[280px] bg-white border border-[#e5e5e5] rounded shadow-lg z-10"
+          onMouseLeave={() => setOpen(false)}
+        >
+          <div className="px-2 py-1 text-[9px] uppercase tracking-wide text-muted border-b border-[#e5e5e5]">
+            Regenerate with style override
+          </div>
+          {presets.map(p => (
+            <button
+              key={String(p.key)}
+              type="button"
+              onClick={() => handlePick(p.key)}
+              className="block w-full text-left px-3 py-1.5 text-[11px] hover:bg-[#fafafa] cursor-pointer bg-white border-none border-b border-b-[#f5f5f5] last:border-b-0"
+            >
+              <div className="font-medium text-ink">{p.label}</div>
+              <div className="text-[9px] text-muted">{p.hint}</div>
+            </button>
+          ))}
+          {hasFlaggedSentences && (
+            <button
+              type="button"
+              onClick={() => handlePick('__fix_flagged')}
+              className="block w-full text-left px-3 py-1.5 text-[11px] hover:bg-[#fdf2f1] cursor-pointer bg-white border-none border-t border-t-[#c0392b]/30"
+            >
+              <div className="font-medium text-[#c0392b]">🔦 Fix AI-flagged sentences</div>
+              <div className="text-[9px] text-muted">Use the saved ZeroGPT flags. Claude rewrites each flagged sentence specifically.</div>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { setCustomOpen(true); setOpen(false) }}
+            className="block w-full text-left px-3 py-1.5 text-[11px] hover:bg-[#fafafa] cursor-pointer bg-white border-none border-t border-t-[#e5e5e5]"
+          >
+            <div className="font-medium text-ink">📝 Custom hint…</div>
+            <div className="text-[9px] text-muted">Paste a critique from another AI or your own notes.</div>
+          </button>
+        </div>
+      )}
+      {customOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setCustomOpen(false)}>
+          <form
+            onSubmit={handleCustom}
+            onClick={e => e.stopPropagation()}
+            className="bg-white rounded-lg shadow-2xl w-full max-w-[500px] p-4 space-y-3"
+          >
+            <div>
+              <div className="text-[13px] font-medium mb-1">Custom regenerate hint</div>
+              <div className="text-[10px] text-muted">
+                What should the model do differently? Plain English. Examples: "Make it sound less corporate.", "Add more first-person details.", "Drop the second H2 entirely — it's redundant."
+              </div>
+            </div>
+            <textarea
+              autoFocus
+              value={customText}
+              onChange={e => setCustomText(e.target.value)}
+              rows={5}
+              maxLength={1000}
+              className="w-full text-[11px] border border-[#e5e5e5] rounded p-2 font-mono"
+              placeholder="Type your critique / instruction…"
+            />
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-muted">{customText.length}/1000</span>
+              <div className="flex-1" />
+              <button
+                type="button"
+                onClick={() => { setCustomOpen(false); setCustomText('') }}
+                className="text-[11px] py-1 px-3 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+              >Cancel</button>
+              <button
+                type="submit"
+                disabled={!customText.trim()}
+                className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+              >✨ Regenerate with hint</button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   )
