@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../api'
 import WpMediaPicker from '../components/WpMediaPicker'
+import FreePhotosPicker from '../components/FreePhotosPicker'
 
 const STATUS_TONE = {
   drafting:   { color: '#94a3b8', label: 'Drafting' },
@@ -608,6 +609,7 @@ function BlogPostEditor({ id, onBack }) {
         images={post.images || []}
         onChange={load}
         setError={setError}
+        defaultPhotoQuery={post.focus_keyword || post.title || ''}
       />
 
       {/* Empty-state if not yet generated */}
@@ -1046,7 +1048,7 @@ function CategoryTokensInput({ value, onChange, options, listIdSuffix = 'categor
 // article-generation prompt will respect — pre-generation uploads
 // flow into the system prompt as USER-UPLOADED IMAGES so the model
 // references them in image_specs by filename + role.
-function ImageManager({ postId, images, onChange, setError }) {
+function ImageManager({ postId, images, onChange, setError, defaultPhotoQuery = '' }) {
   const [uploading, setUploading] = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
   const [pendingFilename, setPendingFilename] = useState('')
@@ -1058,6 +1060,12 @@ function ImageManager({ postId, images, onChange, setError }) {
   // entirely.
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerRole, setPickerRole] = useState('inline')
+  // Free-stock photo picker (Pexels today). Same role-driven UX as
+  // the WP picker; on pick, we POST to /images/from-free-photo which
+  // server-downloads the bytes + stores them in our blog_post_images
+  // table.
+  const [freePhotoOpen, setFreePhotoOpen] = useState(false)
+  const [freePhotoRole, setFreePhotoRole] = useState('inline')
   // Pre-flight check: image storage must be configured before
   // upload can succeed. Saves the user from picking a file +
   // typing alt text only to be told it doesn't work.
@@ -1071,6 +1079,20 @@ function ImageManager({ postId, images, onChange, setError }) {
     setError(null)
     try {
       await api.attachWpMedia(postId, mediaItem, { role: pickerRole })
+      await onChange()
+    } catch (e) {
+      setError(e?.message || String(e))
+    }
+  }
+
+  const handlePickFreePhoto = async (photo) => {
+    setFreePhotoOpen(false)
+    setError(null)
+    try {
+      await api.attachFreePhoto(postId, photo, {
+        role: freePhotoRole,
+        searchQuery: defaultPhotoQuery,
+      })
       await onChange()
     } catch (e) {
       setError(e?.message || String(e))
@@ -1129,7 +1151,7 @@ function ImageManager({ postId, images, onChange, setError }) {
       {/* Pick from WP library — always available, even when our
           storage isn't configured. Best path for users with images
           already on the WP site. */}
-      <div className="flex items-center gap-2 text-[11px]">
+      <div className="flex items-center gap-2 text-[11px] flex-wrap">
         <span className="text-muted">Quick add:</span>
         <button
           type="button"
@@ -1143,6 +1165,18 @@ function ImageManager({ postId, images, onChange, setError }) {
           className="text-[10px] py-1 px-2 border border-[#6C5CE7] text-[#6C5CE7] bg-white rounded cursor-pointer"
           title="Pick an inline image from your existing WP media library"
         >📚 Pick inline from WP</button>
+        <button
+          type="button"
+          onClick={() => { setFreePhotoRole('featured'); setFreePhotoOpen(true) }}
+          className="text-[10px] py-1 px-2 border border-[#0a4d2c] text-[#0a4d2c] bg-white rounded cursor-pointer"
+          title="Search Pexels for a free-to-use featured (hero) photo. Pre-fills with this draft's focus keyword."
+        >🌐 Featured from Pexels</button>
+        <button
+          type="button"
+          onClick={() => { setFreePhotoRole('inline'); setFreePhotoOpen(true) }}
+          className="text-[10px] py-1 px-2 border border-[#0a4d2c] text-[#0a4d2c] bg-white rounded cursor-pointer"
+          title="Search Pexels for a free-to-use inline photo. Pre-fills with this draft's focus keyword."
+        >🌐 Inline from Pexels</button>
       </div>
 
       <WpMediaPicker
@@ -1150,6 +1184,14 @@ function ImageManager({ postId, images, onChange, setError }) {
         onClose={() => setPickerOpen(false)}
         onPick={handlePickFromWp}
         title={`Pick ${pickerRole === 'featured' ? 'a featured (hero)' : 'an inline'} image`}
+      />
+
+      <FreePhotosPicker
+        open={freePhotoOpen}
+        onClose={() => setFreePhotoOpen(false)}
+        onPick={handlePickFreePhoto}
+        defaultQuery={defaultPhotoQuery}
+        title={`Find ${freePhotoRole === 'featured' ? 'a featured (hero)' : 'an inline'} photo (free for commercial use)`}
       />
 
       {/* Storage-not-configured warning. Note: "📚 Pick from WP"
