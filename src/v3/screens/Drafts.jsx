@@ -1191,6 +1191,7 @@ function ImageManager({ postId, images, onChange, setError, defaultPhotoQuery = 
         onClose={() => setFreePhotoOpen(false)}
         onPick={handlePickFreePhoto}
         defaultQuery={defaultPhotoQuery}
+        defaultOrientation={freePhotoRole === 'featured' ? 'landscape' : null}
         title={`Find ${freePhotoRole === 'featured' ? 'a featured (hero)' : 'an inline'} photo (free for commercial use)`}
       />
 

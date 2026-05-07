@@ -19,10 +19,16 @@ export default function FreePhotosPicker({
   onClose,
   onPick,
   defaultQuery = '',
+  defaultOrientation = 'landscape',
   title = 'Pick from free stock photos',
 }) {
   const [search, setSearch] = useState('')
   const [appliedSearch, setAppliedSearch] = useState('')
+  // Orientation filter — Pexels supports landscape/portrait/square
+  // natively, so we filter at the source instead of cropping client-
+  // side. Default driven by caller (landscape for featured-image
+  // pickers, "any" for inline) so the most common case is one click.
+  const [orientation, setOrientation] = useState(defaultOrientation)
   const [page, setPage] = useState(1)
   const [items, setItems] = useState([])
   const [hasNextPage, setHasNextPage] = useState(false)
@@ -47,14 +53,15 @@ export default function FreePhotosPicker({
     if (!open) {
       setSearch('')
       setAppliedSearch('')
+      setOrientation(defaultOrientation)
       setPage(1)
       setItems([])
       setError(null)
       setHasNextPage(false)
     }
-  }, [open])
+  }, [open, defaultOrientation])
 
-  // Run the search whenever the applied query or page changes.
+  // Run the search whenever the applied query, orientation, or page changes.
   useEffect(() => {
     if (!open || !appliedSearch) {
       setItems([])
@@ -62,7 +69,7 @@ export default function FreePhotosPicker({
     }
     let cancelled = false
     setLoading(true); setError(null)
-    api.searchFreePhotos({ query: appliedSearch, page, perPage: 24 })
+    api.searchFreePhotos({ query: appliedSearch, page, perPage: 24, orientation })
       .then(r => {
         if (cancelled) return
         if (r?.configured === false) {
@@ -78,7 +85,7 @@ export default function FreePhotosPicker({
       .catch(e => { if (!cancelled) setError(e?.message || String(e)) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [open, appliedSearch, page])
+  }, [open, appliedSearch, page, orientation])
 
   if (!open) return null
 
@@ -112,13 +119,13 @@ export default function FreePhotosPicker({
           >✕ Close</button>
         </div>
 
-        <form onSubmit={submitSearch} className="px-4 py-2 border-b border-[#e5e5e5] flex gap-2">
+        <form onSubmit={submitSearch} className="px-4 py-2 border-b border-[#e5e5e5] flex gap-2 flex-wrap items-center">
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search free stock photos (e.g. 'friendship bracelet station')…"
-            className="flex-1 text-[11px] border border-[#e5e5e5] rounded p-1.5"
+            className="flex-1 min-w-[200px] text-[11px] border border-[#e5e5e5] rounded p-1.5"
             autoFocus
           />
           <button
@@ -132,6 +139,16 @@ export default function FreePhotosPicker({
               className="text-[11px] py-1 px-3 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
             >Clear</button>
           )}
+          {/* Orientation filter — change snaps the page back to 1 so
+              we don't end up paging through filtered results from a
+              different filter. */}
+          <div className="flex items-center gap-1 ml-auto">
+            <span className="text-[10px] text-muted">Shape:</span>
+            <OrientationButton current={orientation} value="landscape" label="🖼 Landscape" onChange={v => { setOrientation(v); setPage(1) }} />
+            <OrientationButton current={orientation} value="portrait"  label="📱 Portrait"  onChange={v => { setOrientation(v); setPage(1) }} />
+            <OrientationButton current={orientation} value="square"    label="◻ Square"    onChange={v => { setOrientation(v); setPage(1) }} />
+            <OrientationButton current={orientation} value={null}      label="Any"         onChange={v => { setOrientation(v); setPage(1) }} />
+          </div>
         </form>
 
         <div className="flex-1 overflow-y-auto p-3">
@@ -212,5 +229,22 @@ export default function FreePhotosPicker({
         )}
       </div>
     </div>
+  )
+}
+
+// Tiny pill-style toggle for the orientation filter. `value === null`
+// means "any orientation" — Pexels then returns mixed results.
+function OrientationButton({ current, value, label, onChange }) {
+  const active = current === value
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(value)}
+      className={`text-[10px] py-1 px-2 rounded border cursor-pointer ${
+        active
+          ? 'bg-[#0a4d2c] text-white border-[#0a4d2c]'
+          : 'bg-white text-muted border-[#e5e5e5] hover:border-[#0a4d2c]'
+      }`}
+    >{label}</button>
   )
 }

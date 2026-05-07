@@ -490,13 +490,18 @@ export const getActivity = (limit = 50) =>
 // V3 follow-up — search free-stock photo providers (Pexels today).
 // Returns { configured, items: [...], next_page, ... } or
 // { configured: false, reason } when the provider isn't set up.
-export const searchFreePhotos = ({ query, page = 1, perPage = 24, provider = 'pexels' } = {}) => {
+//
+// orientation: 'landscape' | 'portrait' | 'square' | null. Filters
+// at the provider level — no client-side cropping needed, subject
+// stays in frame.
+export const searchFreePhotos = ({ query, page = 1, perPage = 24, provider = 'pexels', orientation = null } = {}) => {
   const params = new URLSearchParams({
     q: query || '',
     page: String(page),
     per_page: String(perPage),
     provider,
   })
+  if (orientation) params.set('orientation', orientation)
   return fetch(`${apiBase()}/content/free-photos?${params}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
