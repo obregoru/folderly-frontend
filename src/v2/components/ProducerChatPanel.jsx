@@ -355,7 +355,16 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
       if (wantsVo && jobSync?.saveVoiceoverSettings) {
         try {
           const cur = await api.getJob(draftId).catch(() => ({}))
-          const existing = Array.isArray(cur?.voiceover_settings?.segments) ? cur.voiceover_settings.segments : []
+          // Preserve the entire existing voiceover_settings object (voiceId,
+          // voiceProvider, etc.) — the BE does a full-column replace on
+          // voiceover_settings, so sending {segments: [...]} alone wipes
+          // every other setting and the merge ends up with no voice
+          // selected. Spread the existing object first so only segments
+          // change.
+          const existingSettings = (cur?.voiceover_settings && typeof cur.voiceover_settings === 'object')
+            ? cur.voiceover_settings
+            : {}
+          const existing = Array.isArray(existingSettings.segments) ? existingSettings.segments : []
           let nextSegs = [...existing]
           if (applyChoices.primary && parsed.primary) {
             const idx = nextSegs.findIndex(s => s?.id === '__primary__')
@@ -366,6 +375,7 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
             }
           }
           if (applyChoices.segments && Array.isArray(parsed.segments)) {
+            // Wipe non-primary segments + replace with the parsed set.
             nextSegs = nextSegs.filter(s => s?.id === '__primary__')
             for (const s of parsed.segments) {
               if (!s?.text) continue
@@ -378,10 +388,18 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
               })
             }
           }
-          jobSync.saveVoiceoverSettings({ segments: nextSegs })
+          console.log('[producer-apply] voiceover save:',
+            'existing_segs=', existing.length,
+            'next_segs=', nextSegs.length,
+            'primary_applied=', applyChoices.primary && !!parsed.primary,
+            'segments_applied=', applyChoices.segments && Array.isArray(parsed.segments) ? parsed.segments.length : false,
+            'preserved_keys=', Object.keys(existingSettings).filter(k => k !== 'segments')
+          )
+          jobSync.saveVoiceoverSettings({ ...existingSettings, segments: nextSegs })
           if (applyChoices.primary) { mark('primary', 'ok'); summary.push('primary VO text') }
-          if (applyChoices.segments) { mark('segments', 'ok'); summary.push(`${parsed.segments.length} segment text(s)`) }
+          if (applyChoices.segments) { mark('segments', 'ok'); summary.push(`${parsed.segments?.length || 0} segment text(s)`) }
         } catch (e) {
+          console.error('[producer-apply] voiceover save failed:', e?.message || e)
           if (applyChoices.primary) mark('primary', 'error')
           if (applyChoices.segments) mark('segments', 'error')
         }
