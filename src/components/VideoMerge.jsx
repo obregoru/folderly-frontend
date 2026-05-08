@@ -504,8 +504,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             trim_start: item._trimStart || 0,
             trim_end: item._trimEnd ?? null,
             speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
-            // Static center-crop zoom on the video clip. 1.0 = none.
+            // Static crop zoom on the video clip + anchor offsets.
+            // 1.0 = no zoom. offsets in [-100, +100] percent (0 = center).
             video_zoom: Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0,
+            video_offset_x: Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0,
+            video_offset_y: Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0,
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
