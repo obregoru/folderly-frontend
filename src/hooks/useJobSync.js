@@ -428,6 +428,14 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _photoRotate: Number.isFinite(Number(f.photo_to_video_rotate)) ? Number(f.photo_to_video_rotate) : 0,
             _photoOffsetX: Number.isFinite(Number(f.photo_to_video_offset_x)) ? Number(f.photo_to_video_offset_x) : 0,
             _photoOffsetY: Number.isFinite(Number(f.photo_to_video_offset_y)) ? Number(f.photo_to_video_offset_y) : 0,
+            // Video-clip static zoom + crop anchor (mirrors the photo
+            // fields above for video sources). Without these, the
+            // canonical page-load path reads back undefined and the
+            // FE Zoom selector resets to 1× even though the BE has
+            // the correct value persisted.
+            _videoZoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
+            _videoOffsetX: Number.isFinite(Number(f.video_offset_x)) ? Number(f.video_offset_x) : 0,
+            _videoOffsetY: Number.isFinite(Number(f.video_offset_y)) ? Number(f.video_offset_y) : 0,
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             // Per-clip skip toggle. When true, VideoMerge filters this
             // clip out before posting to /merge-videos so it stays in
