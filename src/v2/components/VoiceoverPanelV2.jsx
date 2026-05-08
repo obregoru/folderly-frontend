@@ -1309,15 +1309,39 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
             if (s.duration != null) { anyActual = true; maxActualEnd = Math.max(maxActualEnd, start + s.duration) }
           }
           const over = videoDuration != null && maxEstEnd > videoDuration + 0.2
+          // Use generated time as the headline number when ANY segment
+          // has rendered audio; otherwise show the estimated time. The
+          // operator wants a prominent total — colored band on the
+          // right makes the over-budget state unmissable.
+          const headlineLabel = anyActual ? 'Generated' : 'Estimated'
+          const headlineSec = anyActual ? maxActualEnd : maxEstEnd
+          const ratio = videoDuration != null && videoDuration > 0 ? maxEstEnd / videoDuration : null
           return (
             <div
-              className={`rounded px-2 py-1 text-[10px] flex items-center gap-2 flex-wrap border ${over ? 'bg-[#fdf2f1] border-[#c0392b]/30 text-[#c0392b]' : 'bg-[#fafafa] border-[#e5e5e5] text-ink'}`}
+              className={`rounded p-2 text-[11px] border-l-4 border ${over ? 'bg-[#fdf2f1] border-[#c0392b] border-l-[#c0392b] text-[#8a1f15]' : 'bg-[#f3f0ff] border-[#6C5CE7]/30 border-l-[#6C5CE7] text-ink'}`}
               title="Total voiceover length (end of the last-playing clip). Must be ≤ video length or the VO will run past the end."
             >
-              <span className="font-medium">Estimated {formatSec(maxEstEnd)}</span>
-              {anyActual && <span>· Generated {formatSec(maxActualEnd)}</span>}
-              <span className="ml-auto">Video {videoDuration != null ? formatSec(videoDuration) : '—'}</span>
-              {over && <span className="w-full text-[9px]">⚠ Voiceover runs past the video. Speed up a segment or trim text.</span>}
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-[9px] uppercase tracking-wide text-muted">Total voiceover</span>
+                <span className="text-[16px] font-bold font-mono leading-none">{formatSec(headlineSec)}</span>
+                <span className="text-[9px] text-muted">{headlineLabel.toLowerCase()}</span>
+                {anyActual && Math.abs(maxEstEnd - maxActualEnd) > 0.2 && (
+                  <span className="text-[9px] text-muted">· est {formatSec(maxEstEnd)}</span>
+                )}
+                <span className="ml-auto text-[10px]">
+                  Video <span className="font-mono font-medium">{videoDuration != null ? formatSec(videoDuration) : '—'}</span>
+                  {ratio != null && (
+                    <span className={`ml-1 font-mono ${over ? 'text-[#c0392b] font-bold' : 'text-muted'}`}>
+                      ({Math.round(ratio * 100)}%)
+                    </span>
+                  )}
+                </span>
+              </div>
+              {over && (
+                <div className="text-[10px] mt-1 font-medium">
+                  ⚠ Voiceover runs past the video. Trim text, speed up a segment, or extend the merge before publishing.
+                </div>
+              )}
             </div>
           )
         })()}
