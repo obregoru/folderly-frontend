@@ -37,6 +37,26 @@ function MediaLightbox({ item, onClose }) {
   const file = item.file
   const isImg = item.isImg || item._mediaType?.startsWith('image/')
   const videoRef = useRef(null)
+  // Mirror the zoom + anchor live preview from VideoThumb / RestoredMedia
+  // so the lightbox shows the same framing the merge will produce. Listens
+  // to posty-video-zoom-change so changing the selector elsewhere updates
+  // the lightbox in real time.
+  const [zoom, setZoom] = useState(() => Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+  const [offX, setOffX] = useState(() => Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
+  const [offY, setOffY] = useState(() => Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
+  useEffect(() => {
+    if (isImg) return
+    const onChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setZoom(Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+      setOffX(Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
+      setOffY(Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
+    }
+    window.addEventListener('posty-video-zoom-change', onChange)
+    return () => window.removeEventListener('posty-video-zoom-change', onChange)
+  }, [item, isImg])
+  const originX = 50 + offX / 2
+  const originY = 50 + offY / 2
   const [src] = useState(() => {
     if (file instanceof Blob || file instanceof File) return URL.createObjectURL(file)
     // Restored file — prefer Supabase public URL (no auth, no memory pressure)
@@ -106,8 +126,11 @@ function MediaLightbox({ item, onClose }) {
           // hugs the video's rendered size and the 9:16 export-frame
           // overlay can size to it. Without the wrapper the overlay
           // would size to the outer modal padding box, which doesn't
-          // match the video.
-          <div className="relative inline-block">
+          // match the video. Use overflow-hidden so the zoomed video
+          // is clipped to the wrapper bounds (the visible area
+          // outside the 9:16 outline is still part of the source —
+          // just not the export region).
+          <div className="relative inline-block overflow-hidden rounded">
             <video
               ref={videoRef}
               src={src}
@@ -115,6 +138,8 @@ function MediaLightbox({ item, onClose }) {
               playsInline
               crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
               className="max-w-full max-h-[80vh] rounded block"
+              // Live zoom + anchor preview matching the merge crop.
+              style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
             />
             <ExportFrameOverlay />
             {hasTrim && (
