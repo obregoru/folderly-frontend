@@ -565,6 +565,33 @@ export default function AppV2() {
               jobSync.loadJob(id).catch(e => console.warn('[loadJob] failed:', e.message))
             }}
             onNew={async () => {
+              // "+ New draft" must produce a brand-new job, even when
+              // the user just came back from editing a previous draft.
+              // Without newJob() first, jobIdRef still points at the
+              // last-loaded draft and ensureJob() short-circuits to
+              // return that id — the editor then "reloads the last
+              // draft" instead of starting fresh.
+              //
+              // Mirror the per-draft window-globals reset from the
+              // onOpen handler above so FinalPreviewV2 / overlays /
+              // captions / teleprompter / playlist don't bleed over
+              // from the previous draft.
+              if (typeof window !== 'undefined') {
+                try {
+                  if (window._postyMergedVideo?.url) URL.revokeObjectURL(window._postyMergedVideo.url)
+                } catch {}
+                window._postyMergedVideo = null
+                window._postyOverlays = null
+                window._postyCaptions = null
+                window._postyTeleprompter = null
+                window._postyPreviewPlaylist = null
+                try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-overlay-change', { detail: null })) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-captions-change', { detail: null })) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-teleprompter-change', { detail: null })) } catch {}
+                try { window.dispatchEvent(new CustomEvent('posty-preview-playlist-change', { detail: null })) } catch {}
+              }
+              await jobSync.newJob()
               const id = await jobSync.ensureJob()
               if (id) setActiveDraftId(id)
             }}

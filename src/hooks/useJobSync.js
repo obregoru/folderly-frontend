@@ -517,6 +517,13 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
   // Start a fresh new job
   const newJob = useCallback(async () => {
     const hadJob = !!jobIdRef.current
+    // Clear the ref synchronously — setJobId(null) only schedules a
+    // re-render, so the useEffect that mirrors jobId → jobIdRef hasn't
+    // run yet. Without this, an immediate ensureJob() call (e.g. the
+    // "+ New draft" handler) would short-circuit and return the
+    // previous draft's id, reloading the old draft instead of creating
+    // a new one.
+    jobIdRef.current = null
     setJobId(null)
     sessionStorage.removeItem('posty_active_job')
     fileIdMapRef.current = {}
