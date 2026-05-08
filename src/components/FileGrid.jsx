@@ -3,6 +3,36 @@ import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, 
 import { sortableKeyboardCoordinates, SortableContext, arrayMove, useSortable, rectSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
+// Centered 9:16 outline overlay. Shows the export frame on top of any
+// video preview so the operator can see exactly what region will be in
+// the final 1080×1920 portrait export. The outline:
+//   - is sized to fill the parent's height with a 9:16 aspect ratio
+//   - max-width 100% so portrait sources cap at the parent's width
+//   - is purely cosmetic (pointer-events: none)
+// Position the parent as `relative` and ensure it has a known height
+// for the overlay to fit against (most video preview wrappers already do).
+function ExportFrameOverlay({ withBadge = true }) {
+  return (
+    <>
+      <div
+        className="pointer-events-none absolute top-1/2 left-1/2 border-2 border-dashed border-white/70 rounded"
+        style={{
+          aspectRatio: '9 / 16',
+          height: '100%',
+          maxWidth: '100%',
+          transform: 'translate(-50%, -50%)',
+          boxShadow: '0 0 0 9999px rgba(0,0,0,0.25)', // dim everything outside the export frame
+        }}
+      />
+      {withBadge && (
+        <span className="pointer-events-none absolute top-1 left-1 text-[8px] font-medium bg-black/60 text-white rounded px-1.5 py-0.5">
+          9:16 export
+        </span>
+      )}
+    </>
+  )
+}
+
 function MediaLightbox({ item, onClose }) {
   const file = item.file
   const isImg = item.isImg || item._mediaType?.startsWith('image/')
@@ -72,21 +102,27 @@ function MediaLightbox({ item, onClose }) {
         ) : isImg ? (
           <img src={src} className="max-w-full max-h-[80vh] rounded object-contain" />
         ) : (
-          <>
+          // Wrap the video in a relative inline-block so the wrapper
+          // hugs the video's rendered size and the 9:16 export-frame
+          // overlay can size to it. Without the wrapper the overlay
+          // would size to the outer modal padding box, which doesn't
+          // match the video.
+          <div className="relative inline-block">
             <video
               ref={videoRef}
               src={src}
               controls
               playsInline
               crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
-              className="max-w-full max-h-[80vh] rounded"
+              className="max-w-full max-h-[80vh] rounded block"
             />
+            <ExportFrameOverlay />
             {hasTrim && (
               <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
                 Trimmed preview: {trimStart.toFixed(1)}s → {trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -214,6 +250,7 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         // transform-origin moves the scaling pivot to the chosen anchor.
         style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
       />
+      <ExportFrameOverlay />
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
       </div>
@@ -309,6 +346,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
             // Live zoom + anchor preview matching the merge-time crop semantic.
             style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
           />
+          <ExportFrameOverlay />
           {zoom !== 1 && (
             <div className="absolute bottom-1 right-1 text-[9px] font-medium bg-[#6C5CE7] text-white rounded px-1.5 py-0.5 pointer-events-none">
               {zoom}× zoom
