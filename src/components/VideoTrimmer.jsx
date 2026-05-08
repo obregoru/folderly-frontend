@@ -451,59 +451,144 @@ export default function VideoTrimmer({ item }) {
   )
 }
 
-// Static zoom selector for video clips. Lives under the trim filmstrip
-// alongside the FirstHalfSecondInspector. 1× = no zoom (default);
-// 1.25×–5× crops the center and the merge step scales it back to fill.
-// Saves on change via the same posty-video-zoom-change event the
-// VideoMerge panel uses, so all surfaces stay in sync.
+// Static zoom + anchor picker for video clips. Lives under the trim
+// filmstrip. Zoom = 1.0 means no crop; >1 crops a region of (iw/zoom ×
+// ih/zoom) anchored by (offsetX, offsetY) in [-100, +100] percent.
+//
+// 3×3 anchor presets snap offsets to {-100, 0, +100} for both axes.
+// Sliders below the grid let the operator nudge between presets.
+// All edits dispatch posty-video-zoom-change so live preview tiles +
+// merge panel stay in sync, and useJobSync persists.
 function VideoZoomBar({ item }) {
   const [zoom, setZoom] = useState(() => {
     const v = Number(item._videoZoom)
     return v > 0 ? v : 1.0
   })
-  // Keep the local value in sync if something else mutates _videoZoom
-  // (e.g., the merge panel's selector or a fresh load).
+  const [offX, setOffX] = useState(() => {
+    const v = Number(item._videoOffsetX)
+    return Number.isFinite(v) ? v : 0
+  })
+  const [offY, setOffY] = useState(() => {
+    const v = Number(item._videoOffsetY)
+    return Number.isFinite(v) ? v : 0
+  })
+
+  // Re-pull from item if external (merge panel) state changes.
   useEffect(() => {
     const v = Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0
     if (Math.abs(v - zoom) > 0.001) setZoom(v)
+    const x = Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0
+    if (Math.abs(x - offX) > 0.5) setOffX(x)
+    const y = Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0
+    if (Math.abs(y - offY) > 0.5) setOffY(y)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item._videoZoom])
+  }, [item._videoZoom, item._videoOffsetX, item._videoOffsetY])
 
-  const commit = (next) => {
+  const dispatch = () => {
+    try { window.dispatchEvent(new CustomEvent('posty-video-zoom-change', { detail: { itemId: item.id } })) } catch {}
+  }
+
+  const commitZoom = (next) => {
     const n = Number(next)
     if (!(n > 0)) return
     const clamped = Math.max(1.0, Math.min(5.0, n))
     setZoom(clamped)
     item._videoZoom = clamped
-    try { window.dispatchEvent(new CustomEvent('posty-video-zoom-change', { detail: { itemId: item.id } })) } catch {}
+    dispatch()
   }
 
+  const commitOffsets = (x, y) => {
+    const cx = Math.max(-100, Math.min(100, Number.isFinite(x) ? x : 0))
+    const cy = Math.max(-100, Math.min(100, Number.isFinite(y) ? y : 0))
+    setOffX(cx); setOffY(cy)
+    item._videoOffsetX = cx
+    item._videoOffsetY = cy
+    dispatch()
+  }
+
+  // 9-point anchor grid. Each cell maps to specific (offsetX, offsetY)
+  // values. The current selection is the cell whose offsets match
+  // exactly; anything else (sliders nudged off a preset) shows no
+  // selection.
+  const ANCHORS = [
+    { x: -100, y: -100, label: 'TL' }, { x: 0, y: -100, label: 'T' }, { x: +100, y: -100, label: 'TR' },
+    { x: -100, y:    0, label: 'L'  }, { x: 0, y:    0, label: 'C' }, { x: +100, y:    0, label: 'R'  },
+    { x: -100, y: +100, label: 'BL' }, { x: 0, y: +100, label: 'B' }, { x: +100, y: +100, label: 'BR' },
+  ]
+  const isAnchorActive = (a) => Math.abs(a.x - offX) < 0.5 && Math.abs(a.y - offY) < 0.5
+
   return (
-    <label
-      className={`mt-1 flex items-center gap-2 text-[10px] px-2 py-1 rounded border ${
-        zoom !== 1
-          ? 'bg-[#f3f0ff] border-[#6C5CE7]/40 text-[#6C5CE7]'
-          : 'bg-white border-border text-muted'
-      }`}
-      title={zoom !== 1
-        ? `This clip will be zoomed in ${zoom}× during merge.`
-        : 'Static zoom on this video clip. 1× = original framing; 1.25×–5× crops the center and scales back to fill.'}
-    >
-      <span className="font-medium">Zoom</span>
-      <select
-        value={String(zoom)}
-        onChange={e => commit(e.target.value)}
-        className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+    <div className="mt-1 space-y-1">
+      <label
+        className={`flex items-center gap-2 text-[10px] px-2 py-1 rounded border ${
+          zoom !== 1
+            ? 'bg-[#f3f0ff] border-[#6C5CE7]/40 text-[#6C5CE7]'
+            : 'bg-white border-border text-muted'
+        }`}
+        title={zoom !== 1
+          ? `This clip will be zoomed in ${zoom}× during merge.`
+          : 'Static zoom on this video clip. 1× = original framing; 1.25×–5× crops a region and scales back to fill.'}
       >
-        <option value="1">1×</option>
-        <option value="1.25">1.25×</option>
-        <option value="1.5">1.5×</option>
-        <option value="2">2×</option>
-        <option value="3">3×</option>
-        <option value="5">5×</option>
-      </select>
-      {zoom !== 1 && <span className="text-[9px] text-muted">center crop</span>}
-    </label>
+        <span className="font-medium">Zoom</span>
+        <select
+          value={String(zoom)}
+          onChange={e => commitZoom(e.target.value)}
+          className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+        >
+          <option value="1">1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+          <option value="3">3×</option>
+          <option value="5">5×</option>
+        </select>
+        {zoom !== 1 && (offX !== 0 || offY !== 0) && (
+          <span className="text-[9px] text-muted">offset {offX > 0 ? `+${offX}` : offX}/{offY > 0 ? `+${offY}` : offY}</span>
+        )}
+      </label>
+      {zoom !== 1 && (
+        <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5 space-y-1.5 text-[10px]">
+          <div className="flex items-center gap-2">
+            <span className="text-muted whitespace-nowrap">Anchor:</span>
+            <div className="grid grid-cols-3 gap-0.5" style={{ width: 60 }}>
+              {ANCHORS.map(a => (
+                <button
+                  key={a.label}
+                  type="button"
+                  onClick={() => commitOffsets(a.x, a.y)}
+                  className={`text-[8px] font-mono py-1 rounded cursor-pointer border ${
+                    isAnchorActive(a)
+                      ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+                      : 'bg-white text-muted border-[#e5e5e5] hover:border-[#6C5CE7]'
+                  }`}
+                  title={`Anchor crop to ${a.label === 'TL' ? 'top-left' : a.label === 'T' ? 'top' : a.label === 'TR' ? 'top-right' : a.label === 'L' ? 'left' : a.label === 'C' ? 'center' : a.label === 'R' ? 'right' : a.label === 'BL' ? 'bottom-left' : a.label === 'B' ? 'bottom' : 'bottom-right'} (offset ${a.x}/${a.y})`}
+                >{a.label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted whitespace-nowrap" style={{ width: 14 }}>X</span>
+            <input
+              type="range" min={-100} max={100} step={5}
+              value={offX}
+              onChange={e => commitOffsets(Number(e.target.value), offY)}
+              className="flex-1"
+            />
+            <span className="font-mono text-muted text-right" style={{ width: 28 }}>{offX > 0 ? `+${offX}` : offX}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted whitespace-nowrap" style={{ width: 14 }}>Y</span>
+            <input
+              type="range" min={-100} max={100} step={5}
+              value={offY}
+              onChange={e => commitOffsets(offX, Number(e.target.value))}
+              className="flex-1"
+            />
+            <span className="font-mono text-muted text-right" style={{ width: 28 }}>{offY > 0 ? `+${offY}` : offY}</span>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

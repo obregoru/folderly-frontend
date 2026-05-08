@@ -181,9 +181,10 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
-  // Save static video zoom (1.0 = none, 5.0 = max). Backend applies
-  // this as a center-crop+scale in the merge normalize step. Photos
-  // use the separate photo_to_video_zoom path.
+  // Save static video zoom (1.0 = none, 5.0 = max) + crop anchor
+  // offsets in [-100, +100] percent. Backend computes the ffmpeg
+  // crop x/y from the offsets in the merge normalize step.
+  // Photos use the separate photo_to_video_* path.
   const saveFileVideoZoom = useCallback(async (file) => {
     const id = jobIdRef.current
     const dbFileId = fileIdMapRef.current[file.id]
@@ -191,6 +192,8 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     try {
       await api.updateJobFile(id, dbFileId, {
         video_zoom: Number(file._videoZoom) > 0 ? Number(file._videoZoom) : 1.0,
+        video_offset_x: Number.isFinite(Number(file._videoOffsetX)) ? Number(file._videoOffsetX) : 0,
+        video_offset_y: Number.isFinite(Number(file._videoOffsetY)) ? Number(file._videoOffsetY) : 0,
       })
     } catch (e) {
       console.error('[useJobSync] save video zoom failed:', e.message)

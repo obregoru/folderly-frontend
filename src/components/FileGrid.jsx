@@ -98,19 +98,31 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   const [poster, setPoster] = useState(null)
   const [aspect, setAspect] = useState(null)
   const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
-  // Live zoom preview. Re-reads item._videoZoom on every zoom-change
-  // event so the CSS transform updates the moment the user changes
-  // the selector — without a parent re-render or video reload.
+  // Live zoom + crop-anchor preview. Re-reads zoom/offsets on every
+  // posty-video-zoom-change so any selector (VideoZoomBar under the
+  // tile, VideoMerge panel) updates this preview instantly without a
+  // parent re-render. transform-origin maps offset [-100..+100] →
+  // CSS [0%..100%] so the same anchor logic the BE crop uses applies
+  // visually.
   const [zoom, setZoom] = useState(() => Number(item?._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+  const [offX, setOffX] = useState(() => Number.isFinite(Number(item?._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
+  const [offY, setOffY] = useState(() => Number.isFinite(Number(item?._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== itemId) return
-      const v = Number(item?._videoZoom) > 0 ? Number(item._videoZoom) : 1.0
-      setZoom(v)
+      setZoom(Number(item?._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+      setOffX(Number.isFinite(Number(item?._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
+      setOffY(Number.isFinite(Number(item?._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
     }
     window.addEventListener('posty-video-zoom-change', onChange)
     return () => window.removeEventListener('posty-video-zoom-change', onChange)
   }, [itemId, item])
+  // transform-origin formula matches the BE crop anchor:
+  //   offset = -100 → 0%   (anchor at left/top edge)
+  //   offset =    0 → 50%  (center)
+  //   offset = +100 → 100% (anchor at right/bottom edge)
+  const originX = 50 + offX / 2
+  const originY = 50 + offY / 2
 
   useEffect(() => {
     const v = videoRef.current
@@ -198,10 +210,9 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         poster={poster || undefined}
         className="w-full h-full object-cover"
         muted playsInline preload="auto"
-        // Live zoom preview — same center-crop semantic the merge step
-        // applies via ffmpeg crop=iw/zoom:ih/zoom. transform-origin is
-        // already center by default; keeping it explicit for clarity.
-        style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: 'center center' } : undefined}
+        // Live zoom + anchor preview matching the BE crop math.
+        // transform-origin moves the scaling pivot to the chosen anchor.
+        style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
       />
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
@@ -220,17 +231,22 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
 function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
   const [aspect, setAspect] = useState(() => item._videoDuration && item._videoAspect ? item._videoAspect : null)
   useEffect(() => { if (aspect != null) item._videoAspect = aspect }, [aspect, item])
-  // Live zoom preview for restored video clips. Mirrors VideoThumb.
+  // Live zoom + anchor preview for restored video clips. Mirrors VideoThumb.
   const [zoom, setZoom] = useState(() => Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+  const [offX, setOffX] = useState(() => Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
+  const [offY, setOffY] = useState(() => Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== item.id) return
-      const v = Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0
-      setZoom(v)
+      setZoom(Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+      setOffX(Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
+      setOffY(Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
     }
     window.addEventListener('posty-video-zoom-change', onChange)
     return () => window.removeEventListener('posty-video-zoom-change', onChange)
   }, [item])
+  const originX = 50 + offX / 2
+  const originY = 50 + offY / 2
   // Local fallback for the case where the BE didn't yet flag the row
   // as storage_missing (e.g. an old deploy still serving). When the
   // video / img errors out trying to load the source, flip this flag
@@ -290,8 +306,8 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
             }}
             onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
             onError={markMissing}
-            // Live zoom preview matching the merge-time crop semantic.
-            style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: 'center center' } : undefined}
+            // Live zoom + anchor preview matching the merge-time crop semantic.
+            style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
           />
           {zoom !== 1 && (
             <div className="absolute bottom-1 right-1 text-[9px] font-medium bg-[#6C5CE7] text-white rounded px-1.5 py-0.5 pointer-events-none">
