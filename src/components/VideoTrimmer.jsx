@@ -446,7 +446,64 @@ export default function VideoTrimmer({ item }) {
         />
       </div>
       <FirstHalfSecondInspector src={src} trimStart={trimStart} videoDuration={videoDuration} item={item} />
+      <VideoZoomBar item={item} />
     </div>
+  )
+}
+
+// Static zoom selector for video clips. Lives under the trim filmstrip
+// alongside the FirstHalfSecondInspector. 1× = no zoom (default);
+// 1.25×–5× crops the center and the merge step scales it back to fill.
+// Saves on change via the same posty-video-zoom-change event the
+// VideoMerge panel uses, so all surfaces stay in sync.
+function VideoZoomBar({ item }) {
+  const [zoom, setZoom] = useState(() => {
+    const v = Number(item._videoZoom)
+    return v > 0 ? v : 1.0
+  })
+  // Keep the local value in sync if something else mutates _videoZoom
+  // (e.g., the merge panel's selector or a fresh load).
+  useEffect(() => {
+    const v = Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0
+    if (Math.abs(v - zoom) > 0.001) setZoom(v)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item._videoZoom])
+
+  const commit = (next) => {
+    const n = Number(next)
+    if (!(n > 0)) return
+    const clamped = Math.max(1.0, Math.min(5.0, n))
+    setZoom(clamped)
+    item._videoZoom = clamped
+    try { window.dispatchEvent(new CustomEvent('posty-video-zoom-change', { detail: { itemId: item.id } })) } catch {}
+  }
+
+  return (
+    <label
+      className={`mt-1 flex items-center gap-2 text-[10px] px-2 py-1 rounded border ${
+        zoom !== 1
+          ? 'bg-[#f3f0ff] border-[#6C5CE7]/40 text-[#6C5CE7]'
+          : 'bg-white border-border text-muted'
+      }`}
+      title={zoom !== 1
+        ? `This clip will be zoomed in ${zoom}× during merge.`
+        : 'Static zoom on this video clip. 1× = original framing; 1.25×–5× crops the center and scales back to fill.'}
+    >
+      <span className="font-medium">Zoom</span>
+      <select
+        value={String(zoom)}
+        onChange={e => commit(e.target.value)}
+        className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+      >
+        <option value="1">1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+        <option value="3">3×</option>
+        <option value="5">5×</option>
+      </select>
+      {zoom !== 1 && <span className="text-[9px] text-muted">center crop</span>}
+    </label>
   )
 }
 
