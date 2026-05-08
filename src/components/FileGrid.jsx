@@ -93,11 +93,24 @@ function MediaLightbox({ item, onClose }) {
   )
 }
 
-function VideoThumb({ file, onClick, className, itemId }) {
+function VideoThumb({ file, onClick, className, itemId, item }) {
   const videoRef = useRef(null)
   const [poster, setPoster] = useState(null)
   const [aspect, setAspect] = useState(null)
   const [src] = useState(() => file instanceof Blob || file instanceof File ? URL.createObjectURL(file) : null)
+  // Live zoom preview. Re-reads item._videoZoom on every zoom-change
+  // event so the CSS transform updates the moment the user changes
+  // the selector — without a parent re-render or video reload.
+  const [zoom, setZoom] = useState(() => Number(item?._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+  useEffect(() => {
+    const onChange = (e) => {
+      if (e.detail?.itemId !== itemId) return
+      const v = Number(item?._videoZoom) > 0 ? Number(item._videoZoom) : 1.0
+      setZoom(v)
+    }
+    window.addEventListener('posty-video-zoom-change', onChange)
+    return () => window.removeEventListener('posty-video-zoom-change', onChange)
+  }, [itemId, item])
 
   useEffect(() => {
     const v = videoRef.current
@@ -177,11 +190,27 @@ function VideoThumb({ file, onClick, className, itemId }) {
   const height = isPortrait ? 260 : 120
 
   return (
-    <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 ${className || ''}`} style={{ height }}>
-      <video ref={videoRef} data-posty-item-id={itemId} src={src} poster={poster || undefined} className="w-full h-full object-cover" muted playsInline preload="auto" />
-      <div className="absolute inset-0 flex items-center justify-center">
+    <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 overflow-hidden ${className || ''}`} style={{ height }}>
+      <video
+        ref={videoRef}
+        data-posty-item-id={itemId}
+        src={src}
+        poster={poster || undefined}
+        className="w-full h-full object-cover"
+        muted playsInline preload="auto"
+        // Live zoom preview — same center-crop semantic the merge step
+        // applies via ffmpeg crop=iw/zoom:ih/zoom. transform-origin is
+        // already center by default; keeping it explicit for clarity.
+        style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: 'center center' } : undefined}
+      />
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
       </div>
+      {zoom !== 1 && (
+        <div className="absolute bottom-1 right-1 text-[9px] font-medium bg-[#6C5CE7] text-white rounded px-1.5 py-0.5 pointer-events-none">
+          {zoom}× zoom
+        </div>
+      )}
     </div>
   )
 }
@@ -191,6 +220,17 @@ function VideoThumb({ file, onClick, className, itemId }) {
 function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
   const [aspect, setAspect] = useState(() => item._videoDuration && item._videoAspect ? item._videoAspect : null)
   useEffect(() => { if (aspect != null) item._videoAspect = aspect }, [aspect, item])
+  // Live zoom preview for restored video clips. Mirrors VideoThumb.
+  const [zoom, setZoom] = useState(() => Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
+  useEffect(() => {
+    const onChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      const v = Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0
+      setZoom(v)
+    }
+    window.addEventListener('posty-video-zoom-change', onChange)
+    return () => window.removeEventListener('posty-video-zoom-change', onChange)
+  }, [item])
   // Local fallback for the case where the BE didn't yet flag the row
   // as storage_missing (e.g. an old deploy still serving). When the
   // video / img errors out trying to load the source, flip this flag
@@ -232,24 +272,33 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
   return (
     <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative overflow-hidden" style={tileStyle}>
       {isVideo ? (
-        <video
-          data-posty-item-id={item.id}
-          src={src}
-          className="w-full h-full object-contain"
-          muted playsInline preload="metadata"
-          // Use the first captured trim thumbnail as the poster. iOS Safari
-          // won't paint the first frame of a <video> until playback starts,
-          // so without a poster the tile stays black on mobile. The
-          // trim_thumbs array is persisted with the job and arrives as data
-          // URLs — perfect for a poster.
-          poster={Array.isArray(item._trimThumbs) && item._trimThumbs[0] ? item._trimThumbs[0] : undefined}
-          onLoadedMetadata={e => {
-            const v = e.target
-            if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
-          }}
-          onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
-          onError={markMissing}
-        />
+        <>
+          <video
+            data-posty-item-id={item.id}
+            src={src}
+            className="w-full h-full object-contain"
+            muted playsInline preload="metadata"
+            // Use the first captured trim thumbnail as the poster. iOS Safari
+            // won't paint the first frame of a <video> until playback starts,
+            // so without a poster the tile stays black on mobile. The
+            // trim_thumbs array is persisted with the job and arrives as data
+            // URLs — perfect for a poster.
+            poster={Array.isArray(item._trimThumbs) && item._trimThumbs[0] ? item._trimThumbs[0] : undefined}
+            onLoadedMetadata={e => {
+              const v = e.target
+              if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+            }}
+            onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
+            onError={markMissing}
+            // Live zoom preview matching the merge-time crop semantic.
+            style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: 'center center' } : undefined}
+          />
+          {zoom !== 1 && (
+            <div className="absolute bottom-1 right-1 text-[9px] font-medium bg-[#6C5CE7] text-white rounded px-1.5 py-0.5 pointer-events-none">
+              {zoom}× zoom
+            </div>
+          )}
+        </>
       ) : (
         // Photo thumb on a restored draft. Same 16:9 outer + 9:16
         // outline inside as ImageThumb. Image fills the outer 16:9
@@ -437,7 +486,7 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
                   onClick={() => setPreviewItem(item)}
                 />
               ) : isVideo && item.file ? (
-                <VideoThumb file={item.file} itemId={item.id} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
+                <VideoThumb file={item.file} itemId={item.id} item={item} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
               ) : item._restored && (item._publicUrl || item._uploadKey) ? (
                 <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} onStorageMissing={onStorageMissing} />
               ) : (
