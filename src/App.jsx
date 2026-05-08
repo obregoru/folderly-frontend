@@ -388,6 +388,7 @@ export default function App() {
         _photoRotate: Number.isFinite(Number(f.photo_to_video_rotate)) ? Number(f.photo_to_video_rotate) : 0,
         _photoOffsetX: Number.isFinite(Number(f.photo_to_video_offset_x)) ? Number(f.photo_to_video_offset_x) : 0,
         _photoOffsetY: Number.isFinite(Number(f.photo_to_video_offset_y)) ? Number(f.photo_to_video_offset_y) : 0,
+        _videoZoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
         _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
         _restored: true,
         _tenantSlug: api.tenantSlug(),

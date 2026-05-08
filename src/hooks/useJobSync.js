@@ -181,6 +181,22 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Save static video zoom (1.0 = none, 5.0 = max). Backend applies
+  // this as a center-crop+scale in the merge normalize step. Photos
+  // use the separate photo_to_video_zoom path.
+  const saveFileVideoZoom = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        video_zoom: Number(file._videoZoom) > 0 ? Number(file._videoZoom) : 1.0,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save video zoom failed:', e.message)
+    }
+  }, [])
+
   // Save the B-roll insert/overlay configuration. When _insertIntoFileId
   // is set, this clip is an OVERLAY placed inside the host clip's video
   // at _insertAtSec (seconds into the host's trimmed output timeline).
@@ -562,6 +578,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileToJob,
     saveFileTrim,
     saveFileSpeed,
+    saveFileVideoZoom,
     saveFileInsertOverlay,
     saveFileSkip,
     saveFilePhotoMotion,
