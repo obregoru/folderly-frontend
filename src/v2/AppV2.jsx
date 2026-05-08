@@ -117,15 +117,23 @@ export default function AppV2() {
       console.log(`[AppV2] saving insert overlay: id=${item.id} hostId=${item._insertIntoFileId} atSec=${item._insertAtSec}`)
       jobSyncRef.current?.saveFileInsertOverlay?.(item)
     }
+    const onVideoZoomChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving video zoom: id=${item.id} zoom=${item._videoZoom}`)
+      jobSyncRef.current?.saveFileVideoZoom?.(item)
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
     window.addEventListener('posty-speed-change', onSpeedChange)
     window.addEventListener('posty-insert-overlay-change', onInsertOverlayChange)
+    window.addEventListener('posty-video-zoom-change', onVideoZoomChange)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
       window.removeEventListener('posty-speed-change', onSpeedChange)
       window.removeEventListener('posty-insert-overlay-change', onInsertOverlayChange)
+      window.removeEventListener('posty-video-zoom-change', onVideoZoomChange)
     }
   }, [])
 
@@ -319,6 +327,7 @@ export default function AppV2() {
         _photoRotate: Number.isFinite(Number(f.photo_to_video_rotate)) ? Number(f.photo_to_video_rotate) : 0,
         _photoOffsetX: Number.isFinite(Number(f.photo_to_video_offset_x)) ? Number(f.photo_to_video_offset_x) : 0,
         _photoOffsetY: Number.isFinite(Number(f.photo_to_video_offset_y)) ? Number(f.photo_to_video_offset_y) : 0,
+        _videoZoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
         _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
         _restored: true,
         _tenantSlug: api.tenantSlug(),

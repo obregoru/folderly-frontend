@@ -504,6 +504,8 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             trim_start: item._trimStart || 0,
             trim_end: item._trimEnd ?? null,
             speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
+            // Static center-crop zoom on the video clip. 1.0 = none.
+            video_zoom: Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0,
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
@@ -787,6 +789,49 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                             </select>
                           </label>
                         )}
+                        {!itemIsPhoto && (() => {
+                          // Static center-crop zoom on video clips. 1.0 = none.
+                          // Backend applies as crop=iw/zoom:ih/zoom before the
+                          // 1080×1920 scale so the cropped region fills the frame.
+                          const videoZoom = Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0
+                          return (
+                            <label
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                videoZoom !== 1
+                                  ? 'bg-[#f3f0ff] border-[#6C5CE7]/50 text-[#6C5CE7] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={videoZoom !== 1
+                                ? `This clip will be zoomed in ${videoZoom}× — applied during merge.`
+                                : 'Static zoom on this video clip. 1× = no zoom; 1.25×–5× crops the center and scales back to fill.'}
+                            >
+                              <span className="text-[10px]">{videoZoom !== 1 ? `${videoZoom}× zoom` : 'Zoom'}</span>
+                              <select
+                                value={String(videoZoom)}
+                                onChange={e => {
+                                  const newZoom = Number(e.target.value)
+                                  if (!(newZoom > 0)) return
+                                  item._videoZoom = newZoom
+                                  try { window.dispatchEvent(new CustomEvent('posty-video-zoom-change', { detail: { itemId: item.id } })) } catch {}
+                                  if (mergedUrl) {
+                                    try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                    setMergedUrl(null)
+                                    mergedBlobRef.current = null
+                                    window._postyMergedVideo = null
+                                  }
+                                }}
+                                className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+                              >
+                                <option value="1">1×</option>
+                                <option value="1.25">1.25×</option>
+                                <option value="1.5">1.5×</option>
+                                <option value="2">2×</option>
+                                <option value="3">3×</option>
+                                <option value="5">5×</option>
+                              </select>
+                            </label>
+                          )
+                        })()}
                     <div className="flex gap-0.5">
                       <button
                         onClick={() => moveUp(pos)}
