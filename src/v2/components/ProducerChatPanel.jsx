@@ -273,7 +273,7 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
       const r = await api.fullVideoAnalysisLast(draftId, platform)
       const analysis = r?.analysis
       if (!analysis) {
-        const labels = { tiktok: 'TikTok', reels: 'Reels', shorts: 'YouTube Shorts' }
+        const labels = { tiktok: 'TikTok', reels: 'Reels', shorts: 'YouTube Shorts', footage: 'Footage flow' }
         setImportFullError(`No ${labels[platform] || platform} full-video review saved yet — run that platform's analyzer in the 🎞️ Full video tab first.`)
         return
       }
@@ -546,6 +546,12 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           scoring criteria + saved rows). */}
       <div className="flex items-center gap-1.5 flex-wrap text-[10px] bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-1.5">
         <span className="font-medium text-[#6C5CE7]">🎞️ Import full review:</span>
+        <button
+          onClick={() => importFullVideoReview('footage')}
+          disabled={!draftId || streaming || importingFull}
+          className="text-[10px] py-0.5 px-2 border border-[#6C5CE7]/40 text-[#6C5CE7] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send the saved Footage-flow review to the producer (pre-polish footage critique — pacing, dead-space, framing)"
+        >🎬 Footage</button>
         <button
           onClick={() => importFullVideoReview('tiktok')}
           disabled={!draftId || streaming || importingFull}
@@ -962,10 +968,13 @@ function formatFirst2sAnalysisForPlatform(analysis, platform, analyzedAt) {
 // separate import per platform.
 function formatFullVideoAnalysis(analysis, meta = {}) {
   const lines = []
-  const platformLabels = { tiktok: 'TikTok', reels: 'Instagram Reels', shorts: 'YouTube Shorts' }
+  const platformLabels = { tiktok: 'TikTok', reels: 'Instagram Reels', shorts: 'YouTube Shorts', footage: 'Footage flow' }
   const platformLabel = platformLabels[meta.platform] || meta.platform || 'platform'
+  const isFootage = meta.platform === 'footage'
   const dur = Number(meta.durationSec) > 0 ? `${Number(meta.durationSec).toFixed(1)}s` : '?'
-  lines.push(`These are the results of the ${platformLabel}-specific full-video review (${dur}, ${meta.framesUsed || '?'} frames sampled, source: ${meta.sourceKind || '?'}):`)
+  lines.push(isFootage
+    ? `These are the results of the FOOTAGE-FLOW review — pre-polish, no voiceover/overlays/captions/music yet, scoring the raw footage only (${dur}, ${meta.framesUsed || '?'} frames sampled, source: ${meta.sourceKind || '?'}):`
+    : `These are the results of the ${platformLabel}-specific full-video review (${dur}, ${meta.framesUsed || '?'} frames sampled, source: ${meta.sourceKind || '?'}):`)
   lines.push('')
   if (typeof analysis.overall_score === 'number') {
     lines.push(`${platformLabel.toUpperCase()} OVERALL: ${analysis.overall_score}/10`)
@@ -974,8 +983,17 @@ function formatFullVideoAnalysis(analysis, meta = {}) {
     lines.push(`Verdict: ${analysis.verdict}`)
   }
 
-  // Twelve dimension scores
-  const dims = [
+  // Dimension scores — different list for footage flow vs platform-tuned.
+  const dims = isFootage ? [
+    ['hook_potential',         'Hook potential'],
+    ['mid_pacing',             'Mid pacing'],
+    ['closing_strength',       'Closing strength'],
+    ['shot_variety',           'Shot variety'],
+    ['dead_space_density',     'Dead-space density'],
+    ['framing_quality',        'Framing quality'],
+    ['motion_quality',         'Motion quality'],
+    ['raw_material_strength',  'Raw material strength'],
+  ] : [
     ['hook_strength',          'Hook strength'],
     ['curiosity_gap',          'Curiosity gap'],
     ['mid_pacing',             'Mid pacing'],
@@ -1024,7 +1042,11 @@ function formatFullVideoAnalysis(analysis, meta = {}) {
     lines.push(`(Analyzed ${new Date(meta.analyzedAt).toLocaleString()}.)`)
   }
   lines.push('')
-  lines.push(`Given this ${platformLabel}-specific review, what concrete changes would you prioritize to improve ${platformLabel} performance? Stay focused on what matters for ${platformLabel}'s audience and algorithm — don't generalize across platforms.`)
+  if (isFootage) {
+    lines.push(`Given this footage-flow review, what specific clip-level edits would you make to tighten the footage BEFORE adding voiceover, overlays, captions, or music? Focus on cuts / re-orderings / re-shoots only — polish suggestions are explicitly out of scope here, the operator will review platform-tuned criteria after polish is added.`)
+  } else {
+    lines.push(`Given this ${platformLabel}-specific review, what concrete changes would you prioritize to improve ${platformLabel} performance? Stay focused on what matters for ${platformLabel}'s audience and algorithm — don't generalize across platforms.`)
+  }
   return lines.join('\n')
 }
 
