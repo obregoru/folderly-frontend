@@ -23,6 +23,19 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
   // don't silently accumulate — they're visible and removable).
   const drafts = (jobSync.jobList || []).filter(j => j.status === 'draft')
 
+  // When any draft has files but no thumbnail, the BE has scheduled
+  // a fire-and-forget backfill on the last list call. Schedule one
+  // soft refresh ~6s later to pull in the freshly generated thumbnails
+  // without making the user manually refresh. Limited to a single
+  // retry so we don't poll forever for jobs whose backfill genuinely
+  // failed (BE will keep trying on subsequent visits).
+  useEffect(() => {
+    const missing = drafts.some(j => !j.thumbnail_url && (j.file_count || 0) > 0)
+    if (!missing) return
+    const t = setTimeout(() => { jobSync.refreshJobList?.() }, 6000)
+    return () => clearTimeout(t)
+  }, [drafts.length])
+
   const startRename = (j) => {
     setRenamingId(j.uuid)
     setRenameDraft(j.job_name || '')
@@ -97,8 +110,23 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
                 onClick={() => !isRenaming && onOpen(j.uuid)}
                 className={`flex items-start gap-3 p-3 ${isRenaming ? '' : 'cursor-pointer active:bg-[#f8f7f3]'}`}
               >
-                <div className="w-[60px] h-[80px] rounded bg-[#e5e5e5] flex-shrink-0 flex items-center justify-center text-[10px] text-muted">
-                  {j.file_count > 0 ? <span className="text-[18px]">🎬</span> : 'empty'}
+                <div className="w-[60px] h-[80px] rounded bg-[#e5e5e5] flex-shrink-0 flex items-center justify-center text-[10px] text-muted overflow-hidden relative">
+                  {j.thumbnail_url ? (
+                    <img
+                      src={j.thumbnail_url}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : j.file_count > 0 ? (
+                    // Files exist but no thumbnail yet — the BE
+                    // backfills lazily on subsequent /jobs hits, so
+                    // this placeholder resolves to a real frame after
+                    // the next refresh.
+                    <span className="text-[18px]" title="Thumbnail generating — refresh in a moment">🎬</span>
+                  ) : (
+                    'empty'
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   {isRenaming ? (
