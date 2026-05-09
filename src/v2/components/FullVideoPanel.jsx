@@ -10,12 +10,22 @@ import { useEffect, useState } from 'react'
 import * as api from '../../api'
 
 const PLATFORMS = [
-  { key: 'tiktok', label: 'TikTok',  emoji: '🎵' },
-  { key: 'reels',  label: 'Reels',   emoji: '📸' },
-  { key: 'shorts', label: 'Shorts',  emoji: '▶️' },
+  // 'footage' is the pre-polish footage review — same analyzer
+  // endpoint, but the BE swaps to a footage-only prompt + schema so
+  // the operator can review raw clip flow before adding voiceover,
+  // overlays, captions, or music. Listed first so it's the natural
+  // starting point of the review workflow.
+  { key: 'footage', label: 'Footage flow', emoji: '🎬', isFootage: true },
+  { key: 'tiktok',  label: 'TikTok',       emoji: '🎵' },
+  { key: 'reels',   label: 'Reels',        emoji: '📸' },
+  { key: 'shorts',  label: 'Shorts',       emoji: '▶️' },
 ]
 
-const DIMENSIONS = [
+// Dimension lists are per-mode. The footage flow review scores
+// different aspects (dead-space density, shot variety, framing)
+// because polish dimensions like overlay_placement / caption_legibility
+// don't apply to a pre-polish review.
+const DIMENSIONS_PLATFORM = [
   { key: 'hook_strength',          label: 'Hook strength' },
   { key: 'curiosity_gap',          label: 'Curiosity gap' },
   { key: 'mid_pacing',             label: 'Mid pacing' },
@@ -28,6 +38,17 @@ const DIMENSIONS = [
   { key: 'audio_visual_synergy',   label: 'A/V synergy' },
   { key: 'rewatch_value',          label: 'Rewatch value' },
   { key: 'brand_clarity',          label: 'Brand clarity' },
+]
+
+const DIMENSIONS_FOOTAGE = [
+  { key: 'hook_potential',         label: 'Hook potential' },
+  { key: 'mid_pacing',             label: 'Mid pacing' },
+  { key: 'closing_strength',       label: 'Closing strength' },
+  { key: 'shot_variety',           label: 'Shot variety' },
+  { key: 'dead_space_density',     label: 'Dead-space density' },
+  { key: 'framing_quality',        label: 'Framing quality' },
+  { key: 'motion_quality',         label: 'Motion quality' },
+  { key: 'raw_material_strength',  label: 'Raw material strength' },
 ]
 
 // Per-platform state slot. results[platform] holds the analysis
@@ -48,8 +69,9 @@ const emptySlot = () => ({
 })
 
 export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
-  const [active, setActive] = useState('tiktok')
+  const [active, setActive] = useState('footage')
   const [slots, setSlots] = useState({
+    footage: emptySlot(),
     tiktok: emptySlot(),
     reels: emptySlot(),
     shorts: emptySlot(),
@@ -236,18 +258,22 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
   const slot = slots[active]
   const platformDef = PLATFORMS.find(p => p.key === active)
 
-  // Kick off all three platforms in parallel against whatever final
-  // / merge is currently in storage. No bake step — user controls
-  // when the final is regenerated via Download Final.
+  // Kick off all three POLISH-STAGE platforms in parallel against
+  // whatever final / merge is currently in storage. No bake step —
+  // user controls when the final is regenerated via Download Final.
+  // Footage flow is excluded because it's a different review mode
+  // (different prompt, different schema, runs before polish — bundling
+  // it with the platform-tuned reviews would mix workflow stages).
+  const POLISH_PLATFORMS = PLATFORMS.filter(p => !p.isFootage)
   const runAll = () => {
     if (!draftId) return
-    PLATFORMS.forEach(p => {
+    POLISH_PLATFORMS.forEach(p => {
       if (slots[p.key].analyzing) return
       run(p.key)
     })
   }
-  const anyAnalyzing = PLATFORMS.some(p => slots[p.key].analyzing)
-  const allHave = PLATFORMS.every(p => slots[p.key].analysis)
+  const anyAnalyzing = POLISH_PLATFORMS.some(p => slots[p.key].analyzing)
+  const allHave = POLISH_PLATFORMS.every(p => slots[p.key].analysis)
 
   return (
     <div className="space-y-3">
@@ -255,7 +281,9 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
         <div className="flex-1">
           <div className="text-[12px] font-medium">🎞️ Full video review</div>
           <div className="text-[10px] text-muted">
-            Per-platform end-to-end vision analysis. Each platform has its own scoring criteria — TikTok rewards motion + curiosity, Reels rewards aesthetic + brand cohesion, Shorts rewards CTA + clarity. Reads the first-2s analysis (if you've run it) to ground the hook scoring.
+            {platformDef?.isFootage
+              ? 'Pre-polish footage review. Reviews FLOW, pacing, dead-space, shot variety, framing — and explicitly ignores the absence of voiceover, overlays, captions, or music. Use this BEFORE adding polish to decide if the raw footage is worth working with.'
+              : 'Per-platform end-to-end vision analysis. Each platform has its own scoring criteria — TikTok rewards motion + curiosity, Reels rewards aesthetic + brand cohesion, Shorts rewards CTA + clarity. Reads the first-2s analysis (if you’ve run it) to ground the hook scoring.'}
           </div>
         </div>
         <div className="flex flex-col gap-1.5 self-start">
@@ -267,8 +295,8 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
             title="Run all three platform analyses in parallel against whatever final / merge is currently in storage. Render the final via Download Final BEFORE running this if you want overlays + captions in the analyzed pixels."
           >
             {anyAnalyzing
-              ? `Analyzing… ${PLATFORMS.filter(p => slots[p.key].analysis).length}/3`
-              : (allHave ? '⚡ Re-analyze all 3' : '⚡ Analyze all 3')}
+              ? `Analyzing… ${POLISH_PLATFORMS.filter(p => slots[p.key].analysis).length}/3`
+              : (allHave ? '⚡ Re-analyze all 3 platforms' : '⚡ Analyze all 3 platforms')}
           </button>
           <button
             type="button"
@@ -293,9 +321,11 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
       </div>
 
       {/* Platform tabs. Each tab shows a small spinner glyph while
-          that platform is mid-analysis so the user can see which of
-          the three is still in flight when "Analyze all 3" is running. */}
-      <div className="grid grid-cols-3 gap-1">
+          that platform is mid-analysis so the user can see which is
+          still in flight when "Analyze all 3 platforms" is running.
+          Four tabs total: Footage flow (pre-polish), then TikTok /
+          Reels / Shorts (post-polish). */}
+      <div className="grid grid-cols-4 gap-1">
         {PLATFORMS.map(p => {
           const has = !!slots[p.key].analysis
           const isActive = active === p.key
@@ -365,7 +395,7 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
         </div>
       )}
 
-      {slot.meta && slot.meta.source_kind !== 'final' && (
+      {slot.meta && slot.meta.source_kind !== 'final' && !platformDef?.isFootage && (
         <div className={`text-[12px] rounded p-2.5 flex items-start gap-2 ${
           slot.meta.source_kind === 'merge'
             ? 'bg-[#fdf2f1] border-2 border-[#c0392b] text-[#8a1f15]'
@@ -424,7 +454,7 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
           </div>
 
           <div className="grid grid-cols-2 gap-1">
-            {DIMENSIONS.map(d => {
+            {(platformDef?.isFootage ? DIMENSIONS_FOOTAGE : DIMENSIONS_PLATFORM).map(d => {
               const v = Number(slot.analysis[d.key])
               if (!Number.isFinite(v)) return null
               const color = v >= 7 ? '#2D9A5E' : v >= 5 ? '#d97706' : '#c0392b'
