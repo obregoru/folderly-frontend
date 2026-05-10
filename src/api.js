@@ -1113,6 +1113,30 @@ export const producerImport = (jobUuid, text) =>
     return r.json()
   })
 
+// Produce a full final-package from the saved Footage flow review.
+// Loads the saved analysis + frames + hint on the BE and makes a
+// single multimodal Claude call that emits the standard
+// ```final-package fenced JSON. Returns { ok, reply, ... } where
+// `reply` is the assistant text (including the fence) the FE
+// inserts into chat history client-side.
+//
+// Like analyzeFullVideo, the BE flushes headers early and writes
+// keepalive whitespace while waiting on Claude — so errors come
+// back as 200 with { error } in the body.
+export const produceFromFootage = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/producer/produce-from-footage`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `produceFromFootage failed (${r.status})`)
+    }
+    const data = await r.json()
+    if (data?.error) throw new Error(data.error)
+    return data
+  })
+
 // Replay prior chat turns for this draft so the panel rehydrates on reload.
 export const producerHistory = (jobUuid) =>
   fetch(api(`/jobs/${jobUuid}/producer/history`), { credentials: 'include' })
