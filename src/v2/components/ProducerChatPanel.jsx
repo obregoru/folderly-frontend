@@ -210,6 +210,45 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
   // for tiktok/reels/shorts so we send the whole report in one go.
   const [importingFull, setImportingFull] = useState(false)
   const [importFullError, setImportFullError] = useState(null)
+
+  // "Produce package from footage" — one-shot multimodal call. The BE
+  // pulls the saved Footage flow analysis + frames + hint and returns
+  // a single assistant reply containing the standard ```final-package
+  // fenced JSON. We splice both a synthetic user message AND the
+  // assistant reply into the chat so:
+  //   - The conversation history reads naturally (operator can scroll
+  //     back and see "I asked the producer to produce, here's what
+  //     they returned")
+  //   - The existing finalPackage useMemo picks up the package from
+  //     the assistant reply and surfaces the FinalPackageReview modal
+  //   - The operator can keep iterating in chat afterward (the BE
+  //     producer/chat endpoint reads the full message history on
+  //     follow-up turns)
+  const [producingFromFootage, setProducingFromFootage] = useState(false)
+  const [produceFootageError, setProduceFootageError] = useState(null)
+  const produceFromFootage = async () => {
+    if (!draftId || streaming || producingFromFootage) return
+    setProducingFromFootage(true)
+    setProduceFootageError(null)
+    try {
+      const r = await api.produceFromFootage(draftId)
+      const reply = r?.reply || ''
+      if (!reply) {
+        setProduceFootageError('Producer returned an empty reply — try again or check the AI log.')
+        return
+      }
+      const userMsg = {
+        role: 'user',
+        content: 'Produce a full final-package from the saved Footage flow review. Use the captured frames + the job hint as ground truth. Cover all six channels.',
+      }
+      const asstMsg = { role: 'assistant', content: reply }
+      setMessages(prev => [...prev, userMsg, asstMsg])
+    } catch (e) {
+      setProduceFootageError(e?.message || String(e))
+    } finally {
+      setProducingFromFootage(false)
+    }
+  }
   const importAnalysisForPlatform = async (platform) => {
     if (!draftId || streaming || importing2s) return
     setImporting2s(true)
@@ -541,9 +580,35 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
         {import2sError && <span className="text-[9px] text-[#c0392b]">{import2sError}</span>}
       </div>
 
-      {/* Import-from-full-video. Three buttons — each pulls the saved
-          per-platform analysis (TikTok / Reels / Shorts have separate
-          scoring criteria + saved rows). */}
+      {/* Produce full package from the saved Footage flow review.
+          Different from "import" — this is GENERATE, not pull-existing.
+          BE makes a multimodal Claude call with the captured frames +
+          analysis + hint and emits a final-package fenced block; FE
+          splices the synthetic user msg + reply into chat history so
+          the existing FinalPackageReview modal picks it up. */}
+      <div className="flex items-start gap-1.5 flex-wrap text-[10px] bg-[#fff7e6] border border-[#f5a623]/50 rounded p-1.5">
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-[#8a4b00]">🎬 Produce full package from footage flow</div>
+          <div className="text-[9px] text-[#8a4b00]/80 mt-0.5">
+            Uses the saved Footage flow review + captured frames + your job hint to draft script, voiceovers, captions, overlays, and channel copy in one shot. Run the Footage flow analysis first.
+          </div>
+          {produceFootageError && (
+            <div className="text-[9px] text-[#c0392b] mt-0.5">{produceFootageError}</div>
+          )}
+        </div>
+        <button
+          onClick={produceFromFootage}
+          disabled={!draftId || streaming || producingFromFootage}
+          className="text-[10px] py-1 px-2 bg-[#f5a623] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap self-center"
+          title="Send the saved Footage flow review + captured frames + job hint to the producer and have it emit a full final-package."
+        >{producingFromFootage ? 'Producing…' : '🎬 Produce'}</button>
+      </div>
+
+      {/* Import-from-full-video. Four buttons — each pulls the saved
+          per-platform analysis (Footage / TikTok / Reels / Shorts have
+          separate scoring criteria + saved rows). Different from
+          Produce above: import sends the analysis text only, no
+          generation; Produce generates a full package from footage. */}
       <div className="flex items-center gap-1.5 flex-wrap text-[10px] bg-[#f3f0ff] border border-[#6C5CE7]/30 rounded p-1.5">
         <span className="font-medium text-[#6C5CE7]">🎞️ Import full review:</span>
         <button
