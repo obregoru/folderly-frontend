@@ -226,10 +226,17 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
   //     follow-up turns)
   const [producingFromFootage, setProducingFromFootage] = useState(false)
   const [produceFootageError, setProduceFootageError] = useState(null)
+  // Transient "✓ Package produced" success banner. Cleared when the
+  // user re-clicks Produce or after the auto-opened modal is closed.
+  // Without this, the only feedback that produce succeeded was the
+  // 📦 Final-package-detected button somewhere on the panel — easy
+  // to miss after a 30-60s wait.
+  const [produceFootageSuccess, setProduceFootageSuccess] = useState(null)
   const produceFromFootage = async () => {
     if (!draftId || streaming || producingFromFootage) return
     setProducingFromFootage(true)
     setProduceFootageError(null)
+    setProduceFootageSuccess(null)
     try {
       const r = await api.produceFromFootage(draftId)
       const reply = r?.reply || ''
@@ -243,6 +250,27 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
       }
       const asstMsg = { role: 'assistant', content: reply }
       setMessages(prev => [...prev, userMsg, asstMsg])
+
+      // Verify the producer actually emitted a parseable
+      // ```final-package block. If yes → auto-open the review modal
+      // (don't rely on the user spotting the small "Final package
+      // detected" button further down the panel) AND surface a
+      // visible success banner. If no → surface a clear error so
+      // the operator knows the run came back without a usable
+      // package and can either retry or fall back to the per-field
+      // Apply button.
+      const parsedPkg = parseFinalPackage(reply)
+      if (parsedPkg) {
+        setReviewOpen(true)
+        setProduceFootageSuccess({
+          msg: '✓ Package produced — review modal opened.',
+          ts: Date.now(),
+        })
+      } else {
+        setProduceFootageError(
+          "Producer reply didn't contain a final-package block. Use 'Apply latest reply (per-field)' below as a fallback, or click Produce again."
+        )
+      }
     } catch (e) {
       setProduceFootageError(e?.message || String(e))
     } finally {
@@ -586,12 +614,39 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           analysis + hint and emits a final-package fenced block; FE
           splices the synthetic user msg + reply into chat history so
           the existing FinalPackageReview modal picks it up. */}
-      <div className="flex items-start gap-1.5 flex-wrap text-[10px] bg-[#fff7e6] border border-[#f5a623]/50 rounded p-1.5">
+      <div
+        className={`flex items-start gap-1.5 flex-wrap text-[10px] border rounded p-1.5 ${
+          produceFootageSuccess
+            ? 'bg-[#f0faf4] border-[#2D9A5E]/50'
+            : producingFromFootage
+              ? 'bg-[#fff7e6] border-[#f5a623] ring-2 ring-[#f5a623]/40'
+              : 'bg-[#fff7e6] border-[#f5a623]/50'
+        }`}
+      >
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-[#8a4b00]">🎬 Produce full package from footage flow</div>
-          <div className="text-[9px] text-[#8a4b00]/80 mt-0.5">
-            Uses the saved Footage flow review + captured frames + your job hint to draft script, voiceovers, captions, overlays, and channel copy in one shot. Run the Footage flow analysis first.
+          <div className={`font-medium ${produceFootageSuccess ? 'text-[#0a4d2c]' : 'text-[#8a4b00]'}`}>
+            {producingFromFootage
+              ? '⏳ Producing package from footage… (30–60s while the producer reads the frames)'
+              : produceFootageSuccess
+                ? produceFootageSuccess.msg
+                : '🎬 Produce full package from footage flow'}
           </div>
+          {!producingFromFootage && !produceFootageSuccess && (
+            <div className="text-[9px] text-[#8a4b00]/80 mt-0.5">
+              Uses the saved Footage flow review + captured frames + your job hint to draft script, voiceovers, captions, overlays, and channel copy in one shot. Run the Footage flow analysis first.
+            </div>
+          )}
+          {producingFromFootage && (
+            <div className="text-[9px] text-[#8a4b00]/80 mt-0.5">
+              The review modal will open automatically when the producer is done. Do not navigate away.
+            </div>
+          )}
+          {produceFootageSuccess && !reviewOpen && (
+            // Modal was auto-opened then closed — give them a way back.
+            <div className="text-[9px] text-[#0a4d2c]/80 mt-0.5">
+              Modal closed. Use the “📦 Final package detected” button below or click Produce again to regenerate.
+            </div>
+          )}
           {produceFootageError && (
             <div className="text-[9px] text-[#c0392b] mt-0.5">{produceFootageError}</div>
           )}
@@ -601,7 +656,11 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           disabled={!draftId || streaming || producingFromFootage}
           className="text-[10px] py-1 px-2 bg-[#f5a623] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap self-center"
           title="Send the saved Footage flow review + captured frames + job hint to the producer and have it emit a full final-package."
-        >{producingFromFootage ? 'Producing…' : '🎬 Produce'}</button>
+        >{producingFromFootage
+          ? 'Producing…'
+          : produceFootageSuccess
+            ? '🎬 Produce again'
+            : '🎬 Produce'}</button>
       </div>
 
       {/* Import-from-full-video. Four buttons — each pulls the saved
