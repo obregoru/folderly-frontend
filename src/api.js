@@ -152,6 +152,10 @@ export const importMediaToJob = (destJobUuid, payload) =>
 
 // Jobs — persistent session state
 export const listJobs = () => fetch(api('/jobs'), { credentials: 'include' }).then(r => r.json())
+// Soft-deleted jobs ("archived"). Same shape as listJobs but the BE
+// flips the WHERE clause to status = 'archived'. Restore via
+// updateJob(id, { status: 'draft' }) — no dedicated unarchive route.
+export const listArchivedJobs = () => fetch(api('/jobs?archived=true'), { credentials: 'include' }).then(r => r.json())
 export const createJob = () => fetch(api('/jobs'), { method: 'POST', headers: h(), credentials: 'include', body: '{}' }).then(r => r.json())
 export const getJob = (id) => fetch(api(`/jobs/${id}`), { credentials: 'include' }).then(r => r.json())
 export const updateJob = (id, data) =>

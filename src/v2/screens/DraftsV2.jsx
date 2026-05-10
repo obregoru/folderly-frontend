@@ -11,6 +11,15 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
   const [renameDraft, setRenameDraft] = useState('')
   const [duplicatingId, setDuplicatingId] = useState(null)
   const [autoNamingId, setAutoNamingId] = useState(null)
+  // Archived view — flips the screen between "active drafts" (the
+  // shared jobSync.jobList) and a separately-fetched archived
+  // bucket. Kept local so the rest of the app's jobList stays
+  // unchanged when archived browsing is active.
+  const [archivedView, setArchivedView] = useState(false)
+  const [archivedJobs, setArchivedJobs] = useState([])
+  const [archivedLoading, setArchivedLoading] = useState(false)
+  const [archivedError, setArchivedError] = useState(null)
+  const [restoringId, setRestoringId] = useState(null)
 
   // Refresh the jobs list when the drafts screen mounts so newly-created
   // drafts appear without a manual refresh.
@@ -18,10 +27,32 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
     if (jobSync.refreshJobList) jobSync.refreshJobList()
   }, [])
 
+  // Fetch archived jobs whenever the user flips into archived view.
+  // Re-fetched on every flip so a Restore from one session is
+  // reflected if the operator toggles back later.
+  useEffect(() => {
+    if (!archivedView) return
+    let cancelled = false
+    setArchivedLoading(true)
+    setArchivedError(null)
+    api.listArchivedJobs().then(rows => {
+      if (cancelled) return
+      setArchivedJobs(Array.isArray(rows) ? rows : [])
+      setArchivedLoading(false)
+    }).catch(e => {
+      if (cancelled) return
+      setArchivedError(e?.message || String(e))
+      setArchivedLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [archivedView])
+
   // Show every draft-status job, even brand-new/empty ones, so the user
   // can see a draft the moment it's created (and so orphaned empties
   // don't silently accumulate — they're visible and removable).
-  const drafts = (jobSync.jobList || []).filter(j => j.status === 'draft')
+  const drafts = archivedView
+    ? archivedJobs
+    : (jobSync.jobList || []).filter(j => j.status === 'draft')
 
   // When any draft has files but no thumbnail, the BE has scheduled
   // a fire-and-forget backfill on the last list call. Schedule one
@@ -48,6 +79,25 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
       await api.updateJob(j.uuid, { job_name: next })
       if (jobSync.refreshJobList) await jobSync.refreshJobList()
     } catch (e) { alert('Rename failed: ' + e.message) }
+  }
+
+  // Move an archived job back to active. Uses the existing PUT
+  // endpoint with status: 'draft' (no dedicated unarchive route).
+  // After restore, drop the row from archivedJobs so the list
+  // updates immediately, and refresh the active jobList so the
+  // restored row appears when the user flips back.
+  const restoreJob = async (j) => {
+    if (restoringId) return
+    setRestoringId(j.uuid)
+    try {
+      await api.updateJob(j.uuid, { status: 'draft' })
+      setArchivedJobs(prev => prev.filter(x => x.uuid !== j.uuid))
+      if (jobSync.refreshJobList) await jobSync.refreshJobList()
+    } catch (e) {
+      alert('Restore failed: ' + e.message)
+    } finally {
+      setRestoringId(null)
+    }
   }
 
   const autoName = async (j) => {
@@ -85,30 +135,66 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
   return (
     <div className="p-3 space-y-3">
       <div className="flex items-center gap-2">
-        <h1 className="text-[14px] font-medium flex-1">Drafts ({drafts.length})</h1>
+        <h1 className="text-[14px] font-medium flex-1">
+          {archivedView
+            ? `Archived (${archivedLoading ? '…' : drafts.length})`
+            : `Drafts (${drafts.length})`}
+        </h1>
         <button
-          onClick={onNew}
-          className="text-[11px] py-1.5 px-3 bg-[#2D9A5E] text-white border-none rounded cursor-pointer font-medium"
-        >+ New draft</button>
+          onClick={() => setArchivedView(v => !v)}
+          className={`text-[11px] py-1.5 px-3 border rounded cursor-pointer font-medium ${
+            archivedView
+              ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+              : 'bg-white text-muted border-[#e5e5e5]'
+          }`}
+          title={archivedView ? 'Switch back to active drafts' : 'View archived drafts (and restore them)'}
+        >{archivedView ? '← Drafts' : '🗄 Archived'}</button>
+        {!archivedView && (
+          <button
+            onClick={onNew}
+            className="text-[11px] py-1.5 px-3 bg-[#2D9A5E] text-white border-none rounded cursor-pointer font-medium"
+          >+ New draft</button>
+        )}
       </div>
 
-      {drafts.length === 0 && (
+      {archivedView && archivedLoading && (
+        <div className="text-[11px] text-muted italic text-center py-4">Loading archived drafts…</div>
+      )}
+      {archivedView && archivedError && (
+        <div className="text-[11px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-2">
+          {archivedError}
+        </div>
+      )}
+
+      {drafts.length === 0 && !archivedLoading && (
         <div className="text-[11px] text-muted italic text-center py-8 bg-white border border-[#e5e5e5] rounded-lg">
-          No drafts yet. Tap <b>+ New draft</b> to start.
+          {archivedView
+            ? <>No archived drafts. Archive one from the active list to see it here.</>
+            : <>No drafts yet. Tap <b>+ New draft</b> to start.</>}
         </div>
       )}
 
       <div className="space-y-2">
         {drafts.map(j => {
           const isRenaming = renamingId === j.uuid
+          // Archived rows: dimmed background to signal "frozen", no
+          // open-on-tap (operator must restore before editing — opening
+          // an archived job in the editor would let them edit it back
+          // into a half-archived state).
           return (
             <div
               key={j.uuid}
-              className="bg-white border border-[#e5e5e5] rounded-lg overflow-hidden"
+              className={`border rounded-lg overflow-hidden ${
+                archivedView
+                  ? 'bg-[#f8f7f3] border-[#e5e5e5] opacity-90'
+                  : 'bg-white border-[#e5e5e5]'
+              }`}
             >
               <div
-                onClick={() => !isRenaming && onOpen(j.uuid)}
-                className={`flex items-start gap-3 p-3 ${isRenaming ? '' : 'cursor-pointer active:bg-[#f8f7f3]'}`}
+                onClick={() => !isRenaming && !archivedView && onOpen(j.uuid)}
+                className={`flex items-start gap-3 p-3 ${
+                  isRenaming || archivedView ? '' : 'cursor-pointer active:bg-[#f8f7f3]'
+                }`}
               >
                 <div className="w-[60px] h-[80px] rounded bg-[#e5e5e5] flex-shrink-0 flex items-center justify-center text-[10px] text-muted overflow-hidden relative">
                   {j.thumbnail_url ? (
@@ -156,7 +242,7 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
                     <span>{ago(j.updated_at)}</span>
                     <span className="font-mono opacity-50 ml-auto">#{j.uuid?.slice(0, 8)}</span>
                   </div>
-                  {!isRenaming && (
+                  {!isRenaming && !archivedView && (
                     <div className="flex items-center gap-1 mt-2 flex-wrap">
                       <button
                         onClick={e => { e.stopPropagation(); startRename(j) }}
@@ -188,6 +274,17 @@ export default function DraftsV2({ jobSync, onOpen, onNew }) {
                         }}
                         className="text-[10px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-2 cursor-pointer ml-auto"
                       >Archive</button>
+                    </div>
+                  )}
+                  {archivedView && (
+                    <div className="flex items-center gap-1 mt-2 flex-wrap">
+                      <button
+                        onClick={e => { e.stopPropagation(); restoreJob(j) }}
+                        disabled={restoringId === j.uuid}
+                        className="text-[10px] text-white bg-[#2D9A5E] border border-[#2D9A5E] rounded py-0.5 px-2 cursor-pointer disabled:opacity-50 font-medium"
+                        title="Restore this draft to active. Files + merges + voiceover stay intact — only the status flips."
+                      >{restoringId === j.uuid ? 'Restoring…' : '↩ Restore'}</button>
+                      <span className="text-[9px] text-muted italic ml-1">archived · open after restore</span>
                     </div>
                   )}
                 </div>
