@@ -83,21 +83,54 @@ export default function FinalPackageReview({ pkg, removed, files, draftId, jobSy
   const willDeleteClips = enabled.media && Array.isArray(removed) && removed.length > 0
 
   // Run the per-section appliers. Shared by both buttons.
+  //
+  // CRITICAL: voice / overrides / hooks all write the SAME jsonb
+  // column (generation_rules) and the BE updateJob does
+  // `generation_rules = COALESCE($N, generation_rules)` — i.e.
+  // wholesale replace, not deep merge. Each applier reads the
+  // current value, merges in its patch, and writes the whole jsonb
+  // back, so when two of them run sequentially against a SHARED
+  // stale `currentJob` snapshot, the second one's write strips out
+  // the first one's changes. The verifier then reports every voice
+  // + overrides field as "(unset)" / "(empty)" because the last
+  // writer wins and only carries its own keys.
+  //
+  // Fix: re-read the job between appliers that touch
+  // generation_rules so every merge is built off the latest
+  // persisted state. Other sections (overlays, voiceover, channels,
+  // media) write to distinct columns / endpoints and don't have
+  // this conflict, so we only refresh between the gen-rules
+  // appliers.
+  const SHARES_GEN_RULES = new Set(['voice', 'overrides', 'hooks'])
   const runApply = async () => {
     try { await jobSync?.flushPendingSave?.() } catch { /* keep going */ }
     const results = {}
     const errors = []
-    const firstFileDbId = currentJob.files?.[0]?.id || null
+    let workingJob = currentJob
+    const firstFileDbId = workingJob.files?.[0]?.id || null
+    let lastWroteGenRules = false
     for (const s of presentSections) {
       if (!enabled[s.key]) { results[s.key] = 'skip'; continue }
+      // Before another generation_rules writer runs, refresh
+      // workingJob so its merge starts from the persisted state
+      // (which now includes whatever the prior gen-rules writer
+      // landed). Without this, voice + overrides + hooks racially
+      // overwrite each other.
+      if (SHARES_GEN_RULES.has(s.key) && lastWroteGenRules) {
+        try {
+          const fresh = await api.getJob(draftId)
+          if (fresh) workingJob = fresh
+        } catch { /* keep stale; better than crashing */ }
+      }
       try {
         if (s.key === 'media') {
-          results[s.key] = await applyMedia(pkg, draftId, currentJob, removed)
+          results[s.key] = await applyMedia(pkg, draftId, workingJob, removed)
         } else if (s.key === 'channels') {
-          results[s.key] = await applyChannels(pkg, draftId, firstFileDbId, currentJob)
+          results[s.key] = await applyChannels(pkg, draftId, firstFileDbId, workingJob)
         } else {
-          results[s.key] = await s.applier(pkg, draftId, currentJob)
+          results[s.key] = await s.applier(pkg, draftId, workingJob)
         }
+        lastWroteGenRules = SHARES_GEN_RULES.has(s.key)
       } catch (e) {
         results[s.key] = 'error'
         errors.push(`${s.label}: ${e?.message || String(e)}`)

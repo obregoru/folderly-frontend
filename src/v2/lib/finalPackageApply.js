@@ -429,25 +429,28 @@ export async function verifyApply(pkg, draftId, removed) {
   if (pkg.voice) {
     for (const k of ['tone', 'pov', 'marketing_intensity']) {
       if (pkg.voice[k] !== undefined && (gr.voice?.[k] || '') !== (pkg.voice[k] || '')) {
-        mismatches.push({ section: 'voice', label: `voice.${k}`, expected: pkg.voice[k], actual: gr.voice?.[k] || '(unset)' })
+        // label is the field key only — the modal renders
+        // `{section}.{label}`, so including "voice." here would
+        // produce "voice.voice.tone".
+        mismatches.push({ section: 'voice', label: k, expected: pkg.voice[k], actual: gr.voice?.[k] || '(unset)' })
       }
     }
     if (pkg.voice.off_topic !== undefined && !!gr.off_topic !== !!pkg.voice.off_topic) {
-      mismatches.push({ section: 'voice', label: 'voice.off_topic', expected: !!pkg.voice.off_topic, actual: !!gr.off_topic })
+      mismatches.push({ section: 'voice', label: 'off_topic', expected: !!pkg.voice.off_topic, actual: !!gr.off_topic })
     }
   }
   if (pkg.overrides) {
     const co = gr.overrides || {}
     for (const k of Object.keys(pkg.overrides)) {
       if ((co[k] || '') !== (pkg.overrides[k] || '')) {
-        mismatches.push({ section: 'overrides', label: `overrides.${k}`, expected: trim(pkg.overrides[k]), actual: trim(co[k]) })
+        mismatches.push({ section: 'overrides', label: k, expected: trim(pkg.overrides[k]), actual: trim(co[k]) })
       }
     }
   }
   if (pkg.hooks?.selected !== undefined) {
     const cur = (gr.hooks?.selected?.text) || gr.hooks?.selected || ''
     if (cur !== pkg.hooks.selected) {
-      mismatches.push({ section: 'hooks', label: 'hooks.selected', expected: trim(pkg.hooks.selected), actual: trim(cur) })
+      mismatches.push({ section: 'hooks', label: 'selected', expected: trim(pkg.hooks.selected), actual: trim(cur) })
     }
   }
   if (Array.isArray(pkg.voiceover)) {
@@ -471,7 +474,7 @@ export async function verifyApply(pkg, draftId, removed) {
       const expectedText = pkg.overlays[slot].text || ''
       const actualText = co[`${slot}Text`] || ''
       if (expectedText !== actualText) {
-        mismatches.push({ section: 'overlays', label: `overlays.${slot}.text`, expected: trim(expectedText), actual: trim(actualText) })
+        mismatches.push({ section: 'overlays', label: `${slot}.text`, expected: trim(expectedText), actual: trim(actualText) })
       }
     }
   }
