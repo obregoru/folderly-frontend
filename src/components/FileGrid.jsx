@@ -495,9 +495,14 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
   if (!files.length) return null
 
   const hasVideos = files.some(f => f.file?.type?.startsWith('video/') || f._mediaType?.startsWith('video/'))
-  // Reorder for photo grids only. Videos already reorder in VideoMerge —
-  // adding it here would compete with trim-bar touches and break iOS.
-  const reorderEnabled = !!onReorder && !hasVideos && files.length > 1
+  // Reorder enabled whenever there are 2+ files. Originally gated on
+  // !hasVideos because we worried about trim-bar touches competing
+  // with drag listeners — but SortableTile only attaches listeners to
+  // the dedicated ⋮⋮ drag handle (top-left of each tile), so the trim
+  // bar (bottom of tile) is untouched. Operators specifically asked
+  // for video reorder on the preview grid so they can tell apart
+  // intentional duplicate uploads.
+  const reorderEnabled = !!onReorder && files.length > 1
 
   const handleDragEnd = (e) => {
     const { active, over } = e
@@ -542,7 +547,11 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
                   title="Drag to reorder"
                 >⋮⋮</span>
               )}
-              {reorderEnabled && (
+              {/* Sequence badge — always shown when there's more than one
+                  tile so operators can disambiguate intentional duplicate
+                  uploads. Index matches the merge-panel "1.", "2." pos
+                  labels because both render from the same files[] order. */}
+              {files.length > 1 && (
                 <span className="absolute bottom-6 left-1 z-[5] text-white bg-[#6C5CE7]/90 rounded-full text-[9px] font-bold w-[18px] h-[18px] flex items-center justify-center leading-none pointer-events-none">{i + 1}</span>
               )}
               {item._storageMissing ? (
@@ -648,7 +657,7 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
       {reorderEnabled && (
         <div className="text-[10px] text-muted mb-1 flex items-center gap-1.5">
           <span className="font-mono">⋮⋮</span>
-          <span>Drag tiles to reorder — this is the sequence for carousels and photo-to-video reels.</span>
+          <span>Drag the ⋮⋮ handle to reorder — sequence applies to carousels, photo-to-video reels, AND the video merge order. Mobile note: long-press the handle to drag; trim bar still works as-is.</span>
         </div>
       )}
       {reorderEnabled ? (
