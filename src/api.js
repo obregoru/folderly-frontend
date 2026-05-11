@@ -1217,6 +1217,22 @@ export const uploadJobMusicFromUrl = (jobUuid, { url, owns_rights_confirmed }) =
     return r.json()
   })
 
+// Set or clear operator-placed manual cut markers. These override
+// the auto-snap algorithm entirely: when set + non-empty, the
+// snap-preview / apply use them as the interior cut positions.
+// Pass an empty array to clear and fall back to auto-snap.
+export const setJobMusicManualCuts = (jobUuid, cuts) =>
+  fetch(api(`/jobs/${jobUuid}/music/manual-cuts`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ cuts }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicManualCuts failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Replace the persisted beat array. The snap algorithm reads
 // music_beat_map.beats so editing here immediately changes what
 // the next Preview / Apply will use. /music/reanalyze restores
