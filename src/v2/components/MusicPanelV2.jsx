@@ -177,6 +177,18 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  const handleLoopToBeatsChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicLoopToBeats(draftId, next)
+      setMusic(prev => prev ? { ...prev, loop_to_beats: r.music_loop_to_beats } : prev)
+      setSnapPreview(null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   // Toggle the music ↔ voiceover mix mode. Persists on
   // voiceover_settings.mix_mode (the existing engine field) but
   // surfaced from the music panel because the operator's mental
@@ -479,6 +491,11 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             Computes new trim_start / trim_end / file_order on every video clip so cuts align to beats {hasTrim && <>within the trim window <b>{effectiveTrimStart.toFixed(2)}s–{effectiveTrimEnd.toFixed(2)}s</b></>}. Preview first to see the plan.
           </div>
           <PacingSelector pacing={Number(music?.pacing) || 1} onChange={handlePacingChange} />
+          <LoopToBeatsToggle
+            loopToBeats={!!music?.loop_to_beats}
+            pacing={Number(music?.pacing) || 1}
+            onChange={handleLoopToBeatsChange}
+          />
           <VoMixModeSelector
             mode={music?.vo_mix_mode || 'mix'}
             hasVoiceover={!!music?.has_voiceover}
@@ -826,6 +843,34 @@ function PacingSelector({ pacing, onChange }) {
         </button>
       ))}
     </div>
+  )
+}
+
+// Beat-driven loop toggle. When ON, the snap algorithm uses every
+// pacing-strided beat as a cut and the operator's clips cycle
+// through to fill all the windows. Combined with the pacing
+// selector this gives "fast cuts on every beat" without the
+// operator having to drop manual markers.
+function LoopToBeatsToggle({ loopToBeats, pacing, onChange }) {
+  const label = pacing === 1 ? 'every beat'
+              : pacing === 2 ? 'every 2 beats'
+              : pacing === 4 ? 'every 4 beats'
+              : `every ${pacing} beats`
+  return (
+    <label className="flex items-start gap-1.5 text-[10px] cursor-pointer">
+      <input
+        type="checkbox"
+        checked={!!loopToBeats}
+        onChange={e => onChange(e.target.checked)}
+        className="mt-0.5"
+      />
+      <span className="text-[#6C5CE7]">
+        🔁 <b>Loop clips on every beat</b> — auto-snap cuts at <b>{label}</b>, clips cycle to fill all windows.
+        <span className="text-[9px] opacity-75 block">
+          With this off, the algorithm produces one cut per clip (default). With it on, more cuts than clips means clip rows get duplicated on Apply.
+        </span>
+      </span>
+    </label>
   )
 }
 
