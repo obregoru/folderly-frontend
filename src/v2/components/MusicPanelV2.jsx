@@ -271,31 +271,36 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       const job = await api.getJob(draftId)
       setVerifyStep('Comparing each clip against the plan…')
       const files = Array.isArray(job?.files) ? job.files : []
-      const fileById = new Map(files.map(f => [Number(f.id), f]))
+      // Match by file_order rather than dbFileId because
+      // loop-duplicate plan entries don't have a stable dbFileId
+      // (those rows are CREATED on Apply, so the plan's dbFileId
+      // is null for those windows). file_order is the deterministic
+      // key the BE assigns 0..M-1 across both source and loop
+      // duplicate rows.
+      const hostFiles = files.filter(f => f && f.insert_into_file_id == null)
+      const fileByOrder = new Map(hostFiles.map(f => [Number(f.file_order), f]))
       const mismatches = []
       const matches = []
-      // Per-clip detail rows so the operator sees POSITIVE
-      // confirmation, not just "no errors." Order matters here —
-      // we walk appliedPlan in file_order so the rendered rows are
-      // 1, 2, 3 in the order the operator expects to see in the
-      // Media tab.
       const perClip = []
-      // Tolerance on float compares — BE stores NUMERIC(8,3) and
-      // returns strings, so a 0.001 wobble is normal and shouldn't
-      // be flagged. Anything bigger is a real divergence.
       const EPS = 0.005
       const sortedPlan = [...appliedPlan].sort((a, b) => Number(a.file_order) - Number(b.file_order))
       for (const item of sortedPlan) {
-        const f = fileById.get(Number(item.dbFileId))
+        const f = fileByOrder.get(Number(item.file_order))
+        // For loop duplicates the planned dbFileId is null;
+        // identify by source_clip_id + ↻ marker so the mismatch
+        // table still reads sensibly.
+        const planClipLabel = item.is_loop_duplicate
+          ? `↻ clip-${item.source_clip_id}`
+          : `clip-${item.dbFileId || item.source_clip_id}`
         if (!f) {
           mismatches.push({
-            clipId: item.dbFileId,
+            clipId: planClipLabel,
             field: 'row',
             expected: 'present',
-            actual: 'missing (deleted or moved jobs)',
+            actual: 'missing (delete or apply failed)',
           })
           perClip.push({
-            clipId: item.dbFileId,
+            clipId: planClipLabel,
             filename: '(missing)',
             ok: false,
             order: { expected: item.file_order + 1, actual: '—' },
@@ -303,20 +308,27 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           })
           continue
         }
+        // Now we have the row at this file_order. Use its real id
+        // for the clipId label (loop dups get a fresh id from the
+        // INSERT) but show the ↻ marker so the operator sees
+        // which rows were generated.
+        const actualLabel = item.is_loop_duplicate
+          ? `↻ clip-${f.id} (from clip-${item.source_clip_id})`
+          : `clip-${f.id}`
         const actualStart = Number(f.trim_start) || 0
         const actualEnd = Number(f.trim_end) || 0
         const actualOrder = Number(f.file_order)
         const startOk = Math.abs(actualStart - Number(item.trim_start)) <= EPS
         const endOk = Math.abs(actualEnd - Number(item.trim_end)) <= EPS
         const orderOk = Number.isFinite(actualOrder) && actualOrder === Number(item.file_order)
-        if (!startOk) mismatches.push({ clipId: item.dbFileId, field: 'trim_start', expected: Number(item.trim_start).toFixed(3), actual: actualStart.toFixed(3) })
-        if (!endOk) mismatches.push({ clipId: item.dbFileId, field: 'trim_end', expected: Number(item.trim_end).toFixed(3), actual: actualEnd.toFixed(3) })
-        if (!orderOk) mismatches.push({ clipId: item.dbFileId, field: 'file_order', expected: String(item.file_order), actual: String(actualOrder) })
+        if (!startOk) mismatches.push({ clipId: actualLabel, field: 'trim_start', expected: Number(item.trim_start).toFixed(3), actual: actualStart.toFixed(3) })
+        if (!endOk) mismatches.push({ clipId: actualLabel, field: 'trim_end', expected: Number(item.trim_end).toFixed(3), actual: actualEnd.toFixed(3) })
+        if (!orderOk) mismatches.push({ clipId: actualLabel, field: 'file_order', expected: String(item.file_order), actual: String(actualOrder) })
         const clipOk = startOk && endOk && orderOk
-        if (clipOk) matches.push(item.dbFileId)
+        if (clipOk) matches.push(f.id)
         perClip.push({
-          clipId: item.dbFileId,
-          filename: f.filename || `clip-${item.dbFileId}`,
+          clipId: actualLabel,
+          filename: f.filename || `clip-${f.id}`,
           ok: clipOk,
           order: { expected: item.file_order + 1, actual: Number.isFinite(actualOrder) ? actualOrder + 1 : '—', ok: orderOk },
           trim: {
@@ -505,6 +517,12 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           )}
           {verifyResult && (
             <VerifyResultPanel result={verifyResult} />
+          )}
+          {snapPreview?.loop_mode && snapPreview?.duplicates_needed > 0 && (
+            <div className="text-[10px] text-[#8a4b00] bg-[#fff7e6] border border-[#f5a623]/40 rounded px-2 py-1">
+              <b>🔁 Loop mode:</b> {snapPreview.window_count} cut window{snapPreview.window_count === 1 ? '' : 's'} across {snapPreview.clip_count} source clip{snapPreview.clip_count === 1 ? '' : 's'} —
+              {' '}<b>{snapPreview.duplicates_needed} duplicate row{snapPreview.duplicates_needed === 1 ? '' : 's'}</b> will be created on Apply (sharing each source's upload, marked is_loop_duplicate so a re-Apply rebuilds cleanly).
+            </div>
           )}
           {snapPreview?.plan?.length > 0 && (
             <SnapPlanTable plan={snapPreview.plan} cuts={snapPreview.cuts} />
@@ -1375,9 +1393,13 @@ function SnapPlanTable({ plan, cuts }) {
               const changed = Number(p.original_trim_end ?? -1) !== Number(p.trim_end)
               cumulative += Number(p.window_length) || 0
               return (
-                <tr key={p.dbFileId} className={changed ? 'bg-[#f3f0ff]' : ''}>
+                <tr key={p.window_index ?? p.dbFileId ?? `w${p.file_order}`} className={changed ? 'bg-[#f3f0ff]' : ''}>
                   <td className="font-mono">{p.file_order + 1}</td>
-                  <td className="font-mono text-muted">clip-{p.dbFileId}</td>
+                  <td className="font-mono text-muted">
+                    {p.dbFileId
+                      ? `clip-${p.dbFileId}`
+                      : <span title={`Will be duplicated from clip-${p.source_clip_id} on Apply`}>↻ clip-{p.source_clip_id}</span>}
+                  </td>
                   <td className="font-mono">
                     {formatTime(p.trim_start)} → {formatTime(p.trim_end)}
                   </td>
