@@ -17,6 +17,7 @@ import ProducerChatPanel from '../components/ProducerChatPanel'
 import First2sPanel from '../components/First2sPanel'
 import FullVideoPanel from '../components/FullVideoPanel'
 import ChannelsPanelV2 from '../components/ChannelsPanelV2'
+import MusicPanelV2 from '../components/MusicPanelV2'
 
 /**
  * EditorV2 — the new mockup-style editor, real data.
@@ -146,6 +147,7 @@ export default function EditorV2({
           <VoiceoverPanelV2 previewRef={previewRef} settings={settings} jobSync={jobSync} draftId={draftId} />
         </div>
         {safeActiveTool === 'overlays' && <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} previewRef={previewRef} />}
+        {safeActiveTool === 'music' && <MusicPanelV2 draftId={draftId} jobSync={jobSync} />}
         {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} settings={settings} />}
         {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} jobSync={jobSync} files={files} settings={settings} />}
       </div>
