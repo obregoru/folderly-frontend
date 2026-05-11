@@ -484,6 +484,18 @@ function SortableTile({ item, children }) {
 export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onToggleSkip, onStorageMissing, VideoTrimmer, PhotoDurationBar }) {
   const [previewItem, setPreviewItem] = useState(null)
 
+  // Speed updates from VideoMerge mutate item._speed in place and
+  // fire posty-speed-change rather than going through React state.
+  // Bump a counter on the event so the per-tile speed badge re-reads
+  // _speed and re-renders. Without this the badge would only update
+  // when something ELSE triggered a FileGrid re-render.
+  const [, setSpeedTick] = useState(0)
+  useEffect(() => {
+    const onSpeedChange = () => setSpeedTick(t => t + 1)
+    window.addEventListener('posty-speed-change', onSpeedChange)
+    return () => window.removeEventListener('posty-speed-change', onSpeedChange)
+  }, [])
+
   // Only put the sensors together when we actually have more than one
   // orderable item; avoids pointer-sensor overhead for single-file drafts.
   const sensors = useSensors(
@@ -554,6 +566,21 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
               {files.length > 1 && (
                 <span className="absolute bottom-6 left-1 z-[5] text-white bg-[#6C5CE7]/90 rounded-full text-[9px] font-bold w-[18px] h-[18px] flex items-center justify-center leading-none pointer-events-none">{i + 1}</span>
               )}
+              {/* Speed badge — only shown when speed deviates from 1× so
+                  default-speed clips stay visually clean. Reads off the
+                  same item._speed value the merge panel writes; the
+                  posty-speed-change listener above forces a re-render
+                  when the operator flips speed in the merge panel. */}
+              {(() => {
+                const sp = Number(item._speed)
+                if (!(sp > 0) || sp === 1) return null
+                return (
+                  <span
+                    className="absolute bottom-6 left-[24px] z-[5] text-white bg-[#f5a623] text-[9px] font-bold rounded px-1 py-0.5 leading-none pointer-events-none"
+                    title={`Plays at ${sp}× during merge`}
+                  >{sp}×</span>
+                )
+              })()}
               {item._storageMissing ? (
                 /* BE GET /jobs/:id flagged this row's storage object as
                    missing. Render a static warning placeholder instead
