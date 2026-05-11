@@ -612,20 +612,58 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan }) {
   )
 }
 
+// Format seconds for the operator. Under a minute → "1.41s".
+// Over a minute → "1:23.41" so longer music tracks stay readable
+// without mental math. Always returns a single line so it fits
+// inside the table cells.
+function formatTime(sec) {
+  const n = Number(sec)
+  if (!Number.isFinite(n) || n < 0) return '—'
+  if (n < 60) return `${n.toFixed(2)}s`
+  const mins = Math.floor(n / 60)
+  const rem = n - mins * 60
+  return `${mins}:${rem.toFixed(2).padStart(5, '0')}`
+}
+
 function SnapPlanTable({ plan, cuts }) {
+  const cutList = Array.isArray(cuts) ? cuts : []
+  // Stringify each cut as both an index (Cut 1, Cut 2, ...) AND
+  // its absolute time so the operator can read off when each cut
+  // lands in the music without subtracting consecutive values.
+  // Cut 0 (the music start) is implicit; we surface cuts 1..N
+  // since those are the meaningful events.
   return (
     <div className="bg-white border border-[#e5e5e5] rounded p-1.5">
-      <div className="text-[10px] text-muted mb-1">
-        Cut points (s): {Array.isArray(cuts) ? cuts.map(c => Number(c).toFixed(2)).join(' · ') : '—'}
+      <div className="text-[10px] text-muted mb-1.5">
+        <div className="font-medium text-ink mb-0.5">Cut points on the music timeline:</div>
+        {cutList.length > 1 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {cutList.slice(1).map((c, i) => {
+              const prev = Number(cutList[i]) || 0
+              const cur = Number(c) || 0
+              const windowLen = cur - prev
+              return (
+                <span
+                  key={i}
+                  className="font-mono bg-[#f3f0ff] border border-[#6C5CE7]/30 text-[#6C5CE7] rounded px-1.5 py-0.5"
+                  title={`Cut ${i + 1}: lands at ${formatTime(cur)}, ${formatTime(windowLen)} after the previous cut`}
+                >
+                  Cut {i + 1} @ {formatTime(cur)}
+                  <span className="text-[9px] opacity-70 ml-1">(+{windowLen.toFixed(2)}s)</span>
+                </span>
+              )
+            })}
+          </div>
+        ) : '—'}
       </div>
       <table className="text-[10px] w-full">
         <thead>
           <tr className="text-muted text-left">
             <th className="font-medium">#</th>
             <th className="font-medium">clip-id</th>
-            <th className="font-medium">Trim (s)</th>
-            <th className="font-medium">Window (s)</th>
-            <th className="font-medium">Ends @</th>
+            <th className="font-medium">Trim</th>
+            <th className="font-medium">Length</th>
+            <th className="font-medium">Cut at</th>
           </tr>
         </thead>
         <tbody>
@@ -636,10 +674,10 @@ function SnapPlanTable({ plan, cuts }) {
                 <td className="font-mono">{p.file_order + 1}</td>
                 <td className="font-mono text-muted">clip-{p.dbFileId}</td>
                 <td className="font-mono">
-                  {Number(p.trim_start).toFixed(2)} → {Number(p.trim_end).toFixed(2)}
+                  {formatTime(p.trim_start)} → {formatTime(p.trim_end)}
                 </td>
-                <td className="font-mono">{Number(p.window_length).toFixed(2)}</td>
-                <td className="font-mono">{Number(p.cut_at).toFixed(2)}</td>
+                <td className="font-mono">{formatTime(p.window_length)}</td>
+                <td className="font-mono">{formatTime(p.cut_at)}</td>
               </tr>
             )
           })}
