@@ -38,12 +38,24 @@ export default function MusicPanelV2({ draftId, jobSync }) {
   const [previewing, setPreviewing] = useState(false)
   const [applying, setApplying] = useState(false)
   const [appliedAt, setAppliedAt] = useState(null)
+  // Verify state — { ok, checked, mismatches: [...] } populated by
+  // handleVerify after Apply. We persist the plan that was Applied
+  // (snapshotted at apply time) so a later reload doesn't lose the
+  // ground truth we should be comparing against.
+  const [verifying, setVerifying] = useState(false)
+  const [verifyResult, setVerifyResult] = useState(null)
+  const [appliedPlan, setAppliedPlan] = useState(null)
   // Waveform viewport. zoom > 1 zooms into a slice of the trimmed
   // window; pan slides that slice [0..1]. View resets to 1x on
   // every new upload / trim change so the operator doesn't end
   // up on a stale viewport that no longer corresponds to the data.
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState(0)
+  // Shared audio ref — owned by the parent so the waveform can
+  // read currentTime and animate a playhead during playback. Both
+  // TrackCard (which renders the <audio> element) and
+  // WaveformBeatStrip (which paints the playhead) receive this.
+  const audioRef = useRef(null)
 
   // Hydrate the saved music on mount + on draft change.
   useEffect(() => {
@@ -148,15 +160,103 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     if (!confirm('Apply beat-snapped cuts? This overwrites trim_start/trim_end on every video clip so cuts land on beats.')) return
     setApplying(true)
     setErr(null)
+    setVerifyResult(null)
     try {
       const r = await api.applyBeatSnap(draftId)
       setAppliedAt(new Date().toISOString())
       setSnapPreview({ ...snapPreview, ...r, applied: true })
+      // Snapshot the plan that was applied so the Verify button can
+      // compare against the exact ground truth (not against a later
+      // re-preview that might differ if music/trim changes
+      // afterward).
+      setAppliedPlan(Array.isArray(r.plan) ? r.plan : null)
       try { await jobSync?.loadJob?.(draftId) } catch {}
     } catch (e) {
       setErr(e?.message || String(e))
     } finally {
       setApplying(false)
+    }
+  }
+
+  // Verify: refetch the job + compare each host clip's persisted
+  // trim_start / trim_end / file_order against the applied plan.
+  // Catches the rare case where the BE returned 200 on apply-snap
+  // but the row update didn't actually land (network blip mid-
+  // transaction, deploy mid-write, etc.) without forcing the
+  // operator to manually re-merge to discover a regression.
+  const handleVerify = async () => {
+    if (!draftId || !appliedPlan?.length || verifying) return
+    setVerifying(true)
+    setVerifyResult(null)
+    try {
+      const job = await api.getJob(draftId)
+      const files = Array.isArray(job?.files) ? job.files : []
+      const fileById = new Map(files.map(f => [Number(f.id), f]))
+      const mismatches = []
+      const matches = []
+      // Tolerance on float compares — BE stores NUMERIC(8,3) and
+      // returns strings, so a 0.001 wobble is normal and shouldn't
+      // be flagged. Anything bigger is a real divergence.
+      const EPS = 0.005
+      for (const item of appliedPlan) {
+        const f = fileById.get(Number(item.dbFileId))
+        if (!f) {
+          mismatches.push({
+            clipId: item.dbFileId,
+            field: 'row',
+            expected: 'present',
+            actual: 'missing (deleted or moved jobs)',
+          })
+          continue
+        }
+        const actualStart = Number(f.trim_start) || 0
+        const actualEnd = Number(f.trim_end) || 0
+        const actualOrder = Number(f.file_order)
+        if (Math.abs(actualStart - Number(item.trim_start)) > EPS) {
+          mismatches.push({
+            clipId: item.dbFileId,
+            field: 'trim_start',
+            expected: Number(item.trim_start).toFixed(3),
+            actual: actualStart.toFixed(3),
+          })
+        }
+        if (Math.abs(actualEnd - Number(item.trim_end)) > EPS) {
+          mismatches.push({
+            clipId: item.dbFileId,
+            field: 'trim_end',
+            expected: Number(item.trim_end).toFixed(3),
+            actual: actualEnd.toFixed(3),
+          })
+        }
+        if (Number.isFinite(actualOrder) && actualOrder !== Number(item.file_order)) {
+          mismatches.push({
+            clipId: item.dbFileId,
+            field: 'file_order',
+            expected: String(item.file_order),
+            actual: String(actualOrder),
+          })
+        }
+        if (mismatches.find(m => m.clipId === item.dbFileId) == null) {
+          matches.push(item.dbFileId)
+        }
+      }
+      setVerifyResult({
+        ok: mismatches.length === 0,
+        checked: appliedPlan.length,
+        matched: matches.length,
+        mismatches,
+        checkedAt: new Date().toISOString(),
+      })
+    } catch (e) {
+      setVerifyResult({
+        ok: false,
+        checked: 0,
+        matched: 0,
+        mismatches: [{ clipId: '—', field: 'fetch', expected: 'job', actual: `error: ${e?.message || e}` }],
+        checkedAt: new Date().toISOString(),
+      })
+    } finally {
+      setVerifying(false)
     }
   }
 
@@ -202,6 +302,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           onDelete={handleDelete}
           onReanalyze={handleReanalyze}
           reanalyzing={reanalyzing}
+          audioRef={audioRef}
         />
       )}
 
@@ -224,6 +325,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             trimEnd={effectiveTrimEnd}
             zoom={zoom}
             pan={pan}
+            audioRef={audioRef}
           />
         </>
       )}
@@ -255,10 +357,22 @@ export default function MusicPanelV2({ draftId, jobSync }) {
                 className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
               >{applying ? 'Applying…' : '✓ Apply to clips'}</button>
             )}
+            {snapPreview?.applied && appliedPlan?.length > 0 && (
+              <button
+                type="button"
+                onClick={handleVerify}
+                disabled={verifying}
+                className="text-[10px] py-1 px-2 border border-[#2D9A5E] text-[#2D9A5E] bg-white rounded cursor-pointer disabled:opacity-50 font-medium"
+                title="Refetch the job and compare each clip's persisted trim_start / trim_end / file_order against the plan that was applied. Catches the rare case where Apply returned 200 but a row update didn't land."
+              >{verifying ? 'Verifying…' : '🔎 Verify'}</button>
+            )}
             {snapPreview?.applied && (
               <span className="text-[10px] text-[#2D9A5E] font-medium">✓ Applied {appliedAt && `at ${new Date(appliedAt).toLocaleTimeString()}`}. Re-merge to see the new cuts.</span>
             )}
           </div>
+          {verifyResult && (
+            <VerifyResultPanel result={verifyResult} />
+          )}
           {snapPreview?.plan?.length > 0 && (
             <SnapPlanTable plan={snapPreview.plan} cuts={snapPreview.cuts} />
           )}
@@ -307,8 +421,7 @@ function UploadDropzone({ uploading, onUpload }) {
 // trimStart and the timeupdate handler pauses + resets when the
 // playhead reaches trimEnd, so the operator only ever auditions
 // the slice they're actually going to render.
-function TrackCard({ music, trimStart, trimEnd, onDelete, onReanalyze, reanalyzing }) {
-  const audioRef = useRef(null)
+function TrackCard({ music, trimStart, trimEnd, onDelete, onReanalyze, reanalyzing, audioRef }) {
   const bm = music?.beat_map || null
   const fullDuration = Number(bm?.duration) || 0
   const hasTrim = trimStart > 0 || (trimEnd > 0 && trimEnd < fullDuration)
@@ -519,14 +632,20 @@ function ZoomBar({ zoom, pan, setZoom, setPan }) {
 // window (or a zoom slice of it). x positions are normalized
 // against the viewport's start/end in track-absolute time, so
 // changing zoom/pan just rescales without re-fetching anything.
-function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan }) {
+//
+// A playhead indicator animates across the strip while the audio
+// player is playing so the operator can SEE which beat is sounding
+// at any moment. The playhead reads audioRef.current.currentTime
+// inside a rAF loop and redraws the canvas each frame — beats
+// rarely outnumber a few hundred so the full redraw cost is well
+// under the rAF budget. We also lit-flash the nearest beat marker
+// when the playhead crosses it (within a small tolerance), which
+// turns the waveform into a "follow along" visualization.
+function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef }) {
   const canvasRef = useRef(null)
   const duration = Math.max(0, trimEnd - trimStart)
   const visibleFraction = 1 / Math.max(1, zoom)
   const visibleSpan = duration * visibleFraction
-  // Viewport in track-absolute seconds. pan is normalized so we
-  // scale by the spare (duration - visibleSpan), giving an exact
-  // start position that respects zoom.
   const viewStart = trimStart + (duration - visibleSpan) * Math.max(0, Math.min(1, pan))
   const viewEnd = viewStart + visibleSpan
 
@@ -535,6 +654,10 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan }) {
   const onsets = (Array.isArray(beatMap?.onsets) ? beatMap.onsets : [])
     .filter(b => b >= viewStart && b <= viewEnd)
 
+  // Single draw function — invoked both when viewport changes
+  // (zoom/pan/trim) AND every rAF tick while audio plays. Reading
+  // currentTime each frame is cheap; rendering 10-50 vertical
+  // lines is similarly cheap.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !(duration > 0)) return
@@ -545,61 +668,119 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan }) {
     canvas.height = h * dpr
     const ctx = canvas.getContext('2d')
     ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, w, h)
 
-    // Background lane
-    ctx.fillStyle = '#fafafa'
-    ctx.fillRect(0, 0, w, h)
+    const drawFrame = () => {
+      ctx.clearRect(0, 0, w, h)
+      ctx.fillStyle = '#fafafa'
+      ctx.fillRect(0, 0, w, h)
+      if (!(visibleSpan > 0)) return
+      const x = (t) => ((t - viewStart) / visibleSpan) * w
 
-    if (!(visibleSpan > 0)) return
-    const x = (t) => ((t - viewStart) / visibleSpan) * w
+      // Current playhead time (clamped to viewport). When audio
+      // is not present or paused at 0, this is a no-op.
+      const a = audioRef?.current
+      const playT = a ? Number(a.currentTime) || 0 : 0
+      // Tolerance for "currently playing this beat" — wider tol
+      // when zoomed out so the beat lights up visibly, tighter
+      // when zoomed in so adjacent beats don't both flash.
+      const flashTol = Math.max(0.04, visibleSpan / w * 8)
 
-    // Onsets first (lighter, taller), beats on top (full height,
-    // brand color). The visual separation lets the operator
-    // distinguish percussive transients from the analyzer's
-    // confidence-weighted beat picks.
-    ctx.strokeStyle = 'rgba(108, 92, 231, 0.22)'
-    ctx.lineWidth = 1
-    for (const t of onsets) {
-      const px = x(t)
-      ctx.beginPath()
-      ctx.moveTo(px, h * 0.30)
-      ctx.lineTo(px, h * 0.95)
-      ctx.stroke()
+      // Onsets first (lighter, taller), beats on top (full height,
+      // brand color). Flash any beat near the playhead.
+      ctx.strokeStyle = 'rgba(108, 92, 231, 0.22)'
+      ctx.lineWidth = 1
+      for (const t of onsets) {
+        const px = x(t)
+        ctx.beginPath()
+        ctx.moveTo(px, h * 0.30)
+        ctx.lineTo(px, h * 0.95)
+        ctx.stroke()
+      }
+      for (const t of beats) {
+        const px = x(t)
+        const near = a && !a.paused && Math.abs(t - playT) <= flashTol
+        ctx.strokeStyle = near ? '#f5a623' : '#6C5CE7'
+        ctx.lineWidth = near ? 2.5 : 1.5
+        ctx.beginPath()
+        ctx.moveTo(px, near ? h * 0.0 : h * 0.05)
+        ctx.lineTo(px, h * 0.95)
+        ctx.stroke()
+      }
+
+      // Playhead — vertical accent line + small triangle pointer
+      // at the top so it's visible even when no beats are nearby.
+      // Only drawn when the audio has been started AT LEAST once
+      // (currentTime > 0) so we don't render a phantom playhead
+      // at t=0 when the operator first opens the panel.
+      const showPlayhead = a && (playT > 0 || !a.paused) && playT >= viewStart && playT <= viewEnd
+      if (showPlayhead) {
+        const px = x(playT)
+        ctx.strokeStyle = '#2D9A5E'
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([])
+        ctx.beginPath()
+        ctx.moveTo(px, 0)
+        ctx.lineTo(px, h)
+        ctx.stroke()
+        // Triangle on top
+        ctx.fillStyle = '#2D9A5E'
+        ctx.beginPath()
+        ctx.moveTo(px - 4, 0)
+        ctx.lineTo(px + 4, 0)
+        ctx.lineTo(px, 6)
+        ctx.closePath()
+        ctx.fill()
+      }
+
+      // Tick marks last so they sit on top of the markers.
+      let step
+      if (visibleSpan < 4) step = 0.5
+      else if (visibleSpan < 20) step = 1
+      else step = 2
+      ctx.fillStyle = '#999'
+      ctx.font = '8px monospace'
+      const firstTick = Math.ceil(viewStart / step) * step
+      for (let t = firstTick; t <= viewEnd + 1e-6; t += step) {
+        const px = x(t)
+        ctx.fillRect(px, h - 4, 1, 4)
+        const label = step >= 1 ? `${Math.round(t)}s` : `${t.toFixed(1)}s`
+        ctx.fillText(label, px + 2, h - 6)
+      }
     }
-    ctx.strokeStyle = '#6C5CE7'
-    ctx.lineWidth = 1.5
-    for (const t of beats) {
-      const px = x(t)
-      ctx.beginPath()
-      ctx.moveTo(px, h * 0.05)
-      ctx.lineTo(px, h * 0.95)
-      ctx.stroke()
-    }
 
-    // Tick marks. Step size adjusts to zoom so the labels stay
-    // readable: when the viewport is < 4s we mark every 0.5s; up
-    // to 20s every 1s; otherwise every 2s.
-    let step
-    if (visibleSpan < 4) step = 0.5
-    else if (visibleSpan < 20) step = 1
-    else step = 2
-    ctx.fillStyle = '#999'
-    ctx.font = '8px monospace'
-    const firstTick = Math.ceil(viewStart / step) * step
-    for (let t = firstTick; t <= viewEnd + 1e-6; t += step) {
-      const px = x(t)
-      ctx.fillRect(px, h - 4, 1, 4)
-      const label = step >= 1 ? `${Math.round(t)}s` : `${t.toFixed(1)}s`
-      ctx.fillText(label, px + 2, h - 6)
+    drawFrame()
+
+    // rAF loop — only runs while audio is playing OR currentTime
+    // is non-zero (so the playhead stays put when the operator
+    // pauses, instead of disappearing). The cleanup cancels the
+    // pending frame on unmount / viewport change so stale frames
+    // don't draw to a torn-down canvas.
+    let rafId = null
+    let lastDrawnT = -1
+    const tick = () => {
+      const a = audioRef?.current
+      if (a) {
+        const t = Number(a.currentTime) || 0
+        // Only redraw when the playhead has actually moved enough
+        // to change a pixel — saves perf when paused.
+        const pxPerSec = visibleSpan > 0 ? (canvas.clientWidth / visibleSpan) : 0
+        const movedPx = Math.abs(t - lastDrawnT) * pxPerSec
+        if (movedPx >= 0.5 || lastDrawnT < 0) {
+          drawFrame()
+          lastDrawnT = t
+        }
+      }
+      rafId = requestAnimationFrame(tick)
     }
-  }, [duration, viewStart, viewEnd, beats.length, onsets.length])
+    rafId = requestAnimationFrame(tick)
+    return () => { if (rafId != null) cancelAnimationFrame(rafId) }
+  }, [duration, viewStart, viewEnd, beats.length, onsets.length, audioRef])
 
   return (
     <div className="space-y-1">
       <div className="text-[10px] text-muted flex items-center justify-between gap-2 flex-wrap">
         <span>
-          Waveform: <span className="text-[#6C5CE7] font-medium">beats</span> + <span className="text-[#6C5CE7]/60">onsets</span> in the trimmed window.
+          Waveform: <span className="text-[#6C5CE7] font-medium">beats</span> + <span className="text-[#6C5CE7]/60">onsets</span> + <span className="text-[#2D9A5E] font-medium">playhead</span>.
         </span>
         <span className="font-mono">view {viewStart.toFixed(2)}s → {viewEnd.toFixed(2)}s ({beats.length} beats)</span>
       </div>
@@ -608,6 +789,47 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan }) {
         style={{ width: '100%', height: 56 }}
         className="border border-[#e5e5e5] rounded"
       />
+    </div>
+  )
+}
+
+// Verify result — green ok-card or red mismatch table. Operator
+// runs this after Apply to confirm the BE actually persisted what
+// it claimed it did.
+function VerifyResultPanel({ result }) {
+  if (!result) return null
+  if (result.ok) {
+    return (
+      <div className="text-[10px] text-[#0a4d2c] bg-[#f0faf4] border border-[#2D9A5E]/40 rounded p-2">
+        <div className="font-medium">✓ Verified — all {result.checked} clip{result.checked === 1 ? '' : 's'} match the plan.</div>
+        <div className="text-[9px] opacity-70 mt-0.5">trim_start / trim_end / file_order all landed within 5ms of the planned values. Checked {result.checkedAt ? new Date(result.checkedAt).toLocaleTimeString() : 'just now'}.</div>
+      </div>
+    )
+  }
+  return (
+    <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/40 rounded p-2 space-y-1">
+      <div className="font-medium">⚠ Verification failed — {result.mismatches.length} mismatch{result.mismatches.length === 1 ? '' : 'es'} ({result.matched}/{result.checked} clip{result.checked === 1 ? '' : 's'} match).</div>
+      <table className="text-[10px] w-full">
+        <thead>
+          <tr className="text-[#c0392b]/70 text-left">
+            <th className="font-medium">clip-id</th>
+            <th className="font-medium">Field</th>
+            <th className="font-medium">Expected</th>
+            <th className="font-medium">Actual</th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.mismatches.map((m, i) => (
+            <tr key={i}>
+              <td className="font-mono">{typeof m.clipId === 'number' ? `clip-${m.clipId}` : m.clipId}</td>
+              <td className="font-mono">{m.field}</td>
+              <td className="font-mono">{m.expected}</td>
+              <td className="font-mono">{m.actual}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="text-[9px] opacity-80 italic">Click <b>Apply to clips</b> again to retry, or open the Media tab to see the current trim values.</div>
     </div>
   )
 }
@@ -663,24 +885,35 @@ function SnapPlanTable({ plan, cuts }) {
             <th className="font-medium">clip-id</th>
             <th className="font-medium">Trim</th>
             <th className="font-medium">Length</th>
-            <th className="font-medium">Cut at</th>
+            <th className="font-medium" title="Cumulative output-video time at the end of this clip">Total</th>
           </tr>
         </thead>
         <tbody>
-          {plan.map(p => {
-            const changed = Number(p.original_trim_end ?? -1) !== Number(p.trim_end)
-            return (
-              <tr key={p.dbFileId} className={changed ? 'bg-[#f3f0ff]' : ''}>
-                <td className="font-mono">{p.file_order + 1}</td>
-                <td className="font-mono text-muted">clip-{p.dbFileId}</td>
-                <td className="font-mono">
-                  {formatTime(p.trim_start)} → {formatTime(p.trim_end)}
-                </td>
-                <td className="font-mono">{formatTime(p.window_length)}</td>
-                <td className="font-mono">{formatTime(p.cut_at)}</td>
-              </tr>
-            )
-          })}
+          {(() => {
+            // Running total walks the plan in display order
+            // (file_order ascending) and sums window_length. With
+            // gapless cuts the result equals `cut_at` — surfacing
+            // both gives the operator two reads of the same idea:
+            // "cut at <music time>" vs "<this much video has
+            // played at this point>."
+            let cumulative = 0
+            return plan.map(p => {
+              const changed = Number(p.original_trim_end ?? -1) !== Number(p.trim_end)
+              cumulative += Number(p.window_length) || 0
+              return (
+                <tr key={p.dbFileId} className={changed ? 'bg-[#f3f0ff]' : ''}>
+                  <td className="font-mono">{p.file_order + 1}</td>
+                  <td className="font-mono text-muted">clip-{p.dbFileId}</td>
+                  <td className="font-mono">
+                    {formatTime(p.trim_start)} → {formatTime(p.trim_end)}
+                  </td>
+                  <td className="font-mono">{formatTime(p.window_length)}</td>
+                  <td className="font-mono">{formatTime(p.cut_at)}</td>
+                  <td className="font-mono font-medium text-[#6C5CE7]">{formatTime(cumulative)}</td>
+                </tr>
+              )
+            })
+          })()}
         </tbody>
       </table>
     </div>
