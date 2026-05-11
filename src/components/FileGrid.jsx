@@ -44,6 +44,7 @@ function MediaLightbox({ item, onClose }) {
   const [zoom, setZoom] = useState(() => Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
   const [offX, setOffX] = useState(() => Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
   const [offY, setOffY] = useState(() => Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
+  const [motion, setMotion] = useState(() => typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static')
   useEffect(() => {
     if (isImg) return
     const onChange = (e) => {
@@ -51,12 +52,96 @@ function MediaLightbox({ item, onClose }) {
       setZoom(Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
       setOffX(Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
       setOffY(Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
+      setMotion(typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static')
     }
     window.addEventListener('posty-video-zoom-change', onChange)
     return () => window.removeEventListener('posty-video-zoom-change', onChange)
   }, [item, isImg])
-  const originX = 50 + offX / 2
-  const originY = 50 + offY / 2
+  // Static-mode origin only. Animated motion (zoom-in / zoom-out /
+  // pan-lr / pan-rl / combined) drives transform-origin per-frame in
+  // the rAF loop below; staticOriginX/Y is the fallback for the
+  // non-animated case.
+  const staticOriginX = 50 + offX / 2
+  const staticOriginY = 50 + offY / 2
+
+  // Ken Burns preview. The merge BE animates the ffmpeg crop window
+  // per-frame; the lightbox is the operator's "is this the look I
+  // want?" preview, so it needs to animate too. Without this the
+  // lightbox shows a static scale even when motion is set, and the
+  // operator can't validate the effect without running a merge.
+  //
+  // We drive the animation off video.currentTime (NOT wall clock) so
+  // the effect tracks scrubs / pauses / loops naturally — pausing the
+  // video freezes the Ken Burns where it is, scrubbing the playhead
+  // moves the crop window with it.
+  useEffect(() => {
+    if (isImg) return
+    const v = videoRef.current
+    if (!v) return
+    if (motion === 'static') {
+      // Reset to the static framing — clean up any animation residue
+      // from a prior non-static motion when the user flips back.
+      const z = zoom
+      const oX = staticOriginX
+      const oY = staticOriginY
+      if (z !== 1) {
+        v.style.transform = `scale(${z})`
+        v.style.transformOrigin = `${oX}% ${oY}%`
+      } else {
+        v.style.transform = ''
+        v.style.transformOrigin = ''
+      }
+      return
+    }
+    let rafId = null
+    const KB_DELTA = 0.15
+    const hasZoomIn = motion.includes('zoom-in')
+    const hasZoomOut = motion.includes('zoom-out')
+    const hasPanLR = motion.includes('pan-lr')
+    const hasPanRL = motion.includes('pan-rl')
+    // Pan motions need spare canvas; the BE bumps baseZoom to 1.25
+    // when pan + zoom=1. Mirror that here so the lightbox preview
+    // matches what the merge will produce even if the operator
+    // hasn't bumped zoom themselves.
+    const effectiveBase = (hasPanLR || hasPanRL) && zoom < 1.25 ? 1.25 : zoom
+    const tick = () => {
+      const start = Number(item._trimStart) || 0
+      const end = item._trimEnd != null ? Number(item._trimEnd) : (v.duration || start + 1)
+      const dur = Math.max(0.01, end - start)
+      // Progress through the trim range, clamped to [0,1].
+      const t = Math.max(0, Math.min(1, ((v.currentTime || 0) - start) / dur))
+
+      // Zoom factor matches lib/video.js merge math: baseZoom is the
+      // floor, KB_DELTA = 15% delta animated on top.
+      let zoomT = effectiveBase
+      if (hasZoomIn) zoomT = effectiveBase * (1 + KB_DELTA * t)
+      else if (hasZoomOut) zoomT = effectiveBase * (1 + KB_DELTA - KB_DELTA * t)
+
+      // transform-origin x sweeps for pan motions. transform-origin
+      // 0% means the LEFT edge of the source is the scale anchor (so
+      // the right side is what you see scaled-up) — that visually
+      // matches "pan starts from the left edge of the source." The
+      // BE merge crop has the opposite mapping (x=0 means crop FROM
+      // the left edge, which shows the LEFT half), so we flip the
+      // direction here. pan-lr in the merge moves the crop window
+      // L→R, which means the VISIBLE region moves L→R, which in CSS
+      // is transform-origin going from 100% → 0% as t goes 0→1.
+      let originX = 50 + offX / 2 // static + nudge fallback
+      if (hasPanLR) {
+        originX = 100 - 100 * t + offX / 2
+      } else if (hasPanRL) {
+        originX = 100 * t + offX / 2
+      }
+      const originY = 50 + offY / 2
+
+      v.style.transform = `scale(${zoomT})`
+      v.style.transformOrigin = `${originX}% ${originY}%`
+
+      rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+    return () => { if (rafId != null) cancelAnimationFrame(rafId) }
+  }, [isImg, motion, zoom, offX, offY, staticOriginX, staticOriginY, item])
   const [src] = useState(() => {
     if (file instanceof Blob || file instanceof File) return URL.createObjectURL(file)
     // Restored file — prefer Supabase public URL (no auth, no memory pressure)
@@ -172,15 +257,21 @@ function MediaLightbox({ item, onClose }) {
               playsInline
               crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
               className="max-w-full max-h-[80vh] rounded block"
-              // Live zoom + anchor preview matching the merge crop.
-              style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
+              // Static-mode transform; animated motion overwrites
+              // .style.transform per-frame in the Ken Burns rAF loop
+              // above. Including the static value here lets the
+              // initial render show the correct framing before the
+              // loop kicks in.
+              style={zoom !== 1 && motion === 'static' ? { transform: `scale(${zoom})`, transformOrigin: `${staticOriginX}% ${staticOriginY}%` } : undefined}
             />
             <ExportFrameOverlay />
-            {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1)) && (
+            {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1) || motion !== 'static') && (
               <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
                 {hasTrim && <>Trimmed preview: {trimStart.toFixed(1)}s → {trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}</>}
                 {hasTrim && Number(item._speed) > 0 && Number(item._speed) !== 1 && <> · </>}
                 {Number(item._speed) > 0 && Number(item._speed) !== 1 && <>Playing at {Number(item._speed)}×</>}
+                {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1)) && motion !== 'static' && <> · </>}
+                {motion !== 'static' && <>Motion: {motion.replace(/-/g, ' ')}</>}
               </div>
             )}
           </div>
