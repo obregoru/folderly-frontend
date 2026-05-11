@@ -1249,6 +1249,26 @@ export const setJobMusicBeats = (jobUuid, beats) =>
     return r.json()
   })
 
+// Pick which detected beat array drives the snap algorithm:
+//   'all'         → broadband aubio beats (default)
+//   'bass'        → kick / bass drum onsets (40-200 Hz band)
+//   'hihat'       → hi-hat / cymbal onsets (>5 kHz band)
+//   'bass+hihat'  → union of bass and hi-hat
+// Existing music tracks need to be re-analyzed once for the band
+// arrays to populate (the bass_beats / hihat_beats fields land on
+// fresh uploads + reanalyze, not retroactively).
+export const setJobMusicBeatSource = (jobUuid, beatSource) =>
+  fetch(api(`/jobs/${jobUuid}/music/beat-source`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ beat_source: beatSource }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicBeatSource failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Toggle beat-driven loop mode. When ON, the snap algorithm uses
 // EVERY pacing-strided beat as a cut and the operator's clips
 // cycle through the windows on Apply. Default OFF (auto-snap

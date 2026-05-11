@@ -189,6 +189,18 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  const handleBeatSourceChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicBeatSource(draftId, next)
+      setMusic(prev => prev ? { ...prev, beat_source: r.music_beat_source } : prev)
+      setSnapPreview(null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   // Toggle the music ↔ voiceover mix mode. Persists on
   // voiceover_settings.mix_mode (the existing engine field) but
   // surfaced from the music panel because the operator's mental
@@ -449,6 +461,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           <ZoomBar zoom={zoom} pan={pan} setZoom={setZoom} setPan={setPan} />
           <WaveformBeatStrip
             beatMap={beatMap}
+            beatSource={music?.beat_source || 'all'}
             trimStart={effectiveTrimStart}
             trimEnd={effectiveTrimEnd}
             zoom={zoom}
@@ -490,6 +503,11 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           <div className="text-[9px] text-[#6C5CE7]/80">
             Computes new trim_start / trim_end / file_order on every video clip so cuts align to beats {hasTrim && <>within the trim window <b>{effectiveTrimStart.toFixed(2)}s–{effectiveTrimEnd.toFixed(2)}s</b></>}. Preview first to see the plan.
           </div>
+          <BeatSourceSelector
+            source={music?.beat_source || 'all'}
+            beatMap={beatMap}
+            onChange={handleBeatSourceChange}
+          />
           <PacingSelector pacing={Number(music?.pacing) || 1} onChange={handlePacingChange} />
           <LoopToBeatsToggle
             loopToBeats={!!music?.loop_to_beats}
@@ -851,6 +869,56 @@ function PacingSelector({ pacing, onChange }) {
   )
 }
 
+// Beat source — which detected beat array drives the snap cut
+// positions. Operator can choose to cut only on kick drum, only
+// on hi-hats, or a union of both. Falls back to the broadband
+// beat list ('all') for sources that aren't populated yet (older
+// music tracks uploaded before the band analyzer landed — fixed
+// by a single Re-analyze click).
+function BeatSourceSelector({ source, beatMap, onChange }) {
+  const bassCount = Array.isArray(beatMap?.bass_beats) ? beatMap.bass_beats.length : 0
+  const hihatCount = Array.isArray(beatMap?.hihat_beats) ? beatMap.hihat_beats.length : 0
+  const totalCount = Array.isArray(beatMap?.beats) ? beatMap.beats.length : 0
+  const OPTIONS = [
+    { value: 'all',         label: 'All beats',   count: totalCount, sub: 'broadband (default)' },
+    { value: 'bass',        label: 'Bass / kick', count: bassCount,  sub: '40–200 Hz only' },
+    { value: 'hihat',       label: 'Hi-hat',      count: hihatCount, sub: '>5 kHz only' },
+    { value: 'bass+hihat',  label: 'Bass + Hi-hat', count: bassCount + hihatCount, sub: 'union of both' },
+  ]
+  const current = OPTIONS.some(o => o.value === source) ? source : 'all'
+  // If the band arrays don't exist yet (old track + new analyzer),
+  // bass/hihat show count=0 and the picker hints at re-analyze.
+  const needsReanalyze = bassCount === 0 && hihatCount === 0 && totalCount > 0
+  return (
+    <div className="flex flex-col gap-1 text-[10px]">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[#6C5CE7]/80">Beat source</span>
+        {OPTIONS.map(o => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className={`py-0.5 px-2 rounded border ${
+              current === o.value
+                ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+                : 'bg-white text-[#6C5CE7] border-[#6C5CE7]/40'
+            }`}
+            title={o.sub}
+          >
+            <span className="font-medium">{o.label}</span>
+            <span className="text-[8px] opacity-75 ml-1">({o.count})</span>
+          </button>
+        ))}
+      </div>
+      {needsReanalyze && (
+        <span className="text-[9px] text-[#8a4b00] italic">
+          ⚠ Bass + hi-hat counts are 0 — this track was uploaded before the band analyzer. Click <b>Re-analyze</b> to populate them.
+        </span>
+      )}
+    </div>
+  )
+}
+
 // Beat-driven loop toggle. When ON, the snap algorithm uses every
 // pacing-strided beat as a cut and the operator's clips cycle
 // through to fill all the windows. Combined with the pacing
@@ -991,7 +1059,7 @@ function ZoomBar({ zoom, pan, setZoom, setPan }) {
 // under the rAF budget. We also lit-flash the nearest beat marker
 // when the playhead crosses it (within a small tolerance), which
 // turns the waveform into a "follow along" visualization.
-function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, draftId, onBeatsChange, cutPoints, manualCuts, onManualCutsChange }) {
+function WaveformBeatStrip({ beatMap, beatSource, trimStart, trimEnd, zoom, pan, audioRef, draftId, onBeatsChange, cutPoints, manualCuts, onManualCutsChange }) {
   const canvasRef = useRef(null)
   const duration = Math.max(0, trimEnd - trimStart)
   const visibleFraction = 1 / Math.max(1, zoom)
@@ -999,7 +1067,20 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
   const viewStart = trimStart + (duration - visibleSpan) * Math.max(0, Math.min(1, pan))
   const viewEnd = viewStart + visibleSpan
 
-  const allBeats = Array.isArray(beatMap?.beats) ? beatMap.beats : []
+  // Pick the beat array to render based on the current source so
+  // the operator SEES exactly which beats the snap will cut on.
+  // Falls back to broadband beats when a band array is missing.
+  const resolvedBeats = (() => {
+    if (beatSource === 'bass' && Array.isArray(beatMap?.bass_beats)) return beatMap.bass_beats
+    if (beatSource === 'hihat' && Array.isArray(beatMap?.hihat_beats)) return beatMap.hihat_beats
+    if (beatSource === 'bass+hihat') {
+      const a = Array.isArray(beatMap?.bass_beats) ? beatMap.bass_beats : []
+      const b = Array.isArray(beatMap?.hihat_beats) ? beatMap.hihat_beats : []
+      return [...a, ...b].sort((x, y) => x - y)
+    }
+    return Array.isArray(beatMap?.beats) ? beatMap.beats : []
+  })()
+  const allBeats = resolvedBeats
   const beats = allBeats.filter(b => b >= viewStart && b <= viewEnd)
   const onsets = (Array.isArray(beatMap?.onsets) ? beatMap.onsets : [])
     .filter(b => b >= viewStart && b <= viewEnd)
@@ -1094,8 +1175,14 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
       return
     }
 
-    // Plain click → beat edit (existing behavior).
+    // Plain click → beat edit, but only when the operator is
+    // viewing the broadband 'all' beats. The bass / hi-hat arrays
+    // are derived from band-filtered audio — letting clicks
+    // mutate them would create a mismatch between what the
+    // operator sees and what the BE re-analyzes from. They can
+    // still drop shift+click manual cuts in any band view.
     if (!onBeatsChange) return
+    if (beatSource && beatSource !== 'all') return
     let nearestIdx = -1
     let nearestDist = Infinity
     for (let i = 0; i < allBeats.length; i++) {
@@ -1298,7 +1385,7 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
     <div className="space-y-1">
       <div className="text-[10px] text-muted flex items-center justify-between gap-2 flex-wrap">
         <span>
-          <span className="text-[#6C5CE7] font-medium">Beats</span> · <span className="text-[#6C5CE7]/60">onsets</span>{Array.isArray(cutPoints) && cutPoints.length > 0 && manualCount === 0 && <> · <span className="text-[#2D9A5E] font-medium">algorithm cuts</span></>}{manualCount > 0 && <> · <span className="text-[#f5a623] font-medium">manual cuts</span></>} · <span className="text-[#2D9A5E] font-medium">playhead</span>.
+          <span className="text-[#6C5CE7] font-medium">{beatSource === 'bass' ? 'Bass / kick beats' : beatSource === 'hihat' ? 'Hi-hat beats' : beatSource === 'bass+hihat' ? 'Bass + hi-hat beats' : 'Beats'}</span> · <span className="text-[#6C5CE7]/60">onsets</span>{Array.isArray(cutPoints) && cutPoints.length > 0 && manualCount === 0 && <> · <span className="text-[#2D9A5E] font-medium">algorithm cuts</span></>}{manualCount > 0 && <> · <span className="text-[#f5a623] font-medium">manual cuts</span></>} · <span className="text-[#2D9A5E] font-medium">playhead</span>.
           {' '}<b>Click</b> = toggle beat. <b>Shift+click</b> = toggle manual cut (overrides auto-snap).
         </span>
         <span className="font-mono">
