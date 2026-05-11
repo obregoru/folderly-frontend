@@ -379,6 +379,18 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             zoom={zoom}
             pan={pan}
             audioRef={audioRef}
+            draftId={draftId}
+            onBeatsChange={(nextBeats) => {
+              // Optimistic update on the in-memory beat_map so the
+              // canvas + cut count + snap-preview-on-next-run all
+              // reflect the edit instantly. The PATCH lands in the
+              // background via debounce inside WaveformBeatStrip.
+              setMusic(prev => prev
+                ? { ...prev, beat_map: { ...prev.beat_map, beats: nextBeats, beats_manually_edited: true } }
+                : prev)
+              // Edit invalidates any cached snap preview.
+              setSnapPreview(null)
+            }}
           />
         </>
       )}
@@ -736,7 +748,7 @@ function ZoomBar({ zoom, pan, setZoom, setPan }) {
 // under the rAF budget. We also lit-flash the nearest beat marker
 // when the playhead crosses it (within a small tolerance), which
 // turns the waveform into a "follow along" visualization.
-function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef }) {
+function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, draftId, onBeatsChange }) {
   const canvasRef = useRef(null)
   const duration = Math.max(0, trimEnd - trimStart)
   const visibleFraction = 1 / Math.max(1, zoom)
@@ -744,10 +756,82 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef })
   const viewStart = trimStart + (duration - visibleSpan) * Math.max(0, Math.min(1, pan))
   const viewEnd = viewStart + visibleSpan
 
-  const beats = (Array.isArray(beatMap?.beats) ? beatMap.beats : [])
-    .filter(b => b >= viewStart && b <= viewEnd)
+  const allBeats = Array.isArray(beatMap?.beats) ? beatMap.beats : []
+  const beats = allBeats.filter(b => b >= viewStart && b <= viewEnd)
   const onsets = (Array.isArray(beatMap?.onsets) ? beatMap.onsets : [])
     .filter(b => b >= viewStart && b <= viewEnd)
+
+  // Debounced save — operator may click rapid-fire to add/remove
+  // multiple beats. Each click updates the parent immediately
+  // (optimistic) but the PATCH only fires 600ms after the last
+  // click so we don't spam the API.
+  const saveTimerRef = useRef(null)
+  const pendingBeatsRef = useRef(null)
+  const flushSave = async () => {
+    const beats = pendingBeatsRef.current
+    pendingBeatsRef.current = null
+    if (!Array.isArray(beats) || !draftId) return
+    try { await api.setJobMusicBeats(draftId, beats) }
+    catch (e) { console.warn('[music] save beats failed:', e?.message) }
+  }
+  const scheduleSave = (nextBeats) => {
+    pendingBeatsRef.current = nextBeats
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      flushSave()
+      saveTimerRef.current = null
+    }, 600)
+  }
+  // Flush pending save on unmount so an in-flight edit isn't lost
+  // when the operator switches tabs.
+  useEffect(() => () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      flushSave()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Click handler — translate canvas x to a track-absolute
+  // timestamp, then either remove the nearest beat (if within
+  // tolerance) or add a new beat at the click point.
+  // Tolerance scales with viewport so a zoomed-out click can hit
+  // any nearby beat, but a zoomed-in click is more precise.
+  const handleCanvasClick = (e) => {
+    if (!onBeatsChange) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const w = rect.width
+    if (!(visibleSpan > 0) || w <= 0) return
+    const clickT = viewStart + (x / w) * visibleSpan
+    // Remove tolerance: ~6 pixels worth of time, with a 0.05s floor
+    // so super-zoomed-in clicks don't reject everything.
+    const remTol = Math.max(0.05, visibleSpan / w * 6)
+
+    // Find nearest existing beat within tolerance.
+    let nearestIdx = -1
+    let nearestDist = Infinity
+    for (let i = 0; i < allBeats.length; i++) {
+      const d = Math.abs(allBeats[i] - clickT)
+      if (d < nearestDist) { nearestDist = d; nearestIdx = i }
+    }
+    let nextBeats
+    if (nearestIdx >= 0 && nearestDist <= remTol) {
+      // Remove
+      nextBeats = allBeats.slice(0, nearestIdx).concat(allBeats.slice(nearestIdx + 1))
+    } else {
+      // Add — insert in sorted position, round to 3 decimals
+      const t = Math.max(0, Number(clickT.toFixed(3)))
+      const insertAt = allBeats.findIndex(b => b > t)
+      nextBeats = insertAt < 0
+        ? allBeats.concat(t)
+        : allBeats.slice(0, insertAt).concat(t, allBeats.slice(insertAt))
+    }
+    onBeatsChange(nextBeats)
+    scheduleSave(nextBeats)
+  }
 
   // Single draw function — invoked both when viewport changes
   // (zoom/pan/trim) AND every rAF tick while audio plays. Reading
@@ -871,18 +955,24 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef })
     return () => { if (rafId != null) cancelAnimationFrame(rafId) }
   }, [duration, viewStart, viewEnd, beats.length, onsets.length, audioRef])
 
+  const edited = !!beatMap?.beats_manually_edited
   return (
     <div className="space-y-1">
       <div className="text-[10px] text-muted flex items-center justify-between gap-2 flex-wrap">
         <span>
-          Waveform: <span className="text-[#6C5CE7] font-medium">beats</span> + <span className="text-[#6C5CE7]/60">onsets</span> + <span className="text-[#2D9A5E] font-medium">playhead</span>.
+          Waveform: <span className="text-[#6C5CE7] font-medium">beats</span> + <span className="text-[#6C5CE7]/60">onsets</span> + <span className="text-[#2D9A5E] font-medium">playhead</span>. Click to add a beat, click an existing one to remove it.
         </span>
-        <span className="font-mono">view {viewStart.toFixed(2)}s → {viewEnd.toFixed(2)}s ({beats.length} beats)</span>
+        <span className="font-mono">
+          view {viewStart.toFixed(2)}s → {viewEnd.toFixed(2)}s ({beats.length} beats)
+          {edited && <span className="text-[#f5a623] font-medium ml-1.5">· manually edited</span>}
+        </span>
       </div>
       <canvas
         ref={canvasRef}
-        style={{ width: '100%', height: 56 }}
+        onClick={handleCanvasClick}
+        style={{ width: '100%', height: 56, cursor: onBeatsChange ? 'crosshair' : 'default' }}
         className="border border-[#e5e5e5] rounded"
+        title="Click to add a beat at that position. Click on an existing beat marker to remove it."
       />
     </div>
   )

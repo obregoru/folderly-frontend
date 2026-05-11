@@ -1201,6 +1201,22 @@ export const setJobMusicTrim = (jobUuid, { trim_start, trim_end }) =>
     return r.json()
   })
 
+// Replace the persisted beat array. The snap algorithm reads
+// music_beat_map.beats so editing here immediately changes what
+// the next Preview / Apply will use. /music/reanalyze restores
+// fresh aubio output if the operator wants to undo manual edits.
+export const setJobMusicBeats = (jobUuid, beats) =>
+  fetch(api(`/jobs/${jobUuid}/music/beats`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ beats }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicBeats failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Pacing controls how spread out the snapped cuts are on the
 // music. 1 = every detected beat is a snap candidate (densest
 // cuts), 2 = every other beat (moderate), 4 = every 4th beat
