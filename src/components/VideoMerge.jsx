@@ -509,6 +509,10 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             video_zoom: Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0,
             video_offset_x: Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0,
             video_offset_y: Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0,
+            // Ken Burns motion. 'static' is the no-animation default;
+            // other values mirror the photo motion set and trigger the
+            // BE animated crop expression in lib/video.mergeVideos().
+            video_motion: typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static',
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
