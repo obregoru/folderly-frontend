@@ -73,6 +73,40 @@ function MediaLightbox({ item, onClose }) {
   const trimStart = item._trimStart || 0
   const trimEnd = item._trimEnd ?? null
 
+  // Mirror the per-clip speed (the same value the merge applies). The
+  // lightbox is the operator's "what does this clip look like in the
+  // final video" preview, so playing at the rendered rate matches
+  // expectations — otherwise a clip configured for 2× plays at 1× in
+  // the lightbox and the operator can't validate pacing without
+  // running a full merge.
+  useEffect(() => {
+    if (isImg) return
+    const v = videoRef.current
+    if (!v) return
+    const applyRate = () => {
+      const sp = Number(item._speed)
+      v.playbackRate = sp > 0 ? sp : 1.0
+    }
+    // Apply once now (handles re-renders mid-playback) AND on
+    // loadedmetadata (some browsers reset playbackRate when src
+    // metadata lands).
+    applyRate()
+    v.addEventListener('loadedmetadata', applyRate)
+    // Subscribe to posty-speed-change for this item — VideoMerge
+    // mutates item._speed in place and fires the event; without
+    // listening here the lightbox would keep the old rate until
+    // reopened.
+    const onSpeedChange = (e) => {
+      if (e.detail?.itemId && e.detail.itemId !== item.id) return
+      applyRate()
+    }
+    window.addEventListener('posty-speed-change', onSpeedChange)
+    return () => {
+      v.removeEventListener('loadedmetadata', applyRate)
+      window.removeEventListener('posty-speed-change', onSpeedChange)
+    }
+  }, [isImg, item])
+
   // Enforce trim on the lightbox video: seek to trimStart on play, pause
   // (and reset) when currentTime reaches trimEnd. Uses refs via closure
   // so the latest trim values apply on every tick.
@@ -142,9 +176,11 @@ function MediaLightbox({ item, onClose }) {
               style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
             />
             <ExportFrameOverlay />
-            {hasTrim && (
+            {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1)) && (
               <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
-                Trimmed preview: {trimStart.toFixed(1)}s → {trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}
+                {hasTrim && <>Trimmed preview: {trimStart.toFixed(1)}s → {trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}</>}
+                {hasTrim && Number(item._speed) > 0 && Number(item._speed) !== 1 && <> · </>}
+                {Number(item._speed) > 0 && Number(item._speed) !== 1 && <>Playing at {Number(item._speed)}×</>}
               </div>
             )}
           </div>
