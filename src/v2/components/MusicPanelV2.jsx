@@ -153,6 +153,30 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  // Toggle the music ↔ voiceover mix mode. Persists on
+  // voiceover_settings.mix_mode (the existing engine field) but
+  // surfaced from the music panel because the operator's mental
+  // model is "music dipping under voice." Three modes:
+  //   mix     → music constant at orig_volume (default 30%), VO on top
+  //   duck    → music auto-ducks during VO via sidechain compression
+  //   replace → VO replaces audio entirely (rare for music videos)
+  // We fetch fresh voiceover_settings on each toggle to avoid
+  // clobbering segment audio keys / voiceId that the VO panel may
+  // have edited in parallel.
+  const handleVoMixModeChange = async (nextMode) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const job = await api.getJob(draftId)
+      const cur = (job?.voiceover_settings && typeof job.voiceover_settings === 'object') ? job.voiceover_settings : {}
+      const next = { ...cur, mix_mode: nextMode }
+      await api.updateJob(draftId, { voiceover_settings: next })
+      setMusic(prev => prev ? { ...prev, vo_mix_mode: nextMode } : prev)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   const handlePreviewSnap = async () => {
     if (!draftId || previewing) return
     setPreviewing(true)
@@ -337,8 +361,8 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           <div className="text-[10px] text-muted">
             Upload a music file (mp3 / wav / m4a). BE analyzes BPM + beat positions, then a Snap-to-beats action overwrites every clip's trim so cuts land on beats. Final merge uses this music as the audio track.
           </div>
-          <div className="text-[10px] text-[#8a4b00] bg-[#fff7e6] border border-[#f5a623]/40 rounded px-2 py-1 mt-1">
-            v1: music <b>replaces</b> voiceover at merge time. If you have a recorded VO, the merged mp4 will use the music instead.
+          <div className="text-[10px] text-muted italic mt-1">
+            Music replaces clip audio at the merge step. When voiceover segments are present, the "VO interaction" mode below decides how music and VO coexist.
           </div>
         </div>
       </div>
@@ -408,6 +432,11 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             Computes new trim_start / trim_end / file_order on every video clip so cuts align to beats {hasTrim && <>within the trim window <b>{effectiveTrimStart.toFixed(2)}s–{effectiveTrimEnd.toFixed(2)}s</b></>}. Preview first to see the plan.
           </div>
           <PacingSelector pacing={Number(music?.pacing) || 1} onChange={handlePacingChange} />
+          <VoMixModeSelector
+            mode={music?.vo_mix_mode || 'mix'}
+            hasVoiceover={!!music?.has_voiceover}
+            onChange={handleVoMixModeChange}
+          />
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
@@ -688,6 +717,48 @@ function PacingSelector({ pacing, onChange }) {
           <span className="text-[8px] opacity-75 ml-1">({o.subtitle})</span>
         </button>
       ))}
+    </div>
+  )
+}
+
+// Music ↔ voiceover mix mode. Persisted on
+// voiceover_settings.mix_mode (the existing audio-engine field
+// the merge step consults) but surfaced here because the operator
+// thinks of it as "what does the music do when VO plays."
+//   mix     → music constant at ~30%, VO on top (default)
+//   duck    → music auto-ducks during VO (sidechain compression)
+//   replace → VO replaces audio entirely
+function VoMixModeSelector({ mode, hasVoiceover, onChange }) {
+  const OPTIONS = [
+    { value: 'mix',     label: 'Mix',  subtitle: 'music at 30% under VO' },
+    { value: 'duck',    label: 'Duck', subtitle: 'music dips when VO speaks' },
+    { value: 'replace', label: 'Mute', subtitle: 'VO replaces audio' },
+  ]
+  const current = OPTIONS.some(o => o.value === mode) ? mode : 'mix'
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] flex-wrap">
+      <span className="text-[#6C5CE7]/80">VO interaction</span>
+      {OPTIONS.map(o => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={`py-0.5 px-2 rounded border ${
+            current === o.value
+              ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+              : 'bg-white text-[#6C5CE7] border-[#6C5CE7]/40'
+          }`}
+          title={o.subtitle}
+        >
+          <span className="font-medium">{o.label}</span>
+          <span className="text-[8px] opacity-75 ml-1">({o.subtitle})</span>
+        </button>
+      ))}
+      {!hasVoiceover && (
+        <span className="text-[9px] text-muted italic" title="No voiceover recorded yet — mix mode only matters once VO segments exist.">
+          (no VO yet)
+        </span>
+      )}
     </div>
   )
 }
