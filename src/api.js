@@ -1186,6 +1186,21 @@ export const deleteJobMusic = (jobUuid) =>
     return r.json()
   })
 
+// Set or clear the music trim window. Pass nulls on both fields
+// to revert to "use full track". The BE rejects inverted ranges
+// (trim_end <= trim_start) with a 400.
+export const setJobMusicTrim = (jobUuid, { trim_start, trim_end }) =>
+  fetch(api(`/jobs/${jobUuid}/music/trim`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ trim_start, trim_end }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicTrim failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 export const reanalyzeJobMusic = (jobUuid) =>
   fetch(api(`/jobs/${jobUuid}/music/reanalyze`), {
     method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
