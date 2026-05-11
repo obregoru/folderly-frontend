@@ -431,6 +431,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             pan={pan}
             audioRef={audioRef}
             draftId={draftId}
+            cutPoints={Array.isArray(snapPreview?.cuts) ? snapPreview.cuts : null}
             onBeatsChange={(nextBeats) => {
               // Optimistic update on the in-memory beat_map so the
               // canvas + cut count + snap-preview-on-next-run all
@@ -901,7 +902,7 @@ function ZoomBar({ zoom, pan, setZoom, setPan }) {
 // under the rAF budget. We also lit-flash the nearest beat marker
 // when the playhead crosses it (within a small tolerance), which
 // turns the waveform into a "follow along" visualization.
-function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, draftId, onBeatsChange }) {
+function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, draftId, onBeatsChange, cutPoints }) {
   const canvasRef = useRef(null)
   const duration = Math.max(0, trimEnd - trimStart)
   const visibleFraction = 1 / Math.max(1, zoom)
@@ -1039,6 +1040,37 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
         ctx.stroke()
       }
 
+      // Cut points — green half-height lines showing where the
+      // snap algorithm will place video cuts. Drawn between the
+      // beat markers (so beats remain the most visually prominent
+      // signal) and the playhead. Cuts come from the snap preview
+      // in TRIMMED-timeline coordinates (0-based starting at the
+      // trim window's start), so we shift by trimStart to land
+      // them at the right track-absolute time on the canvas. The
+      // endpoint at 0 (start of trim) and the endpoint at
+      // duration (end of trim) are skipped — they're trivially the
+      // edges of the trim window and adding pillars there is just
+      // noise.
+      if (Array.isArray(cutPoints) && cutPoints.length > 0) {
+        ctx.strokeStyle = '#2D9A5E'
+        ctx.lineWidth = 2
+        ctx.setLineDash([])
+        for (let i = 0; i < cutPoints.length; i++) {
+          const cutAbs = trimStart + Number(cutPoints[i])
+          // Skip the trim endpoints — they're the music edges, not
+          // a "cut between two clips" event the operator needs to
+          // see called out.
+          if (cutAbs <= trimStart + 0.01) continue
+          if (cutAbs >= trimEnd - 0.01) continue
+          if (cutAbs < viewStart || cutAbs > viewEnd) continue
+          const px = x(cutAbs)
+          ctx.beginPath()
+          ctx.moveTo(px, h * 0.5)
+          ctx.lineTo(px, h * 0.95)
+          ctx.stroke()
+        }
+      }
+
       // Playhead — vertical accent line + small triangle pointer
       // at the top so it's visible even when no beats are nearby.
       // Only drawn when the audio has been started AT LEAST once
@@ -1106,14 +1138,14 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
     }
     rafId = requestAnimationFrame(tick)
     return () => { if (rafId != null) cancelAnimationFrame(rafId) }
-  }, [duration, viewStart, viewEnd, beats.length, onsets.length, audioRef])
+  }, [duration, viewStart, viewEnd, beats.length, onsets.length, audioRef, cutPoints?.length])
 
   const edited = !!beatMap?.beats_manually_edited
   return (
     <div className="space-y-1">
       <div className="text-[10px] text-muted flex items-center justify-between gap-2 flex-wrap">
         <span>
-          Waveform: <span className="text-[#6C5CE7] font-medium">beats</span> + <span className="text-[#6C5CE7]/60">onsets</span> + <span className="text-[#2D9A5E] font-medium">playhead</span>. Click to add a beat, click an existing one to remove it.
+          Waveform: <span className="text-[#6C5CE7] font-medium">beats</span> + <span className="text-[#6C5CE7]/60">onsets</span>{Array.isArray(cutPoints) && cutPoints.length > 0 && <> + <span className="text-[#2D9A5E] font-medium">video cuts</span></>} + <span className="text-[#2D9A5E] font-medium">playhead</span>. Click to add a beat, click an existing one to remove it.
         </span>
         <span className="font-mono">
           view {viewStart.toFixed(2)}s → {viewEnd.toFixed(2)}s ({beats.length} beats)
