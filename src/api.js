@@ -1201,6 +1201,23 @@ export const setJobMusicTrim = (jobUuid, { trim_start, trim_end }) =>
     return r.json()
   })
 
+// Pacing controls how spread out the snapped cuts are on the
+// music. 1 = every detected beat is a snap candidate (densest
+// cuts), 2 = every other beat (moderate), 4 = every 4th beat
+// (slowest / downbeat-ish). The algorithm still produces N cuts
+// for N host clips — pacing changes WHICH beats they can land on.
+export const setJobMusicPacing = (jobUuid, pacing) =>
+  fetch(api(`/jobs/${jobUuid}/music/pacing`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ pacing: Number(pacing) }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicPacing failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 export const reanalyzeJobMusic = (jobUuid) =>
   fetch(api(`/jobs/${jobUuid}/music/reanalyze`), {
     method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
