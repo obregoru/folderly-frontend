@@ -1147,6 +1147,84 @@ export const producerHistory = (jobUuid) =>
     .then(r => r.ok ? r.json() : { messages: [] })
     .catch(() => ({ messages: [] }))
 
+// ── Music track / beat-sync ──────────────────────────────────────
+// Operator uploads a music file; BE stores it, runs aubio for
+// BPM + beat positions + onsets, and persists the analysis on the
+// job row. Snap-to-beats then overwrites each clip's trim so cuts
+// land on beats, and merge swaps the audio to the music track.
+
+export const uploadJobMusic = (jobUuid, { audio_base64, filename, media_type }) =>
+  fetch(api(`/jobs/${jobUuid}/music`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ audio_base64, filename, media_type }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `Music upload failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const getJobMusic = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/music`), { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getJobMusic failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const deleteJobMusic = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/music`), {
+    method: 'DELETE', headers: { ...h(), ...csrf() }, credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `deleteJobMusic failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const reanalyzeJobMusic = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/music/reanalyze`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `reanalyzeJobMusic failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Beat-snap preview — returns the proposed clip plan (new trim
+// values + cut points) WITHOUT mutating the DB. Operator reviews
+// the diff before clicking Apply.
+export const previewBeatSnap = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/music/snap-preview`), { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `previewBeatSnap failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Beat-snap apply — transactional UPDATE of every host clip's
+// trim_start / trim_end / file_order so cuts land on beats.
+export const applyBeatSnap = (jobUuid) =>
+  fetch(api(`/jobs/${jobUuid}/music/apply-snap`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `applyBeatSnap failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Load the most recent persisted first-2-second analysis for a job.
 // Returns { analysis, analyzedAt, sourceKind } or { analysis: null }
 // when no prior run exists. Used by the panel to rehydrate on reload

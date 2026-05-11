@@ -8,6 +8,11 @@ const ALL_TOOLS = [
   { key: 'producer',  icon: '🤖', label: 'Producer', forModes: ['photo-post', 'video'] },
   { key: 'captions',  icon: '✨', label: 'Content',  forModes: ['photo-post', 'video'], primary: true },
   { key: 'voiceover', icon: '🎤', label: 'Voice',    forModes: ['video'] },
+  // Music sits next to Voice — both are audio inputs. In v1, music
+  // REPLACES voiceover at merge time (no mixing), so they're
+  // mutually exclusive in practice. The icon hints that picking
+  // Music dictates the audio track.
+  { key: 'music',     icon: '🎵', label: 'Music',    forModes: ['video'] },
   { key: 'overlays',  icon: '📝', label: 'Overlays', forModes: ['video'] },
   // First 2s + Full video are audit steps — sit right before
   // Channels so the user's flow is "build → audit → publish" rather
