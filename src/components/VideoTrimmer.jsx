@@ -447,7 +447,67 @@ export default function VideoTrimmer({ item }) {
       </div>
       <FirstHalfSecondInspector src={src} trimStart={trimStart} videoDuration={videoDuration} item={item} />
       <VideoZoomBar item={item} />
+      <VideoSpeedBar item={item} />
     </div>
+  )
+}
+
+// Per-clip playback-speed picker. Lives right under VideoZoomBar so
+// both knobs that affect the rendered clip (crop + tempo) sit on the
+// tile itself — the operator no longer has to scroll to VideoMerge
+// to adjust speed. Mirrors VideoZoomBar's dispatch model: mutate
+// item._speed in place, fire posty-speed-change, and AppV2's existing
+// listener persists via jobSync.saveFileSpeed. The MediaLightbox /
+// merge panel pick the new value up via the same event.
+function VideoSpeedBar({ item }) {
+  const [speed, setSpeed] = useState(() => {
+    const v = Number(item._speed)
+    return v > 0 ? v : 1.0
+  })
+
+  // Re-pull from item if external state (merge panel) changes it.
+  useEffect(() => {
+    const v = Number(item._speed) > 0 ? Number(item._speed) : 1.0
+    if (Math.abs(v - speed) > 0.001) setSpeed(v)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item._speed])
+
+  const commit = (next) => {
+    const n = Number(next)
+    if (!(n > 0)) return
+    setSpeed(n)
+    item._speed = n
+    try { window.dispatchEvent(new CustomEvent('posty-speed-change', { detail: { itemId: item.id } })) } catch {}
+  }
+
+  return (
+    <label
+      className={`mt-1 flex items-center gap-2 text-[10px] px-2 py-1 rounded border ${
+        speed !== 1
+          ? 'bg-[#fff7e6] border-[#f5a623]/60 text-[#8a4b00]'
+          : 'bg-white border-border text-muted'
+      }`}
+      title={speed !== 1
+        ? `This clip will play at ${speed}× during merge.`
+        : 'Playback speed. Slow down (0.25×–0.75×) or speed up (1.25×–4×). Applied during merge.'}
+    >
+      <span className="font-medium">Speed</span>
+      <select
+        value={String(speed)}
+        onChange={e => commit(e.target.value)}
+        className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+      >
+        <option value="0.25">0.25×</option>
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1">1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+        <option value="3">3×</option>
+        <option value="4">4×</option>
+      </select>
+    </label>
   )
 }
 
