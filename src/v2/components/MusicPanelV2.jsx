@@ -432,6 +432,13 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             audioRef={audioRef}
             draftId={draftId}
             cutPoints={Array.isArray(snapPreview?.cuts) ? snapPreview.cuts : null}
+            manualCuts={Array.isArray(beatMap?.manual_cuts) ? beatMap.manual_cuts : null}
+            onManualCutsChange={(nextCuts) => {
+              setMusic(prev => prev
+                ? { ...prev, beat_map: { ...prev.beat_map, manual_cuts: nextCuts } }
+                : prev)
+              setSnapPreview(null)
+            }}
             onBeatsChange={(nextBeats) => {
               // Optimistic update on the in-memory beat_map so the
               // canvas + cut count + snap-preview-on-next-run all
@@ -902,7 +909,7 @@ function ZoomBar({ zoom, pan, setZoom, setPan }) {
 // under the rAF budget. We also lit-flash the nearest beat marker
 // when the playhead crosses it (within a small tolerance), which
 // turns the waveform into a "follow along" visualization.
-function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, draftId, onBeatsChange, cutPoints }) {
+function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, draftId, onBeatsChange, cutPoints, manualCuts, onManualCutsChange }) {
   const canvasRef = useRef(null)
   const duration = Math.max(0, trimEnd - trimStart)
   const visibleFraction = 1 / Math.max(1, zoom)
@@ -916,43 +923,61 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
     .filter(b => b >= viewStart && b <= viewEnd)
 
   // Debounced save — operator may click rapid-fire to add/remove
-  // multiple beats. Each click updates the parent immediately
-  // (optimistic) but the PATCH only fires 600ms after the last
-  // click so we don't spam the API.
-  const saveTimerRef = useRef(null)
+  // multiple beats OR cuts. Each click updates the parent
+  // immediately (optimistic) but the PATCH only fires 600ms after
+  // the last click so we don't spam the API. Beats + manual cuts
+  // each maintain their own pending state so a beat edit doesn't
+  // accidentally clear a not-yet-saved cut edit.
+  const beatTimerRef = useRef(null)
   const pendingBeatsRef = useRef(null)
-  const flushSave = async () => {
+  const cutTimerRef = useRef(null)
+  const pendingCutsRef = useRef(null)
+  const flushBeatsSave = async () => {
     const beats = pendingBeatsRef.current
     pendingBeatsRef.current = null
     if (!Array.isArray(beats) || !draftId) return
     try { await api.setJobMusicBeats(draftId, beats) }
     catch (e) { console.warn('[music] save beats failed:', e?.message) }
   }
-  const scheduleSave = (nextBeats) => {
+  const flushCutsSave = async () => {
+    const cuts = pendingCutsRef.current
+    pendingCutsRef.current = null
+    if (!Array.isArray(cuts) || !draftId) return
+    try { await api.setJobMusicManualCuts(draftId, cuts) }
+    catch (e) { console.warn('[music] save manual cuts failed:', e?.message) }
+  }
+  const scheduleBeatsSave = (nextBeats) => {
     pendingBeatsRef.current = nextBeats
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      flushSave()
-      saveTimerRef.current = null
+    if (beatTimerRef.current) clearTimeout(beatTimerRef.current)
+    beatTimerRef.current = setTimeout(() => {
+      flushBeatsSave()
+      beatTimerRef.current = null
     }, 600)
   }
-  // Flush pending save on unmount so an in-flight edit isn't lost
+  const scheduleCutsSave = (nextCuts) => {
+    pendingCutsRef.current = nextCuts
+    if (cutTimerRef.current) clearTimeout(cutTimerRef.current)
+    cutTimerRef.current = setTimeout(() => {
+      flushCutsSave()
+      cutTimerRef.current = null
+    }, 600)
+  }
+  // Flush pending saves on unmount so an in-flight edit isn't lost
   // when the operator switches tabs.
   useEffect(() => () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current)
-      flushSave()
-    }
+    if (beatTimerRef.current) { clearTimeout(beatTimerRef.current); flushBeatsSave() }
+    if (cutTimerRef.current) { clearTimeout(cutTimerRef.current); flushCutsSave() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Click handler — translate canvas x to a track-absolute
-  // timestamp, then either remove the nearest beat (if within
-  // tolerance) or add a new beat at the click point.
+  // timestamp, then dispatch:
+  //   plain click  → toggle a BEAT marker (purple, full-height)
+  //   shift+click  → toggle a MANUAL CUT marker (amber, full-height)
   // Tolerance scales with viewport so a zoomed-out click can hit
-  // any nearby beat, but a zoomed-in click is more precise.
+  // any nearby marker, but a zoomed-in click is more precise.
+  const allManualCuts = Array.isArray(manualCuts) ? manualCuts : []
   const handleCanvasClick = (e) => {
-    if (!onBeatsChange) return
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
@@ -960,11 +985,35 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
     const w = rect.width
     if (!(visibleSpan > 0) || w <= 0) return
     const clickT = viewStart + (x / w) * visibleSpan
-    // Remove tolerance: ~6 pixels worth of time, with a 0.05s floor
-    // so super-zoomed-in clicks don't reject everything.
     const remTol = Math.max(0.05, visibleSpan / w * 6)
+    const t = Math.max(0, Number(clickT.toFixed(3)))
 
-    // Find nearest existing beat within tolerance.
+    // Shift + click → manual cut edit. Only when the parent
+    // supplied an onManualCutsChange handler (it does on the
+    // music panel).
+    if (e.shiftKey && onManualCutsChange) {
+      let nearestIdx = -1
+      let nearestDist = Infinity
+      for (let i = 0; i < allManualCuts.length; i++) {
+        const d = Math.abs(allManualCuts[i] - clickT)
+        if (d < nearestDist) { nearestDist = d; nearestIdx = i }
+      }
+      let nextCuts
+      if (nearestIdx >= 0 && nearestDist <= remTol) {
+        nextCuts = allManualCuts.slice(0, nearestIdx).concat(allManualCuts.slice(nearestIdx + 1))
+      } else {
+        const insertAt = allManualCuts.findIndex(c => c > t)
+        nextCuts = insertAt < 0
+          ? allManualCuts.concat(t)
+          : allManualCuts.slice(0, insertAt).concat(t, allManualCuts.slice(insertAt))
+      }
+      onManualCutsChange(nextCuts)
+      scheduleCutsSave(nextCuts)
+      return
+    }
+
+    // Plain click → beat edit (existing behavior).
+    if (!onBeatsChange) return
     let nearestIdx = -1
     let nearestDist = Infinity
     for (let i = 0; i < allBeats.length; i++) {
@@ -973,18 +1022,15 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
     }
     let nextBeats
     if (nearestIdx >= 0 && nearestDist <= remTol) {
-      // Remove
       nextBeats = allBeats.slice(0, nearestIdx).concat(allBeats.slice(nearestIdx + 1))
     } else {
-      // Add — insert in sorted position, round to 3 decimals
-      const t = Math.max(0, Number(clickT.toFixed(3)))
       const insertAt = allBeats.findIndex(b => b > t)
       nextBeats = insertAt < 0
         ? allBeats.concat(t)
         : allBeats.slice(0, insertAt).concat(t, allBeats.slice(insertAt))
     }
     onBeatsChange(nextBeats)
-    scheduleSave(nextBeats)
+    scheduleBeatsSave(nextBeats)
   }
 
   // Single draw function — invoked both when viewport changes
@@ -1040,26 +1086,17 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
         ctx.stroke()
       }
 
-      // Cut points — green half-height lines showing where the
-      // snap algorithm will place video cuts. Drawn between the
-      // beat markers (so beats remain the most visually prominent
-      // signal) and the playhead. Cuts come from the snap preview
-      // in TRIMMED-timeline coordinates (0-based starting at the
-      // trim window's start), so we shift by trimStart to land
-      // them at the right track-absolute time on the canvas. The
-      // endpoint at 0 (start of trim) and the endpoint at
-      // duration (end of trim) are skipped — they're trivially the
-      // edges of the trim window and adding pillars there is just
-      // noise.
-      if (Array.isArray(cutPoints) && cutPoints.length > 0) {
+      // Algorithm cut points — green half-height lines showing
+      // where the snap algorithm will place video cuts. Skipped
+      // when manual cuts are set (the manual amber markers serve
+      // the same role and would visually overlap).
+      const hasManual = Array.isArray(manualCuts) && manualCuts.length > 0
+      if (Array.isArray(cutPoints) && cutPoints.length > 0 && !hasManual) {
         ctx.strokeStyle = '#2D9A5E'
         ctx.lineWidth = 2
         ctx.setLineDash([])
         for (let i = 0; i < cutPoints.length; i++) {
           const cutAbs = trimStart + Number(cutPoints[i])
-          // Skip the trim endpoints — they're the music edges, not
-          // a "cut between two clips" event the operator needs to
-          // see called out.
           if (cutAbs <= trimStart + 0.01) continue
           if (cutAbs >= trimEnd - 0.01) continue
           if (cutAbs < viewStart || cutAbs > viewEnd) continue
@@ -1068,6 +1105,34 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
           ctx.moveTo(px, h * 0.5)
           ctx.lineTo(px, h * 0.95)
           ctx.stroke()
+        }
+      }
+
+      // Manual cut markers — amber full-height lines + a tiny
+      // amber circle at the top so they're unmistakably operator-
+      // placed (and visually distinct from purple beats and green
+      // algorithm cuts). When manual cuts exist they OVERRIDE the
+      // algorithm's auto-snap, so the algorithm cuts are hidden
+      // above and these are the only cut markers on screen.
+      if (hasManual) {
+        for (const tAbs of manualCuts) {
+          const t = Number(tAbs)
+          if (!Number.isFinite(t)) continue
+          if (t < viewStart || t > viewEnd) continue
+          const px = x(t)
+          // Full-height amber line, slightly thicker
+          ctx.strokeStyle = '#f5a623'
+          ctx.lineWidth = 2.25
+          ctx.setLineDash([])
+          ctx.beginPath()
+          ctx.moveTo(px, 0)
+          ctx.lineTo(px, h)
+          ctx.stroke()
+          // Cap dot at top for unmistakable "this is operator-set"
+          ctx.fillStyle = '#f5a623'
+          ctx.beginPath()
+          ctx.arc(px, 4, 3, 0, Math.PI * 2)
+          ctx.fill()
         }
       }
 
@@ -1138,18 +1203,25 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
     }
     rafId = requestAnimationFrame(tick)
     return () => { if (rafId != null) cancelAnimationFrame(rafId) }
-  }, [duration, viewStart, viewEnd, beats.length, onsets.length, audioRef, cutPoints?.length])
+  }, [duration, viewStart, viewEnd, beats.length, onsets.length, audioRef, cutPoints?.length, manualCuts?.length])
 
   const edited = !!beatMap?.beats_manually_edited
+  const manualCount = Array.isArray(manualCuts) ? manualCuts.length : 0
+  const clearAllManual = () => {
+    if (!onManualCutsChange) return
+    onManualCutsChange([])
+    scheduleCutsSave([])
+  }
   return (
     <div className="space-y-1">
       <div className="text-[10px] text-muted flex items-center justify-between gap-2 flex-wrap">
         <span>
-          Waveform: <span className="text-[#6C5CE7] font-medium">beats</span> + <span className="text-[#6C5CE7]/60">onsets</span>{Array.isArray(cutPoints) && cutPoints.length > 0 && <> + <span className="text-[#2D9A5E] font-medium">video cuts</span></>} + <span className="text-[#2D9A5E] font-medium">playhead</span>. Click to add a beat, click an existing one to remove it.
+          <span className="text-[#6C5CE7] font-medium">Beats</span> · <span className="text-[#6C5CE7]/60">onsets</span>{Array.isArray(cutPoints) && cutPoints.length > 0 && manualCount === 0 && <> · <span className="text-[#2D9A5E] font-medium">algorithm cuts</span></>}{manualCount > 0 && <> · <span className="text-[#f5a623] font-medium">manual cuts</span></>} · <span className="text-[#2D9A5E] font-medium">playhead</span>.
+          {' '}<b>Click</b> = toggle beat. <b>Shift+click</b> = toggle manual cut (overrides auto-snap).
         </span>
         <span className="font-mono">
-          view {viewStart.toFixed(2)}s → {viewEnd.toFixed(2)}s ({beats.length} beats)
-          {edited && <span className="text-[#f5a623] font-medium ml-1.5">· manually edited</span>}
+          view {viewStart.toFixed(2)}s → {viewEnd.toFixed(2)}s ({beats.length} beats{manualCount > 0 && `, ${manualCount} cut${manualCount === 1 ? '' : 's'}`})
+          {edited && <span className="text-[#f5a623] font-medium ml-1.5">· edited</span>}
         </span>
       </div>
       <canvas
@@ -1157,8 +1229,19 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef, d
         onClick={handleCanvasClick}
         style={{ width: '100%', height: 56, cursor: onBeatsChange ? 'crosshair' : 'default' }}
         className="border border-[#e5e5e5] rounded"
-        title="Click to add a beat at that position. Click on an existing beat marker to remove it."
+        title="Click to toggle a beat. Shift+click to drop a manual cut marker."
       />
+      {manualCount > 0 && (
+        <div className="text-[9px] text-[#8a4b00] bg-[#fff7e6] border border-[#f5a623]/40 rounded px-2 py-0.5 flex items-center gap-2">
+          <span>{manualCount} manual cut{manualCount === 1 ? '' : 's'} active — algorithm auto-snap is overridden.</span>
+          <button
+            type="button"
+            onClick={clearAllManual}
+            className="ml-auto text-[9px] py-0.5 px-1.5 border border-[#f5a623] text-[#8a4b00] bg-white rounded cursor-pointer"
+            title="Remove all manual cuts and fall back to the algorithm's auto-snap."
+          >Clear all</button>
+        </div>
+      )}
     </div>
   )
 }
