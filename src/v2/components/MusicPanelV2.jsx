@@ -494,6 +494,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           <LoopToBeatsToggle
             loopToBeats={!!music?.loop_to_beats}
             pacing={Number(music?.pacing) || 1}
+            manualCutCount={Array.isArray(beatMap?.manual_cuts) ? beatMap.manual_cuts.length : 0}
             onChange={handleLoopToBeatsChange}
           />
           <VoMixModeSelector
@@ -537,8 +538,12 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           )}
           {snapPreview?.loop_mode && snapPreview?.duplicates_needed > 0 && (
             <div className="text-[10px] text-[#8a4b00] bg-[#fff7e6] border border-[#f5a623]/40 rounded px-2 py-1">
-              <b>🔁 Loop mode:</b> {snapPreview.window_count} cut window{snapPreview.window_count === 1 ? '' : 's'} across {snapPreview.clip_count} source clip{snapPreview.clip_count === 1 ? '' : 's'} —
-              {' '}<b>{snapPreview.duplicates_needed} duplicate row{snapPreview.duplicates_needed === 1 ? '' : 's'}</b> will be created on Apply (sharing each source's upload, marked is_loop_duplicate so a re-Apply rebuilds cleanly).
+              <b>🔁 Loop mode</b> (
+              {snapPreview.used_manual_cuts
+                ? <>from <b>manual cuts</b></>
+                : <>from <b>beat-driven loop</b> ({snapPreview.pacing === 1 ? 'every beat' : snapPreview.pacing === 2 ? 'every 2 beats' : snapPreview.pacing === 4 ? 'every 4 beats' : `every ${snapPreview.pacing} beats`})</>}
+              ): {snapPreview.window_count} cut window{snapPreview.window_count === 1 ? '' : 's'} across {snapPreview.clip_count} source clip{snapPreview.clip_count === 1 ? '' : 's'} —
+              {' '}<b>{snapPreview.duplicates_needed} duplicate row{snapPreview.duplicates_needed === 1 ? '' : 's'}</b> will be created on Apply (sharing each source's upload; marked is_loop_duplicate so a re-Apply rebuilds cleanly).
             </div>
           )}
           {snapPreview?.plan?.length > 0 && (
@@ -851,13 +856,20 @@ function PacingSelector({ pacing, onChange }) {
 // through to fill all the windows. Combined with the pacing
 // selector this gives "fast cuts on every beat" without the
 // operator having to drop manual markers.
-function LoopToBeatsToggle({ loopToBeats, pacing, onChange }) {
+//
+// Precedence: manual cuts (shift+click) always take priority over
+// this toggle. Both modes share the same loop-duplicate machinery;
+// the difference is just WHERE the cuts come from. When manual
+// cuts exist, this toggle is shown but flagged as overridden so
+// the operator isn't confused.
+function LoopToBeatsToggle({ loopToBeats, pacing, manualCutCount, onChange }) {
   const label = pacing === 1 ? 'every beat'
               : pacing === 2 ? 'every 2 beats'
               : pacing === 4 ? 'every 4 beats'
               : `every ${pacing} beats`
+  const overridden = manualCutCount > 0
   return (
-    <label className="flex items-start gap-1.5 text-[10px] cursor-pointer">
+    <label className={`flex items-start gap-1.5 text-[10px] cursor-pointer ${overridden ? 'opacity-60' : ''}`}>
       <input
         type="checkbox"
         checked={!!loopToBeats}
@@ -866,9 +878,16 @@ function LoopToBeatsToggle({ loopToBeats, pacing, onChange }) {
       />
       <span className="text-[#6C5CE7]">
         🔁 <b>Loop clips on every beat</b> — auto-snap cuts at <b>{label}</b>, clips cycle to fill all windows.
-        <span className="text-[9px] opacity-75 block">
-          With this off, the algorithm produces one cut per clip (default). With it on, more cuts than clips means clip rows get duplicated on Apply.
-        </span>
+        {overridden && (
+          <span className="text-[9px] text-[#8a4b00] block">
+            ⚠ Currently overridden by {manualCutCount} manual cut{manualCutCount === 1 ? '' : 's'}. Clear manual cuts to re-enable this mode.
+          </span>
+        )}
+        {!overridden && (
+          <span className="text-[9px] opacity-75 block">
+            With this off, the algorithm produces one cut per clip (default snap). With it on, more cuts than clips → clips duplicate on Apply. Manual cuts via shift+click always override this.
+          </span>
+        )}
       </span>
     </label>
   )
