@@ -194,6 +194,12 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
         video_zoom: Number(file._videoZoom) > 0 ? Number(file._videoZoom) : 1.0,
         video_offset_x: Number.isFinite(Number(file._videoOffsetX)) ? Number(file._videoOffsetX) : 0,
         video_offset_y: Number.isFinite(Number(file._videoOffsetY)) ? Number(file._videoOffsetY) : 0,
+        // Ken Burns motion type — defaults to 'static' (legacy
+        // behavior). Goes through the same save call as zoom +
+        // offsets so all three crop-affecting knobs persist
+        // atomically rather than racing each other.
+        video_motion: typeof file._videoMotion === 'string' && file._videoMotion
+          ? file._videoMotion : 'static',
       })
     } catch (e) {
       console.error('[useJobSync] save video zoom failed:', e.message)
@@ -436,6 +442,12 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _videoZoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
             _videoOffsetX: Number.isFinite(Number(f.video_offset_x)) ? Number(f.video_offset_x) : 0,
             _videoOffsetY: Number.isFinite(Number(f.video_offset_y)) ? Number(f.video_offset_y) : 0,
+            // Ken Burns motion ('static' / 'zoom-in' / 'pan-lr' / etc.)
+            // Hydrated alongside zoom + offsets so a reload preserves the
+            // operator's motion choice. Falls back to 'static' (no
+            // animation) when BE didn't send the field (pre-migration
+            // backfill case).
+            _videoMotion: typeof f.video_motion === 'string' && f.video_motion ? f.video_motion : 'static',
             _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
             // Per-clip skip toggle. When true, VideoMerge filters this
             // clip out before posting to /merge-videos so it stays in

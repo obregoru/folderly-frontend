@@ -330,6 +330,7 @@ export default function AppV2() {
         _videoZoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
         _videoOffsetX: Number.isFinite(Number(f.video_offset_x)) ? Number(f.video_offset_x) : 0,
         _videoOffsetY: Number.isFinite(Number(f.video_offset_y)) ? Number(f.video_offset_y) : 0,
+        _videoMotion: typeof f.video_motion === 'string' && f.video_motion ? f.video_motion : 'static',
         _trimThumbs: Array.isArray(f.trim_thumbs) ? f.trim_thumbs : null,
         _restored: true,
         _tenantSlug: api.tenantSlug(),

@@ -532,6 +532,15 @@ function VideoZoomBar({ item }) {
     const v = Number(item._videoOffsetY)
     return Number.isFinite(v) ? v : 0
   })
+  // Ken Burns motion. 'static' = legacy no-animation behavior.
+  // Other values mirror the photo motion set (zoom-in / zoom-out /
+  // pan-lr / pan-rl / combined). The BE animates the crop window
+  // over the clip duration when this is set to anything but 'static'.
+  const [motion, setMotion] = useState(() => {
+    return typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static'
+  })
+  const isPan = motion.includes('pan-lr') || motion.includes('pan-rl')
+  const isAnimated = motion !== 'static'
 
   // Re-pull from item if external (merge panel) state changes.
   useEffect(() => {
@@ -541,8 +550,10 @@ function VideoZoomBar({ item }) {
     if (Math.abs(x - offX) > 0.5) setOffX(x)
     const y = Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0
     if (Math.abs(y - offY) > 0.5) setOffY(y)
+    const m = typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static'
+    if (m !== motion) setMotion(m)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item._videoZoom, item._videoOffsetX, item._videoOffsetY])
+  }, [item._videoZoom, item._videoOffsetX, item._videoOffsetY, item._videoMotion])
 
   const dispatch = () => {
     try { window.dispatchEvent(new CustomEvent('posty-video-zoom-change', { detail: { itemId: item.id } })) } catch {}
@@ -566,6 +577,20 @@ function VideoZoomBar({ item }) {
     dispatch()
   }
 
+  const commitMotion = (next) => {
+    const m = String(next || 'static')
+    setMotion(m)
+    item._videoMotion = m
+    // Pan motions need spare canvas width to be visible. If the
+    // user picks a pan with zoom still at 1×, nudge zoom to 1.25
+    // so they see something — matches the BE's internal floor.
+    if ((m.includes('pan-lr') || m.includes('pan-rl')) && Number(item._videoZoom) <= 1.001) {
+      setZoom(1.25)
+      item._videoZoom = 1.25
+    }
+    dispatch()
+  }
+
   // 9-point anchor grid. Each cell maps to specific (offsetX, offsetY)
   // values. The current selection is the cell whose offsets match
   // exactly; anything else (sliders nudged off a preset) shows no
@@ -580,8 +605,8 @@ function VideoZoomBar({ item }) {
   return (
     <div className="mt-1 space-y-1">
       <label
-        className={`flex items-center gap-2 text-[10px] px-2 py-1 rounded border ${
-          zoom !== 1
+        className={`flex items-center gap-2 text-[10px] px-2 py-1 rounded border flex-wrap ${
+          zoom !== 1 || isAnimated
             ? 'bg-[#f3f0ff] border-[#6C5CE7]/40 text-[#6C5CE7]'
             : 'bg-white border-border text-muted'
         }`}
@@ -602,12 +627,34 @@ function VideoZoomBar({ item }) {
           <option value="3">3×</option>
           <option value="5">5×</option>
         </select>
+        <span className="font-medium ml-1">Motion</span>
+        <select
+          value={motion}
+          onChange={e => commitMotion(e.target.value)}
+          className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+          title="Ken Burns motion. Pan options need at least 1.25× zoom (auto-set when picked). Animates over the clip duration."
+        >
+          <option value="static">Static</option>
+          <option value="zoom-in">Zoom in</option>
+          <option value="zoom-out">Zoom out</option>
+          <option value="pan-lr">Pan L→R</option>
+          <option value="pan-rl">Pan R→L</option>
+          <option value="pan-lr-zoom-in">Pan L→R + Zoom in</option>
+          <option value="pan-lr-zoom-out">Pan L→R + Zoom out</option>
+          <option value="pan-rl-zoom-in">Pan R→L + Zoom in</option>
+          <option value="pan-rl-zoom-out">Pan R→L + Zoom out</option>
+        </select>
         {zoom !== 1 && (offX !== 0 || offY !== 0) && (
           <span className="text-[9px] text-muted">offset {offX > 0 ? `+${offX}` : offX}/{offY > 0 ? `+${offY}` : offY}</span>
         )}
       </label>
-      {zoom !== 1 && (
+      {(zoom !== 1 || isAnimated) && (
         <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5 space-y-1.5 text-[10px]">
+          {isPan && (
+            <div className="text-[9px] text-muted italic">
+              Pan motion controls the trajectory start/end automatically — the anchor + offsets below nudge it by ±50%.
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-muted whitespace-nowrap">Anchor:</span>
             <div className="grid grid-cols-3 gap-0.5" style={{ width: 60 }}>
