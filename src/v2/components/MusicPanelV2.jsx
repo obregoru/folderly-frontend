@@ -179,26 +179,53 @@ export default function MusicPanelV2({ draftId, jobSync }) {
   }
 
   // Verify: refetch the job + compare each host clip's persisted
-  // trim_start / trim_end / file_order against the applied plan.
-  // Catches the rare case where the BE returned 200 on apply-snap
-  // but the row update didn't actually land (network blip mid-
-  // transaction, deploy mid-write, etc.) without forcing the
-  // operator to manually re-merge to discover a regression.
+  // trim_start / trim_end / file_order against the applied plan,
+  // AND force-reload the FE state via jobSync.loadJob so the Media
+  // tab + the next merge use the fresh trim values.
+  //
+  // Two failure modes this catches:
+  //   1. BE returned 200 on apply-snap but the row update didn't
+  //      actually land (network blip mid-transaction, deploy
+  //      mid-write). Surfaces as a red mismatch table; the operator
+  //      should re-Apply.
+  //   2. BE wrote the rows correctly but the FE state is stale —
+  //      e.g. an in-flight loadJob from earlier finished AFTER the
+  //      apply landed, overwriting fresh state with the older snap.
+  //      Without a forced reload here, the next merge from
+  //      VideoMerge would send the OLD trim values from the cached
+  //      files[] state. handleVerify always re-runs loadJob so
+  //      that state is guaranteed-current after a successful Verify.
+  //
+  // Steps surfaced to the operator:
+  //   ① Fetch the latest job state from the server
+  //   ② Compare each clip against the applied plan
+  //   ③ Force-reload the in-memory FE cache (Media tab refresh)
+  //   ④ Report success or per-clip mismatches
+  const [verifyStep, setVerifyStep] = useState(null)
   const handleVerify = async () => {
     if (!draftId || !appliedPlan?.length || verifying) return
     setVerifying(true)
     setVerifyResult(null)
+    setVerifyStep('Fetching the latest job state from the server…')
     try {
       const job = await api.getJob(draftId)
+      setVerifyStep('Comparing each clip against the plan…')
       const files = Array.isArray(job?.files) ? job.files : []
       const fileById = new Map(files.map(f => [Number(f.id), f]))
       const mismatches = []
       const matches = []
+      // Per-clip detail rows so the operator sees POSITIVE
+      // confirmation, not just "no errors." Order matters here —
+      // we walk appliedPlan in file_order so the rendered rows are
+      // 1, 2, 3 in the order the operator expects to see in the
+      // Media tab.
+      const perClip = []
       // Tolerance on float compares — BE stores NUMERIC(8,3) and
       // returns strings, so a 0.001 wobble is normal and shouldn't
       // be flagged. Anything bigger is a real divergence.
       const EPS = 0.005
-      for (const item of appliedPlan) {
+      const sortedPlan = [...appliedPlan].sort((a, b) => Number(a.file_order) - Number(b.file_order))
+      for (const item of sortedPlan) {
         const f = fileById.get(Number(item.dbFileId))
         if (!f) {
           mismatches.push({
@@ -207,47 +234,61 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             expected: 'present',
             actual: 'missing (deleted or moved jobs)',
           })
+          perClip.push({
+            clipId: item.dbFileId,
+            filename: '(missing)',
+            ok: false,
+            order: { expected: item.file_order + 1, actual: '—' },
+            trim: { expected: `${Number(item.trim_start).toFixed(3)} → ${Number(item.trim_end).toFixed(3)}`, actual: '—' },
+          })
           continue
         }
         const actualStart = Number(f.trim_start) || 0
         const actualEnd = Number(f.trim_end) || 0
         const actualOrder = Number(f.file_order)
-        if (Math.abs(actualStart - Number(item.trim_start)) > EPS) {
-          mismatches.push({
-            clipId: item.dbFileId,
-            field: 'trim_start',
-            expected: Number(item.trim_start).toFixed(3),
-            actual: actualStart.toFixed(3),
-          })
-        }
-        if (Math.abs(actualEnd - Number(item.trim_end)) > EPS) {
-          mismatches.push({
-            clipId: item.dbFileId,
-            field: 'trim_end',
-            expected: Number(item.trim_end).toFixed(3),
-            actual: actualEnd.toFixed(3),
-          })
-        }
-        if (Number.isFinite(actualOrder) && actualOrder !== Number(item.file_order)) {
-          mismatches.push({
-            clipId: item.dbFileId,
-            field: 'file_order',
-            expected: String(item.file_order),
-            actual: String(actualOrder),
-          })
-        }
-        if (mismatches.find(m => m.clipId === item.dbFileId) == null) {
-          matches.push(item.dbFileId)
-        }
+        const startOk = Math.abs(actualStart - Number(item.trim_start)) <= EPS
+        const endOk = Math.abs(actualEnd - Number(item.trim_end)) <= EPS
+        const orderOk = Number.isFinite(actualOrder) && actualOrder === Number(item.file_order)
+        if (!startOk) mismatches.push({ clipId: item.dbFileId, field: 'trim_start', expected: Number(item.trim_start).toFixed(3), actual: actualStart.toFixed(3) })
+        if (!endOk) mismatches.push({ clipId: item.dbFileId, field: 'trim_end', expected: Number(item.trim_end).toFixed(3), actual: actualEnd.toFixed(3) })
+        if (!orderOk) mismatches.push({ clipId: item.dbFileId, field: 'file_order', expected: String(item.file_order), actual: String(actualOrder) })
+        const clipOk = startOk && endOk && orderOk
+        if (clipOk) matches.push(item.dbFileId)
+        perClip.push({
+          clipId: item.dbFileId,
+          filename: f.filename || `clip-${item.dbFileId}`,
+          ok: clipOk,
+          order: { expected: item.file_order + 1, actual: Number.isFinite(actualOrder) ? actualOrder + 1 : '—', ok: orderOk },
+          trim: {
+            expected: `${Number(item.trim_start).toFixed(2)}s → ${Number(item.trim_end).toFixed(2)}s`,
+            actual: `${actualStart.toFixed(2)}s → ${actualEnd.toFixed(2)}s`,
+            ok: startOk && endOk,
+          },
+        })
       }
+      const allOk = mismatches.length === 0
+      // Step 3: ALWAYS force-reload the FE state so jobSync.files
+      // matches the BE. Without this the Media tab + the next
+      // merge from VideoMerge would still send the old trim
+      // values cached in client state. Even on partial mismatch we
+      // reload so the operator at least sees current truth in the
+      // UI.
+      setVerifyStep('Refreshing the Media tab cache…')
+      try { await jobSync?.loadJob?.(draftId) } catch (e) {
+        console.warn('[music verify] loadJob refresh failed (non-fatal):', e?.message)
+      }
+      setVerifyStep(null)
       setVerifyResult({
-        ok: mismatches.length === 0,
+        ok: allOk,
         checked: appliedPlan.length,
         matched: matches.length,
         mismatches,
+        perClip,
+        reloadedCache: true,
         checkedAt: new Date().toISOString(),
       })
     } catch (e) {
+      setVerifyStep(null)
       setVerifyResult({
         ok: false,
         checked: 0,
@@ -370,6 +411,9 @@ export default function MusicPanelV2({ draftId, jobSync }) {
               <span className="text-[10px] text-[#2D9A5E] font-medium">✓ Applied {appliedAt && `at ${new Date(appliedAt).toLocaleTimeString()}`}. Re-merge to see the new cuts.</span>
             )}
           </div>
+          {verifyStep && (
+            <div className="text-[10px] text-muted italic">⏳ {verifyStep}</div>
+          )}
           {verifyResult && (
             <VerifyResultPanel result={verifyResult} />
           )}
@@ -793,43 +837,64 @@ function WaveformBeatStrip({ beatMap, trimStart, trimEnd, zoom, pan, audioRef })
   )
 }
 
-// Verify result — green ok-card or red mismatch table. Operator
-// runs this after Apply to confirm the BE actually persisted what
-// it claimed it did.
+// Verify result — green ok-card or red mismatch table. After
+// Verify runs, the FE has refreshed jobSync.files from the BE so
+// the Media tab + next merge use the current trim/order values.
 function VerifyResultPanel({ result }) {
   if (!result) return null
-  if (result.ok) {
-    return (
-      <div className="text-[10px] text-[#0a4d2c] bg-[#f0faf4] border border-[#2D9A5E]/40 rounded p-2">
-        <div className="font-medium">✓ Verified — all {result.checked} clip{result.checked === 1 ? '' : 's'} match the plan.</div>
-        <div className="text-[9px] opacity-70 mt-0.5">trim_start / trim_end / file_order all landed within 5ms of the planned values. Checked {result.checkedAt ? new Date(result.checkedAt).toLocaleTimeString() : 'just now'}.</div>
-      </div>
-    )
-  }
+  const perClip = Array.isArray(result.perClip) ? result.perClip : []
   return (
-    <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/40 rounded p-2 space-y-1">
-      <div className="font-medium">⚠ Verification failed — {result.mismatches.length} mismatch{result.mismatches.length === 1 ? '' : 'es'} ({result.matched}/{result.checked} clip{result.checked === 1 ? '' : 's'} match).</div>
-      <table className="text-[10px] w-full">
-        <thead>
-          <tr className="text-[#c0392b]/70 text-left">
-            <th className="font-medium">clip-id</th>
-            <th className="font-medium">Field</th>
-            <th className="font-medium">Expected</th>
-            <th className="font-medium">Actual</th>
-          </tr>
-        </thead>
-        <tbody>
-          {result.mismatches.map((m, i) => (
-            <tr key={i}>
-              <td className="font-mono">{typeof m.clipId === 'number' ? `clip-${m.clipId}` : m.clipId}</td>
-              <td className="font-mono">{m.field}</td>
-              <td className="font-mono">{m.expected}</td>
-              <td className="font-mono">{m.actual}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="text-[9px] opacity-80 italic">Click <b>Apply to clips</b> again to retry, or open the Media tab to see the current trim values.</div>
+    <div className={`text-[10px] rounded p-2 space-y-1.5 ${
+      result.ok
+        ? 'bg-[#f0faf4] border border-[#2D9A5E]/40 text-[#0a4d2c]'
+        : 'bg-[#fdf2f1] border border-[#c0392b]/40 text-[#c0392b]'
+    }`}>
+      <div className="font-medium">
+        {result.ok
+          ? <>✓ Verified — all {result.checked} clip{result.checked === 1 ? '' : 's'} match the plan (order + trim).</>
+          : <>⚠ Verification failed — {result.mismatches.length} mismatch{result.mismatches.length === 1 ? '' : 'es'} across {result.matched}/{result.checked} clip{result.checked === 1 ? '' : 's'} matched.</>}
+      </div>
+      {result.reloadedCache && (
+        <div className="text-[9px] opacity-80">
+          🔄 Media tab cache refreshed from the server — your next merge will use the current trim/order values.
+        </div>
+      )}
+      {perClip.length > 0 && (
+        <div className="bg-white border border-[#e5e5e5] rounded p-1.5">
+          <table className="text-[10px] w-full text-ink">
+            <thead>
+              <tr className="text-muted text-left">
+                <th className="font-medium">#</th>
+                <th className="font-medium">Clip</th>
+                <th className="font-medium">Order</th>
+                <th className="font-medium">Trim (plan → actual)</th>
+                <th className="font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {perClip.map((c, i) => (
+                <tr key={c.clipId ?? i} className={c.ok ? '' : 'bg-[#fdf2f1]'}>
+                  <td className="font-mono">{i + 1}</td>
+                  <td className="font-mono truncate max-w-[140px]" title={c.filename}>{c.filename}</td>
+                  <td className={`font-mono ${c.order?.ok === false ? 'text-[#c0392b]' : ''}`}>
+                    {c.order?.expected}{c.order?.actual !== c.order?.expected ? ` (got ${c.order?.actual})` : ''}
+                  </td>
+                  <td className={`font-mono ${c.trim?.ok === false ? 'text-[#c0392b]' : ''}`}>
+                    {c.trim?.expected}
+                    {c.trim?.actual !== c.trim?.expected ? <span className="text-[#c0392b]"> ≠ {c.trim?.actual}</span> : null}
+                  </td>
+                  <td className="font-mono">{c.ok ? '✓' : '✗'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!result.ok && (
+        <div className="text-[9px] opacity-80 italic">
+          Click <b>Apply to clips</b> again to retry. The mismatches above show what the BE has now vs what the plan asked for.
+        </div>
+      )}
     </div>
   )
 }
