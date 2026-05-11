@@ -1201,6 +1201,22 @@ export const setJobMusicTrim = (jobUuid, { trim_start, trim_end }) =>
     return r.json()
   })
 
+// Download audio from a TikTok / Instagram / YouTube URL via
+// yt-dlp on the BE. Same shape as direct upload — analyze runs,
+// beat_map persists, music_track_key updates. The rights checkbox
+// is a hard requirement (BE rejects without it).
+export const uploadJobMusicFromUrl = (jobUuid, { url, owns_rights_confirmed }) =>
+  fetch(api(`/jobs/${jobUuid}/music/url`), {
+    method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ url, owns_rights_confirmed }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `URL import failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Replace the persisted beat array. The snap algorithm reads
 // music_beat_map.beats so editing here immediately changes what
 // the next Preview / Apply will use. /music/reanalyze restores

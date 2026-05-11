@@ -103,6 +103,30 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  // URL import — yt-dlp on the BE pulls audio from a TikTok /
+  // YouTube / IG URL. Requires the operator to check the rights
+  // confirmation. We surface errors verbatim from the BE so the
+  // operator sees yt-dlp's actual failure reason (unsupported
+  // host, geo-blocked, etc) instead of a generic "failed."
+  const handleUrlImport = async (url, ownsRights) => {
+    if (!draftId || !url) return
+    setErr(null)
+    setSnapPreview(null)
+    setUploading(true)
+    try {
+      await api.uploadJobMusicFromUrl(draftId, {
+        url,
+        owns_rights_confirmed: !!ownsRights,
+      })
+      const fresh = await api.getJobMusic(draftId)
+      setMusic(fresh?.music || null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const handleDelete = async () => {
     if (!draftId) return
     if (!confirm('Remove this music track? Existing clip trims stay as-is — the next merge will use the clip audios again.')) return
@@ -368,7 +392,10 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       </div>
 
       {!music && (
-        <UploadDropzone uploading={uploading} onUpload={handleUpload} />
+        <>
+          <UploadDropzone uploading={uploading} onUpload={handleUpload} />
+          <UrlImportRow uploading={uploading} onImport={handleUrlImport} />
+        </>
       )}
 
       {music && (
@@ -510,6 +537,61 @@ function UploadDropzone({ uploading, onUpload }) {
         disabled={uploading}
         className="mt-2 text-[11px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
       >{uploading ? 'Uploading + analyzing…' : 'Choose audio file'}</button>
+    </div>
+  )
+}
+
+// URL import row. The operator pastes a TikTok / Instagram /
+// YouTube link, ticks the rights checkbox, hits Import. BE runs
+// yt-dlp to extract audio, then the same analyze+persist flow
+// the direct upload uses.
+//
+// The rights checkbox is REQUIRED — both the button is disabled
+// without it AND the BE rejects un-confirmed requests with 400.
+// Belt-and-suspenders so a runaway script can't accidentally
+// pull copyrighted audio at scale.
+function UrlImportRow({ uploading, onImport }) {
+  const [url, setUrl] = useState('')
+  const [ownsRights, setOwnsRights] = useState(false)
+  const trimmedUrl = url.trim()
+  const canImport = !uploading && trimmedUrl.length > 0 && ownsRights
+  return (
+    <div className="border border-[#e5e5e5] rounded-lg p-2 space-y-1.5 bg-white">
+      <div className="text-[11px] font-medium text-ink">Or paste a URL</div>
+      <div className="text-[10px] text-muted">
+        Pulls audio from TikTok, Instagram, or YouTube. Spotify excluded (license required).
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="url"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && canImport) onImport(trimmedUrl, ownsRights) }}
+          disabled={uploading}
+          placeholder="https://www.tiktok.com/@... / youtube.com/watch?v=... / instagram.com/reel/..."
+          className="flex-1 text-[11px] border border-[#e5e5e5] rounded px-2 py-1 bg-white disabled:opacity-50"
+        />
+        <button
+          type="button"
+          onClick={() => onImport(trimmedUrl, ownsRights)}
+          disabled={!canImport}
+          className="text-[10px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap"
+        >{uploading ? 'Importing…' : 'Import'}</button>
+      </div>
+      <label className="flex items-start gap-1.5 text-[10px] cursor-pointer">
+        <input
+          type="checkbox"
+          checked={ownsRights}
+          onChange={e => setOwnsRights(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span className="text-ink">
+          I confirm I own the rights to this audio (or have permission to use it).
+          <span className="text-muted block text-[9px] italic">
+            Required. The BE rejects un-checked imports. You're responsible for ensuring your videos comply with the source platform's terms.
+          </span>
+        </span>
+      </label>
     </div>
   )
 }
