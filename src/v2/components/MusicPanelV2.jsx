@@ -141,6 +141,18 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  const handlePacingChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicPacing(draftId, next)
+      setMusic(prev => prev ? { ...prev, pacing: r.music_pacing } : prev)
+      setSnapPreview(null) // pacing change invalidates the cached preview
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   const handlePreviewSnap = async () => {
     if (!draftId || previewing) return
     setPreviewing(true)
@@ -383,6 +395,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           <div className="text-[9px] text-[#6C5CE7]/80">
             Computes new trim_start / trim_end / file_order on every video clip so cuts align to beats {hasTrim && <>within the trim window <b>{effectiveTrimStart.toFixed(2)}s–{effectiveTrimEnd.toFixed(2)}s</b></>}. Preview first to see the plan.
           </div>
+          <PacingSelector pacing={Number(music?.pacing) || 1} onChange={handlePacingChange} />
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
@@ -629,6 +642,44 @@ function TrimControls({ fullDuration, trimStart, trimEnd, hasTrim, onChange }) {
 // Zoom + pan controls. The viewport spans 1/zoom of the trimmed
 // window and slides by `pan` (0..1). At zoom=1 the full trimmed
 // window is visible and pan is moot.
+// Pacing selector — 3 buttons. Changes which beats are
+// candidates for the snap algorithm:
+//   1 → every beat (densest, "fast cuts")
+//   2 → every other beat (moderate)
+//   4 → every 4th beat (downbeat-ish, "slow cuts")
+// Selecting a new pacing immediately PATCHes the job and clears
+// any stale snap preview so the operator sees a fresh plan on the
+// next Preview click.
+function PacingSelector({ pacing, onChange }) {
+  const OPTIONS = [
+    { value: 1, label: 'Fast', subtitle: 'every beat' },
+    { value: 2, label: 'Medium', subtitle: 'every 2 beats' },
+    { value: 4, label: 'Slow', subtitle: 'every 4 beats' },
+  ]
+  const current = OPTIONS.some(o => o.value === pacing) ? pacing : 1
+  return (
+    <div className="flex items-center gap-1.5 text-[10px]">
+      <span className="text-[#6C5CE7]/80">Pacing</span>
+      {OPTIONS.map(o => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={`py-0.5 px-2 rounded border ${
+            current === o.value
+              ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+              : 'bg-white text-[#6C5CE7] border-[#6C5CE7]/40'
+          }`}
+          title={o.subtitle + ' — ' + (o.value === 1 ? 'densest cuts (fastest)' : o.value === 4 ? 'spaced cuts (slowest)' : 'moderate density')}
+        >
+          <span className="font-medium">{o.label}</span>
+          <span className="text-[8px] opacity-75 ml-1">({o.subtitle})</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function ZoomBar({ zoom, pan, setZoom, setPan }) {
   const LEVELS = [1, 2, 4, 8]
   const visibleFraction = 1 / zoom
