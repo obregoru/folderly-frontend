@@ -1249,6 +1249,22 @@ export const setJobMusicBeats = (jobUuid, beats) =>
     return r.json()
   })
 
+// Toggle beat-driven loop mode. When ON, the snap algorithm uses
+// EVERY pacing-strided beat as a cut and the operator's clips
+// cycle through the windows on Apply. Default OFF (auto-snap
+// produces clip-count cuts).
+export const setJobMusicLoopToBeats = (jobUuid, loopToBeats) =>
+  fetch(api(`/jobs/${jobUuid}/music/loop-to-beats`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ loop_to_beats: !!loopToBeats }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicLoopToBeats failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Pacing controls how spread out the snapped cuts are on the
 // music. 1 = every detected beat is a snap candidate (densest
 // cuts), 2 = every other beat (moderate), 4 = every 4th beat
