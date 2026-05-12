@@ -764,6 +764,25 @@ export const renderSegmentPreview = ({ jobUuid, segmentId, videoUrl, audioUrl, t
 // caption timeline → primary+timed voiceovers. Server reads all the pieces
 // off the job record. Optional `primaryAudioBase64` lets the client pass
 // an in-memory primary voice that hasn't been persisted yet.
+// Produces a no-audio variant of the cached final by stream-copying
+// the video track. Sub-second on the server side since there's no
+// re-encode. Requires a prior /post/render-final call to have
+// populated the job's final_media_keys.
+export const stripFinalAudio = ({ jobUuid } = {}) =>
+  fetch(api('/post/strip-final-audio'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ job_id: jobUuid }),
+  }).then(async r => {
+    if (!r.ok) {
+      let msg = `Strip audio failed (${r.status})`
+      try { const j = await r.json(); if (j?.error) msg = j.error } catch {}
+      throw new Error(msg)
+    }
+    return r.json()
+  })
+
 export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime, preview, previewSeconds } = {}) =>
   fetch(api('/post/render-final'), {
     method: 'POST',
