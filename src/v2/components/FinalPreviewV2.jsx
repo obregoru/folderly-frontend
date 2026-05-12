@@ -1207,12 +1207,21 @@ export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false
         : (r?.final_url ? [r.final_url] : [])
       if (urls.length === 0) throw new Error('Server returned no final URL')
 
-      // Video-only path: after the standard final is cached on the
-      // server, run a quick stream-copy strip-audio pass and replace
-      // the URLs with the no-audio variant. Sub-second on the server
-      // (no re-encode), so latency is barely above the cache hit.
+      // Video-only path: after the standard final is rendered, run a
+      // quick stream-copy strip-audio pass and replace the URLs with
+      // the no-audio variant. Sub-second on the server (no re-encode),
+      // so latency is barely above the cache hit.
+      //
+      // Pass the freshly-rendered keys explicitly. render-final's
+      // cache-write is skipped when primary_audio_base64 is present
+      // (in-session VO path), so the BE's DB-only lookup would 409.
+      // The keys flow back here in the response — hand them in
+      // directly so the BE can operate on storage without the DB.
       if (videoOnly) {
-        const stripped = await api.stripFinalAudio({ jobUuid: draftId })
+        const renderedKeys = Array.isArray(r?.final_keys) && r.final_keys.length
+          ? r.final_keys
+          : (r?.final_key ? [r.final_key] : [])
+        const stripped = await api.stripFinalAudio({ jobUuid: draftId, finalKeys: renderedKeys })
         const stripUrls = Array.isArray(stripped?.final_urls) && stripped.final_urls.length
           ? stripped.final_urls
           : (stripped?.final_url ? [stripped.final_url] : [])

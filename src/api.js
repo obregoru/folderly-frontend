@@ -768,12 +768,20 @@ export const renderSegmentPreview = ({ jobUuid, segmentId, videoUrl, audioUrl, t
 // the video track. Sub-second on the server side since there's no
 // re-encode. Requires a prior /post/render-final call to have
 // populated the job's final_media_keys.
-export const stripFinalAudio = ({ jobUuid } = {}) =>
+export const stripFinalAudio = ({ jobUuid, finalKeys } = {}) =>
   fetch(api('/post/strip-final-audio'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ job_id: jobUuid }),
+    body: JSON.stringify({
+      job_id: jobUuid,
+      // Pass the keys from the prior renderFinal response so the BE
+      // doesn't have to read final_media_keys from the job row. The
+      // DB write is skipped when primary_audio_base64 was in the
+      // render request, so reading from the row would 409 even
+      // though the freshly-rendered mp4 is in storage.
+      final_keys: Array.isArray(finalKeys) ? finalKeys : undefined,
+    }),
   }).then(async r => {
     if (!r.ok) {
       let msg = `Strip audio failed (${r.status})`
