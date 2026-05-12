@@ -721,6 +721,28 @@ function TrackCard({ music, trimStart, trimEnd, onDelete, onReanalyze, reanalyzi
             {hasTrim && <><span>·</span><span className="font-mono text-[#6C5CE7]">trim {trimStart.toFixed(1)}s–{trimEnd.toFixed(1)}s</span></>}
             {Array.isArray(bm?.beats) && <><span>·</span><span className="font-mono">{bm.beats.length} beats</span></>}
           </div>
+          {/* Source URL pill — present only when the track was pulled
+              via POST /music/url (TikTok / YouTube / Instagram). Direct
+              uploads have no source URL so the row collapses to just
+              the filename + stats above. */}
+          {music.source_url && (
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className="text-[9px] text-muted">Source:</span>
+              <a
+                href={music.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[9px] text-[#6C5CE7] underline truncate max-w-[280px]"
+                title={music.source_url}
+              >{prettySourceUrl(music.source_url)}</a>
+              <button
+                type="button"
+                onClick={() => { try { navigator.clipboard.writeText(music.source_url) } catch {} }}
+                className="text-[9px] py-0 px-1 border border-[#e5e5e5] text-muted bg-white rounded cursor-pointer"
+                title="Copy source URL to clipboard"
+              >copy</button>
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -1481,6 +1503,21 @@ function VerifyResultPanel({ result }) {
 // Over a minute → "1:23.41" so longer music tracks stay readable
 // without mental math. Always returns a single line so it fits
 // inside the table cells.
+// Render a music source URL as a short readable label like
+// "youtube.com · /watch?v=…" so the panel pill fits in one line.
+// Full URL stays in the anchor's href + title.
+function prettySourceUrl(raw) {
+  try {
+    const u = new URL(raw)
+    const host = u.host.replace(/^www\./, '')
+    const path = u.pathname + (u.search || '')
+    const trimmed = path.length > 36 ? path.slice(0, 33) + '…' : path
+    return `${host}${trimmed}`
+  } catch {
+    return raw.slice(0, 60)
+  }
+}
+
 function formatTime(sec) {
   const n = Number(sec)
   if (!Number.isFinite(n) || n < 0) return '—'
