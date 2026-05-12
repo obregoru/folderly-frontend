@@ -164,6 +164,7 @@ export default function EditorV2({
             }
           </div>
           <DownloadFinalButton draftId={draftId} jobSync={jobSync} files={files} />
+          <DownloadFinalButton draftId={draftId} jobSync={jobSync} files={files} videoOnly />
           <div className="flex items-center gap-1.5 flex-wrap">
             <SaveAsTenantDefaultButton draftId={draftId} />
             <ApplyTenantDefaultsButton draftId={draftId} jobSync={jobSync} />

@@ -1120,7 +1120,7 @@ export function DownloadButton({ url, label: idleLabel = '⬇ Download' }) {
 //          trigger an <a download> (desktop) *synchronously* inside the
 //          click handler. iOS Safari otherwise rejects the share because
 //          the 4–6s render would expire the original user activation.
-export function DownloadFinalButton({ draftId, jobSync, files }) {
+export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false }) {
   const [state, setState] = useState('idle') // idle | rendering | ready | saving | done | error
   const [msg, setMsg] = useState('')
   // Stores EACH final as a {blob, filename} pair so multi-photo
@@ -1202,10 +1202,23 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
           },
         }))
       } catch {}
-      const urls = Array.isArray(r?.final_urls) && r.final_urls.length
+      let urls = Array.isArray(r?.final_urls) && r.final_urls.length
         ? r.final_urls
         : (r?.final_url ? [r.final_url] : [])
       if (urls.length === 0) throw new Error('Server returned no final URL')
+
+      // Video-only path: after the standard final is cached on the
+      // server, run a quick stream-copy strip-audio pass and replace
+      // the URLs with the no-audio variant. Sub-second on the server
+      // (no re-encode), so latency is barely above the cache hit.
+      if (videoOnly) {
+        const stripped = await api.stripFinalAudio({ jobUuid: draftId })
+        const stripUrls = Array.isArray(stripped?.final_urls) && stripped.final_urls.length
+          ? stripped.final_urls
+          : (stripped?.final_url ? [stripped.final_url] : [])
+        if (stripUrls.length === 0) throw new Error('Server returned no video-only URL')
+        urls = stripUrls
+      }
 
       // Fetch each render sequentially so a slow first item doesn't
       // stall the whole thing if it fails mid-way — each success is
@@ -1241,9 +1254,12 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
           : 'mp4'
         // Zero-pad the index when multi-item so a file manager sorts
         // them in order (job-name-final-01-of-03.jpg before -02-of-03.jpg).
+        // videoOnly appends a "-video-only" tag so the user can tell
+        // the silent variant apart from the audio one in Finder.
+        const base = videoOnly ? 'final-video-only' : 'final'
         const suffix = urls.length > 1
-          ? `final-${String(i + 1).padStart(2, '0')}-of-${String(urls.length).padStart(2, '0')}`
-          : 'final'
+          ? `${base}-${String(i + 1).padStart(2, '0')}-of-${String(urls.length).padStart(2, '0')}`
+          : base
         collected.push({ blob, filename: buildDownloadName(fileForName, suffix, ext, descriptionForName) })
       }
       filesRef.current = collected
@@ -1360,14 +1376,16 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
     : extBusy.voCount > 0
       ? '⏳ Generating voice…'
       : null
+  const idleLabel = videoOnly ? '⬇ Download final (video only)' : '⬇ Download final'
+  const renderingLabel = videoOnly ? 'Rendering video-only…' : 'Rendering final…'
   const label = externallyBusyLabel
     ? externallyBusyLabel
-    : state === 'rendering' ? 'Rendering final…'
+    : state === 'rendering' ? renderingLabel
     : state === 'saving' ? (canMobileShare ? 'Opening share sheet…' : 'Saving…')
     : state === 'ready' ? (canMobileShare ? `📤 Tap again to share${countLabel}` : `⬇ Tap again to save${countLabel}`)
     : state === 'done' ? '✓ Saved'
     : state === 'error' ? (msg ? `Error: ${msg.slice(0, 80)} — tap to retry` : 'Error — tap to retry')
-    : '⬇ Download final'
+    : idleLabel
   const disabled = state === 'rendering' || state === 'saving' || extBusy.merge || extBusy.voCount > 0
   // Show the regenerate button once the user has a rendered final on
   // hand (state 'ready' = rendered but not yet saved; 'done' = saved).
@@ -1378,10 +1396,16 @@ export function DownloadFinalButton({ draftId, jobSync, files }) {
       <button
         onClick={handleClick}
         disabled={disabled}
-        className="w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
+        className={
+          videoOnly
+            ? "w-full py-2 bg-white text-[#2D9A5E] text-[11px] font-medium border border-[#2D9A5E] rounded cursor-pointer disabled:opacity-60"
+            : "w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
+        }
         title={externallyBusyLabel
           ? 'Wait for the upstream task to finish before rendering the final.'
-          : 'Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share.'}
+          : videoOnly
+            ? 'Renders the final with overlays + captions, then strips audio. Useful when you want to add audio separately.'
+            : 'Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share.'}
       >{label}</button>
       {showRegenerate && (
         <button
