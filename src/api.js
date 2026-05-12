@@ -1249,6 +1249,25 @@ export const setJobMusicBeats = (jobUuid, beats) =>
     return r.json()
   })
 
+// Set or clear per-job watermark overlay settings. The watermark
+// IMAGE is tenant-level (uploaded via Settings → tenants.watermark_path);
+// this endpoint just controls when/where/how big it renders on
+// this draft.
+//
+// Pass enabled:false to disable for this draft. BE clamps numeric
+// fields (x_pct/y_pct 0-100, size_pct 5-100, opacity 0.05-1).
+export const setJobWatermark = (jobUuid, settings) =>
+  fetch(api(`/jobs/${jobUuid}/watermark`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify(settings || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobWatermark failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Pick which detected beat array drives the snap algorithm:
 //   'all'         → broadband aubio beats (default)
 //   'bass'        → kick / bass drum onsets (40-200 Hz band)

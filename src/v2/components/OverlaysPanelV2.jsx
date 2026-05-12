@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import RichTextEditor from './RichTextEditor'
 import { runsToFlatText } from './RichRunsEditor'
+import WatermarkSection from './WatermarkSection'
 
 // Lazy-load the font picker chunk so the 52-font catalog isn't pulled
 // on initial panel mount — only when the user actually opens the
@@ -556,6 +557,8 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">
         Preview shown live on the video above. Each slot's Y can override the global slider — leave a slot's Y blank (italic <em>=global</em>) to inherit; type 0–100 to lock that slot to its own vertical position.
       </div>
+
+      <WatermarkSection draftId={draftId} />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import * as api from '../../api'
 import { useLivePreviewAssets } from '../lib/useLivePreviewAssets'
 import { FontSizePreview } from '../../components/fonts/CaptionStyleEditor'
 import First2sOverlay from './First2sOverlay'
+import WatermarkPreviewOverlay from './WatermarkPreviewOverlay'
 import { buildDownloadName } from '../../lib/filename'
 // Lazy-load the overlay so the caption-engine chunk (Remotion-era
 // effect framework + preset registries) only loads for users who
@@ -361,6 +362,7 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
           {activeOverlay && (
             <OverlayText text={activeOverlay.text} runs={activeOverlay.runs} slot={activeOverlay.slot} style={overlays} videoRef={videoRef} />
           )}
+          <WatermarkPreviewOverlay videoRef={videoRef} currentTime={currentTime} />
           {activeCaptionText && !teleprompter && (
             <CaptionText text={activeCaptionText} />
           )}
