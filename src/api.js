@@ -1275,6 +1275,23 @@ export const setJobMusicBeats = (jobUuid, beats) =>
 //
 // Pass enabled:false to disable for this draft. BE clamps numeric
 // fields (x_pct/y_pct 0-100, size_pct 5-100, opacity 0.05-1).
+// Per-job pacing intent — re-weights both the first-2s and
+// full-video analyzers. Pass null to clear the operator's choice
+// (BE falls back to a duration-based auto default).
+//
+// Allowed: 'hook_driven' | 'balanced' | 'slow_burn' | 'educational' | null
+export const setJobPacingIntent = (jobUuid, intent) =>
+  fetch(api(`/jobs/${jobUuid}/pacing-intent`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ pacing_intent: intent }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobPacingIntent failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 export const setJobWatermark = (jobUuid, settings) =>
   fetch(api(`/jobs/${jobUuid}/watermark`), {
     method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',

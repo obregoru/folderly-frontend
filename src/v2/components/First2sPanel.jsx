@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import * as api from '../../api'
+import PacingIntentSelector from './PacingIntentSelector'
 
 const OVERLAY_KEYS = [
   { key: 'safeZones',     label: 'Safe zones',     hint: 'Show TikTok UI dead-zones (where likes/comments cover the frame).' },
@@ -263,6 +264,8 @@ export default function First2sPanel({ draftId, jobSync }) {
       <div className="text-[10px] text-muted">
         Audits the first 2s for TikTok scroll-stop performance. Sends 6 sampled frames + your hook text + brand to Claude vision; returns scored feedback you can act on.
       </div>
+
+      <PacingIntentSelector draftId={draftId} />
 
       <button
         onClick={run}
