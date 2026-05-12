@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react'
 import * as api from '../../api'
+import PacingIntentSelector from './PacingIntentSelector'
 
 const PLATFORMS = [
   // 'footage' is the pre-polish footage review — same analyzer
@@ -309,6 +310,8 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
           </button>
         </div>
       </div>
+
+      <PacingIntentSelector draftId={draftId} />
 
       {/* Source-of-truth nudge — analyzer reads what's in storage,
           doesn't render anything itself. User controls the bake via
