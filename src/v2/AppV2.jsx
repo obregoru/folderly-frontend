@@ -7,6 +7,7 @@ import HistoryV2 from './screens/HistoryV2'
 import EditorV2 from './screens/EditorV2'
 import SettingsDrawerV2 from './components/SettingsDrawerV2'
 import JobAiLogModal from './components/JobAiLogModal'
+import TenantSwitcher from './components/TenantSwitcher'
 
 // Build metadata injected at compile time by Vite (see vite.config.js).
 // Aliased here so JSX can reference simpler names. typeof guard means
@@ -460,6 +461,7 @@ export default function AppV2() {
           className="text-[9px] font-mono text-muted bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-0.5 cursor-pointer flex-shrink-0"
           title={`Frontend build ${BUILD_HASH} (built ${BUILD_DATE} UTC) — click to copy`}
         >v {BUILD_HASH}</button>
+        <TenantSwitcher user={user} />
         <button
           onClick={() => setSettingsOpen(true)}
           className="text-[18px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none flex-shrink-0"
