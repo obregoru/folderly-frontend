@@ -1120,7 +1120,7 @@ export function DownloadButton({ url, label: idleLabel = '⬇ Download' }) {
 //          trigger an <a download> (desktop) *synchronously* inside the
 //          click handler. iOS Safari otherwise rejects the share because
 //          the 4–6s render would expire the original user activation.
-export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false }) {
+export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false, noMusic = false }) {
   const [state, setState] = useState('idle') // idle | rendering | ready | saving | done | error
   const [msg, setMsg] = useState('')
   // Stores EACH final as a {blob, filename} pair so multi-photo
@@ -1178,7 +1178,21 @@ export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false
         }
       } catch { /* server-side primary still works */ }
 
-      const r = await api.renderFinal({ jobUuid: draftId, primaryAudioBase64: primaryBase64 })
+      // noMusic path: re-merge the clips without the music swap so
+      // the final composes on top of clip-audio + voiceover only.
+      // The canonical merge stays untouched (its key isn't updated).
+      // ~30s extra for a 17-clip merge, then the normal render-final
+      // pipeline runs on top of the no-music variant.
+      let noMusicKey = null
+      if (noMusic) {
+        noMusicKey = await api.mergeNoMusic(files, draftId)
+      }
+
+      const r = await api.renderFinal({
+        jobUuid: draftId,
+        primaryAudioBase64: primaryBase64,
+        sourceVideoKey: noMusicKey || undefined,
+      })
       // Tell any audio-mix-log listeners about the response so they
       // can render the BE's actual mix_log (every audio source the
       // server pushed into voSegInputs, in order). This is the
@@ -1263,9 +1277,9 @@ export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false
           : 'mp4'
         // Zero-pad the index when multi-item so a file manager sorts
         // them in order (job-name-final-01-of-03.jpg before -02-of-03.jpg).
-        // videoOnly appends a "-video-only" tag so the user can tell
-        // the silent variant apart from the audio one in Finder.
-        const base = videoOnly ? 'final-video-only' : 'final'
+        // videoOnly appends a "-video-only" tag, noMusic appends
+        // "-no-music" so the user can tell the variants apart in Finder.
+        const base = videoOnly ? 'final-video-only' : (noMusic ? 'final-no-music' : 'final')
         const suffix = urls.length > 1
           ? `${base}-${String(i + 1).padStart(2, '0')}-of-${String(urls.length).padStart(2, '0')}`
           : base
@@ -1385,8 +1399,16 @@ export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false
     : extBusy.voCount > 0
       ? '⏳ Generating voice…'
       : null
-  const idleLabel = videoOnly ? '⬇ Download final (video only)' : '⬇ Download final'
-  const renderingLabel = videoOnly ? 'Rendering video-only…' : 'Rendering final…'
+  const idleLabel = videoOnly
+    ? '⬇ Download final (video only)'
+    : noMusic
+      ? '⬇ Download final (no music)'
+      : '⬇ Download final'
+  const renderingLabel = videoOnly
+    ? 'Rendering video-only…'
+    : noMusic
+      ? 'Re-merging without music…'
+      : 'Rendering final…'
   const label = externallyBusyLabel
     ? externallyBusyLabel
     : state === 'rendering' ? renderingLabel
@@ -1406,7 +1428,7 @@ export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false
         onClick={handleClick}
         disabled={disabled}
         className={
-          videoOnly
+          videoOnly || noMusic
             ? "w-full py-2 bg-white text-[#2D9A5E] text-[11px] font-medium border border-[#2D9A5E] rounded cursor-pointer disabled:opacity-60"
             : "w-full py-2.5 bg-[#2D9A5E] text-white text-[12px] font-medium border-none rounded cursor-pointer disabled:opacity-60"
         }
@@ -1414,7 +1436,9 @@ export function DownloadFinalButton({ draftId, jobSync, files, videoOnly = false
           ? 'Wait for the upstream task to finish before rendering the final.'
           : videoOnly
             ? 'Renders the final with overlays + captions, then strips audio. Useful when you want to add audio separately.'
-            : 'Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share.'}
+            : noMusic
+              ? 'Re-merges clips WITHOUT the background music swap, then runs the normal final-render on that. Use when you synced to beats but don\'t own rights to publish the track (TikTok / IG will add it server-side). ~30s extra.'
+              : 'Renders overlays + captions + voiceover into the merged video. Takes 4–30s. Tap once to render, again to save or share.'}
       >{label}</button>
       {showRegenerate && (
         <button

@@ -791,7 +791,7 @@ export const stripFinalAudio = ({ jobUuid, finalKeys } = {}) =>
     return r.json()
   })
 
-export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime, preview, previewSeconds } = {}) =>
+export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime, preview, previewSeconds, sourceVideoKey } = {}) =>
   fetch(api('/post/render-final'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -806,6 +806,10 @@ export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime
       // time — scale/crf tweaks capped at ~12% savings in benchmarks.
       preview: preview === true,
       preview_seconds: typeof previewSeconds === 'number' ? previewSeconds : undefined,
+      // Optional: render on top of an alternate merged-video storage
+      // key (e.g. a no-music variant produced by mergeNoMusic). Skips
+      // the cache so the result doesn't clobber the canonical final.
+      source_video_key: sourceVideoKey || undefined,
     }),
   }).then(async r => {
     // Defensive: handle both shapes (status-coded and 200 + body.error).
@@ -895,6 +899,94 @@ export const textToSpeech = (text, voiceId, voiceSettings = {}) =>
   fetch(api('/generate/text-to-speech'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, voice_id: voiceId, ...voiceSettings }) }).then(r => r.json())
 export const getVoices = () =>
   fetch(api('/generate/voices'), { credentials: 'include' }).then(r => r.json())
+
+// Re-merge a job's clips without the music swap step, returning the
+// storage key of the resulting mp4. Used by "Download final (no
+// music)" so the final can be composed on a clip-audio merge
+// instead of the canonical music-mixed one — lets the operator
+// pull a voiceover-only export when the music was for beat-sync
+// only (e.g. rights-limited tracks they don't want to publish).
+//
+// Reads everything the BE needs from the `files` array (the public
+// snake_case shape returned by GET /jobs/:id) so the orchestrator
+// doesn't have to know about FE-internal `_*` state.
+//
+// Returns the merge_key string. Throws on any error.
+export const mergeNoMusic = async (files, jobUuid, { transition = 'none', transitionDuration = 1 } = {}) => {
+  const mergeFiles = (files || []).filter(f => {
+    if (!f || f.skip) return false
+    const mt = f.media_type || ''
+    return mt.startsWith('video/') || mt.startsWith('image/')
+  })
+  if (mergeFiles.length === 0) throw new Error('No video clips to merge')
+
+  // Walk hosts-only to compute insert_host_idx — same logic
+  // VideoMerge.jsx uses, but operating on the public snake_case
+  // shape so the orchestrator can run without VideoMerge's
+  // internal state.
+  const hostsOnly = mergeFiles.filter(f => f.insert_into_file_id == null)
+  const hostIdxByFileId = new Map()
+  hostsOnly.forEach((h, idx) => { if (h.id != null) hostIdxByFileId.set(h.id, idx) })
+
+  const clips = mergeFiles.map(f => {
+    const mt = f.media_type || ''
+    const isPhoto = mt.startsWith('image/')
+    const insertHostIdx = f.insert_into_file_id != null
+      ? (hostIdxByFileId.has(f.insert_into_file_id) ? hostIdxByFileId.get(f.insert_into_file_id) : null)
+      : null
+    if (isPhoto) {
+      return {
+        upload_key: f.upload_key,
+        media_type: mt,
+        trim_end: Number(f.photo_to_video_duration) > 0 ? Number(f.photo_to_video_duration) : 5,
+        photo_to_video_motion: f.photo_to_video_motion || 'zoom-in',
+        photo_to_video_zoom: Number(f.photo_to_video_zoom) > 0 ? Number(f.photo_to_video_zoom) : 1.0,
+        photo_to_video_rotate: Number.isFinite(Number(f.photo_to_video_rotate)) ? Number(f.photo_to_video_rotate) : 0,
+        photo_to_video_offset_x: Number.isFinite(Number(f.photo_to_video_offset_x)) ? Number(f.photo_to_video_offset_x) : 0,
+        photo_to_video_offset_y: Number.isFinite(Number(f.photo_to_video_offset_y)) ? Number(f.photo_to_video_offset_y) : 0,
+        insert_host_idx: insertHostIdx,
+        insert_at_sec: Number(f.insert_at_sec) >= 0 ? Number(f.insert_at_sec) : 0,
+      }
+    }
+    return {
+      upload_key: f.upload_key,
+      media_type: mt || 'video/mp4',
+      trim_start: Number(f.trim_start) || 0,
+      trim_end: f.trim_end != null ? Number(f.trim_end) : null,
+      speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
+      video_zoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
+      video_offset_x: Number.isFinite(Number(f.video_offset_x)) ? Number(f.video_offset_x) : 0,
+      video_offset_y: Number.isFinite(Number(f.video_offset_y)) ? Number(f.video_offset_y) : 0,
+      video_motion: typeof f.video_motion === 'string' && f.video_motion ? f.video_motion : 'static',
+      insert_host_idx: insertHostIdx,
+      insert_at_sec: Number(f.insert_at_sec) >= 0 ? Number(f.insert_at_sec) : 0,
+    }
+  })
+
+  const resp = await fetch(api('/post/merge-videos'), {
+    method: 'POST',
+    headers: { ...csrf(), 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      clips,
+      transition,
+      transition_duration: transitionDuration,
+      job_id: jobUuid,
+      // Causes BE to skip the music-swap step AND write to a
+      // `merge-nomusic-` storage key WITHOUT touching
+      // jobs.merged_video_key. The canonical merge stays intact.
+      skip_music: true,
+    }),
+  })
+  if (!resp.ok) {
+    let msg = `Re-merge (no music) failed (${resp.status})`
+    try { const j = await resp.json(); if (j?.error) msg = j.error } catch {}
+    throw new Error(msg)
+  }
+  const { merge_key } = await resp.json()
+  if (!merge_key) throw new Error('Re-merge returned no merge_key')
+  return merge_key
+}
 
 // Merge 2+ trimmed video clips into a single MP4 with optional transitions
 // clips: [{ video_base64, trim_start, trim_end }], transition: string, transition_duration: number
