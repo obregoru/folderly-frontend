@@ -1110,17 +1110,24 @@ function PacingSelector({ pacing, onChange }) {
 function BeatSourceSelector({ source, beatMap, onChange }) {
   const bassCount = Array.isArray(beatMap?.bass_beats) ? beatMap.bass_beats.length : 0
   const hihatCount = Array.isArray(beatMap?.hihat_beats) ? beatMap.hihat_beats.length : 0
+  const boomCount = Array.isArray(beatMap?.boom_beats) ? beatMap.boom_beats.length : 0
   const totalCount = Array.isArray(beatMap?.beats) ? beatMap.beats.length : 0
   const OPTIONS = [
     { value: 'all',         label: 'All beats',   count: totalCount, sub: 'broadband (default)' },
-    { value: 'bass',        label: 'Bass / kick', count: bassCount,  sub: '40–200 Hz only' },
+    { value: 'bass',        label: 'Bass / kick', count: bassCount,  sub: '40–200 Hz onsets' },
+    { value: 'boom',        label: 'Boom',        count: boomCount,  sub: 'sustained low-end only' },
     { value: 'hihat',       label: 'Hi-hat',      count: hihatCount, sub: '>5 kHz only' },
     { value: 'bass+hihat',  label: 'Bass + Hi-hat', count: bassCount + hihatCount, sub: 'union of both' },
   ]
   const current = OPTIONS.some(o => o.value === source) ? source : 'all'
   // If the band arrays don't exist yet (old track + new analyzer),
-  // bass/hihat show count=0 and the picker hints at re-analyze.
-  const needsReanalyze = bassCount === 0 && hihatCount === 0 && totalCount > 0
+  // bass/hihat/boom show count=0 and the picker hints at re-analyze.
+  // boom_beats is the newest array; an old track will need re-analyze
+  // even if it already has bass+hihat. Either signal triggers the hint.
+  const needsReanalyze = totalCount > 0 && (
+    (bassCount === 0 && hihatCount === 0) ||
+    !Array.isArray(beatMap?.boom_beats)
+  )
   return (
     <div className="flex flex-col gap-1 text-[10px]">
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -1480,6 +1487,7 @@ function WaveformBeatStrip({ beatMap, beatSource, trimStart, trimEnd, zoom, pan,
   const resolvedBeats = (() => {
     if (beatSource === 'bass' && Array.isArray(beatMap?.bass_beats)) return beatMap.bass_beats
     if (beatSource === 'hihat' && Array.isArray(beatMap?.hihat_beats)) return beatMap.hihat_beats
+    if (beatSource === 'boom' && Array.isArray(beatMap?.boom_beats)) return beatMap.boom_beats
     if (beatSource === 'bass+hihat') {
       const a = Array.isArray(beatMap?.bass_beats) ? beatMap.bass_beats : []
       const b = Array.isArray(beatMap?.hihat_beats) ? beatMap.hihat_beats : []
