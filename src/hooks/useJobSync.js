@@ -300,6 +300,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip strobe — judder/flicker via fps=10,fps=30 chain on
+  // the BE. Ignored when freeze is on (no time axis to judder).
+  const saveFileStrobe = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        strobe: !!file._strobe,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save strobe failed:', e.message)
+    }
+  }, [])
+
   // Save Ken Burns motion for a still photo. Used when the photo is part
   // of a video merge (photo-to-video-segment). Column already exists on
   // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
@@ -525,6 +540,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _reversePlay: !!f.reverse_play,
             _mirrorFlip:  !!f.mirror_flip,
             _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
+            _strobe:      !!f.strobe,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
@@ -684,6 +700,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileReversePlay,
     saveFileMirrorFlip,
     saveFileColorEffect,
+    saveFileStrobe,
     saveFileVideoZoom,
     saveFileInsertOverlay,
     saveFileSkip,

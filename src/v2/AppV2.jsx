@@ -148,6 +148,12 @@ export default function AppV2() {
       console.log(`[AppV2] saving color effect: id=${item.id} effect=${item._colorEffect}`)
       jobSyncRef.current?.saveFileColorEffect?.(item)
     }
+    const onStrobeChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving strobe: id=${item.id} strobe=${item._strobe}`)
+      jobSyncRef.current?.saveFileStrobe?.(item)
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
     window.addEventListener('posty-speed-change', onSpeedChange)
@@ -157,6 +163,7 @@ export default function AppV2() {
     window.addEventListener('posty-reverse-play-change', onReversePlayChange)
     window.addEventListener('posty-mirror-flip-change', onMirrorFlipChange)
     window.addEventListener('posty-color-effect-change', onColorEffectChange)
+    window.addEventListener('posty-strobe-change', onStrobeChange)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
@@ -167,6 +174,7 @@ export default function AppV2() {
       window.removeEventListener('posty-reverse-play-change', onReversePlayChange)
       window.removeEventListener('posty-mirror-flip-change', onMirrorFlipChange)
       window.removeEventListener('posty-color-effect-change', onColorEffectChange)
+      window.removeEventListener('posty-strobe-change', onStrobeChange)
     }
   }, [])
 
