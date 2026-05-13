@@ -130,12 +130,33 @@ export default function AppV2() {
       console.log(`[AppV2] saving freeze frame: id=${item.id} freeze=${item._freezeFrame}`)
       jobSyncRef.current?.saveFileFreezeFrame?.(item)
     }
+    const onReversePlayChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving reverse play: id=${item.id} reverse=${item._reversePlay}`)
+      jobSyncRef.current?.saveFileReversePlay?.(item)
+    }
+    const onMirrorFlipChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving mirror flip: id=${item.id} mirror=${item._mirrorFlip}`)
+      jobSyncRef.current?.saveFileMirrorFlip?.(item)
+    }
+    const onColorEffectChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving color effect: id=${item.id} effect=${item._colorEffect}`)
+      jobSyncRef.current?.saveFileColorEffect?.(item)
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
     window.addEventListener('posty-speed-change', onSpeedChange)
     window.addEventListener('posty-insert-overlay-change', onInsertOverlayChange)
     window.addEventListener('posty-video-zoom-change', onVideoZoomChange)
     window.addEventListener('posty-freeze-frame-change', onFreezeFrameChange)
+    window.addEventListener('posty-reverse-play-change', onReversePlayChange)
+    window.addEventListener('posty-mirror-flip-change', onMirrorFlipChange)
+    window.addEventListener('posty-color-effect-change', onColorEffectChange)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
@@ -143,6 +164,9 @@ export default function AppV2() {
       window.removeEventListener('posty-insert-overlay-change', onInsertOverlayChange)
       window.removeEventListener('posty-video-zoom-change', onVideoZoomChange)
       window.removeEventListener('posty-freeze-frame-change', onFreezeFrameChange)
+      window.removeEventListener('posty-reverse-play-change', onReversePlayChange)
+      window.removeEventListener('posty-mirror-flip-change', onMirrorFlipChange)
+      window.removeEventListener('posty-color-effect-change', onColorEffectChange)
     }
   }, [])
 

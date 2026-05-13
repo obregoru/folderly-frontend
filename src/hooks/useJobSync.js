@@ -256,6 +256,50 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip reverse-play effect — BE applies reverse + areverse
+  // filters during normalize. Ignored when _freezeFrame is true.
+  const saveFileReversePlay = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        reverse_play: !!file._reversePlay,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save reverse play failed:', e.message)
+    }
+  }, [])
+
+  // Per-clip horizontal mirror — adds hflip to the BE filter chain.
+  const saveFileMirrorFlip = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        mirror_flip: !!file._mirrorFlip,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save mirror flip failed:', e.message)
+    }
+  }, [])
+
+  // Per-clip color preset — null clears, otherwise one of
+  // 'bw' | 'inverted' | 'saturated'.
+  const saveFileColorEffect = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        color_effect: file._colorEffect || null,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save color effect failed:', e.message)
+    }
+  }, [])
+
   // Save Ken Burns motion for a still photo. Used when the photo is part
   // of a video merge (photo-to-video-segment). Column already exists on
   // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
@@ -474,6 +518,13 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             // emits a still frame at trim_start held for the trim
             // duration instead of the moving video.
             _freezeFrame: !!f.freeze_frame,
+            // Effect stack — all ignored when _freezeFrame is true
+            // (freeze precedence). reverse_play / mirror_flip are
+            // booleans; color_effect is null | 'bw' | 'inverted' |
+            // 'saturated'.
+            _reversePlay: !!f.reverse_play,
+            _mirrorFlip:  !!f.mirror_flip,
+            _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
@@ -630,6 +681,9 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileTrim,
     saveFileSpeed,
     saveFileFreezeFrame,
+    saveFileReversePlay,
+    saveFileMirrorFlip,
+    saveFileColorEffect,
     saveFileVideoZoom,
     saveFileInsertOverlay,
     saveFileSkip,

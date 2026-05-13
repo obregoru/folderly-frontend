@@ -201,6 +201,42 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  const handleReverseLoopsChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicReverseLoops(draftId, next)
+      setMusic(prev => prev ? { ...prev, reverse_loops: r.music_reverse_loops } : prev)
+      setSnapPreview(null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
+  const handleMirrorLoopsChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicMirrorLoops(draftId, next)
+      setMusic(prev => prev ? { ...prev, mirror_loops: r.music_mirror_loops } : prev)
+      setSnapPreview(null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
+  const handleLoopColorChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicLoopColorEffect(draftId, next || null)
+      setMusic(prev => prev ? { ...prev, loop_color_effect: r.music_loop_color_effect } : prev)
+      setSnapPreview(null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   const handleBeatSourceChange = async (next) => {
     if (!draftId) return
     setErr(null)
@@ -531,6 +567,30 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             <FreezeLoopsToggle
               freezeLoops={!!music?.freeze_loops}
               onChange={handleFreezeLoopsChange}
+            />
+          )}
+          {!!music?.loop_to_beats && (
+            <LoopEffectToggle
+              label="⏪ Reverse the loop duplicates"
+              hint="Every duplicate plays backwards. Buffers all decoded frames — short clips only."
+              checked={!!music?.reverse_loops}
+              onChange={handleReverseLoopsChange}
+              tone="pink"
+            />
+          )}
+          {!!music?.loop_to_beats && (
+            <LoopEffectToggle
+              label="⇄ Mirror the loop duplicates"
+              hint="Horizontally flip every duplicate."
+              checked={!!music?.mirror_loops}
+              onChange={handleMirrorLoopsChange}
+              tone="green"
+            />
+          )}
+          {!!music?.loop_to_beats && (
+            <LoopColorSelector
+              value={music?.loop_color_effect || ''}
+              onChange={handleLoopColorChange}
             />
           )}
           <VoMixModeSelector
@@ -989,6 +1049,52 @@ function FreezeLoopsToggle({ freezeLoops, onChange }) {
         <span className="text-[9px] opacity-75 block">
           Creates a stutter-punch feel — your source clips play normally; only the algorithm-added duplicates freeze. Apply re-creates duplicates each time, so you can toggle freely.
         </span>
+      </span>
+    </label>
+  )
+}
+
+// Generic bulk-effect toggle for the music panel. Same shape as
+// FreezeLoopsToggle but parameterized so we don't repeat the
+// markup for reverse / mirror. Tone controls the accent color.
+function LoopEffectToggle({ label, hint, checked, onChange, tone }) {
+  const colorClass = tone === 'pink'  ? 'text-[#be185d]'
+                  :  tone === 'green' ? 'text-[#15803d]'
+                  : 'text-[#6C5CE7]'
+  return (
+    <label className="flex items-start gap-1.5 text-[10px] cursor-pointer pl-5">
+      <input
+        type="checkbox"
+        checked={!!checked}
+        onChange={e => onChange(e.target.checked)}
+        className="mt-0.5"
+      />
+      <span className={colorClass}>
+        <b>{label}</b>
+        <span className="text-[9px] opacity-75 block">{hint}</span>
+      </span>
+    </label>
+  )
+}
+
+// Color preset dropdown — non-boolean so it gets its own
+// component rather than fitting LoopEffectToggle. '' = off.
+function LoopColorSelector({ value, onChange }) {
+  return (
+    <label className="flex items-start gap-1.5 text-[10px] cursor-pointer pl-5">
+      <select
+        value={value || ''}
+        onChange={e => onChange(e.target.value || null)}
+        className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white mt-0.5"
+      >
+        <option value="">off</option>
+        <option value="bw">b&w</option>
+        <option value="inverted">inverted</option>
+        <option value="saturated">saturated</option>
+      </select>
+      <span className="text-[#92400e]">
+        <b>🎨 Color preset on loop duplicates</b>
+        <span className="text-[9px] opacity-75 block">Applied to every duplicate. Off = no color filter.</span>
       </span>
     </label>
   )
