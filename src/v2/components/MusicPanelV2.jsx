@@ -210,6 +210,20 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       setAppliedAt(new Date().toISOString())
       setAppliedPlan(Array.isArray(r.plan) ? r.plan : null)
       try { await jobSync?.loadJob?.(draftId) } catch {}
+      // Invalidate the in-memory merge so the user can SEE the
+      // need to re-merge — without this, the FE still shows the
+      // PREVIOUS merge (which has the old effects baked in) and
+      // the operator thinks "I turned the effect off but it's
+      // still there." The cached file in storage is fine; we
+      // just drop the in-memory reference so the Re-merge button
+      // flips to its un-merged state.
+      try {
+        if (typeof window !== 'undefined' && window._postyMergedVideo) {
+          try { URL.revokeObjectURL(window._postyMergedVideo.url) } catch {}
+          window._postyMergedVideo = null
+          window.dispatchEvent(new CustomEvent('posty-merge-change'))
+        }
+      } catch {}
     } catch (e) {
       // Surface the error but don't block the toggle — the flag
       // is already saved; user can hit "Apply to clips" manually.
@@ -262,6 +276,19 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     try {
       const r = await api.setJobMusicStrobeLoops(draftId, next)
       setMusic(prev => prev ? { ...prev, strobe_loops: r.music_strobe_loops } : prev)
+      setSnapPreview(null)
+      await autoReapplySnap()
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
+  const handleBeatZoomLoopsChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicBeatZoomLoops(draftId, next)
+      setMusic(prev => prev ? { ...prev, beat_zoom_loops: r.music_beat_zoom_loops } : prev)
       setSnapPreview(null)
       await autoReapplySnap()
     } catch (e) {
@@ -639,6 +666,15 @@ export default function MusicPanelV2({ draftId, jobSync }) {
               checked={!!music?.strobe_loops}
               onChange={handleStrobeLoopsChange}
               tone="amber"
+            />
+          )}
+          {!!music?.loop_to_beats && (
+            <LoopEffectToggle
+              label="🥁 Beat-zoom the loop duplicates"
+              hint="Punch zoom (1.15× for ~100ms) at clip start, hard drop. Use bass beats as the source for a kick-drum-synced punch."
+              checked={!!music?.beat_zoom_loops}
+              onChange={handleBeatZoomLoopsChange}
+              tone="red"
             />
           )}
           {!!music?.loop_to_beats && (
@@ -1224,6 +1260,7 @@ function LoopEffectToggle({ label, hint, checked, onChange, tone }) {
   const colorClass = tone === 'pink'  ? 'text-[#be185d]'
                   :  tone === 'green' ? 'text-[#15803d]'
                   :  tone === 'amber' ? 'text-[#854d0e]'
+                  :  tone === 'red'   ? 'text-[#b91c1c]'
                   : 'text-[#6C5CE7]'
   return (
     <label className="flex items-start gap-1.5 text-[10px] cursor-pointer pl-5">

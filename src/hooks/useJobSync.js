@@ -315,6 +315,21 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip beat zoom — punch zoom at clip start. Overrides
+  // Ken Burns motion on the BE.
+  const saveFileBeatZoom = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        beat_zoom: !!file._beatZoom,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save beat zoom failed:', e.message)
+    }
+  }, [])
+
   // Save Ken Burns motion for a still photo. Used when the photo is part
   // of a video merge (photo-to-video-segment). Column already exists on
   // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
@@ -541,6 +556,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _mirrorFlip:  !!f.mirror_flip,
             _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
             _strobe:      !!f.strobe,
+            _beatZoom:    !!f.beat_zoom,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
@@ -701,6 +717,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileMirrorFlip,
     saveFileColorEffect,
     saveFileStrobe,
+    saveFileBeatZoom,
     saveFileVideoZoom,
     saveFileInsertOverlay,
     saveFileSkip,

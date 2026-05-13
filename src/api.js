@@ -971,6 +971,7 @@ export const mergeNoMusic = async (files, jobUuid, { transition = 'none', transi
       mirror_flip:  !!f._mirrorFlip,
       color_effect: f._colorEffect || null,
       strobe:       !!f._strobe,
+      beat_zoom:    !!f._beatZoom,
       insert_host_idx: insertHostIdx,
       insert_at_sec: Number(f._insertAtSec) >= 0 ? Number(f._insertAtSec) : 0,
     }
@@ -1505,6 +1506,18 @@ export const setJobMusicStrobeLoops = (jobUuid, strobeLoops) =>
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
       throw new Error(e.error || `setJobMusicStrobeLoops failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const setJobMusicBeatZoomLoops = (jobUuid, beatZoomLoops) =>
+  fetch(api(`/jobs/${jobUuid}/music/beat-zoom-loops`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ beat_zoom_loops: !!beatZoomLoops }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicBeatZoomLoops failed (${r.status})`)
     }
     return r.json()
   })
