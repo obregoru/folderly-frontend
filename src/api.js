@@ -1449,6 +1449,24 @@ export const setJobMusicLoopToBeats = (jobUuid, loopToBeats) =>
     return r.json()
   })
 
+// When true, the next apply-snap marks every loop-duplicate it
+// creates as freeze_frame = true so the rapid-cut montage
+// stutters on still frames instead of moving video. Only affects
+// algorithm-generated duplicates — operator's source clips are
+// untouched. Pairs with the per-clip ❄ toggle on each tile;
+// this is the bulk-apply version.
+export const setJobMusicFreezeLoops = (jobUuid, freezeLoops) =>
+  fetch(api(`/jobs/${jobUuid}/music/freeze-loops`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ freeze_loops: !!freezeLoops }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicFreezeLoops failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Pacing controls how spread out the snapped cuts are on the
 // music. 1 = every detected beat is a snap candidate (densest
 // cuts), 2 = every other beat (moderate), 4 = every 4th beat

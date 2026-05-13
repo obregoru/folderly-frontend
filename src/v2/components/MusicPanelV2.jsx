@@ -189,6 +189,18 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  const handleFreezeLoopsChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicFreezeLoops(draftId, next)
+      setMusic(prev => prev ? { ...prev, freeze_loops: r.music_freeze_loops } : prev)
+      setSnapPreview(null)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   const handleBeatSourceChange = async (next) => {
     if (!draftId) return
     setErr(null)
@@ -515,6 +527,12 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             manualCutCount={Array.isArray(beatMap?.manual_cuts) ? beatMap.manual_cuts.length : 0}
             onChange={handleLoopToBeatsChange}
           />
+          {!!music?.loop_to_beats && (
+            <FreezeLoopsToggle
+              freezeLoops={!!music?.freeze_loops}
+              onChange={handleFreezeLoopsChange}
+            />
+          )}
           <VoMixModeSelector
             mode={music?.vo_mix_mode || 'mix'}
             hasVoiceover={!!music?.has_voiceover}
@@ -952,6 +970,30 @@ function BeatSourceSelector({ source, beatMap, onChange }) {
 // the difference is just WHERE the cuts come from. When manual
 // cuts exist, this toggle is shown but flagged as overridden so
 // the operator isn't confused.
+// Companion to LoopToBeatsToggle. When enabled, apply-snap marks
+// every algorithm-generated loop-duplicate as freeze_frame so
+// the rapid-cut montage stutters on stills instead of moving
+// video. Only rendered when loop-to-beats is on — freeze has no
+// meaning without loop duplicates to apply it to.
+function FreezeLoopsToggle({ freezeLoops, onChange }) {
+  return (
+    <label className="flex items-start gap-1.5 text-[10px] cursor-pointer pl-5">
+      <input
+        type="checkbox"
+        checked={!!freezeLoops}
+        onChange={e => onChange(e.target.checked)}
+        className="mt-0.5"
+      />
+      <span className="text-[#0369a1]">
+        ❄ <b>Freeze the loop duplicates</b> — every duplicate clip becomes a still frame held on its beat.
+        <span className="text-[9px] opacity-75 block">
+          Creates a stutter-punch feel — your source clips play normally; only the algorithm-added duplicates freeze. Apply re-creates duplicates each time, so you can toggle freely.
+        </span>
+      </span>
+    </label>
+  )
+}
+
 function LoopToBeatsToggle({ loopToBeats, pacing, manualCutCount, onChange }) {
   const label = pacing === 1 ? 'every beat'
               : pacing === 2 ? 'every 2 beats'
