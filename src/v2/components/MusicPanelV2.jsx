@@ -658,18 +658,12 @@ export default function MusicPanelV2({ draftId, jobSync }) {
               <span className="text-[10px] text-[#2D9A5E] font-medium">✓ Applied {appliedAt && `at ${new Date(appliedAt).toLocaleTimeString()}`}. Re-merge to see the new cuts.</span>
             )}
           </div>
-          {/* Re-merge trigger — dispatches the same posty-trigger-merge
-              event the Media-tab button uses. Saves the operator a
-              tab-switch after applying the snap or toggling a loop
-              effect. Disabled until there are clips to merge. */}
-          <button
-            type="button"
-            onClick={() => {
-              try { window.dispatchEvent(new CustomEvent('posty-trigger-merge')) } catch {}
-            }}
-            className="w-full text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer font-medium"
-            title="Re-merge the timeline now — runs the same merge as the Media tab's button. Use after applying beat-snap or toggling a loop effect to bake the changes into the merged video."
-          >🔄 Re-merge with these settings</button>
+          <RemergeButton />
+          {/* See RemergeButton component for the progress wiring —
+              listens for posty-merge-progress (broadcast every
+              setProgress in VideoMerge) and posty-merge-complete
+              (final ok/error). Dispatches posty-trigger-merge to
+              start. */}
           {verifyStep && (
             <div className="text-[10px] text-muted italic">⏳ {verifyStep}</div>
           )}
@@ -1095,6 +1089,83 @@ function FreezeLoopsToggle({ freezeLoops, onChange }) {
         </span>
       </span>
     </label>
+  )
+}
+
+// Re-merge button with live progress wiring. Dispatches
+// posty-trigger-merge, then listens for posty-merge-progress
+// (VideoMerge broadcasts the current step on every setProgress)
+// and posty-merge-complete (final ok/err) so the operator sees
+// "Uploading clip 4/17…", "Merging 17 clips on server…",
+// then "✓ Merged" or "✗ Error" — same visibility the Media-tab
+// merge button provides locally, but from anywhere in the app.
+function RemergeButton() {
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState('')
+  const [error, setError] = useState(null)
+  const [doneAt, setDoneAt] = useState(null)
+  useEffect(() => {
+    const onProgress = (e) => {
+      setBusy(!!e?.detail?.busy)
+      setProgress(e?.detail?.message || '')
+    }
+    const onComplete = (e) => {
+      setBusy(false)
+      setProgress('')
+      if (e?.detail?.ok) {
+        setError(null)
+        setDoneAt(Date.now())
+        // Clear the "✓ Merged" indicator after 4s so the button
+        // returns to its idle label.
+        setTimeout(() => setDoneAt(d => (d && Date.now() - d >= 4000 ? null : d)), 4100)
+      } else {
+        setError(e?.detail?.error || 'Merge failed')
+        setDoneAt(null)
+      }
+    }
+    window.addEventListener('posty-merge-progress', onProgress)
+    window.addEventListener('posty-merge-complete', onComplete)
+    return () => {
+      window.removeEventListener('posty-merge-progress', onProgress)
+      window.removeEventListener('posty-merge-complete', onComplete)
+    }
+  }, [])
+  const handleClick = () => {
+    if (busy) return
+    setError(null)
+    setDoneAt(null)
+    setBusy(true)
+    setProgress('Starting merge…')
+    try {
+      window.dispatchEvent(new CustomEvent('posty-trigger-merge'))
+    } catch (e) {
+      setBusy(false)
+      setError(e?.message || String(e))
+    }
+  }
+  const showDone = !busy && !error && doneAt && (Date.now() - doneAt) < 4000
+  const label = busy
+    ? (progress || 'Merging…')
+    : error
+      ? `⚠ ${error.slice(0, 80)} — tap to retry`
+      : showDone
+        ? '✓ Merged — final preview updated'
+        : '🔄 Re-merge with these settings'
+  const cls = busy
+    ? 'bg-[#6C5CE7]/80 text-white'
+    : error
+      ? 'bg-[#fef2f2] border border-[#c0392b]/60 text-[#c0392b]'
+      : showDone
+        ? 'bg-[#2D9A5E] text-white'
+        : 'bg-[#6C5CE7] text-white'
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={busy}
+      className={`w-full text-[10px] py-1.5 border-none rounded cursor-pointer font-medium disabled:cursor-wait ${cls}`}
+      title="Re-merge the timeline now — runs the same merge as the Media tab's button. Watch the label for progress (Uploading… / Merging…) and the result (✓ or ⚠)."
+    >{label}</button>
   )
 }
 

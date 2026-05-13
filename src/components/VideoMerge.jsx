@@ -69,6 +69,13 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   const transitionHydrated = useRef(false)
   const [merging, setMerging] = useState(false)
   const [progress, setProgress] = useState('')
+  // Broadcast progress + busy state so the music-panel's
+  // Re-merge button can mirror the current step. Without this,
+  // operators clicking the music-panel button see no feedback
+  // until the merge completes (or fails).
+  useEffect(() => {
+    try { window.dispatchEvent(new CustomEvent('posty-merge-progress', { detail: { message: progress, busy: merging } })) } catch {}
+  }, [progress, merging])
   const [mergedUrl, setMergedUrl] = useState(() => restoredMergeUrl || window._postyMergedVideo?.url || null)
   const [error, setError] = useState(null)
   const mergedBlobRef = useRef(window._postyMergedVideo?.blob || null)
