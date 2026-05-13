@@ -533,6 +533,7 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             mirror_flip:  !!item._mirrorFlip,
             color_effect: item._colorEffect || null,
             strobe:       !!item._strobe,
+            beat_zoom:    !!item._beatZoom,
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
@@ -949,6 +950,38 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                                 <option value="saturated">saturated</option>
                               </select>
                             </label>
+                          )
+                        })()}
+                        {!itemIsPhoto && !item._freezeFrame && (() => {
+                          // Beat zoom — punch zoom at clip start with
+                          // hard drop. Lands on a bass beat when
+                          // apply-snap has used bass as the beat
+                          // source. Overrides Ken Burns motion.
+                          const isBeatZoom = !!item._beatZoom
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                item._beatZoom = !isBeatZoom
+                                try { window.dispatchEvent(new CustomEvent('posty-beat-zoom-change', { detail: { itemId: item.id } })) } catch {}
+                                if (mergedUrl) {
+                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                  setMergedUrl(null)
+                                  mergedBlobRef.current = null
+                                  window._postyMergedVideo = null
+                                }
+                              }}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                isBeatZoom
+                                  ? 'bg-[#fee2e2] border-[#dc2626]/60 text-[#b91c1c] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={isBeatZoom
+                                ? 'Beat zoom: punch zoom (1.15× for ~100ms) at clip start, hard drop back. Overrides Ken Burns motion.'
+                                : 'Beat zoom: 100ms punch zoom at clip start with a hard drop. Land it on a bass beat by using bass as the snap beat source.'}
+                            >
+                              <span className="text-[10px]">{isBeatZoom ? '🥁 Beat-zoom' : '🥁 Beat zoom'}</span>
+                            </button>
                           )
                         })()}
                         {!itemIsPhoto && !item._freezeFrame && (() => {
