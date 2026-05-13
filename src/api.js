@@ -1522,6 +1522,21 @@ export const setJobMusicBeatZoomLoops = (jobUuid, beatZoomLoops) =>
     return r.json()
   })
 
+// Job-level merge-time override: when true, every clip gets
+// beat_zoom regardless of its per-clip column. No apply-snap
+// needed; the override kicks in at merge time.
+export const setJobMusicBeatZoomAll = (jobUuid, beatZoomAll) =>
+  fetch(api(`/jobs/${jobUuid}/music/beat-zoom-all`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ beat_zoom_all: !!beatZoomAll }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicBeatZoomAll failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Pass null to clear; otherwise one of 'bw' | 'inverted' | 'saturated'.
 export const setJobMusicLoopColorEffect = (jobUuid, colorEffect) =>
   fetch(api(`/jobs/${jobUuid}/music/loop-color-effect`), {
