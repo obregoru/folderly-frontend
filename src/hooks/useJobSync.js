@@ -239,6 +239,23 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip freeze-frame effect — when true, BE merge step
+  // replaces this clip's video with a still frame at trimStart
+  // held for the trim window's duration. Speed / zoom / motion
+  // are ignored by the BE when this is on.
+  const saveFileFreezeFrame = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        freeze_frame: !!file._freezeFrame,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save freeze frame failed:', e.message)
+    }
+  }, [])
+
   // Save Ken Burns motion for a still photo. Used when the photo is part
   // of a video merge (photo-to-video-segment). Column already exists on
   // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
@@ -453,6 +470,10 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             // clip out before posting to /merge-videos so it stays in
             // the job (un-skippable from the tile) but doesn't render.
             _skipInMerge: !!f.skip_in_merge,
+            // Per-clip freeze-frame effect. When true, BE merge step
+            // emits a still frame at trim_start held for the trim
+            // duration instead of the moving video.
+            _freezeFrame: !!f.freeze_frame,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
@@ -608,6 +629,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileToJob,
     saveFileTrim,
     saveFileSpeed,
+    saveFileFreezeFrame,
     saveFileVideoZoom,
     saveFileInsertOverlay,
     saveFileSkip,

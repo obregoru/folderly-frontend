@@ -966,6 +966,7 @@ export const mergeNoMusic = async (files, jobUuid, { transition = 'none', transi
       video_offset_x: Number.isFinite(Number(f._videoOffsetX)) ? Number(f._videoOffsetX) : 0,
       video_offset_y: Number.isFinite(Number(f._videoOffsetY)) ? Number(f._videoOffsetY) : 0,
       video_motion: typeof f._videoMotion === 'string' && f._videoMotion ? f._videoMotion : 'static',
+      freeze_frame: !!f._freezeFrame,
       insert_host_idx: insertHostIdx,
       insert_at_sec: Number(f._insertAtSec) >= 0 ? Number(f._insertAtSec) : 0,
     }

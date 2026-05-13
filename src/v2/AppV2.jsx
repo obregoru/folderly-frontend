@@ -124,17 +124,25 @@ export default function AppV2() {
       console.log(`[AppV2] saving video zoom: id=${item.id} zoom=${item._videoZoom}`)
       jobSyncRef.current?.saveFileVideoZoom?.(item)
     }
+    const onFreezeFrameChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving freeze frame: id=${item.id} freeze=${item._freezeFrame}`)
+      jobSyncRef.current?.saveFileFreezeFrame?.(item)
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
     window.addEventListener('posty-speed-change', onSpeedChange)
     window.addEventListener('posty-insert-overlay-change', onInsertOverlayChange)
     window.addEventListener('posty-video-zoom-change', onVideoZoomChange)
+    window.addEventListener('posty-freeze-frame-change', onFreezeFrameChange)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
       window.removeEventListener('posty-speed-change', onSpeedChange)
       window.removeEventListener('posty-insert-overlay-change', onInsertOverlayChange)
       window.removeEventListener('posty-video-zoom-change', onVideoZoomChange)
+      window.removeEventListener('posty-freeze-frame-change', onFreezeFrameChange)
     }
   }, [])
 
