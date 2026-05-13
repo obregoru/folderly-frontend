@@ -1104,12 +1104,21 @@ function RemergeButton() {
   const [progress, setProgress] = useState('')
   const [error, setError] = useState(null)
   const [doneAt, setDoneAt] = useState(null)
+  // Tracks whether ANY posty-merge-progress event has arrived
+  // since the user clicked. Used by the 3s safety timeout to
+  // distinguish "listener never responded" (real failure) from
+  // "listener is doing real work" (uploads can easily exceed
+  // 3s). Ref so the timeout closure sees the latest value
+  // without re-binding on every state change.
+  const heardFromHandlerRef = useRef(false)
   useEffect(() => {
     const onProgress = (e) => {
+      heardFromHandlerRef.current = true
       setBusy(!!e?.detail?.busy)
       setProgress(e?.detail?.message || '')
     }
     const onComplete = (e) => {
+      heardFromHandlerRef.current = true
       setBusy(false)
       setProgress('')
       if (e?.detail?.ok) {
@@ -1136,6 +1145,7 @@ function RemergeButton() {
     setDoneAt(null)
     setBusy(true)
     setProgress('Starting merge…')
+    heardFromHandlerRef.current = false
     try {
       window.dispatchEvent(new CustomEvent('posty-trigger-merge'))
     } catch (e) {
@@ -1143,20 +1153,20 @@ function RemergeButton() {
       setError(e?.message || String(e))
       return
     }
-    // Safety net: VideoMerge's listener only registers when the
-    // Clips tab is mounted. If for some reason it's not (older
-    // FE build, missing ClipsPanelV2, etc.) the trigger goes
-    // nowhere and the button stays stuck on "Starting merge…".
-    // 3s is generous — VideoMerge fires posty-merge-progress
-    // ('Uploading clip…') almost immediately after handleMerge
-    // starts, so a real merge will clear this within ~50ms.
+    // Safety net: VideoMerge's listener registers on mount. If
+    // for any reason it's not mounted (older FE build, missing
+    // ClipsPanelV2, etc.) the trigger goes nowhere and the
+    // button would stay stuck on "Starting merge…" forever.
+    // 3s is plenty — VideoMerge fires posty-merge-progress
+    // within ~50ms of receiving the trigger. If we haven't
+    // heard ANY progress event by 3s, the listener really
+    // isn't there. Otherwise the merge is just running long
+    // (uploads of 17+ clips routinely take 30-60s).
     setTimeout(() => {
-      setBusy(prev => {
-        if (!prev) return prev
-        setError('No merge handler responded. Open the Media tab once to mount it, then retry.')
-        setProgress('')
-        return false
-      })
+      if (heardFromHandlerRef.current) return
+      setBusy(false)
+      setProgress('')
+      setError('No merge handler responded. Open the Media tab once to mount it, then retry.')
     }, 3000)
   }
   const showDone = !busy && !error && doneAt && (Date.now() - doneAt) < 4000
