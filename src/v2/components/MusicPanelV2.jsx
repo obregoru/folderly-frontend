@@ -296,6 +296,27 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  // Job-level merge-time override. Doesn't need auto-reapply
+  // (it doesn't write to job_files rows) but DOES invalidate the
+  // current merge so the operator knows to re-merge.
+  const handleBeatZoomAllChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicBeatZoomAll(draftId, next)
+      setMusic(prev => prev ? { ...prev, beat_zoom_all: r.music_beat_zoom_all } : prev)
+      try {
+        if (typeof window !== 'undefined' && window._postyMergedVideo) {
+          try { URL.revokeObjectURL(window._postyMergedVideo.url) } catch {}
+          window._postyMergedVideo = null
+          window.dispatchEvent(new CustomEvent('posty-merge-change'))
+        }
+      } catch {}
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   const handleLoopColorChange = async (next) => {
     if (!draftId) return
     setErr(null)
@@ -671,9 +692,18 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           {!!music?.loop_to_beats && (
             <LoopEffectToggle
               label="🥁 Beat-zoom the loop duplicates"
-              hint="Punch zoom (1.15× for ~100ms) at clip start, hard drop. Use bass beats as the source for a kick-drum-synced punch."
+              hint="Punch zoom (1.15× for ~100ms) on every beat in each loop duplicate. Use bass as the beat source for a kick-drum-synced punch."
               checked={!!music?.beat_zoom_loops}
               onChange={handleBeatZoomLoopsChange}
+              tone="red"
+            />
+          )}
+          {!!music?.beat_map && (
+            <LoopEffectToggle
+              label="🥁🥁 Beat-zoom EVERY clip"
+              hint="Same punch but applied to every clip in the merge (source + duplicate). Punch fires on every beat within each clip, not just at clip start. No apply-snap needed — just re-merge."
+              checked={!!music?.beat_zoom_all}
+              onChange={handleBeatZoomAllChange}
               tone="red"
             />
           )}
