@@ -967,6 +967,9 @@ export const mergeNoMusic = async (files, jobUuid, { transition = 'none', transi
       video_offset_y: Number.isFinite(Number(f._videoOffsetY)) ? Number(f._videoOffsetY) : 0,
       video_motion: typeof f._videoMotion === 'string' && f._videoMotion ? f._videoMotion : 'static',
       freeze_frame: !!f._freezeFrame,
+      reverse_play: !!f._reversePlay,
+      mirror_flip:  !!f._mirrorFlip,
+      color_effect: f._colorEffect || null,
       insert_host_idx: insertHostIdx,
       insert_at_sec: Number(f._insertAtSec) >= 0 ? Number(f._insertAtSec) : 0,
     }
@@ -1463,6 +1466,45 @@ export const setJobMusicFreezeLoops = (jobUuid, freezeLoops) =>
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
       throw new Error(e.error || `setJobMusicFreezeLoops failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Same shape as freeze-loops: when true, apply-snap stamps the
+// matching effect onto every loop-duplicate it creates.
+export const setJobMusicReverseLoops = (jobUuid, reverseLoops) =>
+  fetch(api(`/jobs/${jobUuid}/music/reverse-loops`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ reverse_loops: !!reverseLoops }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicReverseLoops failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const setJobMusicMirrorLoops = (jobUuid, mirrorLoops) =>
+  fetch(api(`/jobs/${jobUuid}/music/mirror-loops`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ mirror_loops: !!mirrorLoops }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicMirrorLoops failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Pass null to clear; otherwise one of 'bw' | 'inverted' | 'saturated'.
+export const setJobMusicLoopColorEffect = (jobUuid, colorEffect) =>
+  fetch(api(`/jobs/${jobUuid}/music/loop-color-effect`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ color_effect: colorEffect || null }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicLoopColorEffect failed (${r.status})`)
     }
     return r.json()
   })

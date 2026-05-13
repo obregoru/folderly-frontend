@@ -519,6 +519,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             // also routed as an insert (insert overlays use their
             // host's timing, freeze isn't meaningful there).
             freeze_frame: !!item._freezeFrame,
+            // Effect stack — all skipped on the BE when
+            // freeze_frame is true (freeze precedence).
+            reverse_play: !!item._reversePlay,
+            mirror_flip:  !!item._mirrorFlip,
+            color_effect: item._colorEffect || null,
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
@@ -836,6 +841,105 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                             >
                               <span className="text-[10px]">{isFrozen ? '❄ Frozen' : '❄ Freeze'}</span>
                             </button>
+                          )
+                        })()}
+                        {!itemIsPhoto && !item._freezeFrame && (() => {
+                          // Reverse play. Buffers all decoded frames in
+                          // memory so safe only on short clips (intended
+                          // for beat-sync duplicates of ~0.2-0.5s).
+                          // Disabled / hidden when freeze is on — a
+                          // single still has no playback direction.
+                          const isReversed = !!item._reversePlay
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                item._reversePlay = !isReversed
+                                try { window.dispatchEvent(new CustomEvent('posty-reverse-play-change', { detail: { itemId: item.id } })) } catch {}
+                                if (mergedUrl) {
+                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                  setMergedUrl(null)
+                                  mergedBlobRef.current = null
+                                  window._postyMergedVideo = null
+                                }
+                              }}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                isReversed
+                                  ? 'bg-[#fdf2f8] border-[#be185d]/50 text-[#be185d] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={isReversed
+                                ? 'Plays backwards. Tap to disable.'
+                                : 'Reverse play: clip plays backwards. Best on short duplicates — reverse buffers all decoded frames.'}
+                            >
+                              <span className="text-[10px]">{isReversed ? '⏪ Reversed' : '⏪ Reverse'}</span>
+                            </button>
+                          )
+                        })()}
+                        {!itemIsPhoto && !item._freezeFrame && (() => {
+                          // Horizontal mirror (hflip). Cheap, combines
+                          // with everything except freeze.
+                          const isMirrored = !!item._mirrorFlip
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                item._mirrorFlip = !isMirrored
+                                try { window.dispatchEvent(new CustomEvent('posty-mirror-flip-change', { detail: { itemId: item.id } })) } catch {}
+                                if (mergedUrl) {
+                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                  setMergedUrl(null)
+                                  mergedBlobRef.current = null
+                                  window._postyMergedVideo = null
+                                }
+                              }}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                isMirrored
+                                  ? 'bg-[#f0fdf4] border-[#16a34a]/50 text-[#15803d] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={isMirrored ? 'Horizontally flipped. Tap to disable.' : 'Mirror flip: horizontally mirror this clip.'}
+                            >
+                              <span className="text-[10px]">{isMirrored ? '⇄ Mirrored' : '⇄ Mirror'}</span>
+                            </button>
+                          )
+                        })()}
+                        {!itemIsPhoto && !item._freezeFrame && (() => {
+                          // Color preset. null = no effect. Dropdown
+                          // because there are multiple presets, not a
+                          // single toggle.
+                          const colorEffect = item._colorEffect || ''
+                          return (
+                            <label
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                colorEffect
+                                  ? 'bg-[#fef3c7] border-[#d97706]/50 text-[#92400e] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={colorEffect ? `Color preset: ${colorEffect}` : 'Color preset (b&w / inverted / saturated). Off by default.'}
+                            >
+                              <span className="text-[10px]">{colorEffect ? `🎨 ${colorEffect}` : '🎨 Color'}</span>
+                              <select
+                                value={colorEffect}
+                                onChange={e => {
+                                  const v = e.target.value || null
+                                  item._colorEffect = v
+                                  try { window.dispatchEvent(new CustomEvent('posty-color-effect-change', { detail: { itemId: item.id } })) } catch {}
+                                  if (mergedUrl) {
+                                    try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                    setMergedUrl(null)
+                                    mergedBlobRef.current = null
+                                    window._postyMergedVideo = null
+                                  }
+                                }}
+                                className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+                              >
+                                <option value="">off</option>
+                                <option value="bw">b&w</option>
+                                <option value="inverted">inverted</option>
+                                <option value="saturated">saturated</option>
+                              </select>
+                            </label>
                           )
                         })()}
                         {!itemIsPhoto && (() => {
