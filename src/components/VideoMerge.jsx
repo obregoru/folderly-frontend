@@ -527,10 +527,12 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             // host's timing, freeze isn't meaningful there).
             freeze_frame: !!item._freezeFrame,
             // Effect stack — all skipped on the BE when
-            // freeze_frame is true (freeze precedence).
+            // freeze_frame is true (freeze precedence), except
+            // mirror + color which compose with a still.
             reverse_play: !!item._reversePlay,
             mirror_flip:  !!item._mirrorFlip,
             color_effect: item._colorEffect || null,
+            strobe:       !!item._strobe,
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
@@ -947,6 +949,37 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                                 <option value="saturated">saturated</option>
                               </select>
                             </label>
+                          )
+                        })()}
+                        {!itemIsPhoto && !item._freezeFrame && (() => {
+                          // Strobe — downsample-then-upsample for a
+                          // judder/flicker look. Hidden when freeze is
+                          // on; a still has no time axis to judder.
+                          const strobed = !!item._strobe
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                item._strobe = !strobed
+                                try { window.dispatchEvent(new CustomEvent('posty-strobe-change', { detail: { itemId: item.id } })) } catch {}
+                                if (mergedUrl) {
+                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                  setMergedUrl(null)
+                                  mergedBlobRef.current = null
+                                  window._postyMergedVideo = null
+                                }
+                              }}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                strobed
+                                  ? 'bg-[#fef9c3] border-[#ca8a04]/60 text-[#854d0e] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={strobed
+                                ? 'Strobe: clip plays with 10Hz judder. Tap to disable.'
+                                : 'Strobe: downsample to ~10fps then upsample back to 30fps — same duration with judder/flicker.'}
+                            >
+                              <span className="text-[10px]">{strobed ? '⚡ Strobed' : '⚡ Strobe'}</span>
+                            </button>
                           )
                         })()}
                         {!itemIsPhoto && (() => {

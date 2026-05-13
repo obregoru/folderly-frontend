@@ -256,6 +256,19 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  const handleStrobeLoopsChange = async (next) => {
+    if (!draftId) return
+    setErr(null)
+    try {
+      const r = await api.setJobMusicStrobeLoops(draftId, next)
+      setMusic(prev => prev ? { ...prev, strobe_loops: r.music_strobe_loops } : prev)
+      setSnapPreview(null)
+      await autoReapplySnap()
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
   const handleLoopColorChange = async (next) => {
     if (!draftId) return
     setErr(null)
@@ -617,6 +630,15 @@ export default function MusicPanelV2({ draftId, jobSync }) {
               checked={!!music?.mirror_loops}
               onChange={handleMirrorLoopsChange}
               tone="green"
+            />
+          )}
+          {!!music?.loop_to_beats && (
+            <LoopEffectToggle
+              label="⚡ Strobe the loop duplicates"
+              hint="10Hz judder/flicker on every duplicate. Composes with mirror + color."
+              checked={!!music?.strobe_loops}
+              onChange={handleStrobeLoopsChange}
+              tone="amber"
             />
           )}
           {!!music?.loop_to_beats && (
@@ -1201,6 +1223,7 @@ function RemergeButton() {
 function LoopEffectToggle({ label, hint, checked, onChange, tone }) {
   const colorClass = tone === 'pink'  ? 'text-[#be185d]'
                   :  tone === 'green' ? 'text-[#15803d]'
+                  :  tone === 'amber' ? 'text-[#854d0e]'
                   : 'text-[#6C5CE7]'
   return (
     <label className="flex items-start gap-1.5 text-[10px] cursor-pointer pl-5">
