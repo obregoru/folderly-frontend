@@ -658,6 +658,18 @@ export default function MusicPanelV2({ draftId, jobSync }) {
               <span className="text-[10px] text-[#2D9A5E] font-medium">✓ Applied {appliedAt && `at ${new Date(appliedAt).toLocaleTimeString()}`}. Re-merge to see the new cuts.</span>
             )}
           </div>
+          {/* Re-merge trigger — dispatches the same posty-trigger-merge
+              event the Media-tab button uses. Saves the operator a
+              tab-switch after applying the snap or toggling a loop
+              effect. Disabled until there are clips to merge. */}
+          <button
+            type="button"
+            onClick={() => {
+              try { window.dispatchEvent(new CustomEvent('posty-trigger-merge')) } catch {}
+            }}
+            className="w-full text-[10px] py-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer font-medium"
+            title="Re-merge the timeline now — runs the same merge as the Media tab's button. Use after applying beat-snap or toggling a loop effect to bake the changes into the merged video."
+          >🔄 Re-merge with these settings</button>
           {verifyStep && (
             <div className="text-[10px] text-muted italic">⏳ {verifyStep}</div>
           )}
