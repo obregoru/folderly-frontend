@@ -650,6 +650,21 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             onChange={handleBeatSourceChange}
           />
           <PacingSelector pacing={Number(music?.pacing) || 1} onChange={handlePacingChange} />
+          {/* Standalone effect — applies independent of loop mode.
+              Lives ABOVE the loop-to-beats section so it's clear
+              this is a global merge-time override, not a loop-only
+              toggle. */}
+          {!!music?.beat_map && (
+            <div className="border-t border-b border-[#e5e5e5] py-2 my-1">
+              <LoopEffectToggle
+                label="🥁🥁 Beat-zoom EVERY clip (no loops needed)"
+                hint="Punch zoom (1.15× for ~100ms) on every beat across the merged video. Applies to every clip — source AND any loop duplicates. Merge-time override; no apply-snap needed, just re-merge after toggling."
+                checked={!!music?.beat_zoom_all}
+                onChange={handleBeatZoomAllChange}
+                tone="red"
+              />
+            </div>
+          )}
           <LoopToBeatsToggle
             loopToBeats={!!music?.loop_to_beats}
             pacing={Number(music?.pacing) || 1}
@@ -695,15 +710,6 @@ export default function MusicPanelV2({ draftId, jobSync }) {
               hint="Punch zoom (1.15× for ~100ms) on every beat in each loop duplicate. Use bass as the beat source for a kick-drum-synced punch."
               checked={!!music?.beat_zoom_loops}
               onChange={handleBeatZoomLoopsChange}
-              tone="red"
-            />
-          )}
-          {!!music?.beat_map && (
-            <LoopEffectToggle
-              label="🥁🥁 Beat-zoom EVERY clip"
-              hint="Same punch but applied to every clip in the merge (source + duplicate). Punch fires on every beat within each clip, not just at clip start. No apply-snap needed — just re-merge."
-              checked={!!music?.beat_zoom_all}
-              onChange={handleBeatZoomAllChange}
               tone="red"
             />
           )}
