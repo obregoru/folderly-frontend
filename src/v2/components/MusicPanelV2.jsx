@@ -189,6 +189,34 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
+  // Auto-reapply the snap plan after a bulk-effect toggle so the
+  // operator's intent ("mirror every loop duplicate") propagates
+  // through to job_files immediately. Without this, the toggle
+  // saves the flag on jobs but the existing loop_duplicate rows
+  // still carry the effects they were created with — so the next
+  // Re-merge produces clips that don't reflect the new flag.
+  //
+  // Gated on loop_to_beats + a beat map so we don't fire apply
+  // for a draft that hasn't run beat-sync yet. Silent (no
+  // confirm dialog) since the operator just explicitly toggled
+  // the effect — re-applying is the implied next step.
+  const autoReapplySnap = async () => {
+    if (!draftId) return
+    if (!music?.loop_to_beats) return
+    if (!beatMap) return
+    try {
+      const r = await api.applyBeatSnap(draftId)
+      setSnapPreview(prev => prev ? { ...prev, ...r, applied: true } : { ...r, applied: true })
+      setAppliedAt(new Date().toISOString())
+      setAppliedPlan(Array.isArray(r.plan) ? r.plan : null)
+      try { await jobSync?.loadJob?.(draftId) } catch {}
+    } catch (e) {
+      // Surface the error but don't block the toggle — the flag
+      // is already saved; user can hit "Apply to clips" manually.
+      setErr(`Saved, but auto-apply failed: ${e?.message || e}`)
+    }
+  }
+
   const handleFreezeLoopsChange = async (next) => {
     if (!draftId) return
     setErr(null)
@@ -196,6 +224,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       const r = await api.setJobMusicFreezeLoops(draftId, next)
       setMusic(prev => prev ? { ...prev, freeze_loops: r.music_freeze_loops } : prev)
       setSnapPreview(null)
+      await autoReapplySnap()
     } catch (e) {
       setErr(e?.message || String(e))
     }
@@ -208,6 +237,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       const r = await api.setJobMusicReverseLoops(draftId, next)
       setMusic(prev => prev ? { ...prev, reverse_loops: r.music_reverse_loops } : prev)
       setSnapPreview(null)
+      await autoReapplySnap()
     } catch (e) {
       setErr(e?.message || String(e))
     }
@@ -220,6 +250,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       const r = await api.setJobMusicMirrorLoops(draftId, next)
       setMusic(prev => prev ? { ...prev, mirror_loops: r.music_mirror_loops } : prev)
       setSnapPreview(null)
+      await autoReapplySnap()
     } catch (e) {
       setErr(e?.message || String(e))
     }
@@ -232,6 +263,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       const r = await api.setJobMusicLoopColorEffect(draftId, next || null)
       setMusic(prev => prev ? { ...prev, loop_color_effect: r.music_loop_color_effect } : prev)
       setSnapPreview(null)
+      await autoReapplySnap()
     } catch (e) {
       setErr(e?.message || String(e))
     }
