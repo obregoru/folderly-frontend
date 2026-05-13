@@ -513,6 +513,12 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             // other values mirror the photo motion set and trigger the
             // BE animated crop expression in lib/video.mergeVideos().
             video_motion: typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static',
+            // Freeze-frame effect. When true, BE replaces the moving
+            // video with a still frame at trim_start held for the
+            // trim window's duration. Ignored when this clip is
+            // also routed as an insert (insert overlays use their
+            // host's timing, freeze isn't meaningful there).
+            freeze_frame: !!item._freezeFrame,
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
@@ -796,6 +802,42 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                             </select>
                           </label>
                         )}
+                        {!itemIsPhoto && (() => {
+                          // Freeze-frame effect. When on, BE replaces the
+                          // clip's video with a still frame at trimStart
+                          // held for the trim duration. Most useful as a
+                          // duplicate-clip effect — a frozen frame on a
+                          // hi-hat hit reads as a deliberate stutter
+                          // punch in rapid-cut beat-sync montages. Speed
+                          // and zoom are ignored on the BE when this is
+                          // on (no time axis on a still).
+                          const isFrozen = !!item._freezeFrame
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                item._freezeFrame = !isFrozen
+                                try { window.dispatchEvent(new CustomEvent('posty-freeze-frame-change', { detail: { itemId: item.id } })) } catch {}
+                                if (mergedUrl) {
+                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                  setMergedUrl(null)
+                                  mergedBlobRef.current = null
+                                  window._postyMergedVideo = null
+                                }
+                              }}
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                isFrozen
+                                  ? 'bg-[#e0f2fe] border-[#0284c7]/60 text-[#0369a1] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={isFrozen
+                                ? `Freeze frame at ${(item._trimStart || 0).toFixed(2)}s — held for the trim duration. Tap to disable.`
+                                : 'Freeze frame: replace this clip with a single still frame at trimStart held for the trim duration. Great as a "stutter punch" on rapid-cut duplicates.'}
+                            >
+                              <span className="text-[10px]">{isFrozen ? '❄ Frozen' : '❄ Freeze'}</span>
+                            </button>
+                          )
+                        })()}
                         {!itemIsPhoto && (() => {
                           // Static center-crop zoom on video clips. 1.0 = none.
                           // Backend applies as crop=iw/zoom:ih/zoom before the
