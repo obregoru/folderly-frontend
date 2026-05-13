@@ -913,53 +913,61 @@ export const getVoices = () =>
 //
 // Returns the merge_key string. Throws on any error.
 export const mergeNoMusic = async (files, jobUuid, { transition = 'none', transitionDuration = 1 } = {}) => {
-  const mergeFiles = (files || []).filter(f => {
-    if (!f || f.skip) return false
-    const mt = f.media_type || ''
-    return mt.startsWith('video/') || mt.startsWith('image/')
-  })
+  // The FE keeps files in a `_*` camelCase shape (see useJobSync's
+  // hydrate function) — _mediaType, _trimStart, _uploadKey, etc.
+  // The merge endpoint expects snake_case. This helper bridges
+  // them, mirroring VideoMerge.jsx's clip-assembly so the two
+  // paths produce identical merges.
+  const mt = (f) => f._mediaType || f.media_type || ''
+  const uploadKey = (f) => f._uploadKey || f.upload_key || f.uploadResult?.original_temp_path || null
+  const dbFileId = (f) => f._dbFileId != null ? f._dbFileId : (f.id != null ? f.id : null)
+  const isImage = (f) => mt(f).startsWith('image/')
+  const isVideo = (f) => mt(f).startsWith('video/')
+  const isMediaClip = (f) => f && !f._skipInMerge && (isVideo(f) || isImage(f)) && !!uploadKey(f)
+
+  const mergeFiles = (files || []).filter(isMediaClip)
   if (mergeFiles.length === 0) throw new Error('No video clips to merge')
 
-  // Walk hosts-only to compute insert_host_idx — same logic
-  // VideoMerge.jsx uses, but operating on the public snake_case
-  // shape so the orchestrator can run without VideoMerge's
-  // internal state.
-  const hostsOnly = mergeFiles.filter(f => f.insert_into_file_id == null)
-  const hostIdxByFileId = new Map()
-  hostsOnly.forEach((h, idx) => { if (h.id != null) hostIdxByFileId.set(h.id, idx) })
+  // Walk hosts-only to compute insert_host_idx. Hosts are clips
+  // with no _insertIntoFileId; inserts target a host by its db id.
+  const hostsOnly = mergeFiles.filter(f => f._insertIntoFileId == null)
+  const hostIdxByDbId = new Map()
+  hostsOnly.forEach((h, idx) => {
+    const id = dbFileId(h)
+    if (id != null) hostIdxByDbId.set(id, idx)
+  })
 
   const clips = mergeFiles.map(f => {
-    const mt = f.media_type || ''
-    const isPhoto = mt.startsWith('image/')
-    const insertHostIdx = f.insert_into_file_id != null
-      ? (hostIdxByFileId.has(f.insert_into_file_id) ? hostIdxByFileId.get(f.insert_into_file_id) : null)
+    const hostId = f._insertIntoFileId != null ? Number(f._insertIntoFileId) : null
+    const insertHostIdx = hostId != null && hostIdxByDbId.has(hostId)
+      ? hostIdxByDbId.get(hostId)
       : null
-    if (isPhoto) {
+    if (isImage(f)) {
       return {
-        upload_key: f.upload_key,
-        media_type: mt,
-        trim_end: Number(f.photo_to_video_duration) > 0 ? Number(f.photo_to_video_duration) : 5,
-        photo_to_video_motion: f.photo_to_video_motion || 'zoom-in',
-        photo_to_video_zoom: Number(f.photo_to_video_zoom) > 0 ? Number(f.photo_to_video_zoom) : 1.0,
-        photo_to_video_rotate: Number.isFinite(Number(f.photo_to_video_rotate)) ? Number(f.photo_to_video_rotate) : 0,
-        photo_to_video_offset_x: Number.isFinite(Number(f.photo_to_video_offset_x)) ? Number(f.photo_to_video_offset_x) : 0,
-        photo_to_video_offset_y: Number.isFinite(Number(f.photo_to_video_offset_y)) ? Number(f.photo_to_video_offset_y) : 0,
+        upload_key: uploadKey(f),
+        media_type: mt(f) || 'image/jpeg',
+        trim_end: Number(f._trimEnd) > 0 ? Number(f._trimEnd) : 5,
+        photo_to_video_motion: f._photoMotion || 'zoom-in',
+        photo_to_video_zoom: Number(f._photoZoom) > 0 ? Number(f._photoZoom) : 1.0,
+        photo_to_video_rotate: Number.isFinite(Number(f._photoRotate)) ? Number(f._photoRotate) : 0,
+        photo_to_video_offset_x: Number.isFinite(Number(f._photoOffsetX)) ? Number(f._photoOffsetX) : 0,
+        photo_to_video_offset_y: Number.isFinite(Number(f._photoOffsetY)) ? Number(f._photoOffsetY) : 0,
         insert_host_idx: insertHostIdx,
-        insert_at_sec: Number(f.insert_at_sec) >= 0 ? Number(f.insert_at_sec) : 0,
+        insert_at_sec: Number(f._insertAtSec) >= 0 ? Number(f._insertAtSec) : 0,
       }
     }
     return {
-      upload_key: f.upload_key,
-      media_type: mt || 'video/mp4',
-      trim_start: Number(f.trim_start) || 0,
-      trim_end: f.trim_end != null ? Number(f.trim_end) : null,
-      speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
-      video_zoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
-      video_offset_x: Number.isFinite(Number(f.video_offset_x)) ? Number(f.video_offset_x) : 0,
-      video_offset_y: Number.isFinite(Number(f.video_offset_y)) ? Number(f.video_offset_y) : 0,
-      video_motion: typeof f.video_motion === 'string' && f.video_motion ? f.video_motion : 'static',
+      upload_key: uploadKey(f),
+      media_type: mt(f) || 'video/mp4',
+      trim_start: Number(f._trimStart) > 0 ? Number(f._trimStart) : 0,
+      trim_end: f._trimEnd != null ? Number(f._trimEnd) : null,
+      speed: Number(f._speed) > 0 ? Number(f._speed) : 1.0,
+      video_zoom: Number(f._videoZoom) > 0 ? Number(f._videoZoom) : 1.0,
+      video_offset_x: Number.isFinite(Number(f._videoOffsetX)) ? Number(f._videoOffsetX) : 0,
+      video_offset_y: Number.isFinite(Number(f._videoOffsetY)) ? Number(f._videoOffsetY) : 0,
+      video_motion: typeof f._videoMotion === 'string' && f._videoMotion ? f._videoMotion : 'static',
       insert_host_idx: insertHostIdx,
-      insert_at_sec: Number(f.insert_at_sec) >= 0 ? Number(f.insert_at_sec) : 0,
+      insert_at_sec: Number(f._insertAtSec) >= 0 ? Number(f._insertAtSec) : 0,
     }
   })
 
