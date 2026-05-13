@@ -197,10 +197,53 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
 
   const [libraryOpen, setLibraryOpen] = useState(false)
 
+  // Top-of-panel re-merge state. The bottom VideoMerge button is
+  // canonical; this is a duplicate trigger for users who've
+  // scrolled past it after toggling effects on individual clips.
+  //   - hasMerge: a merged video currently exists
+  //   - merging: a merge is in flight (button disabled)
+  // Each effect/trim/reorder change wipes window._postyMergedVideo
+  // (via the existing onInvalidate paths), and dispatches
+  // posty-merge-change so we know to drop hasMerge.
+  const [hasMerge, setHasMerge] = useState(() => !!(typeof window !== 'undefined' && window._postyMergedVideo))
+  const [merging, setMerging] = useState(false)
+  useEffect(() => {
+    const onChange = () => setHasMerge(!!(typeof window !== 'undefined' && window._postyMergedVideo))
+    const onComplete = () => { setMerging(false); onChange() }
+    window.addEventListener('posty-merge-change', onChange)
+    window.addEventListener('posty-merge-complete', onComplete)
+    return () => {
+      window.removeEventListener('posty-merge-change', onChange)
+      window.removeEventListener('posty-merge-complete', onComplete)
+    }
+  }, [])
+  const triggerRemerge = () => {
+    if (merging) return
+    setMerging(true)
+    try { window.dispatchEvent(new CustomEvent('posty-trigger-merge')) } catch {
+      setMerging(false)
+    }
+  }
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="text-[12px] font-medium flex-1">Media ({files.length})</div>
+        {showMerge && (
+          <button
+            type="button"
+            onClick={triggerRemerge}
+            disabled={merging || files.length === 0}
+            className={`text-[10px] py-1 px-2 rounded cursor-pointer disabled:opacity-50 font-medium ${
+              hasMerge
+                ? 'border border-[#6C5CE7] bg-white text-[#6C5CE7]'
+                : 'border-none bg-[#6C5CE7] text-white'
+            }`}
+            title={hasMerge
+              ? 'Timeline changes invalidate the merge — tap to re-merge with the latest clip set + effects.'
+              : `Merge ${videoFiles.length} clip${videoFiles.length === 1 ? '' : 's'} into the canonical merged video. Required before final-render / scheduling.'}`}
+          >{merging ? 'Merging…' : (hasMerge ? '🔄 Re-merge' : `🔀 Merge ${videoFiles.length} clip${videoFiles.length === 1 ? '' : 's'}`)}</button>
+        )}
         <button
           type="button"
           onClick={() => setLibraryOpen(true)}
