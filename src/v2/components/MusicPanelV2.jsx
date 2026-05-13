@@ -1141,7 +1141,23 @@ function RemergeButton() {
     } catch (e) {
       setBusy(false)
       setError(e?.message || String(e))
+      return
     }
+    // Safety net: VideoMerge's listener only registers when the
+    // Clips tab is mounted. If for some reason it's not (older
+    // FE build, missing ClipsPanelV2, etc.) the trigger goes
+    // nowhere and the button stays stuck on "Starting merge…".
+    // 3s is generous — VideoMerge fires posty-merge-progress
+    // ('Uploading clip…') almost immediately after handleMerge
+    // starts, so a real merge will clear this within ~50ms.
+    setTimeout(() => {
+      setBusy(prev => {
+        if (!prev) return prev
+        setError('No merge handler responded. Open the Media tab once to mount it, then retry.')
+        setProgress('')
+        return false
+      })
+    }, 3000)
   }
   const showDone = !busy && !error && doneAt && (Date.now() - doneAt) < 4000
   const label = busy

@@ -112,7 +112,16 @@ export default function EditorV2({
       />
 
       <div className="bg-white border border-[#e5e5e5] rounded-lg p-3">
-        {safeActiveTool === 'clips' && (
+        {/*
+          ClipsPanelV2 stays MOUNTED on every tab — only its
+          visibility toggles. VideoMerge inside this panel owns the
+          posty-trigger-merge event listener; without it, the
+          music-panel Re-merge button (and any other off-tab
+          trigger) has nothing to dispatch to and stays stuck on
+          "Starting merge…" forever. Same always-mounted pattern
+          the VoiceoverPanel uses below for the same reason.
+        */}
+        <div style={{ display: safeActiveTool === 'clips' ? 'block' : 'none' }}>
           <ClipsPanelV2
             files={files}
             setFiles={setFiles}
@@ -127,7 +136,7 @@ export default function EditorV2({
             onToggleCombinePhotos={toggleCombinePhotos}
             draftId={draftId}
           />
-        )}
+        </div>
         {safeActiveTool === 'hints' && <HintsPanelV2 jobSync={jobSync} draftId={draftId} settings={settings} />}
         {safeActiveTool === 'producer' && <ProducerChatPanel draftId={draftId} jobSync={jobSync} files={files} />}
         {safeActiveTool === 'first2s' && <First2sPanel draftId={draftId} jobSync={jobSync} />}
