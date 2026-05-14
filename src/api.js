@@ -191,6 +191,23 @@ export const duplicateJobFile = (jobId, fileId) =>
     return r.json()
   })
 
+// Split a source video file into N subclips. Each range becomes a new
+// job_files row pointing to the same upload_key with its own trim
+// window. Server returns { files: [...] } in source-timeline order.
+export const splitJobFile = (jobId, fileId, ranges) =>
+  fetch(api(`/jobs/${jobId}/files/${fileId}/split`), {
+    method: 'POST',
+    headers: { ...h(), ...csrf() },
+    credentials: 'include',
+    body: JSON.stringify({ ranges }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `splitJobFile failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Push tenant default_overlay_style into an existing job's
 // overlay_settings + default_caption_style + cascade to segments.
 export const applyTenantDefaultsToJob = (jobId) =>

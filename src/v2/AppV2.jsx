@@ -402,6 +402,51 @@ export default function AppV2() {
       alert('Duplicate failed: ' + (e?.message || e))
     }
   }
+  // Split a source video into N subclips. Server creates N job_files
+  // rows sharing the source's upload_key with distinct trim windows;
+  // we materialise each one as a local file entry so the merge panel
+  // picks them up immediately.
+  const splitFile = async (sourceItem, ranges) => {
+    if (!sourceItem?._dbFileId) throw new Error('Source has no persisted file id yet')
+    const jobId = jobSync.jobId
+    if (!jobId) throw new Error('No job to attach subclips to')
+    const r = await api.splitJobFile(jobId, sourceItem._dbFileId, ranges)
+    const newFiles = Array.isArray(r?.files) ? r.files : []
+    if (newFiles.length === 0) throw new Error('Server returned no files')
+    const entries = newFiles.map(f => ({
+      id: Math.random().toString(36).slice(2),
+      file: null,
+      isImg: false,
+      parsed: { occasions: [], products: [], moments: [] },
+      status: null,
+      captions: f.captions && Object.keys(f.captions).length ? f.captions : null,
+      uploadResult: { original_temp_path: f.upload_key, uuid: null },
+      _trimStart: Number(f.trim_start) || 0,
+      _trimEnd: f.trim_end ?? null,
+      _speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
+      _insertIntoFileId: null,
+      _insertAtSec: 0,
+      _dbFileId: f.id,
+      _videoZoom: Number(f.video_zoom) > 0 ? Number(f.video_zoom) : 1.0,
+      _videoOffsetX: Number.isFinite(Number(f.video_offset_x)) ? Number(f.video_offset_x) : 0,
+      _videoOffsetY: Number.isFinite(Number(f.video_offset_y)) ? Number(f.video_offset_y) : 0,
+      _videoMotion: typeof f.video_motion === 'string' && f.video_motion ? f.video_motion : 'static',
+      _restored: true,
+      _tenantSlug: api.tenantSlug(),
+      _uploadKey: f.upload_key,
+      _publicUrl: f.public_url || null,
+      _filename: f.filename,
+      _mediaType: f.media_type,
+    }))
+    setFiles(prev => [...prev, ...entries])
+    // Invalidate any cached merge so the operator gets a fresh run
+    // with the new clips included next time they hit Merge.
+    if (typeof window !== 'undefined' && window._postyMergedVideo) {
+      try { URL.revokeObjectURL(window._postyMergedVideo.url) } catch {}
+      window._postyMergedVideo = null
+      try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+    }
+  }
 
   if (!authChecked) {
     return (
@@ -579,6 +624,7 @@ export default function AppV2() {
             removeFile={removeFile}
             reorderFiles={reorderFiles}
             duplicateFile={duplicateFile}
+            splitFile={splitFile}
             user={user}
           />
         )}
