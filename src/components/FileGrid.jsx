@@ -608,7 +608,7 @@ function SortableTile({ item, children }) {
   )
 }
 
-export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onToggleSkip, onStorageMissing, VideoTrimmer, PhotoDurationBar }) {
+export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSplit, onToggleSkip, onStorageMissing, VideoTrimmer, PhotoDurationBar }) {
   const [previewItem, setPreviewItem] = useState(null)
 
   // Speed updates from VideoMerge mutate item._speed in place and
@@ -778,6 +778,19 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onTo
                   }`}
                   title={isSkipped ? 'Include this clip in the merge' : 'Skip this clip from the merge (keeps it in the draft)'}
                 >{isSkipped ? '↻' : '⊘'}</button>
+              )}
+              {/* Split — pop out the subclip extractor so the operator
+                  can carve N moments out of one long take without
+                  re-uploading. Server-side endpoint creates N rows that
+                  share this source's upload_key with their own trim
+                  windows. Video-only and gated on _dbFileId because the
+                  endpoint needs a persisted source row. */}
+              {item._dbFileId != null && isVideo && onSplit && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onSplit(item) }}
+                  className="absolute top-1 right-[64px] w-[18px] h-[18px] rounded-full bg-[#f5a623]/85 hover:bg-[#f5a623] text-white text-[10px] flex items-center justify-center cursor-pointer border-none z-[5]"
+                  title="Split this clip into multiple subclips"
+                >✂</button>
               )}
               {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
               {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}

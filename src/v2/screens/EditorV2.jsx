@@ -18,6 +18,7 @@ import First2sPanel from '../components/First2sPanel'
 import FullVideoPanel from '../components/FullVideoPanel'
 import ChannelsPanelV2 from '../components/ChannelsPanelV2'
 import MusicPanelV2 from '../components/MusicPanelV2'
+import SubclipSplitterModal from '../components/SubclipSplitterModal'
 
 /**
  * EditorV2 — the new mockup-style editor, real data.
@@ -32,7 +33,7 @@ import MusicPanelV2 from '../components/MusicPanelV2'
  * this phase; they'll be ported one by one in phases 3+.
  */
 export default function EditorV2({
-  draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles, duplicateFile,
+  draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles, duplicateFile, splitFile,
 }) {
   const [activeTool, setActiveTool] = useState('clips')
   // Shared ref to the FinalPreview <video>. Every tool that wants to
@@ -123,6 +124,7 @@ export default function EditorV2({
         */}
         <div style={{ display: safeActiveTool === 'clips' ? 'block' : 'none' }}>
           <ClipsPanelV2
+            splitFile={splitFile}
             files={files}
             setFiles={setFiles}
             videoFiles={videoFiles}
@@ -189,7 +191,7 @@ export default function EditorV2({
   )
 }
 
-function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reorderFiles, duplicateFile, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos, draftId }) {
+function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reorderFiles, duplicateFile, splitFile, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos, draftId }) {
   // Show the merge UI when:
   //   - There's at least one video (mixed draft or video-only), OR
   //   - It's a photo-only draft with 2+ items and the user opted into
@@ -205,6 +207,9 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
     || (onlyPhotos && combinePhotosAsVideo && files.length >= 2)
 
   const [libraryOpen, setLibraryOpen] = useState(false)
+  // Source item being split. null = modal closed. The modal owns the
+  // in-flight range state; commit calls splitFile then unsets this.
+  const [splitSource, setSplitSource] = useState(null)
 
   // Top-of-panel re-merge state. The bottom VideoMerge button is
   // canonical; this is a duplicate trigger for users who've
@@ -311,6 +316,7 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           onRemove={removeFile}
           onReorder={reorderFiles}
           onDuplicate={duplicateFile}
+          onSplit={splitFile ? (item) => setSplitSource(item) : undefined}
           onStorageMissing={(itemId) => {
             // Client-side fallback: a tile's <video>/<img> errored
             // loading the source. Lift the flag into files state so
@@ -417,6 +423,16 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           onSaveTrim={item => jobSync.saveFileTrim?.(item)}
           onSaveMotion={item => jobSync.saveFilePhotoMotion?.(item)}
           onDuplicate={duplicateFile}
+        />
+      )}
+      {splitSource && (
+        <SubclipSplitterModal
+          source={splitSource}
+          onCancel={() => setSplitSource(null)}
+          onSubmit={async (ranges) => {
+            await splitFile(splitSource, ranges)
+            setSplitSource(null)
+          }}
         />
       )}
     </div>
