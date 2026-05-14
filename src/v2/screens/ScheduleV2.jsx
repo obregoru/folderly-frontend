@@ -26,6 +26,63 @@ function chipColors(p) {
   return { bg: 'bg-[#6C5CE7]/10', border: 'border-[#6C5CE7]', dot: 'bg-[#6C5CE7]', textClass: 'text-[#6C5CE7]' }
 }
 
+const STATUS_TEXT = {
+  pending: 'Pending',
+  posted: 'Posted',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+}
+
+function StatusPill({ post, size = 'sm' }) {
+  const s = post?.status || 'pending'
+  const c = chipColors(post)
+  const text = STATUS_TEXT[s] || s
+  const title = s === 'failed' && post?.error_message ? post.error_message
+              : s === 'posted' && post?.posted_at ? `Posted ${new Date(post.posted_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+              : undefined
+  const padding = size === 'xs' ? 'py-[1px] px-1' : 'py-0.5 px-1.5'
+  const fontSize = size === 'xs' ? 'text-[8px]' : 'text-[9px]'
+  return (
+    <span
+      title={title}
+      className={`${fontSize} ${padding} rounded border ${c.bg} ${c.border} ${c.textClass} font-medium uppercase tracking-wide flex-shrink-0`}
+    >{text}</span>
+  )
+}
+
+// Aggregate a batch's per-child status into a single short label
+// ("All pending", "2 posted", "1 posted · 1 failed", etc).
+function batchStatusSummary(rows) {
+  const counts = { pending: 0, posted: 0, failed: 0, cancelled: 0 }
+  for (const r of rows) counts[r.status || 'pending'] = (counts[r.status || 'pending'] || 0) + 1
+  const total = rows.length
+  if (counts.pending === total) return { label: `All ${total} pending`, status: 'pending' }
+  if (counts.posted === total) return { label: `All ${total} posted`, status: 'posted' }
+  if (counts.failed === total) return { label: `All ${total} failed`, status: 'failed' }
+  if (counts.cancelled === total) return { label: `All ${total} cancelled`, status: 'cancelled' }
+  const parts = []
+  if (counts.posted) parts.push(`${counts.posted} posted`)
+  if (counts.failed) parts.push(`${counts.failed} failed`)
+  if (counts.pending) parts.push(`${counts.pending} pending`)
+  if (counts.cancelled) parts.push(`${counts.cancelled} cancelled`)
+  // Worst-case status wins the badge color so user sees red if anything failed.
+  const status = counts.failed ? 'failed' : counts.pending ? 'pending' : counts.posted ? 'posted' : 'cancelled'
+  return { label: parts.join(' · '), status }
+}
+
+// "Today" / "Tomorrow" / "Thu May 14" — relative day for any Date,
+// always in the viewer's local timezone (matches toLocaleTimeString).
+function smartDay(d) {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24))
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Tomorrow'
+  if (diffDays === -1) return 'Yesterday'
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 const DAY_LABELS = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri']
 const MONTH_DAY_LABELS = ['S', 'S', 'M', 'T', 'W', 'T', 'F']
 
@@ -255,17 +312,24 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                   )
                 }
                 const p = block.row
-                const time = p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'
+                const when = p.scheduled_at ? new Date(p.scheduled_at) : null
+                const time = when ? when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—'
+                const dayLabel = when ? smartDay(when) : ''
                 const isEditing = editingUuid === p.uuid
+                const soloColors = chipColors(p)
+                const isPending = (p.status || 'pending') === 'pending'
                 return (
-                  <div key={p.uuid} className="bg-white border border-[#e5e5e5] rounded p-2 text-[10px]">
+                  <div key={p.uuid} className={`bg-white border ${soloColors.border}/30 rounded p-2 text-[10px]`}>
                     <div className="flex items-center gap-2">
-                      <div className="w-1 h-10 rounded-full flex-shrink-0 bg-[#6C5CE7]" />
-                      <div className="font-mono text-muted w-12 flex-shrink-0">{time}</div>
+                      <div className={`w-1 h-10 rounded-full flex-shrink-0 ${soloColors.dot}`} />
+                      <div className="font-mono text-muted flex-shrink-0">
+                        {dayLabel && <span className="mr-1">{dayLabel} ·</span>}{time}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{p.job_name || p.title || '(no title)'}</div>
                         <div className="text-[9px] text-muted">{p.platform}</div>
                       </div>
+                      <StatusPill post={p} />
                     </div>
                     {isEditing ? (
                       <div className="mt-2 space-y-1">
@@ -280,12 +344,14 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                           <button onClick={cancelEdit} className="text-[9px] py-0.5 px-2 bg-white border border-[#e5e5e5] rounded cursor-pointer">Cancel</button>
                         </div>
                       </div>
-                    ) : (
+                    ) : isPending ? (
                       <div className="flex gap-1 mt-1.5 flex-wrap">
                         <button onClick={() => startEdit(p)} className="text-[9px] text-muted bg-white border border-[#e5e5e5] rounded py-0.5 px-1.5 cursor-pointer">Edit caption</button>
                         <button onClick={() => onCancel(p.uuid)} className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer ml-auto">Cancel</button>
                       </div>
-                    )}
+                    ) : p.status === 'failed' && p.error_message ? (
+                      <div className="mt-1.5 text-[9px] text-[#c0392b] truncate" title={p.error_message}>{p.error_message}</div>
+                    ) : null}
                   </div>
                 )
               })}
@@ -308,24 +374,33 @@ function BatchCard({ rows, onCancel, onCancelGroup, onEdit, editingUuid, editing
     .map(r => r.scheduled_at ? new Date(r.scheduled_at) : null)
     .filter(Boolean)
     .sort((a, b) => a - b)
-  const timeLabel = times.length === 0 ? '—'
-    : times.length === 1
-      ? times[0].toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-      : `${times[0].toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} – ${times[times.length - 1].toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+  const fmtTime = (d) => d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  const timeRange = times.length === 0 ? '—'
+    : times.length === 1 ? fmtTime(times[0])
+    : `${fmtTime(times[0])} – ${fmtTime(times[times.length - 1])}`
+  const dayLabel = times.length > 0 ? smartDay(times[0]) : ''
+  const summary = batchStatusSummary(rows)
+  // Border color matches aggregate status so a failed-batch row reads red.
+  const summaryColors = chipColors({ status: summary.status })
+  const hasPending = rows.some(r => (r.status || 'pending') === 'pending')
   return (
-    <div className="bg-white border border-[#6C5CE7]/30 rounded p-2 text-[10px] space-y-1.5">
+    <div className={`bg-white border ${summaryColors.border}/30 rounded p-2 text-[10px] space-y-1.5`}>
       <div className="flex items-center gap-2">
-        <div className="w-1 h-10 rounded-full flex-shrink-0 bg-[#6C5CE7]" />
-        <div className="font-mono text-muted flex-shrink-0">{timeLabel}</div>
+        <div className={`w-1 h-10 rounded-full flex-shrink-0 ${summaryColors.dot}`} />
+        <div className="font-mono text-muted flex-shrink-0">
+          {dayLabel && <span className="mr-1">{dayLabel} ·</span>}{timeRange}
+        </div>
         <div className="flex-1 min-w-0">
           <div className="font-medium truncate">{jobName}</div>
-          <div className="text-[9px] text-muted">Batch · {rows.length} platforms</div>
+          <div className="text-[9px] text-muted">Batch · {rows.length} platforms · {summary.label}</div>
         </div>
-        <button
-          onClick={() => onCancelGroup(first.uuid, rows.length)}
-          className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer flex-shrink-0"
-          title="Cancel every pending platform in this batch"
-        >Cancel batch</button>
+        {hasPending && (
+          <button
+            onClick={() => onCancelGroup(first.uuid, rows.length)}
+            className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer flex-shrink-0"
+            title="Cancel every pending platform in this batch"
+          >Cancel batch</button>
+        )}
       </div>
       <div className="space-y-1 border-t border-[#e5e5e5] pt-1.5">
         {rows.map(p => {
@@ -357,16 +432,21 @@ function BatchCard({ rows, onCancel, onCancelGroup, onEdit, editingUuid, editing
                   <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${c.dot}`} />
                   <span className="font-mono text-muted w-10 flex-shrink-0">{t}</span>
                   <span className="text-[9px] font-medium uppercase flex-1 truncate">{p.platform}</span>
-                  <button
-                    onClick={() => onEdit(p)}
-                    className="text-[9px] text-muted bg-transparent border-none cursor-pointer"
-                    title="Edit this platform's caption"
-                  >✎</button>
-                  <button
-                    onClick={() => onCancel(p.uuid)}
-                    className="text-[9px] text-[#c0392b] bg-transparent border-none cursor-pointer"
-                    title="Cancel only this platform"
-                  >✕</button>
+                  <StatusPill post={p} size="xs" />
+                  {(p.status || 'pending') === 'pending' && (
+                    <>
+                      <button
+                        onClick={() => onEdit(p)}
+                        className="text-[9px] text-muted bg-transparent border-none cursor-pointer"
+                        title="Edit this platform's caption"
+                      >✎</button>
+                      <button
+                        onClick={() => onCancel(p.uuid)}
+                        className="text-[9px] text-[#c0392b] bg-transparent border-none cursor-pointer"
+                        title="Cancel only this platform"
+                      >✕</button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
