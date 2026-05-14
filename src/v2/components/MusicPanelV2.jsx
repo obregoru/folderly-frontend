@@ -662,6 +662,19 @@ export default function MusicPanelV2({ draftId, jobSync }) {
               onApply={(opts) => handleReanalyze(opts)}
             />
           )}
+          {/* Zoom points preview — lists the exact times where the
+              punch zoom will fire IF beat-zoom-all (or per-clip
+              beat_zoom) is enabled. Distinct from the snap cut
+              preview below: zooms can fire WITHOUT being cuts.
+              Visible whenever there's a beat array for the
+              currently-selected source. */}
+          {!!beatMap && (
+            <ZoomPointsTable
+              source={music?.beat_source || 'all'}
+              beatMap={beatMap}
+              beatZoomActive={!!music?.beat_zoom_all || !!music?.beat_zoom_loops}
+            />
+          )}
           <PacingSelector pacing={Number(music?.pacing) || 1} onChange={handlePacingChange} />
           {/* Standalone effect — applies independent of loop mode.
               Lives ABOVE the loop-to-beats section so it's clear
@@ -1120,6 +1133,72 @@ function PacingSelector({ pacing, onChange }) {
 // beat list ('all') for sources that aren't populated yet (older
 // music tracks uploaded before the band analyzer landed — fixed
 // by a single Re-analyze click).
+// Lists the exact times where the punch zoom WILL fire, for the
+// currently-selected beat source. Distinct from the snap cut
+// table: zoom points are independent of cuts (zoom can fire at
+// every beat even if the snap places only one cut). Helpful for
+// verifying "I selected boom, am I going to zoom on the actual
+// booms?" before re-merging.
+function ZoomPointsTable({ source, beatMap, beatZoomActive }) {
+  const arr = (() => {
+    if (source === 'bass' && Array.isArray(beatMap?.bass_beats)) return beatMap.bass_beats
+    if (source === 'hihat' && Array.isArray(beatMap?.hihat_beats)) return beatMap.hihat_beats
+    if (source === 'boom' && Array.isArray(beatMap?.boom_beats)) return beatMap.boom_beats
+    if (source === 'bass+hihat') {
+      const a = Array.isArray(beatMap?.bass_beats) ? beatMap.bass_beats : []
+      const b = Array.isArray(beatMap?.hihat_beats) ? beatMap.hihat_beats : []
+      return [...a, ...b].sort((x, y) => x - y)
+    }
+    return Array.isArray(beatMap?.beats) ? beatMap.beats : []
+  })()
+  if (!Array.isArray(arr) || arr.length === 0) return null
+  const [open, setOpen] = useState(false)
+  const sourceLabel = source === 'boom' ? 'Boom' :
+                      source === 'bass' ? 'Bass / kick' :
+                      source === 'hihat' ? 'Hi-hat' :
+                      source === 'bass+hihat' ? 'Bass + Hi-hat' :
+                      'All beats'
+  return (
+    <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2 text-[10px]">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-2 bg-transparent border-none cursor-pointer text-left p-0"
+      >
+        <span className="font-medium flex-1">
+          🥁 Zoom points (from {sourceLabel}) — {arr.length}
+          {!beatZoomActive && <span className="text-muted font-normal italic ml-1">(beat-zoom is off; enable to use these)</span>}
+        </span>
+        <span className="text-muted">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <table className="w-full mt-1.5 border-collapse">
+          <thead>
+            <tr className="text-muted">
+              <th className="text-left font-normal pb-0.5">#</th>
+              <th className="text-left font-normal pb-0.5">Time</th>
+              <th className="text-left font-normal pb-0.5">Since prev</th>
+            </tr>
+          </thead>
+          <tbody>
+            {arr.map((t, i) => {
+              const prev = i > 0 ? arr[i - 1] : null
+              const delta = prev != null ? t - prev : null
+              return (
+                <tr key={i} className="font-mono">
+                  <td className="text-muted pr-2">{i + 1}</td>
+                  <td className="pr-2">{Number(t).toFixed(2)}s</td>
+                  <td className="text-muted">{delta != null ? `+${delta.toFixed(2)}s` : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
 // Live tuning for the boom-detector. Two sliders + Re-analyze
 // button. Initial slider positions come from beat_map.boom_params
 // so the operator always sees what produced the current boom_beats.
