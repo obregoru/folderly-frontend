@@ -1567,10 +1567,16 @@ export const setJobMusicPacing = (jobUuid, pacing) =>
     return r.json()
   })
 
-export const reanalyzeJobMusic = (jobUuid) =>
+export const reanalyzeJobMusic = (jobUuid, opts = {}) =>
   fetch(api(`/jobs/${jobUuid}/music/reanalyze`), {
     method: 'POST', headers: { ...h(), ...csrf() }, credentials: 'include',
-    body: JSON.stringify({}),
+    body: JSON.stringify({
+      // Operator-tunable boom-detector params. BE clamps to safe
+      // ranges and falls back to defaults when omitted. Pass a
+      // number (0..1) to override; omit to use server defaults.
+      boom_peak_pct: typeof opts.boomPeakPct === 'number' ? opts.boomPeakPct : undefined,
+      boom_sustain_floor: typeof opts.boomSustainFloor === 'number' ? opts.boomSustainFloor : undefined,
+    }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))

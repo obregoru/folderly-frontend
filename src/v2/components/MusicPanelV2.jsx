@@ -139,12 +139,12 @@ export default function MusicPanelV2({ draftId, jobSync }) {
     }
   }
 
-  const handleReanalyze = async () => {
+  const handleReanalyze = async (opts = {}) => {
     if (!draftId || reanalyzing) return
     setReanalyzing(true)
     setErr(null)
     try {
-      const r = await api.reanalyzeJobMusic(draftId)
+      const r = await api.reanalyzeJobMusic(draftId, opts)
       setMusic(prev => prev ? { ...prev, beat_map: r.music_beat_map, analyzed_at: new Date().toISOString() } : prev)
     } catch (e) {
       setErr(e?.message || String(e))
@@ -649,6 +649,19 @@ export default function MusicPanelV2({ draftId, jobSync }) {
             beatMap={beatMap}
             onChange={handleBeatSourceChange}
           />
+          {/* Boom detector tuning — visible only when 'boom' is the
+              active beat source. Two sliders + Re-analyze: lets the
+              operator dial in detection per-track without redeploying
+              the BE. peak_pct = how close to the loudest hit a
+              candidate has to be; sustain_floor = how much energy
+              has to persist past the transient. */}
+          {(music?.beat_source || 'all') === 'boom' && (
+            <BoomTuningControls
+              beatMap={beatMap}
+              reanalyzing={reanalyzing}
+              onApply={(opts) => handleReanalyze(opts)}
+            />
+          )}
           <PacingSelector pacing={Number(music?.pacing) || 1} onChange={handlePacingChange} />
           {/* Standalone effect — applies independent of loop mode.
               Lives ABOVE the loop-to-beats section so it's clear
@@ -1107,6 +1120,76 @@ function PacingSelector({ pacing, onChange }) {
 // beat list ('all') for sources that aren't populated yet (older
 // music tracks uploaded before the band analyzer landed — fixed
 // by a single Re-analyze click).
+// Live tuning for the boom-detector. Two sliders + Re-analyze
+// button. Initial slider positions come from beat_map.boom_params
+// so the operator always sees what produced the current boom_beats.
+function BoomTuningControls({ beatMap, reanalyzing, onApply }) {
+  const initPeakPct = Number(beatMap?.boom_params?.peak_pct)
+  const initSustain = Number(beatMap?.boom_params?.sustain_floor)
+  const [peakPct, setPeakPct] = useState(Number.isFinite(initPeakPct) ? initPeakPct : 0.5)
+  const [sustainFloor, setSustainFloor] = useState(Number.isFinite(initSustain) ? initSustain : 0.4)
+  // Re-seed when the BE returns a fresh beat_map after re-analyze,
+  // so the sliders reflect the actual params that produced the
+  // currently-displayed boom_beats.
+  useEffect(() => {
+    const p = Number(beatMap?.boom_params?.peak_pct)
+    const s = Number(beatMap?.boom_params?.sustain_floor)
+    if (Number.isFinite(p)) setPeakPct(p)
+    if (Number.isFinite(s)) setSustainFloor(s)
+  }, [beatMap?.boom_params?.peak_pct, beatMap?.boom_params?.sustain_floor])
+  const boomCount = Array.isArray(beatMap?.boom_beats) ? beatMap.boom_beats.length : 0
+  return (
+    <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2 text-[10px] space-y-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-medium">🎚 Boom tuning</span>
+        <span className="text-muted">{boomCount} boom{boomCount === 1 ? '' : 's'} kept</span>
+      </div>
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-2">
+          <label className="w-20 shrink-0 text-muted">Peak floor</label>
+          <input
+            type="range"
+            min="0.1"
+            max="0.95"
+            step="0.05"
+            value={peakPct}
+            onChange={e => setPeakPct(Number(e.target.value))}
+            className="flex-1"
+          />
+          <span className="font-mono w-10 text-right">{(peakPct * 100).toFixed(0)}%</span>
+        </div>
+        <div className="text-[9px] text-muted leading-tight pl-22">
+          Keep candidates ≥ {Math.round(peakPct * 100)}% of the loudest sub-bass hit. Lower = more booms; higher = only the loudest hits.
+        </div>
+      </div>
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-2">
+          <label className="w-20 shrink-0 text-muted">Sustain</label>
+          <input
+            type="range"
+            min="0.1"
+            max="0.7"
+            step="0.05"
+            value={sustainFloor}
+            onChange={e => setSustainFloor(Number(e.target.value))}
+            className="flex-1"
+          />
+          <span className="font-mono w-10 text-right">{(sustainFloor * 100).toFixed(0)}%</span>
+        </div>
+        <div className="text-[9px] text-muted leading-tight pl-22">
+          Energy at 100ms must be ≥ {Math.round(sustainFloor * 100)}% of the peak. Lower = catch shorter hits; higher = only long-decay 808s.
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => onApply({ boomPeakPct: peakPct, boomSustainFloor: sustainFloor })}
+        disabled={reanalyzing}
+        className="w-full text-[10px] py-1 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+      >{reanalyzing ? 'Re-analyzing…' : '↻ Re-analyze with these settings'}</button>
+    </div>
+  )
+}
+
 function BeatSourceSelector({ source, beatMap, onChange }) {
   const bassCount = Array.isArray(beatMap?.bass_beats) ? beatMap.bass_beats.length : 0
   const hihatCount = Array.isArray(beatMap?.hihat_beats) ? beatMap.hihat_beats.length : 0
