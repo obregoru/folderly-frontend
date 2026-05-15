@@ -425,6 +425,58 @@ export default function AppV2() {
       alert('Duplicate failed: ' + (e?.message || e))
     }
   }
+  // Replace the storage object behind an existing row WITHOUT changing
+  // its position / trim / effects. Used when the original upload's
+  // bytes have gone missing in storage — the tile shows "Source file
+  // missing" and operator picks a new file. We upload the new bytes
+  // via the same path normal uploads use, then PATCH the row's
+  // upload_key (and filename / media_type / file_hash) so everything
+  // else on the timeline stays exactly as it was.
+  const replaceFileSource = async (targetItem, newFile) => {
+    if (!targetItem?._dbFileId) throw new Error('Source has no persisted file id yet')
+    const jobId = jobSync.jobId
+    if (!jobId) throw new Error('No job to attach replacement to')
+    // 1) Upload bytes through the normal upload path so the BE
+    //    writes them to storage AND creates an uploads row (so the
+    //    media library + the file_hash backfill both see this file).
+    const uploadResult = await api.uploadFile(newFile, '', null, { occasions: [], products: [], moments: [] }, null, jobId)
+    const uploadKey = uploadResult?.original_temp_path
+    if (!uploadKey) throw new Error('Upload returned no storage key')
+    // 2) Rebind the row to the new upload_key. Filename + media_type
+    //    come from the picked File so the tile label updates too;
+    //    the BE backfills file_hash from the uploads row.
+    const r = await api.rebindJobFileSource(jobId, targetItem._dbFileId, {
+      upload_key: uploadKey,
+      filename: newFile.name,
+      media_type: newFile.type || targetItem._mediaType,
+    })
+    const f = r?.file
+    if (!f?.id) throw new Error('Rebind returned no file')
+    // 3) Patch local state — clear the missing flag, swap in the new
+    //    upload_key / filename / media_type / public_url so the tile
+    //    flips from the warning placeholder back to a playable
+    //    thumbnail without a full job reload.
+    setFiles(prev => prev.map(item => {
+      if (item.id !== targetItem.id) return item
+      return {
+        ...item,
+        _storageMissing: false,
+        _uploadKey: f.upload_key,
+        _publicUrl: f.public_url || null,
+        _filename: f.filename,
+        _mediaType: f.media_type,
+        _trimThumbs: null,
+        uploadResult: { original_temp_path: f.upload_key, uuid: null },
+      }
+    }))
+    // Invalidate any cached merge — the underlying bytes changed.
+    if (typeof window !== 'undefined' && window._postyMergedVideo) {
+      try { URL.revokeObjectURL(window._postyMergedVideo.url) } catch {}
+      window._postyMergedVideo = null
+      try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+    }
+  }
+
   // Split a source video into N subclips. Server creates N job_files
   // rows sharing the source's upload_key with distinct trim windows;
   // we materialise each one as a local file entry so the merge panel
@@ -658,6 +710,7 @@ export default function AppV2() {
             reorderFiles={reorderFiles}
             duplicateFile={duplicateFile}
             splitFile={splitFile}
+            replaceFileSource={replaceFileSource}
             user={user}
           />
         )}

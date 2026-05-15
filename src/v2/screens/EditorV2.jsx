@@ -33,7 +33,7 @@ import SubclipSplitterModal from '../components/SubclipSplitterModal'
  * this phase; they'll be ported one by one in phases 3+.
  */
 export default function EditorV2({
-  draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles, duplicateFile, splitFile,
+  draftId, jobSync, files, setFiles, settings, addFiles, removeFile, reorderFiles, duplicateFile, splitFile, replaceFileSource,
 }) {
   const [activeTool, setActiveTool] = useState('clips')
   // Shared ref to the FinalPreview <video>. Every tool that wants to
@@ -125,6 +125,7 @@ export default function EditorV2({
         <div style={{ display: safeActiveTool === 'clips' ? 'block' : 'none' }}>
           <ClipsPanelV2
             splitFile={splitFile}
+            replaceFileSource={replaceFileSource}
             files={files}
             setFiles={setFiles}
             videoFiles={videoFiles}
@@ -191,7 +192,7 @@ export default function EditorV2({
   )
 }
 
-function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reorderFiles, duplicateFile, splitFile, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos, draftId }) {
+function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reorderFiles, duplicateFile, splitFile, replaceFileSource, jobSync, onlyPhotos, combinePhotosAsVideo, onToggleCombinePhotos, draftId }) {
   // Show the merge UI when:
   //   - There's at least one video (mixed draft or video-only), OR
   //   - It's a photo-only draft with 2+ items and the user opted into
@@ -317,6 +318,7 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           onReorder={reorderFiles}
           onDuplicate={duplicateFile}
           onSplit={splitFile ? (item) => setSplitSource(item) : undefined}
+          onReplaceSource={replaceFileSource}
           onStorageMissing={(itemId) => {
             // Client-side fallback: a tile's <video>/<img> errored
             // loading the source. Lift the flag into files state so

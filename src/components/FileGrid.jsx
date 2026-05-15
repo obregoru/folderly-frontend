@@ -417,7 +417,60 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
 
 // Restored file thumbnail — measures aspect ratio on load so vertical
 // videos get the tall layout (260px) like fresh portrait uploads.
-function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
+// Renders the red "Source file missing" placeholder + an optional
+// "📁 Replace source" button that opens a file picker and calls
+// onReplace(item, file) when one is chosen. Used in two spots:
+// the RestoredMedia fallback (FE-detected load failure) and the
+// main tile (BE-flagged storage_missing). Same button, same UX.
+function MissingSourcePlaceholder({ item, onClick, onReplace }) {
+  const inputRef = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+  const handlePick = async (e) => {
+    const file = e.target?.files?.[0]
+    e.target.value = ''
+    if (!file || !onReplace) return
+    setBusy(true); setErr(null)
+    try {
+      await onReplace(item, file)
+    } catch (e2) {
+      setErr(e2?.message || String(e2))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div
+      onClick={onClick}
+      className="w-full h-[120px] bg-[#fdf2f1] border-b border-[#c0392b]/30 flex flex-col items-center justify-center text-[#c0392b] text-center px-2 gap-0.5 cursor-pointer"
+    >
+      <span className="text-[20px]">⚠</span>
+      <span className="text-[9px] font-medium leading-tight">Source file missing</span>
+      {onReplace && item?._dbFileId != null ? (
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,video/*"
+            onChange={handlePick}
+            style={{ display: 'none' }}
+          />
+          <button
+            onClick={(e) => { e.stopPropagation(); inputRef.current?.click() }}
+            disabled={busy}
+            className="text-[9px] py-0.5 px-1.5 bg-white border border-[#c0392b] rounded cursor-pointer mt-1 disabled:opacity-50"
+            title="Pick a new file to replace the missing source. The clip keeps its trim, speed, order, and effects."
+          >{busy ? 'Uploading…' : '📁 Replace source'}</button>
+          {err && <span className="text-[8px] text-[#c0392b]/90 leading-tight">{err.slice(0, 60)}</span>}
+        </>
+      ) : (
+        <span className="text-[8px] text-[#c0392b]/80 leading-tight">Skip ⊘ or remove ✕</span>
+      )}
+    </div>
+  )
+}
+
+function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSource }) {
   const [aspect, setAspect] = useState(() => item._videoDuration && item._videoAspect ? item._videoAspect : null)
   useEffect(() => { if (aspect != null) item._videoAspect = aspect }, [aspect, item])
   // Live zoom + anchor preview for restored video clips. Mirrors VideoThumb.
@@ -453,13 +506,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing }) {
     }
   }
   if (loadFailed) {
-    return (
-      <div onClick={onClick} className="w-full h-[120px] bg-[#fdf2f1] border-b border-[#c0392b]/30 flex flex-col items-center justify-center text-[#c0392b] text-center px-2 gap-0.5 cursor-pointer">
-        <span className="text-[20px]">⚠</span>
-        <span className="text-[9px] font-medium leading-tight">Source file missing</span>
-        <span className="text-[8px] text-[#c0392b]/80 leading-tight">Skip ⊘ or remove ✕</span>
-      </div>
-    )
+    return <MissingSourcePlaceholder item={item} onClick={onClick} onReplace={onReplaceSource} />
   }
   const isPortrait = aspect != null && aspect < 1
   const isPhoto = !isVideo
@@ -608,7 +655,7 @@ function SortableTile({ item, children }) {
   )
 }
 
-export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSplit, onToggleSkip, onStorageMissing, VideoTrimmer, PhotoDurationBar }) {
+export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSplit, onReplaceSource, onToggleSkip, onStorageMissing, VideoTrimmer, PhotoDurationBar }) {
   const [previewItem, setPreviewItem] = useState(null)
 
   // Speed updates from VideoMerge mutate item._speed in place and
@@ -710,14 +757,11 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
               })()}
               {item._storageMissing ? (
                 /* BE GET /jobs/:id flagged this row's storage object as
-                   missing. Render a static warning placeholder instead
-                   of RestoredMedia / VideoThumb — those would fire a
-                   <video> request against the dead URL and log a 400. */
-                <div className="w-full h-[120px] bg-[#fdf2f1] border-b border-[#c0392b]/30 flex flex-col items-center justify-center text-[#c0392b] text-center px-2 gap-0.5">
-                  <span className="text-[20px]">⚠</span>
-                  <span className="text-[9px] font-medium leading-tight">Source file missing</span>
-                  <span className="text-[8px] text-[#c0392b]/80 leading-tight">Skip ⊘ or remove ✕</span>
-                </div>
+                   missing. Render the shared placeholder + Replace
+                   source button instead of RestoredMedia / VideoThumb
+                   — those would fire a <video> request against the
+                   dead URL and log a 400. */
+                <MissingSourcePlaceholder item={item} onReplace={onReplaceSource} />
               ) : isImg && item.file ? (
                 <ImageThumb
                   file={item.file}
@@ -730,7 +774,7 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
               ) : isVideo && item.file ? (
                 <VideoThumb file={item.file} itemId={item.id} item={item} onClick={() => setPreviewItem(item)} className="w-full bg-black" />
               ) : item._restored && (item._publicUrl || item._uploadKey) ? (
-                <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} onStorageMissing={onStorageMissing} />
+                <RestoredMedia item={item} isVideo={isVideo} onClick={() => setPreviewItem(item)} onStorageMissing={onStorageMissing} onReplaceSource={onReplaceSource} />
               ) : (
                 <div
                   onClick={() => setPreviewItem(item)}
