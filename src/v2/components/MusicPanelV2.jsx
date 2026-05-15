@@ -96,6 +96,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       })
       const fresh = await api.getJobMusic(draftId)
       setMusic(fresh?.music || null)
+      try { window.dispatchEvent(new CustomEvent('posty-music-change')) } catch {}
     } catch (e) {
       setErr(e?.message || String(e))
     } finally {
@@ -120,6 +121,9 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       })
       const fresh = await api.getJobMusic(draftId)
       setMusic(fresh?.music || null)
+      // Let the merge panel react — its global-speed gate keys off
+      // whether music is attached.
+      try { window.dispatchEvent(new CustomEvent('posty-music-change')) } catch {}
     } catch (e) {
       setErr(e?.message || String(e))
     } finally {
@@ -134,6 +138,7 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       await api.deleteJobMusic(draftId)
       setMusic(null)
       setSnapPreview(null)
+      try { window.dispatchEvent(new CustomEvent('posty-music-change')) } catch {}
     } catch (e) {
       alert('Delete failed: ' + e.message)
     }

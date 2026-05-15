@@ -191,6 +191,23 @@ export const duplicateJobFile = (jobId, fileId) =>
     return r.json()
   })
 
+// Job-wide playback speed (0.25–4×). Applied to every clip during
+// merge. Refused with 409 while music is attached — caller should
+// surface that message.
+export const setJobGlobalSpeed = (jobId, globalSpeed) =>
+  fetch(api(`/jobs/${jobId}/global-speed`), {
+    method: 'PATCH',
+    headers: { ...h(), ...csrf() },
+    credentials: 'include',
+    body: JSON.stringify({ global_speed: globalSpeed }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobGlobalSpeed failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Split a source video file into N subclips. Each range becomes a new
 // job_files row pointing to the same upload_key with its own trim
 // window. Server returns { files: [...] } in source-timeline order.

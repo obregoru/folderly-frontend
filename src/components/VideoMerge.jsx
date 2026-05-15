@@ -61,6 +61,12 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   // is implemented by App.jsx and persists the new order to the server.
   const [transition, setTransition] = useState('crossfade')
   const [transDuration, setTransDuration] = useState(1)
+  // Job-wide playback speed. Same preset values as the per-clip
+  // selector. Multiplied INTO each clip's speed on the server at
+  // merge time. Gated OFF when music is attached (re-rendering at a
+  // different speed would desync the music cuts).
+  const [globalSpeed, setGlobalSpeed] = useState(1)
+  const [musicAttached, setMusicAttached] = useState(false)
   // Track whether we've hydrated transition + transDuration from the
   // job's saved merge_settings yet. Without this gate the auto-save
   // effect below would fire on the initial mount with the default
@@ -107,10 +113,30 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
         if (Number.isFinite(Number(ms.transitionDuration))) {
           setTransDuration(Number(ms.transitionDuration))
         }
+        const gr = job?.generation_rules || {}
+        const gs = Number(gr.global_speed)
+        if (Number.isFinite(gs) && gs > 0) setGlobalSpeed(gs)
+        setMusicAttached(!!job?.music_track_key)
         transitionHydrated.current = true
       }).catch(() => { transitionHydrated.current = true })
     })
     return () => { cancelled = true }
+  }, [jobId])
+
+  // Re-read music_track_key when something else (the Music panel)
+  // attaches or detaches music. Without this the global-speed gate
+  // would stay stuck at its initial value until the page reloaded.
+  useEffect(() => {
+    if (!jobId) return
+    const onMusicChange = () => {
+      import('../api').then(api => {
+        api.getJob(jobId).then(job => {
+          setMusicAttached(!!job?.music_track_key)
+        }).catch(() => {})
+      })
+    }
+    window.addEventListener('posty-music-change', onMusicChange)
+    return () => window.removeEventListener('posty-music-change', onMusicChange)
   }, [jobId])
 
   // Auto-save on change. Debounced so dragging the duration slider
@@ -1147,6 +1173,58 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
           {TRANSITIONS.map(t => (
             <option key={t.value} value={t.value}>{t.label}</option>
           ))}
+        </select>
+        {/* Job-wide playback speed. Applied at merge time alongside any
+            per-clip speed values. Gated OFF when music is attached so
+            cuts stay in sync with the music — operator must detach
+            music first to change it. */}
+        <label className="text-[10px] text-muted ml-2">Global speed:</label>
+        <select
+          value={String(globalSpeed)}
+          disabled={musicAttached || merging}
+          onChange={async e => {
+            const next = Number(e.target.value)
+            if (!(next > 0)) return
+            const prev = globalSpeed
+            setGlobalSpeed(next)
+            // Invalidate any cached merge so the new speed lands on
+            // the next merge press.
+            if (mergedUrl) {
+              try { URL.revokeObjectURL(mergedUrl) } catch {}
+              setMergedUrl(null)
+              mergedBlobRef.current = null
+              window._postyMergedVideo = null
+              try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+            }
+            if (!jobId) return
+            try {
+              const api = await import('../api')
+              await api.setJobGlobalSpeed(jobId, next)
+            } catch (err) {
+              alert(err?.message || String(err))
+              setGlobalSpeed(prev)
+            }
+          }}
+          title={musicAttached
+            ? 'Detach music first — global speed locked at 1× while music is attached so cut timing stays in sync.'
+            : `Slow / speed up the whole merged video. Multiplied with each clip's own speed. Range 0.25×–4×.`}
+          className={`text-[10px] border rounded py-0.5 px-1.5 ${
+            musicAttached
+              ? 'bg-[#f5f5f5] border-border text-muted cursor-not-allowed'
+              : globalSpeed !== 1
+                ? 'bg-[#fff7ed] border-[#d97706]/50 text-[#d97706] font-medium'
+                : 'bg-white border-border'
+          }`}
+        >
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="0.75">0.75×</option>
+          <option value="1">1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+          <option value="3">3×</option>
+          <option value="4">4×</option>
         </select>
         {transition !== 'none' && (
           <>
