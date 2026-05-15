@@ -160,6 +160,15 @@ export default function AppV2() {
       console.log(`[AppV2] saving beat zoom: id=${item.id} beatZoom=${item._beatZoom}`)
       jobSyncRef.current?.saveFileBeatZoom?.(item)
     }
+    // Fires after BE-side mutations that changed the file set
+    // out-of-band — e.g. DELETE /music removes loop-duplicate
+    // job_files rows. We re-hydrate by re-loading the active job
+    // so the timeline reflects the actual server state.
+    const onFilesChanged = () => {
+      const id = jobSyncRef.current?.jobId
+      if (!id) return
+      jobSyncRef.current?.loadJob?.(id).catch(() => {})
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
     window.addEventListener('posty-speed-change', onSpeedChange)
@@ -171,6 +180,7 @@ export default function AppV2() {
     window.addEventListener('posty-color-effect-change', onColorEffectChange)
     window.addEventListener('posty-strobe-change', onStrobeChange)
     window.addEventListener('posty-beat-zoom-change', onBeatZoomChange)
+    window.addEventListener('posty-files-changed', onFilesChanged)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
@@ -183,6 +193,7 @@ export default function AppV2() {
       window.removeEventListener('posty-color-effect-change', onColorEffectChange)
       window.removeEventListener('posty-strobe-change', onStrobeChange)
       window.removeEventListener('posty-beat-zoom-change', onBeatZoomChange)
+      window.removeEventListener('posty-files-changed', onFilesChanged)
     }
   }, [])
 
