@@ -336,11 +336,11 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
 
   // Import the CURRENT job state — overlay opening/middle/closing
   // text + timing, voiceover segments + their captions, music track
-  // info, default caption style, merged-video status — and post it
-  // to the chat as a user turn. Lets the operator ask the producer
-  // to review or improve what they already have BEFORE running any
-  // vision analysis (the analyze flows need a rendered video and
-  // can be expensive; this just summarizes the structured fields).
+  // info, default caption style, merged-video status — and PREFILL
+  // it into the chat input. Operator can then append their own
+  // question ("now write me a tighter script", "is this hook
+  // strong enough?", etc) before pressing Send. Cheap fetch — just
+  // structured fields, no vision call.
   const importJobStateForReview = async () => {
     if (!draftId || streaming || importingJobState) return
     setImportingJobState(true)
@@ -352,30 +352,9 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
         return
       }
       const text = formatJobStateForProducer(job)
-      const next = [...messages, { role: 'user', content: text }]
-      setMessages(next)
-      setInput('')
-      setStreaming(true)
-      setStreamText('')
-      setErr(null)
-      const ctrl = new AbortController()
-      abortRef.current = ctrl
-      try {
-        const { fullText, error } = await api.producerChat(draftId, {
-          messages: next,
-          signal: ctrl.signal,
-          onChunk: (_, full) => setStreamText(full),
-        })
-        if (error) setErr(error)
-        setMessages(prev => [...prev, { role: 'assistant', content: fullText || '' }])
-        setStreamText('')
-      } catch (e) {
-        if (e?.name !== 'AbortError') setErr(e?.message || String(e))
-        setStreamText('')
-      } finally {
-        setStreaming(false)
-        abortRef.current = null
-      }
+      // Append to whatever's already typed so the operator doesn't
+      // lose a partial question they were drafting; otherwise replace.
+      setInput(prev => prev && prev.trim() ? `${prev.trim()}\n\n${text}` : text)
     } catch (e) {
       setImportJobStateError(e?.message || String(e))
     } finally {
@@ -647,8 +626,9 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           onClick={importJobStateForReview}
           disabled={!draftId || streaming || importingJobState}
           className="text-[10px] py-0.5 px-2 border border-[#d97706]/40 text-[#d97706] bg-white rounded cursor-pointer disabled:opacity-50"
-          title="Send everything you've drafted (overlay opening/middle/closing, voiceover segments, music info, caption style) to the producer for review — no video analysis required."
-        >Send to producer for review</button>
+          title="Prefill the chat input with a summary of everything you've drafted (overlay opening/middle/closing, voiceover segments, music info, caption style). Add your own question, then press Send."
+        >Load into input</button>
+        <span className="text-[9px] text-muted italic">prefills input — add a question, then press Send</span>
         {importingJobState && <span className="text-[9px] text-muted italic">loading…</span>}
         {importJobStateError && <span className="text-[9px] text-[#c0392b]">{importJobStateError}</span>}
       </div>
