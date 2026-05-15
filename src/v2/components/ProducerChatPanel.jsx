@@ -1037,7 +1037,7 @@ function ParsedReview({ parsed, source, choices, setChoices, applying, applyErr,
 // context, same as the first-2s / full-video import buttons.
 function formatJobStateForProducer(job) {
   const lines = []
-  lines.push('Here is the current state of this job. Please review what I have and suggest improvements (script, hooks, captions, pacing, anything you notice). If something is missing or weak, call it out specifically.')
+  lines.push('Here is the current state of this job. The intent is for you to EXPAND on what is already drafted where it helps — propose additional voiceover for uncovered windows, fill missing overlay slots, suggest tighter copy ONLY where the existing text is hurting, and explicitly say "leave it" where what is there already works. Use the gap notes below to find where the producer can add value, not just where to rewrite.')
   lines.push('')
 
   // ── Description & angles ──
@@ -1280,6 +1280,79 @@ function formatJobStateForProducer(job) {
     lines.push('')
   }
 
+  // ── Coverage & gaps ──
+  // The point of this whole import is so the producer can see where
+  // to EXPAND. The clearest signal is "how much of the video is
+  // currently silent / uncovered by overlays?" — once you know that,
+  // proposing an additional VO segment for the gap is the obvious
+  // next move. We only emit this section when we know the total
+  // length (totalEstSec) AND we have something to compare against
+  // (timed VO segments, or any overlay slot used).
+  if (totalEstSec > 0.1 && (timedSegments.length > 0 || overlay.openingText || overlay.middleText || overlay.closingText)) {
+    lines.push('=== Coverage & gaps ===')
+    lines.push(`Estimated total length: ~${fmt2(totalEstSec)}s`)
+    // Voiceover coverage (timed segments only — primary VO plays
+    // under the WHOLE video so it doesn't create a gap; flag it
+    // separately).
+    if (primarySeg?.text) {
+      lines.push('Primary VO plays under the whole video — no voiceover gaps possible.')
+    } else if (timedSegments.length > 0) {
+      // Build sorted intervals of covered VO windows.
+      const intervals = timedSegments
+        .map(s => {
+          const start = Number(s.start)
+          const dur = Number(s.duration)
+          if (!Number.isFinite(start) || !Number.isFinite(dur) || dur <= 0) return null
+          return [Math.max(0, start), Math.min(totalEstSec, start + dur)]
+        })
+        .filter(Boolean)
+        .sort((a, b) => a[0] - b[0])
+      // Merge overlapping intervals so the math is clean.
+      const merged = []
+      for (const iv of intervals) {
+        if (merged.length === 0 || iv[0] > merged[merged.length - 1][1] + 0.05) {
+          merged.push([iv[0], iv[1]])
+        } else {
+          merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], iv[1])
+        }
+      }
+      const covered = merged.reduce((s, iv) => s + (iv[1] - iv[0]), 0)
+      const pct = totalEstSec > 0 ? Math.round((covered / totalEstSec) * 100) : 0
+      lines.push(`Voiceover covers ~${fmt2(covered)}s of ~${fmt2(totalEstSec)}s (${pct}%).`)
+      // Walk gaps from 0 → totalEstSec → minus each merged interval.
+      const gaps = []
+      let cursor = 0
+      for (const [a, b] of merged) {
+        if (a - cursor > 0.4) gaps.push([cursor, a])
+        cursor = Math.max(cursor, b)
+      }
+      if (totalEstSec - cursor > 0.4) gaps.push([cursor, totalEstSec])
+      if (gaps.length > 0) {
+        lines.push(`Uncovered VO windows (≥0.4s) — candidates for additional voiceover:`)
+        gaps.forEach(([a, b]) => lines.push(`  ${fmt2(a)}s → ${fmt2(b)}s (${fmt2(b - a)}s)`))
+      } else {
+        lines.push('No meaningful VO gaps — leave timed segments alone unless rewriting individual lines.')
+      }
+    } else {
+      lines.push(`No voiceover drafted yet. The full ~${fmt2(totalEstSec)}s is open for a script if appropriate.`)
+    }
+    // Overlay slot occupancy — three slots (opening / middle /
+    // closing). Just call out which are empty so the producer can
+    // propose copy for them.
+    const overlayEmpty = []
+    if (!overlay.openingText) overlayEmpty.push('opening')
+    if (!overlay.middleText) overlayEmpty.push('middle')
+    if (!overlay.closingText) overlayEmpty.push('closing')
+    if (overlayEmpty.length === 0) {
+      lines.push('All three overlay slots are filled — only suggest changes if a slot is genuinely weak.')
+    } else if (overlayEmpty.length === 3) {
+      lines.push('No overlays drafted — opening / middle / closing are all empty.')
+    } else {
+      lines.push(`Empty overlay slot(s): ${overlayEmpty.join(', ')}.`)
+    }
+    lines.push('')
+  }
+
   // ── Captions ──
   const cs = job?.default_caption_style || {}
   if (cs && (cs.fontFamily || cs.fontSize || cs.fontColor || cs.position)) {
@@ -1313,7 +1386,11 @@ function formatJobStateForProducer(job) {
     lines.push('')
   }
 
-  lines.push('Please review what I have so far and suggest a tighter script / better hooks / improved on-screen copy. Skip anything that already reads well and tell me where the work is weakest. If you want to propose a full final-package update, use the standard ```final-package fenced block.')
+  lines.push('Based on the state above:')
+  lines.push('  1. Propose additional voiceover / overlay copy for the gap windows listed in "Coverage & gaps" — only if it would genuinely improve the piece. If a gap is intentional silence, say so and leave it.')
+  lines.push('  2. For lines already drafted (hooks, overlays, VO segments), tell me which ones are strong enough to keep as-is and which need a rewrite. Don\'t rewrite anything that already reads well.')
+  lines.push('  3. Surface anything missing that the angles/description imply should be there (a call-to-action, a product mention, a transition line, etc).')
+  lines.push('  4. If you want to apply a full update, emit a standard ```final-package fenced block; otherwise just discuss in prose.')
   return lines.join('\n')
 }
 
