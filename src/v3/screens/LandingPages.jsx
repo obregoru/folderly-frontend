@@ -239,6 +239,17 @@ function PageWorkspace({ data }) {
   const [auditError, setAuditError] = useState(null)
   const [activeDim, setActiveDim] = useState('seo')
   const [selectedSuggestions, setSelectedSuggestions] = useState(new Set())
+  // Elapsed-seconds counter while audit is in flight — Claude can
+  // take 30-90s on a 30k-char body, no progress feedback at all
+  // makes operators think the button is broken.
+  const [auditElapsed, setAuditElapsed] = useState(0)
+  useEffect(() => {
+    if (!auditBusy) { setAuditElapsed(0); return }
+    const start = Date.now()
+    setAuditElapsed(0)
+    const tick = setInterval(() => setAuditElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [auditBusy])
 
   const runAudit = async () => {
     if (auditBusy || !landing_page_id) return
@@ -383,8 +394,15 @@ function PageWorkspace({ data }) {
             disabled={auditBusy}
             className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
             title="Send the parsed page to Claude with the brand context + site capabilities. Returns 5 dimensions of structured findings, each with severity + suggestion."
-          >{auditBusy ? 'Auditing…' : audit ? '🔄 Re-run audit' : '🔍 Run audit'}</button>
+          >{auditBusy
+              ? `Auditing… ${auditElapsed}s`
+              : audit ? '🔄 Re-run audit' : '🔍 Run audit'}</button>
         </div>
+        {auditBusy && (
+          <div className="text-[10px] text-muted italic">
+            Claude is reading the page (~30-90s on a typical landing page — the model has to scan the whole body, headings, and links to score 5 dimensions). Don't refresh the tab.
+          </div>
+        )}
         {auditError && <div className="text-[10px] text-[#c0392b]">⚠ {auditError}</div>}
         {audit?.findings && (
           <AuditFindings
