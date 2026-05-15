@@ -191,6 +191,22 @@ export const duplicateJobFile = (jobId, fileId) =>
     return r.json()
   })
 
+// One-click reset of every music-driven effect on a job — per-job
+// loop flags + music_beat_zoom_all + loop_duplicate rows. Leaves the
+// music track itself intact. Returns { loop_duplicates_removed }.
+export const clearJobMusicEffects = (jobId) =>
+  fetch(api(`/jobs/${jobId}/clear-music-effects`), {
+    method: 'POST',
+    headers: { ...h(), ...csrf() },
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `clearJobMusicEffects failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Job-wide playback speed (0.25–4×). Applied to every clip during
 // merge. Refused with 409 while music is attached — caller should
 // surface that message.
