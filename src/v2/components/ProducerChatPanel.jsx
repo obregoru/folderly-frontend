@@ -205,6 +205,13 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
   // workflow.
   const [importing2s, setImporting2s] = useState(false)
   const [import2sError, setImport2sError] = useState(null)
+  // "Import current job state" — sends the producer a structured
+  // summary of what the operator has built so far (merged video info,
+  // overlay opening/middle/closing, voiceover segments, music track
+  // info, default caption style). Lets the operator ask for a script
+  // / hooks review without running the full first-2s vision analysis.
+  const [importingJobState, setImportingJobState] = useState(false)
+  const [importJobStateError, setImportJobStateError] = useState(null)
   // Full-video import (sister of the per-platform first-2s import).
   // No platform branching — the full review already carries scores
   // for tiktok/reels/shorts so we send the whole report in one go.
@@ -324,6 +331,55 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
       setImport2sError(e?.message || String(e))
     } finally {
       setImporting2s(false)
+    }
+  }
+
+  // Import the CURRENT job state — overlay opening/middle/closing
+  // text + timing, voiceover segments + their captions, music track
+  // info, default caption style, merged-video status — and post it
+  // to the chat as a user turn. Lets the operator ask the producer
+  // to review or improve what they already have BEFORE running any
+  // vision analysis (the analyze flows need a rendered video and
+  // can be expensive; this just summarizes the structured fields).
+  const importJobStateForReview = async () => {
+    if (!draftId || streaming || importingJobState) return
+    setImportingJobState(true)
+    setImportJobStateError(null)
+    try {
+      const job = await api.getJob(draftId)
+      if (!job || job.error) {
+        setImportJobStateError(job?.error || 'Could not load this job.')
+        return
+      }
+      const text = formatJobStateForProducer(job)
+      const next = [...messages, { role: 'user', content: text }]
+      setMessages(next)
+      setInput('')
+      setStreaming(true)
+      setStreamText('')
+      setErr(null)
+      const ctrl = new AbortController()
+      abortRef.current = ctrl
+      try {
+        const { fullText, error } = await api.producerChat(draftId, {
+          messages: next,
+          signal: ctrl.signal,
+          onChunk: (_, full) => setStreamText(full),
+        })
+        if (error) setErr(error)
+        setMessages(prev => [...prev, { role: 'assistant', content: fullText || '' }])
+        setStreamText('')
+      } catch (e) {
+        if (e?.name !== 'AbortError') setErr(e?.message || String(e))
+        setStreamText('')
+      } finally {
+        setStreaming(false)
+        abortRef.current = null
+      }
+    } catch (e) {
+      setImportJobStateError(e?.message || String(e))
+    } finally {
+      setImportingJobState(false)
     }
   }
 
@@ -578,6 +634,23 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
         {messages.map((m, i) => <ChatBubble key={i} role={m.role} content={m.content} />)}
         {showStreamingBubble && <ChatBubble role="assistant" content={streamText || '…'} streaming />}
         {err && <div className="text-[10px] text-[#c0392b] bg-[#fdf2f1] border border-[#c0392b]/30 rounded p-1.5">{err}</div>}
+      </div>
+
+      {/* Import current job state — sends a structured summary of
+          everything the operator has drafted (overlays, voiceover,
+          music, captions, merged-video status) as a user message.
+          Useful for asking the producer to review or improve the
+          script BEFORE running any vision-based analysis. */}
+      <div className="flex items-center gap-1.5 flex-wrap text-[10px] bg-[#fff7ed] border border-[#d97706]/30 rounded p-1.5">
+        <span className="font-medium text-[#d97706]">📋 Import current job state:</span>
+        <button
+          onClick={importJobStateForReview}
+          disabled={!draftId || streaming || importingJobState}
+          className="text-[10px] py-0.5 px-2 border border-[#d97706]/40 text-[#d97706] bg-white rounded cursor-pointer disabled:opacity-50"
+          title="Send everything you've drafted (overlay opening/middle/closing, voiceover segments, music info, caption style) to the producer for review — no video analysis required."
+        >Send to producer for review</button>
+        {importingJobState && <span className="text-[9px] text-muted italic">loading…</span>}
+        {importJobStateError && <span className="text-[9px] text-[#c0392b]">{importJobStateError}</span>}
       </div>
 
       {/* Import-from-first-2s toolbar. Each button pulls the most
@@ -973,6 +1046,135 @@ function ParsedReview({ parsed, source, choices, setChoices, applying, applyErr,
       {applyErr && <div className="text-[10px] text-[#c0392b]">{applyErr}</div>}
     </div>
   )
+}
+
+// Build a human-readable summary of the current job state — overlay
+// text, voiceover segments, music info, caption style — for the
+// producer chat. Used by the "Import current job state" button so
+// the operator can hand the producer everything they've drafted so
+// far and ask for a script review WITHOUT running the expensive
+// vision-based analyses first. The producer parses this as plain
+// context, same as the first-2s / full-video import buttons.
+function formatJobStateForProducer(job) {
+  const lines = []
+  lines.push('Here is the current state of this job. Please review what I have and suggest improvements (script, hooks, captions, pacing, anything you notice). If something is missing or weak, call it out specifically.')
+  lines.push('')
+
+  // ── Merged video ──
+  const mergedAvailable = !!job?.merged_video_url || !!job?.merged_video_key
+  if (mergedAvailable) {
+    lines.push('=== Merged video ===')
+    lines.push(`A merged video is available for this draft.`)
+    lines.push('')
+  } else {
+    lines.push('=== Merged video ===')
+    lines.push('No merged video produced yet — only individual clips on the timeline.')
+    lines.push('')
+  }
+
+  // ── Hooks (drawn from overlay opening + voiceover primary/first seg) ──
+  const overlay = job?.overlay_settings || {}
+  const voSettings = job?.voiceover_settings || {}
+  const voSegments = Array.isArray(voSettings.segments) ? voSettings.segments : []
+  const primarySeg = voSegments.find(s => s?.id === '__primary__')
+  const firstTimedSeg = voSegments.find(s => s && s.id !== '__primary__' && s.text)
+  const onScreenHook = (overlay.openingText || '').trim()
+  const spokenHook = ((primarySeg?.text) || (firstTimedSeg?.text) || '').trim()
+  if (onScreenHook || spokenHook) {
+    lines.push('=== Hooks captured ===')
+    if (onScreenHook) lines.push(`On-screen (opening overlay): "${onScreenHook}"`)
+    if (spokenHook) {
+      const src = primarySeg ? 'primary voiceover' : `first timed segment`
+      lines.push(`Spoken (${src}): "${spokenHook}"`)
+    }
+    lines.push('')
+  } else {
+    lines.push('=== Hooks captured ===')
+    lines.push('No hooks drafted yet (opening overlay text empty + no voiceover script).')
+    lines.push('')
+  }
+
+  // ── Overlays (opening / middle / closing) ──
+  const fmtSec = (n) => Number.isFinite(Number(n)) ? `${Number(n).toFixed(1)}s` : '?'
+  const middleStart = Number(overlay.middleStartTime)
+  const openingDur = Number(overlay.openingDuration) || 3
+  const middleDur = Number(overlay.middleDuration) || 3
+  const closingDur = Number(overlay.closingDuration) || 3
+  const overlayLines = []
+  if (overlay.openingText) overlayLines.push(`Opening (0 → ${fmtSec(openingDur)}): "${overlay.openingText}"`)
+  if (overlay.middleText) overlayLines.push(`Middle  (${Number.isFinite(middleStart) ? fmtSec(middleStart) : '?'} → ${Number.isFinite(middleStart) ? fmtSec(middleStart + middleDur) : '?'}): "${overlay.middleText}"`)
+  if (overlay.closingText) overlayLines.push(`Closing (${fmtSec(closingDur)} before end → end): "${overlay.closingText}"`)
+  if (overlayLines.length > 0) {
+    lines.push('=== On-screen overlays ===')
+    overlayLines.forEach(l => lines.push(l))
+    lines.push('')
+  } else {
+    lines.push('=== On-screen overlays ===')
+    lines.push('None set.')
+    lines.push('')
+  }
+
+  // ── Voiceover segments ──
+  const timedSegments = voSegments.filter(s => s && s.id !== '__primary__')
+  if (primarySeg?.text || timedSegments.length > 0) {
+    lines.push('=== Voiceover ===')
+    if (voSettings.voiceId) lines.push(`Voice ID: ${voSettings.voiceId}`)
+    if (voSettings.hideCaptions === true) lines.push('Captions: hidden (operator opted out of rendered captions).')
+    if (primarySeg?.text) {
+      const t = primarySeg.text.trim()
+      lines.push(`Primary VO (plays under whole video): "${t}"`)
+    }
+    if (timedSegments.length > 0) {
+      lines.push(`Timed segments (${timedSegments.length}):`)
+      timedSegments.forEach((seg, i) => {
+        const start = Number.isFinite(Number(seg.start)) ? `${Number(seg.start).toFixed(2)}s` : '?'
+        const dur = Number.isFinite(Number(seg.duration)) ? ` (${Number(seg.duration).toFixed(2)}s)` : ''
+        const t = (seg.text || '').trim()
+        lines.push(`  ${i + 1}. @${start}${dur}: "${t}"`)
+      })
+    }
+    lines.push('')
+  } else {
+    lines.push('=== Voiceover ===')
+    lines.push('No voiceover script yet.')
+    lines.push('')
+  }
+
+  // ── Captions ──
+  const cs = job?.default_caption_style || {}
+  if (cs && (cs.fontFamily || cs.fontSize || cs.fontColor || cs.position)) {
+    lines.push('=== Caption style ===')
+    if (cs.fontFamily) lines.push(`Font: ${cs.fontFamily}`)
+    if (cs.fontSize) lines.push(`Size: ${cs.fontSize}px`)
+    if (cs.fontColor) lines.push(`Color: ${cs.fontColor}`)
+    if (cs.position) lines.push(`Position: ${cs.position}`)
+    lines.push('')
+  }
+
+  // ── Music ──
+  const musicAttached = !!job?.music_track_key
+  if (musicAttached) {
+    lines.push('=== Music ===')
+    if (job.music_filename) lines.push(`Track: ${job.music_filename}`)
+    if (job.music_source_url) lines.push(`Source: ${job.music_source_url}`)
+    const bm = job?.music_beat_map
+    if (bm && typeof bm === 'object') {
+      if (Number.isFinite(Number(bm.bpm))) lines.push(`BPM: ${Number(bm.bpm).toFixed(1)}`)
+      if (Array.isArray(bm.beats)) lines.push(`Detected beats: ${bm.beats.length}`)
+    }
+    const ts = job.music_trim_start, te = job.music_trim_end
+    if (ts != null || te != null) {
+      lines.push(`Trim: ${ts != null ? Number(ts).toFixed(2) + 's' : 'start'} → ${te != null ? Number(te).toFixed(2) + 's' : 'end'}`)
+    }
+    lines.push('')
+  } else {
+    lines.push('=== Music ===')
+    lines.push('None attached.')
+    lines.push('')
+  }
+
+  lines.push('Please review what I have so far and suggest a tighter script / better hooks / improved on-screen copy. Skip anything that already reads well and tell me where the work is weakest. If you want to propose a full final-package update, use the standard ```final-package fenced block.')
+  return lines.join('\n')
 }
 
 // Build a human-readable summary of the saved first-2s analysis,
