@@ -191,6 +191,25 @@ export const duplicateJobFile = (jobId, fileId) =>
     return r.json()
   })
 
+// Rebind an existing job_files row to a freshly-uploaded storage
+// object. Used when the original storage object is missing — keeps
+// the row's trim / speed / order / effects / position intact instead
+// of forcing the operator to delete + re-upload (which would land
+// at the end of the timeline and lose all their settings).
+export const rebindJobFileSource = (jobId, fileId, { upload_key, filename, media_type, file_hash }) =>
+  fetch(api(`/jobs/${jobId}/files/${fileId}/rebind-source`), {
+    method: 'POST',
+    headers: { ...h(), ...csrf() },
+    credentials: 'include',
+    body: JSON.stringify({ upload_key, filename, media_type, file_hash }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `rebindJobFileSource failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // One-click reset of every music-driven effect on a job — per-job
 // loop flags + music_beat_zoom_all + loop_duplicate rows. Leaves the
 // music track itself intact. Returns { loop_duplicates_removed }.
