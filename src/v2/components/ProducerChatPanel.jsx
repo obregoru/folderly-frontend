@@ -1040,6 +1040,35 @@ function formatJobStateForProducer(job) {
   lines.push('Here is the current state of this job. Please review what I have and suggest improvements (script, hooks, captions, pacing, anything you notice). If something is missing or weak, call it out specifically.')
   lines.push('')
 
+  // ── Description & angles ──
+  // hint_text on the jobs row is the canonical home for both. The
+  // HintsPanelV2 saves them concatenated with a "\n---\n" separator
+  // (description first, angles after). Split them back out so the
+  // producer sees them labelled distinctly — angles drive the
+  // creative direction and the producer should weight them more than
+  // free-form description text.
+  const hintRaw = (job?.hint_text || '').trim()
+  if (hintRaw) {
+    const [descRaw, ...rest] = hintRaw.split('\n---\n')
+    const description = (descRaw || '').trim()
+    const angles = rest.join('\n---\n').trim()
+    lines.push('=== Description & angles ===')
+    if (description) {
+      lines.push('Description:')
+      lines.push(description)
+    }
+    if (angles) {
+      if (description) lines.push('')
+      lines.push('Angles:')
+      lines.push(angles)
+    }
+    lines.push('')
+  } else {
+    lines.push('=== Description & angles ===')
+    lines.push('No description or angles drafted on the Hints tab.')
+    lines.push('')
+  }
+
   // ── Merged video ──
   const mergedAvailable = !!job?.merged_video_url || !!job?.merged_video_key
   if (mergedAvailable) {
