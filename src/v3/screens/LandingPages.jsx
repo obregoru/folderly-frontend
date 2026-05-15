@@ -221,13 +221,45 @@ export default function LandingPages() {
 }
 
 function PageWorkspace({ data }) {
-  const { page, capabilities = {}, history = [] } = data
+  const { page, capabilities = {}, history = [], landing_page_id } = data
   const links = page.links || []
   const internalLinks = links.filter(l => l.type === 'internal')
   const externalLinks = links.filter(l => l.type === 'external')
   const headings = page.headings || []
   const images = page.images || []
   const missingAlt = images.filter(i => !i.alt || !i.alt.trim()).length
+
+  // Audit state — null until the operator clicks Run audit. Caches
+  // findings keyed by audit row id so switching dimensions doesn't
+  // re-fetch. Selected suggestions feed Phase 3's proposal
+  // generator (not wired here — just stored locally for now so the
+  // operator can shape their shortlist while reviewing).
+  const [audit, setAudit] = useState(null)
+  const [auditBusy, setAuditBusy] = useState(false)
+  const [auditError, setAuditError] = useState(null)
+  const [activeDim, setActiveDim] = useState('seo')
+  const [selectedSuggestions, setSelectedSuggestions] = useState(new Set())
+
+  const runAudit = async () => {
+    if (auditBusy || !landing_page_id) return
+    setAuditBusy(true); setAuditError(null)
+    try {
+      const r = await api.runLandingPageAudit(landing_page_id)
+      setAudit(r)
+      setSelectedSuggestions(new Set())
+    } catch (e) {
+      setAuditError(e?.message || String(e))
+    } finally {
+      setAuditBusy(false)
+    }
+  }
+  const toggleSuggestion = (sid) => {
+    setSelectedSuggestions(prev => {
+      const next = new Set(prev)
+      if (next.has(sid)) next.delete(sid); else next.add(sid)
+      return next
+    })
+  }
 
   return (
     <div className="bg-white border border-[#6C5CE7]/30 rounded p-3 space-y-3">
@@ -337,9 +369,125 @@ function PageWorkspace({ data }) {
         </details>
       )}
 
-      <div className="text-[9px] text-muted italic">
-        Phase 1: import + parse. Audit / proposal / deploy land in the next phases (the buttons will appear here).
+      {/* Audit panel — Phase 2 */}
+      <div className="border border-[#6C5CE7]/30 rounded p-3 space-y-2 bg-[#fafbff]">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium text-[#6C5CE7]">🔍 5-dimension audit</span>
+          <span className="text-[9px] text-muted">SEO · AEO · GEO · E-E-A-T · AI-naturalness · breadcrumbs</span>
+          <div className="flex-1" />
+          {audit?.created_at && (
+            <span className="text-[9px] text-muted">Last run {new Date(audit.created_at).toLocaleString()}</span>
+          )}
+          <button
+            onClick={runAudit}
+            disabled={auditBusy}
+            className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            title="Send the parsed page to Claude with the brand context + site capabilities. Returns 5 dimensions of structured findings, each with severity + suggestion."
+          >{auditBusy ? 'Auditing…' : audit ? '🔄 Re-run audit' : '🔍 Run audit'}</button>
+        </div>
+        {auditError && <div className="text-[10px] text-[#c0392b]">⚠ {auditError}</div>}
+        {audit?.findings && (
+          <AuditFindings
+            findings={audit.findings}
+            activeDim={activeDim}
+            setActiveDim={setActiveDim}
+            selected={selectedSuggestions}
+            toggleSuggestion={toggleSuggestion}
+          />
+        )}
+        {!audit && !auditBusy && !auditError && (
+          <div className="text-[10px] text-muted italic">Run an audit to see structured SEO / AEO / GEO / E-E-A-T / AI-naturalness findings for this page.</div>
+        )}
       </div>
+
+      <div className="text-[9px] text-muted italic">
+        Phase 2: audit landed. Proposal generation (with link preservation) + diff view come in Phase 3; AI detection (ZeroGPT) Phase 4; backup + deploy + rollback Phase 5.
+      </div>
+    </div>
+  )
+}
+
+const DIMENSIONS = [
+  { key: 'seo',            label: 'SEO',        hint: 'Title, meta, H1/H2/H3, alt text, link mix, URL, canonical, breadcrumbs' },
+  { key: 'aeo',            label: 'AEO',        hint: 'Answer-engine optimization — direct answers, FAQ schema, question-as-H2' },
+  { key: 'geo',            label: 'GEO',        hint: 'Generative engine optimization — brand entity, schema, topical completeness' },
+  { key: 'eeat',           label: 'E-E-A-T',    hint: 'Experience · Expertise · Authority · Trust' },
+  { key: 'ai_naturalness', label: 'AI vs human', hint: 'Sentence variance, AI-tells, specifics, anecdotes' },
+]
+
+function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSuggestion }) {
+  // Score color for each dimension tab — green at 85+, amber 60-84,
+  // red below 60. Lets the operator pick which dimension to attack
+  // first at a glance.
+  const scoreColor = (s) => {
+    if (typeof s !== 'number') return 'text-muted'
+    if (s >= 85) return 'text-[#16a34a]'
+    if (s >= 60) return 'text-[#d97706]'
+    return 'text-[#c0392b]'
+  }
+  const active = findings?.[activeDim] || { score: null, findings: [] }
+  const activeFindings = Array.isArray(active.findings) ? active.findings : []
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1 flex-wrap text-[10px] border-b border-[#e5e5e5]">
+        {DIMENSIONS.map(d => {
+          const dim = findings?.[d.key]
+          const score = typeof dim?.score === 'number' ? dim.score : null
+          const isActive = activeDim === d.key
+          return (
+            <button
+              key={d.key}
+              onClick={() => setActiveDim(d.key)}
+              className={`py-1.5 px-2 border-b-2 cursor-pointer bg-transparent ${isActive ? 'border-[#6C5CE7]' : 'border-transparent'}`}
+              title={d.hint}
+            >
+              <span className={isActive ? 'font-medium text-ink' : 'text-muted'}>{d.label}</span>
+              {score !== null && <span className={`ml-1.5 font-mono ${scoreColor(score)}`}>{score}</span>}
+              {Array.isArray(dim?.findings) && dim.findings.length > 0 && (
+                <span className="ml-1 text-[8px] text-muted">({dim.findings.length})</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+      {activeFindings.length === 0 ? (
+        <div className="text-[10px] text-muted italic py-2">No findings for this dimension. Either the page is in good shape here or the audit hit token limits.</div>
+      ) : (
+        <div className="space-y-1.5">
+          {activeFindings.map((f, i) => {
+            const isSelected = selected.has(f.suggestion_id)
+            const sev = f.severity || 'nice'
+            const sevColors = sev === 'critical' ? 'border-[#c0392b] bg-[#fef2f2] text-[#c0392b]'
+              : sev === 'important' ? 'border-[#d97706] bg-[#fff7ed] text-[#d97706]'
+              : 'border-[#94a3b8] bg-[#f0f0f0] text-muted'
+            return (
+              <div key={f.suggestion_id || i} className="bg-white border border-[#e5e5e5] rounded p-2 text-[10px] space-y-1">
+                <div className="flex items-start gap-2">
+                  <label className="flex items-center gap-1 cursor-pointer pt-0.5" title="Include in Phase 3 proposal (FE only for now — sent to producer in Phase 3)">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSuggestion(f.suggestion_id)}
+                    />
+                  </label>
+                  <span className={`text-[8px] py-0.5 px-1 rounded border uppercase font-bold ${sevColors}`}>{sev}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-ink">{f.title}</div>
+                    {f.target && <div className="text-[9px] text-muted font-mono truncate">→ {f.target}</div>}
+                  </div>
+                </div>
+                {f.detail && <div className="pl-5 text-muted">{f.detail}</div>}
+                {f.suggestion && <div className="pl-5 text-ink"><b>Suggestion:</b> {f.suggestion}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+      {selected.size > 0 && (
+        <div className="text-[10px] text-[#6C5CE7] italic">
+          {selected.size} suggestion{selected.size === 1 ? '' : 's'} flagged for inclusion. (Will feed Phase 3's proposal generator once it ships.)
+        </div>
+      )}
     </div>
   )
 }

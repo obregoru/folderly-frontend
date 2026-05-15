@@ -621,6 +621,34 @@ export const getLandingPage = (id) =>
       return r.json()
     })
 
+// Run the 5-dimension audit (SEO / AEO / GEO / E-E-A-T /
+// AI-naturalness + breadcrumbs check) against the most recent
+// imported / human-edited / ai-suggested version. Stores findings
+// on landing_page_audits and returns them inline.
+export const runLandingPageAudit = (id) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audit`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `runLandingPageAudit failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Fetch a specific historical audit row's full findings.
+export const getLandingPageAudit = (id, auditId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getLandingPageAudit failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Full body_html + raw payload for one specific version. Fetched
 // lazily so the list endpoint stays cheap.
 export const getLandingPageVersion = (id, versionId) =>
