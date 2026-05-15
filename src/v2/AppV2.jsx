@@ -45,6 +45,18 @@ export default function AppV2() {
   const [nameDraft, setNameDraft] = useState('')
   const [nameSaving, setNameSaving] = useState(false)
   const [autoNaming, setAutoNaming] = useState(false)
+  // Backend commit hash — fetched once on mount from /api/health
+  // (Railway auto-injects RAILWAY_GIT_COMMIT_SHA on every deploy).
+  // Surfaced next to the FE badge so operators can confirm at a
+  // glance which BE deploy they're hitting vs which FE bundle the
+  // browser has. Empty string while loading; '?' on fetch failure.
+  const [beCommit, setBeCommit] = useState('')
+  useEffect(() => {
+    fetch('/api/health', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => setBeCommit(j?.commit || j?.build || '?'))
+      .catch(() => setBeCommit('?'))
+  }, [])
 
   // Check auth + load tenant settings on mount (mirrors App.jsx).
   // On Vercel preview domains localStorage is empty even when the session
@@ -557,14 +569,24 @@ export default function AppV2() {
           className="text-[10px] text-[#6C5CE7] border border-[#6C5CE7] rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0 no-underline whitespace-nowrap"
           title="Content Studio — V3 blog content system (opens in new tab)"
         >📝 Content Studio</a>
+        {/* FE / BE deploy badges. Two separate buttons (not one
+            combined) so the operator can copy each hash on its own —
+            common bug-report pattern is "FE has the fix, BE doesn't
+            yet" and they need to paste both to triage. */}
         <button
           type="button"
-          onClick={() => {
-            try { navigator.clipboard.writeText(`${BUILD_HASH} (${BUILD_DATE})`) } catch {}
-          }}
+          onClick={() => { try { navigator.clipboard.writeText(`FE ${BUILD_HASH} (${BUILD_DATE})`) } catch {} }}
           className="text-[9px] font-mono text-muted bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-0.5 cursor-pointer flex-shrink-0"
           title={`Frontend build ${BUILD_HASH} (built ${BUILD_DATE} UTC) — click to copy`}
-        >v {BUILD_HASH}</button>
+        >FE {BUILD_HASH}</button>
+        <button
+          type="button"
+          onClick={() => { try { navigator.clipboard.writeText(`BE ${beCommit || '...'}`) } catch {} }}
+          className="text-[9px] font-mono text-muted bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-0.5 cursor-pointer flex-shrink-0"
+          title={beCommit
+            ? `Backend commit ${beCommit} (from /api/health) — click to copy`
+            : 'Fetching backend commit from /api/health…'}
+        >BE {beCommit || '…'}</button>
         <TenantSwitcher user={user} />
         <button
           onClick={() => setSettingsOpen(true)}
