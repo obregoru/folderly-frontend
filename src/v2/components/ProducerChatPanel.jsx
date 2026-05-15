@@ -1069,17 +1069,148 @@ function formatJobStateForProducer(job) {
     lines.push('')
   }
 
-  // ── Merged video ──
-  const mergedAvailable = !!job?.merged_video_url || !!job?.merged_video_key
-  if (mergedAvailable) {
-    lines.push('=== Merged video ===')
-    lines.push(`A merged video is available for this draft.`)
-    lines.push('')
+  // ── Timeline (clips + effects + length + cuts) ──
+  // Pulls everything off job.files (the BE attaches the job_files
+  // rows on GET /:id). Each clip exposes trim_start / trim_end /
+  // speed / per-effect flags / is_loop_duplicate / file_order, so
+  // we can show enough that the producer can spot fast/slow footage,
+  // jump cuts, and which moments are auto-generated dupes vs the
+  // operator's authored clips.
+  const allClips = Array.isArray(job?.files) ? job.files.slice() : []
+  // Skip rows the operator has marked _skipInMerge — they won't end
+  // up in the merged output so they shouldn't influence the producer's
+  // sense of pacing. Order by file_order (NULL last) then id, matches
+  // the BE ordering used by merge.
+  const clips = allClips
+    .filter(f => !f.skip_in_merge && !(f.media_type || '').startsWith('image/'))
+    .sort((a, b) => {
+      const ao = a.file_order == null ? 1e9 : Number(a.file_order)
+      const bo = b.file_order == null ? 1e9 : Number(b.file_order)
+      if (ao !== bo) return ao - bo
+      return (Number(a.id) || 0) - (Number(b.id) || 0)
+    })
+  const fmt2 = (n) => Number.isFinite(Number(n)) ? Number(n).toFixed(2) : '?'
+  // Estimate merged length = sum of (trim_end - trim_start) / speed
+  // for each clip. trim_end null means "play to end of source" —
+  // we don't know the source duration from the row, so flag those.
+  let totalEstSec = 0
+  let unknownLengthCount = 0
+  clips.forEach(c => {
+    const ts = Number(c.trim_start) || 0
+    const te = c.trim_end == null ? null : Number(c.trim_end)
+    const sp = Number(c.speed) > 0 ? Number(c.speed) : 1
+    if (te == null) { unknownLengthCount++; return }
+    const d = Math.max(0, (te - ts) / sp)
+    totalEstSec += d
+  })
+  const dupes = clips.filter(c => c.is_loop_duplicate === true)
+  const authored = clips.filter(c => c.is_loop_duplicate !== true)
+
+  lines.push('=== Timeline ===')
+  if (job?.merged_video_url || job?.merged_video_key) {
+    lines.push('Merged video has been rendered.')
   } else {
-    lines.push('=== Merged video ===')
-    lines.push('No merged video produced yet — only individual clips on the timeline.')
+    lines.push('No merged video rendered yet — pacing is from the clip list.')
+  }
+  lines.push(`Total clips: ${clips.length} (${authored.length} authored, ${dupes.length} loop-duplicates from music beat-snap)`)
+  if (clips.length > 0) {
+    const lenLabel = unknownLengthCount === 0
+      ? `~${fmt2(totalEstSec)}s`
+      : `~${fmt2(totalEstSec)}s (+ ${unknownLengthCount} clip${unknownLengthCount === 1 ? '' : 's'} with no trim end — runs to source end)`
+    lines.push(`Estimated merged length: ${lenLabel}`)
+  }
+  lines.push('')
+
+  // ── Cut timeline (only meaningful with music attached) ──
+  const beatMap = job?.music_beat_map
+  const manualCuts = Array.isArray(beatMap?.manual_cuts) ? beatMap.manual_cuts.map(Number).filter(Number.isFinite) : null
+  if (job?.music_track_key) {
+    lines.push('=== Cut timeline ===')
+    if (manualCuts && manualCuts.length > 0) {
+      lines.push(`Operator-edited cuts (${manualCuts.length}): ${manualCuts.map(t => fmt2(t)).join(', ')}s`)
+    } else if (Array.isArray(beatMap?.beats) && beatMap.beats.length > 0) {
+      lines.push(`Auto cuts from beat detection — ${beatMap.beats.length} beat${beatMap.beats.length === 1 ? '' : 's'} detected. Applied cuts visible in the per-clip trim window below.`)
+    } else {
+      lines.push('No cut points captured yet (no beat map + no manual cuts).')
+    }
     lines.push('')
   }
+
+  // ── Per-clip detail (timing + effects + which are loop dupes) ──
+  if (clips.length > 0) {
+    lines.push('=== Clips (in merge order) ===')
+    clips.forEach((c, i) => {
+      const ts = Number(c.trim_start) || 0
+      const te = c.trim_end == null ? null : Number(c.trim_end)
+      const sp = Number(c.speed) > 0 ? Number(c.speed) : 1
+      const outDur = te != null ? Math.max(0, (te - ts) / sp) : null
+      const sourceWin = te != null
+        ? `src ${fmt2(ts)}–${fmt2(te)}s`
+        : `src ${fmt2(ts)}s → end`
+      const speedTag = Math.abs(sp - 1) > 0.001 ? `${sp}× speed` : null
+      const lenTag = outDur != null ? `${fmt2(outDur)}s out` : 'length unknown'
+      const tags = []
+      if (c.freeze_frame) tags.push('FREEZE')
+      if (c.reverse_play) tags.push('REVERSE')
+      if (c.mirror_flip) tags.push('MIRROR')
+      if (c.strobe) tags.push('STROBE')
+      if (c.beat_zoom) tags.push('BEAT-ZOOM')
+      if (c.color_effect) tags.push(`COLOR=${c.color_effect}`)
+      const zoom = Number(c.video_zoom) > 1.001 ? `zoom ${Number(c.video_zoom).toFixed(2)}×` : null
+      const motion = (c.video_motion && c.video_motion !== 'static') ? `motion ${c.video_motion}` : null
+      const prefix = c.is_loop_duplicate ? '[dup]' : '[orig]'
+      const fileLabel = c.filename ? String(c.filename).slice(0, 40) : `clip-${c.id}`
+      const parts = [prefix, `${i + 1}.`, fileLabel, sourceWin, lenTag]
+      if (speedTag) parts.push(speedTag)
+      if (zoom) parts.push(zoom)
+      if (motion) parts.push(motion)
+      if (tags.length > 0) parts.push(`fx: ${tags.join(', ')}`)
+      lines.push(parts.join(' · '))
+    })
+    lines.push('')
+  }
+
+  // ── Job-level effect overrides (merge-time, not visible as per-clip badges) ──
+  const jobFxLines = []
+  if (job?.music_beat_zoom_all) jobFxLines.push('Beat-zoom applied to EVERY clip at merge time (music_beat_zoom_all)')
+  if (job?.music_freeze_loops) jobFxLines.push('Loop-duplicates get FREEZE baked in (apply-snap)')
+  if (job?.music_reverse_loops) jobFxLines.push('Loop-duplicates get REVERSE baked in (apply-snap)')
+  if (job?.music_mirror_loops) jobFxLines.push('Loop-duplicates get MIRROR baked in (apply-snap)')
+  if (job?.music_strobe_loops) jobFxLines.push('Loop-duplicates get STROBE baked in (apply-snap)')
+  if (job?.music_beat_zoom_loops) jobFxLines.push('Loop-duplicates get BEAT-ZOOM baked in (apply-snap)')
+  if (job?.music_loop_color_effect) jobFxLines.push(`Loop-duplicates get color preset "${job.music_loop_color_effect}" baked in (apply-snap)`)
+  const gr = job?.generation_rules || {}
+  if (Number.isFinite(Number(gr.global_speed)) && Number(gr.global_speed) > 0 && Math.abs(Number(gr.global_speed) - 1) > 0.001) {
+    jobFxLines.push(`Global playback speed: ${gr.global_speed}× (applied to every clip at merge time)`)
+  }
+  if (jobFxLines.length > 0) {
+    lines.push('=== Job-wide effects (applied at merge time) ===')
+    jobFxLines.forEach(l => lines.push(l))
+    lines.push('')
+  }
+
+  // ── Transition type between clips ──
+  // Lives on jobs.merge_settings JSONB; default is crossfade @ 1s. The
+  // producer can use this to read the cut texture (hard cuts feel
+  // snappier, crossfades feel smoother, fade-black resets the eye, etc.)
+  // without rewatching the merged video.
+  const ms = job?.merge_settings || {}
+  const transitionLabels = {
+    none: 'Hard cut (no transition)',
+    crossfade: 'Crossfade',
+    fade_black: 'Fade to black between clips',
+    wipe_left: 'Wipe-left transition',
+    slide_left: 'Slide-left transition',
+  }
+  const trans = typeof ms.transition === 'string' && ms.transition ? ms.transition : 'crossfade'
+  const transDur = Number(ms.transitionDuration) > 0 ? Number(ms.transitionDuration) : 1
+  lines.push('=== Transition between clips ===')
+  if (trans === 'none') {
+    lines.push('Hard cut between every clip (no transition).')
+  } else {
+    lines.push(`${transitionLabels[trans] || trans} — ${transDur.toFixed(1)}s between every clip.`)
+  }
+  lines.push('')
 
   // ── Hooks (drawn from overlay opening + voiceover primary/first seg) ──
   const overlay = job?.overlay_settings || {}
