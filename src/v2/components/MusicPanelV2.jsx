@@ -97,6 +97,10 @@ export default function MusicPanelV2({ draftId, jobSync }) {
       const fresh = await api.getJobMusic(draftId)
       setMusic(fresh?.music || null)
       try { window.dispatchEvent(new CustomEvent('posty-music-change')) } catch {}
+      // BE also drops any prior apply-snap loop-duplicates on upload
+      // so a stale set from the previous track can't bleed through.
+      // Tell the parent to re-fetch the file list.
+      try { window.dispatchEvent(new CustomEvent('posty-files-changed', { detail: { reason: 'music-uploaded' } })) } catch {}
     } catch (e) {
       setErr(e?.message || String(e))
     } finally {
@@ -133,12 +137,27 @@ export default function MusicPanelV2({ draftId, jobSync }) {
 
   const handleDelete = async () => {
     if (!draftId) return
-    if (!confirm('Remove this music track? Existing clip trims stay as-is — the next merge will use the clip audios again.')) return
+    if (!confirm('Remove this music track? Snap loop-duplicates and their effects (strobe, freeze, mirror, reverse, beat-zoom, color) get cleared too. Your authored clips and their trims stay as-is.')) return
     try {
-      await api.deleteJobMusic(draftId)
+      const result = await api.deleteJobMusic(draftId)
       setMusic(null)
       setSnapPreview(null)
+      // Music delete on the BE also removes any loop-duplicate
+      // job_files rows that the prior apply-snap created (those rows
+      // had baked-in strobe / freeze / etc that the operator couldn't
+      // toggle off from the main tile UI). Tell the parent to reload
+      // the file list so the now-deleted tiles disappear and any
+      // cached merge invalidates.
       try { window.dispatchEvent(new CustomEvent('posty-music-change')) } catch {}
+      if (result?.loop_duplicates_removed > 0) {
+        try { window.dispatchEvent(new CustomEvent('posty-files-changed', { detail: { reason: 'music-deleted-loop-dupes' } })) } catch {}
+      }
+      // Invalidate any cached merge — the file set just shrank.
+      if (typeof window !== 'undefined' && window._postyMergedVideo) {
+        try { URL.revokeObjectURL(window._postyMergedVideo.url) } catch {}
+        window._postyMergedVideo = null
+        try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+      }
     } catch (e) {
       alert('Delete failed: ' + e.message)
     }
