@@ -55,7 +55,7 @@ function SortableClipRow({ id, children }) {
  * Lets users reorder clips, pick a transition, and merge into a single MP4.
  * The merged result becomes a virtual file item that the post flow can use.
  */
-export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl, onSaveTrim, onSaveMotion, onDuplicate }) {
+export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, restoredMergeUrl, onSaveTrim, onSaveMotion, onDuplicate, onRemove }) {
   // The merge list now uses the natural order of videoFiles so reordering here
   // flows back to the file grid + voiceover preview. onReorder(fromIdx, toIdx)
   // is implemented by App.jsx and persists the new order to the server.
@@ -1087,6 +1087,52 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                           )
                         })()}
                     <div className="flex gap-0.5">
+                      {/* Reset effects — wipes every effect flag on this
+                          clip in one PUT. Shown only when at least one
+                          effect is on (otherwise it's noise). Reaches
+                          effects the per-toggle UI hides — e.g. strobe
+                          + mirror are hidden when freeze is on because
+                          freeze takes precedence on the BE, but the
+                          flags stay set until something clears them.
+                          Apply-snap can stack multiple flags on a
+                          single loop_duplicate row, which is how
+                          operators ended up with "stuck" effects after
+                          removing music. */}
+                      {item._dbFileId != null && (() => {
+                        const hasAnyEffect = !!(item._freezeFrame || item._reversePlay || item._mirrorFlip || item._strobe || item._beatZoom || item._colorEffect)
+                        if (!hasAnyEffect) return null
+                        return (
+                          <button
+                            onClick={async () => {
+                              // Optimistic local clear so the badges flip
+                              // off immediately; the API call below
+                              // persists. mergedUrl is invalidated so the
+                              // next merge picks up the cleared state.
+                              item._freezeFrame = false
+                              item._reversePlay = false
+                              item._mirrorFlip = false
+                              item._strobe = false
+                              item._beatZoom = false
+                              item._colorEffect = null
+                              try { window.dispatchEvent(new CustomEvent('posty-freeze-frame-change', { detail: { itemId: item.id } })) } catch {}
+                              try { window.dispatchEvent(new CustomEvent('posty-reverse-play-change', { detail: { itemId: item.id } })) } catch {}
+                              try { window.dispatchEvent(new CustomEvent('posty-mirror-flip-change', { detail: { itemId: item.id } })) } catch {}
+                              try { window.dispatchEvent(new CustomEvent('posty-strobe-change', { detail: { itemId: item.id } })) } catch {}
+                              try { window.dispatchEvent(new CustomEvent('posty-beat-zoom-change', { detail: { itemId: item.id } })) } catch {}
+                              try { window.dispatchEvent(new CustomEvent('posty-color-effect-change', { detail: { itemId: item.id } })) } catch {}
+                              if (mergedUrl) {
+                                try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                setMergedUrl(null)
+                                mergedBlobRef.current = null
+                                window._postyMergedVideo = null
+                                try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+                              }
+                            }}
+                            className="text-[10px] text-[#d97706] hover:text-[#92400e] bg-transparent border-none cursor-pointer px-1 leading-none"
+                            title="Reset every effect on this clip (freeze, reverse, mirror, strobe, beat-zoom, color)"
+                          >⟲</button>
+                        )
+                      })()}
                       <button
                         onClick={() => moveUp(pos)}
                         disabled={pos === 0}
@@ -1109,6 +1155,29 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                           className="text-[11px] text-[#6C5CE7] hover:text-[#5847d4] disabled:opacity-30 bg-transparent border-none cursor-pointer px-1 leading-none"
                           title="Duplicate this clip — server-side copy lands at the end. Great for rapid-cut loops."
                         >{item._duplicating ? '…' : '⎘'}</button>
+                      )}
+                      {/* Remove — drops this clip from the merge list +
+                          deletes the underlying job_files row. Same
+                          effect as the ✕ on the FileGrid tile above;
+                          duplicated here so the operator doesn't have
+                          to scroll back up to remove an unwanted
+                          (e.g. loop-duplicate) clip. */}
+                      {onRemove && (
+                        <button
+                          onClick={() => {
+                            if (!confirm('Remove this clip from the merge list?')) return
+                            onRemove(item.id)
+                            if (mergedUrl) {
+                              try { URL.revokeObjectURL(mergedUrl) } catch {}
+                              setMergedUrl(null)
+                              mergedBlobRef.current = null
+                              window._postyMergedVideo = null
+                              try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+                            }
+                          }}
+                          className="text-[11px] text-[#c0392b] hover:text-[#922b21] bg-transparent border-none cursor-pointer px-1 leading-none"
+                          title="Remove this clip from the merge list (deletes the job_files row)"
+                        >✕</button>
                       )}
                     </div>
                       </div>

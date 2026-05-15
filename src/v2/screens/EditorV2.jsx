@@ -423,6 +423,7 @@ function ClipsPanelV2({ files, setFiles, videoFiles, addFiles, removeFile, reord
           onSaveTrim={item => jobSync.saveFileTrim?.(item)}
           onSaveMotion={item => jobSync.saveFilePhotoMotion?.(item)}
           onDuplicate={duplicateFile}
+          onRemove={removeFile}
         />
       )}
       {splitSource && (
