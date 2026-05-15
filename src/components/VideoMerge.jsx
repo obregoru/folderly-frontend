@@ -75,6 +75,14 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
   const transitionHydrated = useRef(false)
   const [merging, setMerging] = useState(false)
   const [progress, setProgress] = useState('')
+  // Local state for the "Clear music effects" button — busy spinner,
+  // post-clear ✓ flash, and error surface. Mirrors the same button
+  // on the Music tab so operators have one-click access from either
+  // place to reset the per-job music_*_loops / music_beat_zoom_all /
+  // music_loop_color_effect flags + leftover loop-duplicate rows.
+  const [clearingMusic, setClearingMusic] = useState(false)
+  const [musicClearedAt, setMusicClearedAt] = useState(null)
+  const [musicClearError, setMusicClearError] = useState(null)
   // Broadcast progress + busy state so the music-panel's
   // Re-merge button can mirror the current step. Without this,
   // operators clicking the music-panel button see no feedback
@@ -1315,6 +1323,67 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
           </>
         )}
       </div>
+
+      {/* Clear music effects — resets every per-job music_*_loops +
+          music_beat_zoom_all + music_loop_color_effect flag AND
+          deletes leftover is_loop_duplicate rows. Music track stays
+          attached. Solves the case where merges keep producing
+          effects (beat-zoom-all is a job-level merge-time override
+          that doesn't render as a per-clip badge) even though no
+          per-clip toggles look enabled. Mirrors the same button on
+          the Music tab. */}
+      {jobId && (() => {
+        const showDone = musicClearedAt && Date.now() - musicClearedAt < 4000
+        const label = clearingMusic
+          ? 'Clearing…'
+          : musicClearError
+            ? `⚠ ${musicClearError.slice(0, 60)}`
+            : showDone
+              ? '✓ Music effects cleared'
+              : '⟲ Clear music effects'
+        const cls = clearingMusic
+          ? 'bg-[#d97706]/80 text-white'
+          : musicClearError
+            ? 'bg-[#fef2f2] border border-[#c0392b]/60 text-[#c0392b]'
+            : showDone
+              ? 'bg-[#2D9A5E] text-white'
+              : 'bg-white border border-[#d97706] text-[#d97706] hover:bg-[#fff7ed]'
+        return (
+          <button
+            type="button"
+            disabled={clearingMusic || merging}
+            onClick={async () => {
+              if (!confirm('Clear all music effects on this job (beat-zoom-all, freeze / reverse / mirror / strobe / color loops) and remove any leftover loop-duplicate clips? Music track stays attached.')) return
+              setClearingMusic(true); setMusicClearError(null); setMusicClearedAt(null)
+              try {
+                const api = await import('../api')
+                await api.clearJobMusicEffects(jobId)
+                // Invalidate any cached merge — flags + dupes just changed.
+                if (mergedUrl) {
+                  try { URL.revokeObjectURL(mergedUrl) } catch {}
+                  setMergedUrl(null)
+                  mergedBlobRef.current = null
+                  window._postyMergedVideo = null
+                  try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+                }
+                // Loop-duplicates just got dropped on the BE — tell
+                // the parent (AppV2) to re-hydrate the file list so
+                // those tiles disappear and the next merge sends a
+                // clean clip set.
+                try { window.dispatchEvent(new CustomEvent('posty-files-changed', { detail: { reason: 'cleared-music-effects-from-merge-panel' } })) } catch {}
+                setMusicClearedAt(Date.now())
+                setTimeout(() => setMusicClearedAt(d => (d && Date.now() - d >= 4000 ? null : d)), 4100)
+              } catch (e) {
+                setMusicClearError(e?.message || String(e))
+              } finally {
+                setClearingMusic(false)
+              }
+            }}
+            className={`w-full text-[10px] py-1.5 rounded cursor-pointer font-medium disabled:cursor-wait ${cls}`}
+            title="Resets every music-driven effect flag (beat-zoom-all, freeze/reverse/mirror/strobe loops + loop-color) AND deletes leftover loop-duplicate clips. Music track stays attached."
+          >{label}</button>
+        )
+      })()}
 
       {/* Merge buttons — fast preview vs authoritative render */}
       <div className="flex gap-1.5">
