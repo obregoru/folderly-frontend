@@ -558,3 +558,77 @@ export const attachFreePhoto = (postId, photo, { role = 'inline', positionAfterH
     }
     return r.json()
   })
+
+// ── Landing Page Manager (Phase 1) ────────────────────────────────
+// List of managed landing pages + the tenant's default post ID + a
+// flag for whether WP credentials are configured at all (the FE uses
+// that to render a "Connect WordPress first" CTA instead of an
+// otherwise-useless Import button).
+export const listLandingPages = () =>
+  fetch(`${apiBase()}/content/landing`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `listLandingPages failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Update the tenant's default landing-page WP post ID. Accepts the
+// raw integer OR a wp-admin edit URL — BE parses either out of the
+// same input.
+export const setLandingPageDefault = (postIdOrUrl) =>
+  fetch(`${apiBase()}/content/landing/settings`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ landing_page_wp_post_id: postIdOrUrl }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setLandingPageDefault failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Import a WP page. Body is optional — defaults to the tenant's
+// stored landing_page_wp_post_id when wp_post_id is omitted. Returns
+// the parsed page + capabilities so the workspace can render
+// immediately without a follow-up fetch.
+export const importLandingPage = (wpPostIdOrUrl) =>
+  fetch(`${apiBase()}/content/landing/import`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ wp_post_id: wpPostIdOrUrl || null }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `importLandingPage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Full state of one managed landing page — the row, version history
+// (most-recent 50), and audit history (most-recent 20).
+export const getLandingPage = (id) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getLandingPage failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Full body_html + raw payload for one specific version. Fetched
+// lazily so the list endpoint stays cheap.
+export const getLandingPageVersion = (id, versionId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getLandingPageVersion failed (${r.status})`)
+      }
+      return r.json()
+    })
