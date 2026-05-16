@@ -1291,6 +1291,9 @@ function PageRow({ page, onOpen, indent = 0 }) {
 // On success: parent re-loads + opens the new page in the workspace.
 function CreateNewLandingPage({ pages, onCreated }) {
   const [open, setOpen] = useState(false)
+  const [templates, setTemplates] = useState([])
+  const [templateId, setTemplateId] = useState('') // '' = blank (no template)
+  const [templateVars, setTemplateVars] = useState({})
   const [title, setTitle] = useState('')
   const [slug, setSlug] = useState('')
   const [parentId, setParentId] = useState('')
@@ -1298,18 +1301,59 @@ function CreateNewLandingPage({ pages, onCreated }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
-  const reset = () => { setTitle(''); setSlug(''); setParentId(''); setStatus('draft'); setError(null) }
+  // Load templates on first open.
+  useEffect(() => {
+    if (!open || templates.length > 0) return
+    api.listLandingPageTemplates().then(r => setTemplates(r.templates || [])).catch(() => {})
+  }, [open, templates.length])
+
+  const activeTemplate = templates.find(t => t.id === templateId) || null
+  // When the template changes, reset templateVars + clear title/slug
+  // (so the template's title/slug pattern takes over). When switching
+  // to "blank" template (''), keep whatever the operator typed.
+  useEffect(() => {
+    if (!templateId) return
+    setTemplateVars({})
+    setTitle('')
+    setSlug('')
+  }, [templateId])
+
+  const reset = () => {
+    setTemplateId(''); setTemplateVars({})
+    setTitle(''); setSlug(''); setParentId(''); setStatus('draft'); setError(null)
+  }
+
+  // Validate required placeholders for the chosen template.
+  const missingPlaceholders = activeTemplate
+    ? (activeTemplate.placeholders || []).filter(p => p.required && !templateVars[p.key]?.trim())
+    : []
+
+  const canCreate = activeTemplate
+    ? missingPlaceholders.length === 0
+    : title.trim().length > 0
 
   const handleCreate = async () => {
-    if (busy || !title.trim()) return
+    if (busy || !canCreate) return
     setBusy(true); setError(null)
     try {
-      const r = await api.createLandingPage({
-        title: title.trim(),
-        slug: slug.trim() || undefined,
+      const payload = {
         parent_landing_page_id: parentId ? Number(parentId) : undefined,
         status,
-      })
+      }
+      if (activeTemplate) {
+        // Template-driven create. Server resolves title / slug /
+        // body / strategy_hint from template + template_vars.
+        payload.template_id = activeTemplate.id
+        payload.template_vars = templateVars
+        // Operator overrides (rare — most operators just use the template defaults).
+        if (title.trim()) payload.title = title.trim()
+        if (slug.trim()) payload.slug = slug.trim()
+      } else {
+        // Blank create — operator types everything.
+        payload.title = title.trim()
+        if (slug.trim()) payload.slug = slug.trim()
+      }
+      const r = await api.createLandingPage(payload)
       reset()
       setOpen(false)
       if (typeof onCreated === 'function' && r?.landing_page_id) {
@@ -1342,24 +1386,86 @@ function CreateNewLandingPage({ pages, onCreated }) {
           className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
         >✕ Close</button>
       </div>
+      {/* Template picker — first thing the operator picks. "Blank"
+          option keeps the old behavior (operator types title/slug/
+          body themselves). Picking a template surfaces its specific
+          placeholder fields below + bakes in the right strategy_hint
+          at create time. */}
+      <label className="text-[10px] block">
+        <span className="text-muted">Template</span>
+        <select
+          value={templateId}
+          onChange={e => setTemplateId(e.target.value)}
+          className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 bg-white"
+        >
+          <option value="">Blank (operator types everything)</option>
+          {templates.map(t => (
+            <option key={t.id} value={t.id}>{t.name} — {t.description.slice(0, 80)}{t.description.length > 80 ? '…' : ''}</option>
+          ))}
+        </select>
+      </label>
+
+      {/* Template-specific placeholder fields. Each template
+          declares which inputs it needs (city, state, category,
+          etc.). Required ones get a red asterisk. Operator-typed
+          values populate templateVars. */}
+      {activeTemplate && (activeTemplate.placeholders || []).length > 0 && (
+        <div className="bg-[#fafbff] border border-[#6C5CE7]/20 rounded p-2 space-y-1.5">
+          <div className="text-[9px] text-[#6C5CE7] font-medium">{activeTemplate.name} placeholders</div>
+          <div className="grid grid-cols-2 gap-2">
+            {(activeTemplate.placeholders || []).map(ph => (
+              <label key={ph.key} className="text-[10px] block">
+                <span className="text-muted">
+                  {ph.label}{ph.required ? <span className="text-[#c0392b]"> *</span> : ''}
+                </span>
+                <input
+                  type="text"
+                  value={templateVars[ph.key] || ''}
+                  onChange={e => setTemplateVars(v => ({ ...v, [ph.key]: e.target.value }))}
+                  placeholder={ph.example ? `e.g. ${ph.example}` : ''}
+                  className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7]"
+                />
+              </label>
+            ))}
+          </div>
+          {missingPlaceholders.length > 0 && (
+            <div className="text-[9px] text-[#c0392b]">Fill in required fields: {missingPlaceholders.map(p => p.label).join(', ')}</div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2">
+        {!activeTemplate && (
+          <label className="text-[10px] block">
+            <span className="text-muted">Title <span className="text-[#c0392b]">*</span></span>
+            <input
+              type="text"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="e.g. Make & Take Milwaukee — Candle bars, paint & sip…"
+              className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7]"
+            />
+          </label>
+        )}
+        {activeTemplate && (
+          <label className="text-[10px] block">
+            <span className="text-muted">Title (override — optional)</span>
+            <input
+              type="text"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="(uses template title if blank)"
+              className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7]"
+            />
+          </label>
+        )}
         <label className="text-[10px] block">
-          <span className="text-muted">Title <span className="text-[#c0392b]">*</span></span>
-          <input
-            type="text"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="e.g. Make & Take Milwaukee — Candle bars, paint & sip…"
-            className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7]"
-          />
-        </label>
-        <label className="text-[10px] block">
-          <span className="text-muted">Slug (optional)</span>
+          <span className="text-muted">Slug ({activeTemplate ? 'override — optional' : 'optional'})</span>
           <input
             type="text"
             value={slug}
-            onChange={e => setSlug(e.target.value.replace(/[^a-z0-9-]/gi, '-').toLowerCase())}
-            placeholder="auto from title"
+            onChange={e => setSlug(e.target.value.replace(/[^a-z0-9/-]/gi, '-').toLowerCase())}
+            placeholder={activeTemplate ? '(uses template slug if blank)' : 'auto from title'}
             className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7] font-mono"
           />
         </label>
@@ -1392,11 +1498,13 @@ function CreateNewLandingPage({ pages, onCreated }) {
       <div className="flex items-center gap-2">
         <button
           onClick={handleCreate}
-          disabled={busy || !title.trim()}
+          disabled={busy || !canCreate}
           className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
         >{busy ? 'Creating…' : '+ Create'}</button>
         <span className="text-[9px] text-muted">
-          Creates the WP page, opens it in the workspace, then set the strategy hint + run audit + propose to generate content.
+          {activeTemplate
+            ? `Uses the ${activeTemplate.name} template — body + strategy hint pre-filled with the right framing for this page type.`
+            : 'Creates a blank WP page. Set strategy hint + run audit + propose afterward to generate content.'}
         </span>
       </div>
     </div>
