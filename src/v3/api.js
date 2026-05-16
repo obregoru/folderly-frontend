@@ -742,6 +742,22 @@ export const generateLandingPageSchema = (id, versionId) =>
     return r.json()
   })
 
+// Set the per-page strategy hint that Claude uses on every audit /
+// proposal / schema run. Empty string clears the hint.
+export const setLandingPageStrategyHint = (id, hint) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/strategy-hint`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ strategy_hint: hint || '' }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setLandingPageStrategyHint failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
   fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })

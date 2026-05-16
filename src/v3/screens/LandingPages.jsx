@@ -61,7 +61,15 @@ export default function LandingPages() {
     setActiveError(null)
     try {
       const r = await api.importLandingPage(postIdOrUrl || null)
-      setActive(r)
+      // Refresh the full active state via getLandingPage so existing
+      // strategy_hint (if the row was already managed) loads into
+      // the workspace alongside the freshly-imported page state.
+      const full = await api.getLandingPage(r.landing_page_id).catch(() => null)
+      setActive({
+        ...r,
+        strategy_hint: full?.page?.strategy_hint || '',
+        history: full?.versions || [],
+      })
       await reload()
     } catch (e) {
       setActiveError(e?.message || String(e))
@@ -91,6 +99,7 @@ export default function LandingPages() {
       setActive({
         landing_page_id: page.id,
         version_id: mostRecent?.id || null,
+        strategy_hint: r.page?.strategy_hint || page.strategy_hint || '',
         page: {
           wp_post_id: page.wp_post_id,
           url: page.url,
@@ -221,13 +230,35 @@ export default function LandingPages() {
 }
 
 function PageWorkspace({ data }) {
-  const { page, capabilities = {}, history = [], landing_page_id } = data
+  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint } = data
   const links = page.links || []
   const internalLinks = links.filter(l => l.type === 'internal')
   const externalLinks = links.filter(l => l.type === 'external')
   const headings = page.headings || []
   const images = page.images || []
   const missingAlt = images.filter(i => !i.alt || !i.alt.trim()).length
+
+  // Strategy hint — free-form prose the operator writes to give
+  // Claude strategic context on every audit / proposal / schema run
+  // for this specific page. Persists on landing_pages.strategy_hint.
+  const [hint, setHint] = useState(initialHint || '')
+  const [hintSaving, setHintSaving] = useState(false)
+  const [hintSaved, setHintSaved] = useState(false)
+  const [hintError, setHintError] = useState(null)
+  useEffect(() => { setHint(initialHint || '') }, [initialHint, landing_page_id])
+  const saveHint = async () => {
+    if (hintSaving || !landing_page_id) return
+    setHintSaving(true); setHintError(null); setHintSaved(false)
+    try {
+      await api.setLandingPageStrategyHint(landing_page_id, hint)
+      setHintSaved(true)
+      setTimeout(() => setHintSaved(false), 2500)
+    } catch (e) {
+      setHintError(e?.message || String(e))
+    } finally {
+      setHintSaving(false)
+    }
+  }
 
   // Audit state — null until the operator clicks Run audit. Caches
   // findings keyed by audit row id so switching dimensions doesn't
@@ -336,6 +367,34 @@ function PageWorkspace({ data }) {
         {!capabilities.seoPlugin && !capabilities.pageBuilder && (
           <span className="text-[9px] text-muted italic">No plugins detected — admin REST may be locked. Audits will fall back to generic recommendations.</span>
         )}
+      </div>
+
+      {/* Strategy hint — free-form intent the operator writes for
+          Claude to use on every audit / proposal / schema run. Sits
+          near the top so it's high-visibility; saving is explicit
+          (no auto-save) so paste-tweaks don't churn DB writes. */}
+      <div className="bg-[#fef9c3] border border-[#ca8a04]/40 rounded p-2 space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-medium text-[#854d0e]">🎯 Strategy hint for AI revisions</span>
+          <span className="text-[9px] text-muted">Used by audit + proposal + schema for THIS page only. Other pages have their own.</span>
+          <div className="flex-1" />
+          <button
+            onClick={saveHint}
+            disabled={hintSaving}
+            className="text-[10px] py-0.5 px-2 bg-[#ca8a04] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          >{hintSaving ? 'Saving…' : hintSaved ? '✓ Saved' : 'Save'}</button>
+        </div>
+        <textarea
+          value={hint}
+          onChange={e => setHint(e.target.value)}
+          rows={5}
+          placeholder="e.g. This is an authority/editorial page covering the candle-bar scene in [city]. Rank for 'candle bar [city]', 'perfume making [city]', and adjacent terms. Voice: enthusiastic but editorial — we curate + review actual local venues with honest outbound links, not promotional fluff. Brand-behind-the-platform is Poppy &amp; Thyme (Menomonee Falls, WI); mention as the editorial voice / brand-of-record where natural."
+          className="w-full text-[11px] border border-[#ca8a04]/30 rounded p-2 bg-white outline-none focus:border-[#ca8a04] resize-y font-sans"
+        />
+        {hintError && <div className="text-[10px] text-[#c0392b]">⚠ {hintError}</div>}
+        <div className="text-[9px] text-muted italic">
+          Tip: describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff.
+        </div>
       </div>
 
       {/* Yoast meta surface — only when present */}
