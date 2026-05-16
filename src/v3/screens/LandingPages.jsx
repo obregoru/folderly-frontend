@@ -254,6 +254,8 @@ function PageWorkspace({ data }) {
   const runAudit = async () => {
     if (auditBusy || !landing_page_id) return
     setAuditBusy(true); setAuditError(null)
+    setProposal(null)
+    setProposalError(null)
     try {
       const r = await api.runLandingPageAudit(landing_page_id)
       setAudit(r)
@@ -262,6 +264,37 @@ function PageWorkspace({ data }) {
       setAuditError(e?.message || String(e))
     } finally {
       setAuditBusy(false)
+    }
+  }
+
+  // Proposal state — Phase 3. Lives alongside audit so the diff
+  // view can render the current vs proposed bodies + the
+  // link-change ledger Claude emits.
+  const [proposal, setProposal] = useState(null)
+  const [proposalBusy, setProposalBusy] = useState(false)
+  const [proposalError, setProposalError] = useState(null)
+  const [proposalElapsed, setProposalElapsed] = useState(0)
+  useEffect(() => {
+    if (!proposalBusy) { setProposalElapsed(0); return }
+    const start = Date.now()
+    setProposalElapsed(0)
+    const tick = setInterval(() => setProposalElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [proposalBusy])
+
+  const runProposal = async () => {
+    if (proposalBusy || !landing_page_id || !audit?.audit_id || selectedSuggestions.size === 0) return
+    setProposalBusy(true); setProposalError(null)
+    try {
+      const r = await api.proposeLandingPageRewrite(landing_page_id, {
+        auditId: audit.audit_id,
+        acceptedSuggestionIds: Array.from(selectedSuggestions),
+      })
+      setProposal(r)
+    } catch (e) {
+      setProposalError(e?.message || String(e))
+    } finally {
+      setProposalBusy(false)
     }
   }
   const toggleSuggestion = (sid) => {
@@ -418,8 +451,48 @@ function PageWorkspace({ data }) {
         )}
       </div>
 
+      {/* Proposal panel — Phase 3 */}
+      <div className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Rewrite proposal</span>
+          <span className="text-[9px] text-muted">Generates a full body rewrite that addresses selected audit suggestions. Existing links preserved by design.</span>
+          <div className="flex-1" />
+          {proposal?.created_at && (
+            <span className="text-[9px] text-muted">Generated {new Date(proposal.created_at).toLocaleString()}</span>
+          )}
+          <button
+            onClick={runProposal}
+            disabled={proposalBusy || !audit?.audit_id || selectedSuggestions.size === 0}
+            className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            title={
+              !audit?.audit_id ? 'Run an audit first.'
+              : selectedSuggestions.size === 0 ? 'Tick the audit findings you want addressed.'
+              : `Send ${selectedSuggestions.size} suggestion(s) to Claude and get a rewrite proposal. Takes 30-90s.`
+            }
+          >{proposalBusy
+              ? `Generating… ${proposalElapsed}s`
+              : proposal ? '🔄 Re-generate proposal' : '💡 Generate proposal'}</button>
+        </div>
+        {proposalBusy && (
+          <div className="text-[10px] text-muted italic">
+            Claude is writing the full body rewrite (longer than the audit because it has to produce 800-1500 words of polished copy). Don't refresh.
+          </div>
+        )}
+        {proposalError && <div className="text-[10px] text-[#c0392b]">⚠ {proposalError}</div>}
+        {!proposal && !proposalBusy && !proposalError && (
+          <div className="text-[10px] text-muted italic">
+            {!audit?.audit_id
+              ? 'Run an audit first, then tick suggestions to include.'
+              : selectedSuggestions.size === 0
+                ? 'Tick the audit findings you want addressed (each card has a checkbox), then click Generate proposal.'
+                : `${selectedSuggestions.size} suggestion(s) flagged — ready to generate.`}
+          </div>
+        )}
+        {proposal && <ProposalDiff proposal={proposal} sourcePage={page} />}
+      </div>
+
       <div className="text-[9px] text-muted italic">
-        Phase 2: audit landed. Proposal generation (with link preservation) + diff view come in Phase 3; AI detection (ZeroGPT) Phase 4; backup + deploy + rollback Phase 5.
+        Phase 3 landed: proposal + diff view. AI detection (ZeroGPT) → Phase 4. Backup + deploy + rollback → Phase 5.
       </div>
     </div>
   )
@@ -506,6 +579,158 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
           {selected.size} suggestion{selected.size === 1 ? '' : 's'} flagged for inclusion. (Will feed Phase 3's proposal generator once it ships.)
         </div>
       )}
+    </div>
+  )
+}
+
+function ProposalDiff({ proposal, sourcePage }) {
+  const p = proposal?.proposal || {}
+  const linksKept = Array.isArray(p.links_kept) ? p.links_kept : []
+  const linksRefined = Array.isArray(p.links_refined) ? p.links_refined : []
+  const linksAdded = Array.isArray(p.links_added) ? p.links_added : []
+  const linksRemoved = Array.isArray(p.links_removed) ? p.links_removed : []
+  const summary = Array.isArray(p.summary_of_changes) ? p.summary_of_changes : []
+  const sourceTitle = sourcePage?.title || ''
+  const sourceMeta = sourcePage?.yoast_meta?.description || ''
+  const titleChanged = (p.title || '').trim() && (p.title || '').trim() !== sourceTitle.trim()
+  const metaChanged = (p.meta_description || '').trim() && (p.meta_description || '').trim() !== sourceMeta.trim()
+
+  // Detect any existing href that doesn't appear in kept/refined/
+  // removed — that's an unexpected disappearance the operator
+  // should know about. Defensive — the prompt should prevent this
+  // but trust-but-verify on a model output.
+  const sourceLinks = Array.isArray(proposal?.source_links) ? proposal.source_links : []
+  const accountedHrefs = new Set([
+    ...linksKept.map(l => l.href),
+    ...linksRefined.map(l => l.href),
+    ...linksRemoved.map(l => l.href),
+  ])
+  const unaccountedSource = sourceLinks.filter(l => l.href && !accountedHrefs.has(l.href))
+
+  return (
+    <div className="space-y-2 text-[10px]">
+      {/* Rationale + summary of changes */}
+      {p.rationale && (
+        <div className="bg-white border border-[#e5e5e5] rounded p-2">
+          <div className="font-medium text-ink mb-1">Rationale</div>
+          <div className="text-muted">{p.rationale}</div>
+        </div>
+      )}
+      {summary.length > 0 && (
+        <div className="bg-white border border-[#e5e5e5] rounded p-2">
+          <div className="font-medium text-ink mb-1">Summary of changes ({summary.length})</div>
+          <ul className="list-disc pl-4 space-y-0.5 text-muted">
+            {summary.map((s, i) => <li key={i}>{s}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {/* Title / meta / focus keyword diff */}
+      {(titleChanged || metaChanged || p.focus_keyword) && (
+        <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
+          <div className="font-medium text-ink">Meta changes</div>
+          {titleChanged && (
+            <div>
+              <div className="text-muted">Title (before):</div>
+              <div className="bg-[#fef2f2] border-l-2 border-[#c0392b] pl-2 py-0.5">{sourceTitle || <i>(none)</i>}</div>
+              <div className="text-muted mt-1">Title (proposed):</div>
+              <div className="bg-[#f0fdf4] border-l-2 border-[#2D9A5E] pl-2 py-0.5">{p.title}</div>
+            </div>
+          )}
+          {metaChanged && (
+            <div className="pt-1">
+              <div className="text-muted">Meta description (before):</div>
+              <div className="bg-[#fef2f2] border-l-2 border-[#c0392b] pl-2 py-0.5">{sourceMeta || <i>(none)</i>}</div>
+              <div className="text-muted mt-1">Meta description (proposed):</div>
+              <div className="bg-[#f0fdf4] border-l-2 border-[#2D9A5E] pl-2 py-0.5">{p.meta_description}</div>
+            </div>
+          )}
+          {p.focus_keyword && (
+            <div className="pt-1"><b>Focus keyword:</b> {p.focus_keyword}</div>
+          )}
+        </div>
+      )}
+
+      {/* Link ledger — kept / refined / added / removed / unaccounted */}
+      <div className="bg-white border border-[#e5e5e5] rounded p-2">
+        <div className="font-medium text-ink mb-1">Link changes</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-1 mb-2">
+          <Stat label="Kept" value={linksKept.length} tone="ok" />
+          <Stat label="Refined" value={linksRefined.length} />
+          <Stat label="Added (internal)" value={linksAdded.length} />
+          <Stat label="Removed" value={linksRemoved.length} tone={linksRemoved.length > 0 ? 'warn' : 'ok'} />
+        </div>
+        {unaccountedSource.length > 0 && (
+          <div className="bg-[#fef2f2] border border-[#c0392b]/40 rounded p-1.5 mb-1">
+            <div className="font-medium text-[#c0392b]">⚠ {unaccountedSource.length} source link(s) NOT explicitly kept / refined / removed:</div>
+            <ul className="list-disc pl-4 text-[#c0392b]/90 mt-1">
+              {unaccountedSource.map((l, i) => <li key={i}><span className="font-mono">{l.href}</span> — verify manually before deploy.</li>)}
+            </ul>
+          </div>
+        )}
+        {linksRefined.length > 0 && (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-muted">Anchor refinements ({linksRefined.length})</summary>
+            <div className="pl-3 space-y-0.5 mt-1">
+              {linksRefined.map((l, i) => (
+                <div key={i}>
+                  <div className="font-mono text-[9px] text-muted truncate">{l.href}</div>
+                  <div className="line-through text-[#c0392b]">"{l.anchor_before}"</div>
+                  <div className="text-[#2D9A5E]">→ "{l.anchor_after}"</div>
+                  {l.why && <div className="text-muted text-[9px] italic">{l.why}</div>}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        {linksAdded.length > 0 && (
+          <details className="mt-1" open>
+            <summary className="cursor-pointer text-muted">New internal links ({linksAdded.length})</summary>
+            <div className="pl-3 space-y-0.5 mt-1">
+              {linksAdded.map((l, i) => (
+                <div key={i} className="border-l-2 border-[#2D9A5E] pl-2 py-0.5">
+                  <div><b>"{l.anchor}"</b> → <span className="font-mono text-[9px]">{l.href}</span></div>
+                  {l.paragraph_hint && <div className="text-muted italic">in: …{l.paragraph_hint}…</div>}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        {linksRemoved.length > 0 && (
+          <details className="mt-1" open>
+            <summary className="cursor-pointer text-[#c0392b] font-medium">⚠ Links removed — review before deploy ({linksRemoved.length})</summary>
+            <div className="pl-3 space-y-0.5 mt-1">
+              {linksRemoved.map((l, i) => (
+                <div key={i} className="border-l-2 border-[#c0392b] pl-2 py-0.5">
+                  <div className="font-mono text-[9px]">{l.href}</div>
+                  {l.anchor && <div className="line-through text-[#c0392b]">"{l.anchor}"</div>}
+                  <div className="text-muted italic">{l.reason || '(no reason given)'}</div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
+
+      {/* Body diff — full HTML side-by-side. Paragraph-level
+          highlight is Phase 4/5 territory; v1 = full bodies. */}
+      <details className="border border-[#e5e5e5] rounded">
+        <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">Body HTML diff (current vs proposed)</summary>
+        <div className="grid grid-cols-2 gap-2 p-2">
+          <div>
+            <div className="text-[9px] text-muted mb-1">Current</div>
+            <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 max-h-[400px] overflow-auto">{sourcePage?.body_html || '(empty)'}</pre>
+          </div>
+          <div>
+            <div className="text-[9px] text-muted mb-1">Proposed</div>
+            <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#f0fdf4] border border-[#2D9A5E]/30 rounded p-2 max-h-[400px] overflow-auto">{p.body_html || '(empty)'}</pre>
+          </div>
+        </div>
+      </details>
+
+      <div className="text-[9px] text-muted italic">
+        Phase 3 v1: review the diff. ZeroGPT AI-detection on the proposed body comes in Phase 4. Backup + deploy lands in Phase 5 — proposal is staged on landing_page_versions until then.
+      </div>
     </div>
   )
 }
