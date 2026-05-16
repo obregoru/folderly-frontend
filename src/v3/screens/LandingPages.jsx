@@ -396,21 +396,20 @@ function PageWorkspace({ data }) {
         <pre className="p-2 bg-[#fafafa] overflow-auto max-h-[300px] whitespace-pre-wrap break-all text-[9px] font-mono">{page.body_html || '(empty)'}</pre>
       </details>
 
-      {/* History — only when there are >1 versions worth showing */}
-      {history.length > 1 && (
-        <details className="text-[10px] border border-[#e5e5e5] rounded">
-          <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] font-medium">Version history ({history.length})</summary>
-          <div className="p-2 space-y-0.5">
-            {history.map(v => (
-              <div key={v.id} className="flex items-center gap-2 py-0.5">
-                <span className="text-[#6C5CE7] font-mono">#{v.id}</span>
-                <span className="font-medium uppercase text-[9px]">{v.kind}</span>
-                <span className="flex-1 truncate">{v.source_note}</span>
-                <span className="text-[9px] text-muted">{new Date(v.created_at).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        </details>
+      {/* History — version rows + rollback button on backup rows.
+          Always shown (even with 1 version) so the operator knows
+          backups are tracked here. */}
+      {history.length > 0 && (
+        <VersionHistory
+          history={history}
+          landingPageId={landing_page_id}
+          onRolledBack={(r) => {
+            // Force a workspace reload of the page state so the
+            // "Live" tag follows the rollback. Parent's openPage
+            // re-pulls from BE which now has fresh deployed_at.
+            try { window.dispatchEvent(new CustomEvent('posty-landing-changed', { detail: { id: landing_page_id } })) } catch {}
+          }}
+        />
       )}
 
       {/* Audit panel — Phase 2 */}
@@ -876,10 +875,163 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace }) {
         </div>
       </details>
 
+      {/* Deploy — Phase 5. Big red CTA so the operator can't miss
+          that this is the irreversible-without-rollback step. */}
+      <DeployBlock
+        landingPageId={landingPageId}
+        versionId={currentVersionId}
+        onDeployed={(r) => {
+          if (typeof onReplace === 'function') onReplace({ deployed: r })
+        }}
+      />
+
       <div className="text-[9px] text-muted italic">
-        Phase 3 v1: review the diff. ZeroGPT AI-detection on the proposed body comes in Phase 4. Backup + deploy lands in Phase 5 — proposal is staged on landing_page_versions until then.
+        Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
       </div>
     </div>
+  )
+}
+
+function DeployBlock({ landingPageId, versionId, onDeployed }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return }
+    const start = Date.now()
+    const tick = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [busy])
+  const handleDeploy = async () => {
+    if (busy || !landingPageId || !versionId) return
+    if (!confirm('Deploy this version to the live WordPress page? The current live page will be snapshotted as a backup FIRST — rollback stays available.')) return
+    setBusy(true); setError(null); setSuccess(null)
+    try {
+      const r = await api.deployLandingPageVersion(landingPageId, versionId)
+      setSuccess(r)
+      if (typeof onDeployed === 'function') onDeployed(r)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="border border-[#c0392b]/40 rounded p-3 bg-[#fef2f2] space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-medium text-[#c0392b]">🚀 Deploy to WordPress</span>
+        <span className="text-[9px] text-muted">Replaces the live page's body + title + (when Yoast Premium) meta description + focus keyword. Live page snapshotted as a backup first.</span>
+        <div className="flex-1" />
+        <button
+          onClick={handleDeploy}
+          disabled={busy || !versionId}
+          className="text-[11px] py-1 px-3 bg-[#c0392b] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium"
+          title="Snapshots live page as backup, then PUTs the current version's content to WP REST API."
+        >{busy ? `Deploying… ${elapsed}s` : '🚀 Deploy'}</button>
+      </div>
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+      {success && (
+        <div className="text-[10px] bg-[#f0fdf4] border border-[#2D9A5E]/40 rounded p-2 space-y-1">
+          <div className="font-medium text-[#16a34a]">✓ Deployed</div>
+          <div className="text-muted">
+            Backup taken as version <b>#{success.backup_version_id}</b> — use it on the History panel below to roll back.
+          </div>
+          {success.wp_link && (
+            <div>
+              <a href={success.wp_link} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">
+                View live page →
+              </a>
+            </div>
+          )}
+          {Array.isArray(success.warnings) && success.warnings.length > 0 && (
+            <div className="bg-[#fff7ed] border border-[#d97706]/40 rounded p-1.5 mt-1">
+              {success.warnings.map((w, i) => <div key={i} className="text-[#d97706]">⚠ {w}</div>)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Version history list with kind tag + rollback button on
+// backup rows. "Live" tag attaches to whichever row has the
+// most recent deployed_at — the BE stamps that on the row that
+// went live, and on backups when they're created from a live
+// snapshot.
+function VersionHistory({ history, landingPageId, onRolledBack }) {
+  const [rollbackBusyId, setRollbackBusyId] = useState(null)
+  const [rollbackError, setRollbackError] = useState(null)
+  // Find the version with the most recent deployed_at — that's
+  // what's currently on the live page.
+  let liveVersionId = null
+  let latestDeployedAt = null
+  for (const v of history) {
+    if (v.deployed_at) {
+      const t = new Date(v.deployed_at).getTime()
+      if (!latestDeployedAt || t > latestDeployedAt) {
+        latestDeployedAt = t
+        liveVersionId = v.id
+      }
+    }
+  }
+  const handleRollback = async (versionId) => {
+    if (rollbackBusyId) return
+    if (!confirm(`Roll back to version #${versionId}? The current live page will be snapshotted as a NEW backup first, so this rollback itself stays reversible.`)) return
+    setRollbackBusyId(versionId)
+    setRollbackError(null)
+    try {
+      await api.rollbackLandingPage(landingPageId, versionId)
+      if (typeof onRolledBack === 'function') onRolledBack({ versionId })
+      alert(`Rolled back to version #${versionId}. Refresh / re-open the page to see the new "Live" tag.`)
+    } catch (e) {
+      setRollbackError(e?.message || String(e))
+    } finally {
+      setRollbackBusyId(null)
+    }
+  }
+  const kindColors = (kind) => kind === 'imported' ? 'bg-[#e0e7ff] text-[#3b82f6]'
+    : kind === 'ai-suggested' ? 'bg-[#dcfce7] text-[#16a34a]'
+    : kind === 'human-edited' ? 'bg-[#fef9c3] text-[#854d0e]'
+    : kind === 'backup' ? 'bg-[#fef2f2] text-[#c0392b]'
+    : kind === 'deployed' ? 'bg-[#f0fdf4] text-[#16a34a]'
+    : 'bg-[#f0f0f0] text-muted'
+  return (
+    <details open className="text-[10px] border border-[#e5e5e5] rounded">
+      <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] font-medium">
+        Version history ({history.length})
+        {liveVersionId && <span className="ml-2 text-[9px] text-[#16a34a]">· current live: #{liveVersionId}</span>}
+      </summary>
+      {rollbackError && (
+        <div className="px-2 py-1 text-[#c0392b]">⚠ {rollbackError}</div>
+      )}
+      <div className="p-2 space-y-1">
+        {history.map(v => {
+          const isLive = v.id === liveVersionId
+          const isBackup = v.kind === 'backup'
+          const canRollback = isBackup && !isLive
+          const isRollingBack = rollbackBusyId === v.id
+          return (
+            <div key={v.id} className="flex items-center gap-2 py-1 border-b border-[#f0f0f0] last:border-0">
+              <span className="text-[#6C5CE7] font-mono w-12 text-left">#{v.id}</span>
+              <span className={`text-[8px] py-0.5 px-1.5 rounded font-medium uppercase ${kindColors(v.kind)}`}>{v.kind}</span>
+              {isLive && <span className="text-[8px] py-0.5 px-1.5 rounded font-bold uppercase bg-[#16a34a] text-white">Live</span>}
+              <span className="flex-1 truncate text-muted">{v.source_note}</span>
+              <span className="text-[9px] text-muted whitespace-nowrap">{new Date(v.created_at).toLocaleString()}</span>
+              {canRollback && (
+                <button
+                  onClick={() => handleRollback(v.id)}
+                  disabled={isRollingBack}
+                  className="text-[9px] py-0.5 px-1.5 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
+                  title="Push this backup's content back to the live page. The current live state is snapshotted first."
+                >{isRollingBack ? 'Rolling back…' : '↶ Rollback'}</button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </details>
   )
 }
 

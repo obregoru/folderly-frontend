@@ -690,6 +690,41 @@ export const humanizeLandingPageVersion = (id, versionId) =>
     return r.json()
   })
 
+// Push a chosen version to WordPress. Snapshots the current live
+// page as a backup BEFORE the deploy, so rollback is always
+// available. Returns { backup_version_id, wp_link, wp_modified,
+// warnings: [...] }.
+export const deployLandingPageVersion = (id, versionId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/deploy`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ version_id: versionId }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `deployLandingPageVersion failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Roll back to a prior backup. Snapshots current live state as a
+// new pre-rollback backup, then PUTs the chosen backup's content
+// back to WP. Returns { prebackup_version_id, wp_link }.
+export const rollbackLandingPage = (id, backupVersionId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/rollback`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ backup_version_id: backupVersionId }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `rollbackLandingPage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
   fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })
