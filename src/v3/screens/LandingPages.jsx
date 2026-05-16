@@ -30,6 +30,27 @@ export default function LandingPages() {
   // the backup guide. The modal opens, and on dismiss/acknowledge
   // we fire pendingDeployRef.current() to proceed with the deploy.
   const pendingDeployRef = useRef(null)
+  // Cross-page site audit — on-demand, single button at the top of
+  // the Landing tab. Result lives in component state (not persisted
+  // server-side yet). Audit history table can come in a later
+  // phase if it becomes useful.
+  const [siteAudit, setSiteAudit] = useState(null)
+  const [siteAuditBusy, setSiteAuditBusy] = useState(false)
+  const [siteAuditError, setSiteAuditError] = useState(null)
+  const [siteAuditOpen, setSiteAuditOpen] = useState(false)
+  const runSiteAudit = async () => {
+    if (siteAuditBusy) return
+    setSiteAuditBusy(true); setSiteAuditError(null)
+    setSiteAuditOpen(true)
+    try {
+      const r = await api.runLandingSiteAudit()
+      setSiteAudit(r)
+    } catch (e) {
+      setSiteAuditError(e?.message || String(e))
+    } finally {
+      setSiteAuditBusy(false)
+    }
+  }
   // Active workspace state — when an operator picks a page or imports
   // one fresh, the parsed page lives here so the right pane renders.
   const [active, setActive] = useState(null)
@@ -175,6 +196,14 @@ export default function LandingPages() {
           <h2 className="text-[13px] font-semibold">Landing Pages</h2>
           <div className="text-[10px] text-muted">SEO/marketing manager for your home page and other key landing pages. Imports from WordPress, audits SEO + AEO + GEO + E-E-A-T + AI-naturalness, proposes improvements with internal-link suggestions, and lets you back up + deploy approved changes.</div>
         </div>
+        {/* Cross-page site audit — surfaces orphans, broken links,
+            cannibalization, stale pages, strategic gaps. */}
+        <button
+          onClick={runSiteAudit}
+          disabled={siteAuditBusy}
+          className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+          title="Look at the whole landing-page portfolio: orphans, broken links, pages targeting overlapping keywords, stale content, missing strategy hints, un-deployed proposals."
+        >{siteAuditBusy ? 'Auditing…' : '🌐 Site audit'}</button>
         {/* Always-available manual access to the backup guide
             (regardless of acknowledgment). Useful for re-reading
             instructions or sending the link to a teammate. */}
@@ -184,6 +213,23 @@ export default function LandingPages() {
           title="Show the WordPress backup guide. Recommended before doing any landing-page deploys."
         >📚 Backup guide</button>
       </div>
+
+      {/* Site audit result panel — only visible after Run site
+          audit is clicked. Findings are grouped into 4 buckets so
+          the operator can navigate by issue type. */}
+      {siteAuditOpen && (
+        <SiteAuditPanel
+          busy={siteAuditBusy}
+          error={siteAuditError}
+          audit={siteAudit}
+          pages={state.pages}
+          onClose={() => setSiteAuditOpen(false)}
+          onOpenPage={(pageId) => {
+            const p = state.pages.find(pp => pp.id === pageId)
+            if (p) { openPage(p); setSiteAuditOpen(false) }
+          }}
+        />
+      )}
 
       {/* WP-not-configured banner — short-circuits everything else.
           Sends the operator to the social-media tenant settings since
@@ -1027,6 +1073,109 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
       <div className="text-[9px] text-muted italic">
         Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
       </div>
+    </div>
+  )
+}
+
+// Cross-page site audit results panel. Renders 4 buckets of
+// findings (graph / content / deploy / strategy) plus a summary
+// strip. Per-finding "Open page" buttons let the operator jump
+// straight into the workspace for the affected page.
+function SiteAuditPanel({ busy, error, audit, pages, onClose, onOpenPage }) {
+  const buckets = [
+    { key: 'graph',    label: 'Graph & links',     hint: 'Orphan pages, broken internal links' },
+    { key: 'content',  label: 'Content hygiene',   hint: 'Missing hints, stale pages' },
+    { key: 'deploy',   label: 'Deploy state',      hint: 'Un-deployed proposals, sync issues' },
+    { key: 'strategy', label: 'Strategy (Claude)', hint: 'Cannibalization, voice drift, coverage gaps' },
+  ]
+  const summary = audit?.summary || null
+  return (
+    <div className="bg-white border border-[#6C5CE7]/30 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] font-semibold">🌐 Site audit</span>
+        {audit?.generated_at && (
+          <span className="text-[9px] text-muted">Generated {new Date(audit.generated_at).toLocaleString()}</span>
+        )}
+        <div className="flex-1" />
+        <button
+          onClick={onClose}
+          className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
+        >✕ Close</button>
+      </div>
+
+      {busy && <div className="text-[10px] text-muted italic">Running cross-page checks… (~10-30s for the strategic Claude pass when 3+ pages exist)</div>}
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+
+      {summary && (
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-1.5 text-[10px]">
+          <SiteStat label="Pages" value={summary.page_count} />
+          <SiteStat label="Orphans" value={summary.orphan_count} tone={summary.orphan_count > 0 ? 'warn' : 'ok'} />
+          <SiteStat label="Broken links" value={summary.broken_link_count} tone={summary.broken_link_count > 0 ? 'warn' : 'ok'} />
+          <SiteStat label="Stale (90+d)" value={summary.stale_count} tone={summary.stale_count > 0 ? 'warn' : 'ok'} />
+          <SiteStat label="No hint" value={summary.missing_hint_count} tone={summary.missing_hint_count > 0 ? 'warn' : 'ok'} />
+          <SiteStat label="Undeployed" value={summary.undeployed_proposal_count} tone={summary.undeployed_proposal_count > 0 ? 'warn' : 'ok'} />
+        </div>
+      )}
+
+      {audit && (
+        <div className="space-y-2">
+          {buckets.map(b => {
+            const items = audit.findings?.[b.key] || []
+            if (items.length === 0) return null
+            return (
+              <details key={b.key} open className="border border-[#e5e5e5] rounded">
+                <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">
+                  {b.label} ({items.length})
+                  <span className="text-muted font-normal ml-2">— {b.hint}</span>
+                </summary>
+                <div className="p-2 space-y-1.5">
+                  {items.map((f, i) => {
+                    const sev = f.severity || 'nice'
+                    const sevColors = sev === 'critical' ? 'border-[#c0392b] bg-[#fef2f2] text-[#c0392b]'
+                      : sev === 'important' ? 'border-[#d97706] bg-[#fff7ed] text-[#d97706]'
+                      : 'border-[#94a3b8] bg-[#f0f0f0] text-muted'
+                    return (
+                      <div key={f.suggestion_id || i} className="bg-white border border-[#e5e5e5] rounded p-2 text-[10px] space-y-1">
+                        <div className="flex items-start gap-2">
+                          <span className={`text-[8px] py-0.5 px-1 rounded border uppercase font-bold ${sevColors}`}>{sev}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-ink">{f.title}</div>
+                            {f.target && <div className="text-[9px] text-muted font-mono truncate">→ {f.target}</div>}
+                          </div>
+                          {f.page_id && (
+                            <button
+                              onClick={() => onOpenPage(f.page_id)}
+                              className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0"
+                            >Open page →</button>
+                          )}
+                        </div>
+                        {f.detail && <div className="pl-1 text-muted">{f.detail}</div>}
+                        {f.suggestion && <div className="pl-1 text-ink"><b>Suggestion:</b> {f.suggestion}</div>}
+                        {Array.isArray(f.page_labels) && f.page_labels.length > 0 && (
+                          <div className="pl-1 text-[9px] text-muted">Pages referenced: {f.page_labels.join(' · ')}</div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </details>
+            )
+          })}
+          {Object.values(audit.findings || {}).every(arr => !arr || arr.length === 0) && (
+            <div className="text-[10px] text-muted italic">No cross-page issues surfaced. The portfolio looks healthy.</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SiteStat({ label, value, tone }) {
+  const numCls = tone === 'warn' ? 'text-[#d97706]' : tone === 'ok' ? 'text-[#16a34a]' : 'text-ink'
+  return (
+    <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">
+      <div className="text-muted">{label}</div>
+      <div className={`text-[14px] font-semibold ${numCls}`}>{value ?? '—'}</div>
     </div>
   )
 }
