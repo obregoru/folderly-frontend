@@ -742,6 +742,25 @@ export const generateLandingPageSchema = (id, versionId) =>
     return r.json()
   })
 
+// Create a new landing page from scratch — spins up a draft WP page
+// via the REST API + creates a landing_pages row + an initial
+// imported version row so audit/propose/diff have something to chew
+// on. Body: { title, slug?, parent_landing_page_id?, initial_body?,
+// status?: 'draft' | 'publish' }.
+export const createLandingPage = ({ title, slug, parent_landing_page_id, initial_body, status }) =>
+  fetch(`${apiBase()}/content/landing/create`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ title, slug, parent_landing_page_id, initial_body, status }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `createLandingPage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Set the per-page strategy hint that Claude uses on every audit /
 // proposal / schema run. Empty string clears the hint.
 export const setLandingPageStrategyHint = (id, hint) =>
