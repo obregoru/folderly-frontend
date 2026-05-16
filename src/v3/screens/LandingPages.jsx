@@ -511,6 +511,12 @@ function PageWorkspace({ data, requireBackupAck }) {
         </div>
       </div>
 
+      {/* Search Console — per-page performance block. Lazy-fetches
+          on operator click since GSC API calls cost (~2-5 round
+          trips per page) and not every page workspace open is
+          interested in metrics. */}
+      <GscBlock landingPageId={landing_page_id} pageUrl={page.url} />
+
       {/* Yoast meta surface — only when present */}
       {page.yoast_meta && (
         <details className="text-[10px] border border-[#e5e5e5] rounded">
@@ -1080,6 +1086,283 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
       <div className="text-[9px] text-muted italic">
         Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
       </div>
+    </div>
+  )
+}
+
+// Per-page Google Search Console performance block. Lazy: only
+// fetches when operator clicks "Pull GSC data" so we don't blow
+// API quota on every workspace open. Three states:
+//   1. GSC not connected (or not configured for this tenant) →
+//      shows a "Connect Search Console" button that opens the
+//      Google OAuth flow in a popup.
+//   2. GSC connected but no site selected → site picker dropdown.
+//   3. GSC fully set up → "Pull GSC data" + result display.
+function GscBlock({ landingPageId, pageUrl }) {
+  const [status, setStatus] = useState(null) // { connected, site_url } once loaded
+  const [statusBusy, setStatusBusy] = useState(true)
+  const [data, setData] = useState(null)
+  const [fetchBusy, setFetchBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [sites, setSites] = useState(null)
+  const [sitesBusy, setSitesBusy] = useState(false)
+  const [connectBusy, setConnectBusy] = useState(false)
+
+  // Initial status check.
+  useEffect(() => {
+    let cancelled = false
+    setStatusBusy(true)
+    api.getGscStatus()
+      .then(s => { if (!cancelled) setStatus(s) })
+      .catch(() => { if (!cancelled) setStatus({ connected: false }) })
+      .finally(() => { if (!cancelled) setStatusBusy(false) })
+    return () => { cancelled = true }
+  }, [landingPageId])
+
+  // Clear cached data when the active landing page changes —
+  // metrics are per-URL and we don't want to show stale data.
+  useEffect(() => { setData(null); setError(null) }, [pageUrl])
+
+  const handleConnect = async () => {
+    if (connectBusy) return
+    setConnectBusy(true); setError(null)
+    try {
+      const { url } = await api.getGscAuthorizeUrl()
+      // Pop-up window so the operator stays on the workspace.
+      // After Google redirects to our callback (which closes the
+      // popup), we re-fetch status to flip the UI.
+      const popup = window.open(url, 'gsc-auth', 'width=560,height=720')
+      // Poll for popup close, then re-check status.
+      const poll = setInterval(async () => {
+        if (popup.closed) {
+          clearInterval(poll)
+          try {
+            const s = await api.getGscStatus()
+            setStatus(s)
+            if (s.connected) {
+              // Auto-load site picker for convenience.
+              loadSites()
+            }
+          } catch {}
+          setConnectBusy(false)
+        }
+      }, 750)
+    } catch (e) {
+      setError(e?.message || String(e))
+      setConnectBusy(false)
+    }
+  }
+
+  const loadSites = async () => {
+    if (sitesBusy) return
+    setSitesBusy(true); setError(null)
+    try {
+      const r = await api.listGscSites()
+      setSites(r.sites || [])
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSitesBusy(false)
+    }
+  }
+
+  const handlePickSite = async (siteUrl) => {
+    try {
+      const r = await api.setGscSite(siteUrl)
+      setStatus(s => ({ ...s, site_url: r.site_url }))
+      setSites(null)
+    } catch (e) {
+      setError(e?.message || String(e))
+    }
+  }
+
+  const handleDisconnect = async () => {
+    if (!confirm('Disconnect Google Search Console for this tenant? You can reconnect any time.')) return
+    try {
+      await api.disconnectGsc()
+      setStatus({ connected: false })
+      setData(null)
+      setSites(null)
+    } catch (e) {
+      setError(e?.message || String(e))
+    }
+  }
+
+  const handleFetch = async () => {
+    if (fetchBusy || !landingPageId) return
+    setFetchBusy(true); setError(null)
+    try {
+      const r = await api.fetchLandingPageGsc(landingPageId)
+      setData(r)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setFetchBusy(false)
+    }
+  }
+
+  // Loading / states
+  if (statusBusy) return null
+  // Sites picker view
+  const showingSitePicker = Array.isArray(sites)
+
+  return (
+    <div className="bg-white border border-[#16a34a]/30 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-medium text-[#16a34a]">📈 Search Console</span>
+        <span className="text-[9px] text-muted">Real Google performance — impressions, clicks, position, top queries.</span>
+        <div className="flex-1" />
+        {status?.connected ? (
+          <>
+            {status.site_url ? (
+              <span className="text-[9px] font-mono text-muted truncate max-w-[260px]" title={status.site_url}>{status.site_url}</span>
+            ) : null}
+            <button
+              onClick={loadSites}
+              disabled={sitesBusy}
+              className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] rounded cursor-pointer text-muted"
+              title="Change which verified Search Console property to read from"
+            >{sitesBusy ? 'Loading…' : 'Change site'}</button>
+            <button
+              onClick={handleDisconnect}
+              className="text-[9px] py-0.5 px-1.5 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer"
+              title="Disconnect GSC for this tenant"
+            >Disconnect</button>
+          </>
+        ) : (
+          <button
+            onClick={handleConnect}
+            disabled={connectBusy}
+            className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            title="Authorize Make & Take to read your Google Search Console data (read-only). Stays separate from any existing Google Business Profile connection."
+          >{connectBusy ? 'Connecting…' : '🔗 Connect Search Console'}</button>
+        )}
+      </div>
+
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+
+      {/* Site picker (after connect, or via "Change site") */}
+      {showingSitePicker && (
+        <div className="bg-[#f0fdf4] border border-[#16a34a]/20 rounded p-2 space-y-1">
+          <div className="text-[10px] font-medium">Pick the GSC property for this site</div>
+          {sites.length === 0 ? (
+            <div className="text-[10px] text-muted italic">No verified GSC properties found on this Google account. Verify your site in Search Console first, then come back.</div>
+          ) : (
+            <div className="space-y-1">
+              {sites.map(s => (
+                <button
+                  key={s.siteUrl}
+                  onClick={() => handlePickSite(s.siteUrl)}
+                  className={`w-full flex items-center gap-2 text-[10px] py-1 px-2 border rounded cursor-pointer text-left
+                    ${s.siteUrl === status?.site_url ? 'bg-[#16a34a]/10 border-[#16a34a]' : 'bg-white border-[#e5e5e5] hover:bg-[#fafafa]'}`}
+                >
+                  <span className="font-mono flex-1 truncate">{s.siteUrl}</span>
+                  <span className="text-[8px] text-muted uppercase">{s.permissionLevel?.replace('site', '')}</span>
+                  {s.siteUrl === status?.site_url && <span className="text-[8px] text-[#16a34a] font-bold">SELECTED</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fetch + display */}
+      {status?.connected && status?.site_url && pageUrl && !showingSitePicker && (
+        <>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleFetch}
+              disabled={fetchBusy}
+              className="text-[10px] py-1 px-2 bg-white border border-[#16a34a] text-[#16a34a] rounded cursor-pointer disabled:opacity-50"
+              title="Fetches last 28 days vs the prior 28 days for this page's URL. ~3-8 seconds."
+            >{fetchBusy ? 'Fetching…' : data ? '🔄 Refresh data' : '📥 Pull GSC data'}</button>
+            {data?.fetched_at && (
+              <span className="text-[9px] text-muted">Fetched {new Date(data.fetched_at).toLocaleString()} · {data.windows?.current?.start} → {data.windows?.current?.end}</span>
+            )}
+          </div>
+          {data && <GscMetrics data={data} />}
+        </>
+      )}
+      {status?.connected && !status?.site_url && !showingSitePicker && (
+        <div className="text-[10px] text-muted italic">No GSC property selected yet. Click "Change site" above to pick one.</div>
+      )}
+      {status?.connected && status?.site_url && !pageUrl && (
+        <div className="text-[10px] text-muted italic">This landing page has no URL yet — re-import from WordPress so GSC has a URL to query.</div>
+      )}
+    </div>
+  )
+}
+
+function GscMetrics({ data }) {
+  const cur = data?.current || {}
+  const delta = data?.delta || {}
+  const fmtNum = (n) => (n == null ? '—' : Math.round(n).toLocaleString())
+  const fmtPct = (n) => (n == null ? '—' : `${(n * 100).toFixed(1)}%`)
+  const fmtPos = (n) => (n == null ? '—' : n.toFixed(1))
+  const deltaTone = (n, betterWhenNegative = false) => {
+    if (n == null || n === 0) return 'text-muted'
+    if (betterWhenNegative) return n < 0 ? 'text-[#16a34a]' : 'text-[#c0392b]'
+    return n > 0 ? 'text-[#16a34a]' : 'text-[#c0392b]'
+  }
+  const deltaArrow = (n, betterWhenNegative = false) => {
+    if (n == null || n === 0) return '·'
+    if (betterWhenNegative) return n < 0 ? '↓' : '↑'
+    return n > 0 ? '↑' : '↓'
+  }
+  const sign = (n) => n > 0 ? `+${Math.round(n).toLocaleString()}` : Math.round(n).toLocaleString()
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+        <div className="bg-[#f0fdf4] border border-[#16a34a]/20 rounded p-2">
+          <div className="text-muted">Impressions (28d)</div>
+          <div className="text-[16px] font-semibold">{fmtNum(cur.impressions)}</div>
+          <div className={`text-[9px] ${deltaTone(delta.impressions)}`}>
+            {deltaArrow(delta.impressions)} {sign(delta.impressions)} vs prior 28d
+          </div>
+        </div>
+        <div className="bg-[#f0fdf4] border border-[#16a34a]/20 rounded p-2">
+          <div className="text-muted">Clicks (28d)</div>
+          <div className="text-[16px] font-semibold">{fmtNum(cur.clicks)}</div>
+          <div className={`text-[9px] ${deltaTone(delta.clicks)}`}>
+            {deltaArrow(delta.clicks)} {sign(delta.clicks)} vs prior 28d
+          </div>
+        </div>
+        <div className="bg-[#f0fdf4] border border-[#16a34a]/20 rounded p-2">
+          <div className="text-muted">CTR</div>
+          <div className="text-[16px] font-semibold">{fmtPct(cur.ctr)}</div>
+          <div className={`text-[9px] ${deltaTone(delta.ctr_pp)}`}>
+            {deltaArrow(delta.ctr_pp)} {delta.ctr_pp == null ? '—' : `${delta.ctr_pp > 0 ? '+' : ''}${delta.ctr_pp.toFixed(2)} pp`}
+          </div>
+        </div>
+        <div className="bg-[#f0fdf4] border border-[#16a34a]/20 rounded p-2">
+          <div className="text-muted">Avg position</div>
+          <div className="text-[16px] font-semibold">{fmtPos(cur.position)}</div>
+          <div className={`text-[9px] ${deltaTone(delta.position, true)}`}>
+            {deltaArrow(delta.position, true)} {delta.position == null ? '—' : `${delta.position > 0 ? '+' : ''}${delta.position.toFixed(1)}`}
+            <span className="text-muted ml-1">(lower = better)</span>
+          </div>
+        </div>
+      </div>
+      {Array.isArray(cur.top_queries) && cur.top_queries.length > 0 && (
+        <details className="text-[10px] border border-[#e5e5e5] rounded">
+          <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] font-medium">
+            Top {cur.top_queries.length} queries driving this page (last 28d)
+          </summary>
+          <div className="p-2 space-y-0.5">
+            {cur.top_queries.map((q, i) => (
+              <div key={i} className="flex items-center gap-2 py-0.5 border-b border-[#f0f0f0] last:border-0">
+                <span className="text-muted font-mono w-5 text-right">{i + 1}.</span>
+                <span className="flex-1 truncate">{q.query}</span>
+                {q.new_this_period && <span className="text-[8px] py-0.5 px-1 bg-[#dcfce7] text-[#16a34a] rounded">NEW</span>}
+                <span className="font-mono text-muted w-12 text-right" title="Impressions">{fmtNum(q.impressions)}</span>
+                <span className="font-mono text-muted w-10 text-right" title="Clicks">{fmtNum(q.clicks)}</span>
+                <span className="font-mono text-muted w-10 text-right" title="Avg position">{fmtPos(q.position)}</span>
+              </div>
+            ))}
+            <div className="text-[8px] text-muted italic pt-1">Columns: impressions · clicks · avg position. Look for "NEW" queries — these are searches your page wasn't getting before; lean into them if they match your intent.</div>
+          </div>
+        </details>
+      )}
     </div>
   )
 }
