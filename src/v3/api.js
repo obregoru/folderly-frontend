@@ -638,6 +638,26 @@ export const runLandingPageAudit = (id) =>
     return r.json()
   })
 
+// Generate a rewrite proposal from the operator's accepted audit
+// suggestions. Returns the proposal inline + persists it as an
+// ai-suggested version row.
+export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds }) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/propose`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({
+      audit_id: auditId,
+      accepted_suggestion_ids: acceptedSuggestionIds,
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `proposeLandingPageRewrite failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
   fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })
