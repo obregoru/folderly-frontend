@@ -742,17 +742,29 @@ export const generateLandingPageSchema = (id, versionId) =>
     return r.json()
   })
 
+// List available landing-page templates (city guide, location page,
+// Shop Hop event, category page) for the Create form's picker.
+export const listLandingPageTemplates = () =>
+  fetch(`${apiBase()}/content/landing/templates`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `listLandingPageTemplates failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Create a new landing page from scratch — spins up a draft WP page
 // via the REST API + creates a landing_pages row + an initial
 // imported version row so audit/propose/diff have something to chew
 // on. Body: { title, slug?, parent_landing_page_id?, initial_body?,
 // status?: 'draft' | 'publish' }.
-export const createLandingPage = ({ title, slug, parent_landing_page_id, initial_body, status }) =>
+export const createLandingPage = ({ title, slug, parent_landing_page_id, initial_body, status, template_id, template_vars }) =>
   fetch(`${apiBase()}/content/landing/create`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
-    body: JSON.stringify({ title, slug, parent_landing_page_id, initial_body, status }),
+    body: JSON.stringify({ title, slug, parent_landing_page_id, initial_body, status, template_id, template_vars }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
