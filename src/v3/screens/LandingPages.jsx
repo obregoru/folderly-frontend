@@ -38,6 +38,34 @@ export default function LandingPages() {
   const [siteAuditBusy, setSiteAuditBusy] = useState(false)
   const [siteAuditError, setSiteAuditError] = useState(null)
   const [siteAuditOpen, setSiteAuditOpen] = useState(false)
+  // Bulk per-page audit — separate from siteAudit (which checks
+  // the cross-page graph). Runs the per-page audit on EVERY managed
+  // page sequentially. Useful after strategy shifts.
+  const [bulkAudit, setBulkAudit] = useState(null)
+  const [bulkAuditBusy, setBulkAuditBusy] = useState(false)
+  const [bulkAuditError, setBulkAuditError] = useState(null)
+  const [bulkAuditOpen, setBulkAuditOpen] = useState(false)
+  const [bulkAuditElapsed, setBulkAuditElapsed] = useState(0)
+  useEffect(() => {
+    if (!bulkAuditBusy) { setBulkAuditElapsed(0); return }
+    const start = Date.now()
+    const tick = setInterval(() => setBulkAuditElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [bulkAuditBusy])
+  const runBulkAudit = async () => {
+    if (bulkAuditBusy) return
+    if (!confirm(`Re-audit every managed landing page for this tenant? This calls Claude once per page (~10-30s each) — total runtime scales with page count. Useful after a strategy hint change.`)) return
+    setBulkAuditBusy(true); setBulkAuditError(null); setBulkAuditOpen(true)
+    try {
+      const r = await api.bulkAuditLandingPages()
+      setBulkAudit(r)
+    } catch (e) {
+      setBulkAuditError(e?.message || String(e))
+    } finally {
+      setBulkAuditBusy(false)
+    }
+  }
+
   const runSiteAudit = async () => {
     if (siteAuditBusy) return
     setSiteAuditBusy(true); setSiteAuditError(null)
@@ -204,6 +232,14 @@ export default function LandingPages() {
           className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
           title="Look at the whole landing-page portfolio: orphans, broken links, pages targeting overlapping keywords, stale content, missing strategy hints, un-deployed proposals."
         >{siteAuditBusy ? 'Auditing…' : '🌐 Site audit'}</button>
+        {/* Bulk per-page audit — re-runs the standard audit on
+            every managed page. Useful after a strategy shift. */}
+        <button
+          onClick={runBulkAudit}
+          disabled={bulkAuditBusy}
+          className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+          title="Re-runs the per-page audit on EVERY managed page sequentially. Use after changing a strategy hint that affects all pages, or after a major site change."
+        >{bulkAuditBusy ? `Re-auditing… ${bulkAuditElapsed}s` : '🔁 Re-audit all pages'}</button>
         {/* Always-available manual access to the backup guide
             (regardless of acknowledgment). Useful for re-reading
             instructions or sending the link to a teammate. */}
@@ -227,6 +263,23 @@ export default function LandingPages() {
           onOpenPage={(pageId) => {
             const p = state.pages.find(pp => pp.id === pageId)
             if (p) { openPage(p); setSiteAuditOpen(false) }
+          }}
+        />
+      )}
+
+      {/* Bulk re-audit result panel — runs sequentially on the BE
+          so the result returns once everything is done. Per-page
+          rows show each dimension's score in a compact grid. */}
+      {bulkAuditOpen && (
+        <BulkAuditPanel
+          busy={bulkAuditBusy}
+          elapsed={bulkAuditElapsed}
+          error={bulkAuditError}
+          result={bulkAudit}
+          onClose={() => setBulkAuditOpen(false)}
+          onOpenPage={(pageId) => {
+            const p = state.pages.find(pp => pp.id === pageId)
+            if (p) { openPage(p); setBulkAuditOpen(false) }
           }}
         />
       )}
@@ -1555,6 +1608,80 @@ function SiteAuditPanel({ busy, error, audit, pages, onClose, onOpenPage }) {
             <div className="text-[10px] text-muted italic">No cross-page issues surfaced. The portfolio looks healthy.</div>
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+// Bulk audit result panel. Shows per-page rows with each
+// dimension's score in a compact grid. While busy, shows just
+// an elapsed-time message — the BE runs sequentially so progress
+// isn't surfaced (we'd need streaming for that; not worth it
+// for this workflow).
+function BulkAuditPanel({ busy, elapsed, error, result, onClose, onOpenPage }) {
+  const DIMS = ['seo', 'aeo', 'geo', 'eeat', 'ai_naturalness']
+  const dimLabel = (k) => k === 'ai_naturalness' ? 'AI' : k.toUpperCase()
+  const scoreColor = (s) => {
+    if (typeof s !== 'number') return 'text-muted'
+    if (s >= 85) return 'text-[#16a34a]'
+    if (s >= 60) return 'text-[#d97706]'
+    return 'text-[#c0392b]'
+  }
+  return (
+    <div className="bg-white border border-[#6C5CE7]/30 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] font-semibold">🔁 Bulk re-audit</span>
+        {result && (
+          <span className="text-[9px] text-muted">
+            {result.succeeded}/{result.total} succeeded
+            {result.failed > 0 && <span className="ml-1 text-[#c0392b]">· {result.failed} failed</span>}
+            {result.elapsed_ms && <span className="ml-1">· {(result.elapsed_ms / 1000).toFixed(1)}s</span>}
+          </span>
+        )}
+        <div className="flex-1" />
+        <button onClick={onClose} className="text-[10px] text-muted bg-transparent border-none cursor-pointer">✕ Close</button>
+      </div>
+      {busy && (
+        <div className="text-[10px] text-muted italic">
+          Re-auditing every page sequentially… {elapsed}s elapsed. Don't navigate away — refreshing loses the in-flight progress (result lands when all pages are done).
+        </div>
+      )}
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+      {result && Array.isArray(result.audits) && result.audits.length > 0 && (
+        <div className="space-y-1 text-[10px]">
+          <div className="grid grid-cols-[1fr_repeat(5,auto)_auto] gap-2 px-2 py-1 text-[9px] text-muted font-medium uppercase border-b border-[#e5e5e5]">
+            <div>Page</div>
+            {DIMS.map(d => <div key={d} className="text-center">{dimLabel(d)}</div>)}
+            <div>Action</div>
+          </div>
+          {result.audits.map(a => (
+            <div key={a.page_id} className="grid grid-cols-[1fr_repeat(5,auto)_auto] gap-2 px-2 py-1 items-center border-b border-[#f0f0f0] last:border-0">
+              <div className="truncate">
+                <span className="font-medium">{a.label || `Page #${a.page_id}`}</span>
+                {a.status === 'skipped' && <span className="ml-1 text-[8px] text-muted">({a.reason})</span>}
+                {a.status === 'error' && <span className="ml-1 text-[8px] text-[#c0392b]" title={a.error}>⚠ error</span>}
+                {a.web_search_uses > 0 && <span className="ml-1 text-[8px] text-[#16a34a]" title="Used web_search for SERP-comparative analysis">🔎 {a.web_search_uses}</span>}
+              </div>
+              {DIMS.map(d => {
+                const s = a.scores?.[d]
+                return <div key={d} className={`text-center font-mono ${scoreColor(s)}`}>{typeof s === 'number' ? s : '—'}</div>
+              })}
+              <div>
+                {a.status === 'ok' ? (
+                  <button
+                    onClick={() => onOpenPage(a.page_id)}
+                    className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                  >Open →</button>
+                ) : (
+                  <span className="text-[8px] text-muted">—</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {result?.total === 0 && (
+        <div className="text-[10px] text-muted italic">No managed pages to audit. Create some via the "+ Create new landing page" button.</div>
       )}
     </div>
   )
