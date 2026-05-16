@@ -8,7 +8,7 @@
 // Phase 1 covers: configure default post ID, list managed pages,
 // import (or re-import) one, see the parsed state.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as api from '../api'
 
 export default function LandingPages() {
@@ -18,8 +18,18 @@ export default function LandingPages() {
     wp_configured: false,
     wp_site_url: null,
     default_post_id: null,
+    acknowledgments: {},
     pages: [],
   })
+  // Auto-shows the BackupGuideModal once before the first deploy
+  // for this tenant. Acknowledgment persists on tenants.landing_
+  // acknowledgments.backup_guide. Manual "📚 Backup guide" button
+  // re-opens it any time after acknowledgment.
+  const [backupGuideOpen, setBackupGuideOpen] = useState(false)
+  // Set when an operator clicks Deploy without having acknowledged
+  // the backup guide. The modal opens, and on dismiss/acknowledge
+  // we fire pendingDeployRef.current() to proceed with the deploy.
+  const pendingDeployRef = useRef(null)
   // Active workspace state — when an operator picks a page or imports
   // one fresh, the parsed page lives here so the right pane renders.
   const [active, setActive] = useState(null)
@@ -125,11 +135,54 @@ export default function LandingPages() {
     return <div className="text-[11px] text-muted italic py-8 text-center">Loading landing pages…</div>
   }
 
+  // Deploy-gate handler. If the operator hasn't acknowledged the
+  // backup guide for this tenant yet, intercept the deploy: store
+  // the actual-deploy callback in a ref, open the modal, and let
+  // the modal fire the callback after acknowledgment. If they've
+  // already acknowledged, run the callback immediately.
+  const backupAcknowledged = !!state.acknowledgments?.backup_guide
+  const requireBackupAck = (continueFn) => {
+    if (backupAcknowledged) {
+      continueFn()
+    } else {
+      pendingDeployRef.current = continueFn
+      setBackupGuideOpen(true)
+    }
+  }
+  const handleBackupAcknowledge = async () => {
+    try {
+      const r = await api.setLandingAcknowledgment('backup_guide', true)
+      setState(s => ({ ...s, acknowledgments: r.acknowledgments }))
+    } catch (e) {
+      console.warn('[backup-guide] acknowledge failed:', e?.message)
+    }
+    setBackupGuideOpen(false)
+    if (pendingDeployRef.current) {
+      const fn = pendingDeployRef.current
+      pendingDeployRef.current = null
+      fn()
+    }
+  }
+  const handleBackupClose = () => {
+    setBackupGuideOpen(false)
+    pendingDeployRef.current = null
+  }
+
   return (
     <div className="space-y-3">
-      <div>
-        <h2 className="text-[13px] font-semibold">Landing Pages</h2>
-        <div className="text-[10px] text-muted">SEO/marketing manager for your home page and other key landing pages. Imports from WordPress, audits SEO + AEO + GEO + E-E-A-T + AI-naturalness, proposes improvements with internal-link suggestions, and lets you back up + deploy approved changes. Phase 1: import + parse.</div>
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <h2 className="text-[13px] font-semibold">Landing Pages</h2>
+          <div className="text-[10px] text-muted">SEO/marketing manager for your home page and other key landing pages. Imports from WordPress, audits SEO + AEO + GEO + E-E-A-T + AI-naturalness, proposes improvements with internal-link suggestions, and lets you back up + deploy approved changes.</div>
+        </div>
+        {/* Always-available manual access to the backup guide
+            (regardless of acknowledgment). Useful for re-reading
+            instructions or sending the link to a teammate. */}
+        <button
+          onClick={() => setBackupGuideOpen(true)}
+          className="text-[10px] py-1 px-2 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer flex-shrink-0 whitespace-nowrap"
+          title="Show the WordPress backup guide. Recommended before doing any landing-page deploys."
+        >📚 Backup guide</button>
       </div>
 
       {/* WP-not-configured banner — short-circuits everything else.
@@ -221,18 +274,30 @@ export default function LandingPages() {
           {activeLoading && (
             <div className="text-[11px] text-muted italic py-4 text-center">Loading page…</div>
           )}
-          {active && <PageWorkspace data={active} />}
+          {active && <PageWorkspace data={active} requireBackupAck={requireBackupAck} />}
         </>
       )}
 
       {state.error && (
         <div className="bg-[#fef2f2] border border-[#c0392b]/30 rounded p-3 text-[11px] text-[#c0392b]">{state.error}</div>
       )}
+
+      {/* Modal mounts at top-level so it overlays everything;
+          auto-opens before first deploy + manually openable via the
+          📚 Backup guide button in the header. */}
+      {backupGuideOpen && (
+        <BackupGuideModal
+          alreadyAcknowledged={backupAcknowledged}
+          isPreDeployGate={!!pendingDeployRef.current}
+          onAcknowledge={handleBackupAcknowledge}
+          onClose={handleBackupClose}
+        />
+      )}
     </div>
   )
 }
 
-function PageWorkspace({ data }) {
+function PageWorkspace({ data, requireBackupAck }) {
   const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint } = data
   const links = page.links || []
   const internalLinks = links.filter(l => l.type === 'internal')
@@ -554,6 +619,7 @@ function PageWorkspace({ data }) {
             proposal={proposal}
             sourcePage={page}
             landingPageId={landing_page_id}
+            requireBackupAck={requireBackupAck}
           />
         )}
       </div>
@@ -650,7 +716,7 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
   )
 }
 
-function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace }) {
+function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireBackupAck }) {
   // ZeroGPT + humanize state — lives here so re-generating the
   // proposal naturally resets both. `aiResult` tracks the latest
   // detect-ai call: { score, flagged_sentences, detected_at }.
@@ -952,6 +1018,7 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace }) {
       <DeployBlock
         landingPageId={landingPageId}
         versionId={currentVersionId}
+        requireBackupAck={requireBackupAck}
         onDeployed={(r) => {
           if (typeof onReplace === 'function') onReplace({ deployed: r })
         }}
@@ -959,6 +1026,126 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace }) {
 
       <div className="text-[9px] text-muted italic">
         Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
+      </div>
+    </div>
+  )
+}
+
+// One-time pre-deploy guide for setting up WordPress site-level
+// backups (hosting + UpdraftPlus + manual snapshot before deploys).
+// Auto-shows when the operator first clicks Deploy on this tenant;
+// also openable any time from the "📚 Backup guide" header button.
+// Acknowledgment persists on tenants.landing_acknowledgments.
+function BackupGuideModal({ alreadyAcknowledged, isPreDeployGate, onAcknowledge, onClose }) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg max-w-[700px] w-full max-h-[90vh] overflow-y-auto shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-[#e5e5e5] flex items-start gap-3">
+          <span className="text-[20px]">📚</span>
+          <div className="flex-1">
+            <h3 className="text-[14px] font-semibold">Before you deploy: WordPress backup setup</h3>
+            <p className="text-[11px] text-muted mt-0.5">
+              {isPreDeployGate
+                ? <span>You're about to push changes to a live WordPress site. Take 15 minutes to confirm backups are in place — it could save your site if a deploy ever goes wrong.</span>
+                : <span>Reference guide for setting up WordPress backups before working with Landing Page Manager deploys.</span>}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-[16px] text-muted bg-transparent border-none cursor-pointer leading-none"
+            title="Close"
+          >×</button>
+        </div>
+
+        {/* What we do vs don't back up */}
+        <div className="px-4 py-3 space-y-3 text-[11px]">
+          <div className="bg-[#f3f0ff] border border-[#6C5CE7]/20 rounded p-2">
+            <div className="font-medium text-[#6C5CE7] mb-1">What this tool already backs up</div>
+            <div className="text-muted">Every time you click Deploy or Rollback, we snapshot the SPECIFIC PAGE'S content (body + title + Yoast meta) into Version History before pushing. That covers content rewrites of pages you manage here.</div>
+          </div>
+          <div className="bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">
+            <div className="font-medium text-[#c0392b] mb-1">What this tool does NOT back up</div>
+            <ul className="list-disc pl-5 space-y-0.5 text-muted">
+              <li>Other pages, posts, users, comments — only the page you're deploying</li>
+              <li>Theme settings + customizer (live in wp_options)</li>
+              <li>Plugin settings + plugin database tables</li>
+              <li>Media library (wp-content/uploads/) — images, videos, downloads</li>
+              <li>Theme files + plugin files (wp-content/themes/, wp-content/plugins/)</li>
+              <li>wp-config.php, .htaccess, server-level config</li>
+            </ul>
+            <div className="mt-1.5 text-muted italic">For these, you need a real site-level backup. Recommended setup below.</div>
+          </div>
+
+          {/* Step 1 */}
+          <div className="border border-[#e5e5e5] rounded p-2.5 space-y-1">
+            <div className="font-medium text-ink">Step 1 — Verify your hosting backups <span className="text-[10px] text-muted font-normal">(5 min, free with most hosts)</span></div>
+            <p className="text-muted">Most managed WordPress hosts run daily backups automatically. Log in to your hosting dashboard and confirm. Quick links:</p>
+            <ul className="list-disc pl-5 text-muted">
+              <li><a href="https://my.wpengine.com" target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">WP Engine</a> — included, 14-30 day retention, one-click restore</li>
+              <li><a href="https://my.kinsta.com" target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">Kinsta</a> — daily + downloadable + on-demand</li>
+              <li><a href="https://my.siteground.com" target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">SiteGround</a>, <a href="https://my.bluehost.com" target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">Bluehost</a>, <a href="https://hpanel.hostinger.com" target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">Hostinger</a> — usually on paid plans</li>
+              <li>Other hosts — search "[your host] WordPress backup" in their docs</li>
+            </ul>
+          </div>
+
+          {/* Step 2 */}
+          <div className="border border-[#e5e5e5] rounded p-2.5 space-y-1">
+            <div className="font-medium text-ink">Step 2 — Install UpdraftPlus <span className="text-[10px] text-muted font-normal">(15 min, free)</span></div>
+            <p className="text-muted">Even with hosting backups, an in-WP plugin gives you on-demand snapshots + off-site storage (in case your hosting account is ever locked or compromised).</p>
+            <ol className="list-decimal pl-5 text-muted">
+              <li>In WP admin: <strong>Plugins → Add New</strong> → search <em>UpdraftPlus</em> → Install + Activate</li>
+              <li>Go to <strong>Settings → UpdraftPlus Backups</strong> → Settings tab</li>
+              <li>Choose a remote storage destination (Dropbox / Google Drive / Amazon S3)</li>
+              <li>Set automatic schedule: weekly for files, weekly for database</li>
+              <li>Click <strong>"Backup Now"</strong> to run your first backup immediately</li>
+            </ol>
+            <a href="https://wordpress.org/plugins/updraftplus/" target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">→ UpdraftPlus on WordPress.org</a>
+          </div>
+
+          {/* Step 3 */}
+          <div className="border border-[#e5e5e5] rounded p-2.5 space-y-1">
+            <div className="font-medium text-ink">Step 3 — Manual backup before deploy sessions <span className="text-[10px] text-muted font-normal">(30 seconds)</span></div>
+            <p className="text-muted">Before any session of Landing Page Manager deployments:</p>
+            <ol className="list-decimal pl-5 text-muted">
+              <li>Open WP admin → <strong>Settings → UpdraftPlus Backups</strong></li>
+              <li>Click <strong>"Backup Now"</strong></li>
+              <li>Wait for the confirmation banner</li>
+              <li>Come back here and deploy with confidence</li>
+            </ol>
+          </div>
+
+          {/* Footnote */}
+          <div className="text-[10px] text-muted italic px-1">
+            You can always re-open this guide from the <strong>📚 Backup guide</strong> button in the Landing tab header. {alreadyAcknowledged ? "You've already acknowledged this guide — no need to acknowledge again." : 'Acknowledging below stops the auto-popup; the manual button still works any time.'}
+          </div>
+        </div>
+
+        {/* Footer actions */}
+        <div className="px-4 py-3 border-t border-[#e5e5e5] flex items-center gap-2">
+          <div className="flex-1 text-[10px] text-muted">
+            {isPreDeployGate && 'Acknowledge below to proceed with the deploy that\'s waiting.'}
+          </div>
+          <button
+            onClick={onClose}
+            className="text-[11px] py-1.5 px-3 bg-white border border-[#e5e5e5] rounded cursor-pointer"
+          >{isPreDeployGate ? 'Cancel deploy' : 'Close'}</button>
+          {!alreadyAcknowledged && (
+            <button
+              onClick={onAcknowledge}
+              className="text-[11px] py-1.5 px-3 bg-[#d97706] text-white border-none rounded cursor-pointer font-medium"
+              title="Records that you've reviewed this guide. Stops the auto-popup on future deploys. The manual 📚 Backup guide button keeps working."
+            >{isPreDeployGate ? '✓ I have backups — deploy now' : '✓ Got it — I have backups'}</button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -1083,7 +1270,7 @@ function SchemaBlock({ landingPageId, versionId }) {
   )
 }
 
-function DeployBlock({ landingPageId, versionId, onDeployed }) {
+function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
@@ -1096,16 +1283,30 @@ function DeployBlock({ landingPageId, versionId, onDeployed }) {
   }, [busy])
   const handleDeploy = async () => {
     if (busy || !landingPageId || !versionId) return
-    if (!confirm('Deploy this version to the live WordPress page? The current live page will be snapshotted as a backup FIRST — rollback stays available.')) return
-    setBusy(true); setError(null); setSuccess(null)
-    try {
-      const r = await api.deployLandingPageVersion(landingPageId, versionId)
-      setSuccess(r)
-      if (typeof onDeployed === 'function') onDeployed(r)
-    } catch (e) {
-      setError(e?.message || String(e))
-    } finally {
-      setBusy(false)
+    // Run the deploy after the backup-guide gate. If operator
+    // hasn't acknowledged the backup guide for this tenant yet,
+    // requireBackupAck opens the modal and only calls actualDeploy
+    // after acknowledgment. If already acknowledged, it runs
+    // immediately. Falls through if requireBackupAck is missing
+    // (defensive — unused but keeps DeployBlock independently
+    // testable).
+    const actualDeploy = async () => {
+      if (!confirm('Deploy this version to the live WordPress page? The current live page will be snapshotted as a backup FIRST — rollback stays available.')) return
+      setBusy(true); setError(null); setSuccess(null)
+      try {
+        const r = await api.deployLandingPageVersion(landingPageId, versionId)
+        setSuccess(r)
+        if (typeof onDeployed === 'function') onDeployed(r)
+      } catch (e) {
+        setError(e?.message || String(e))
+      } finally {
+        setBusy(false)
+      }
+    }
+    if (typeof requireBackupAck === 'function') {
+      requireBackupAck(actualDeploy)
+    } else {
+      actualDeploy()
     }
   }
   return (
