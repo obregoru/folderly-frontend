@@ -1090,6 +1090,63 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
   )
 }
 
+// Post-deploy schema validation summary. Shown inline in the
+// deploy success block so the operator sees Rich-Results-style
+// validation feedback immediately, before they navigate away.
+function SchemaValidationSummary({ v }) {
+  if (!v) return null
+  const summary = v.summary || {}
+  if (v.fetch_error) {
+    return (
+      <div className="bg-[#fff7ed] border border-[#d97706]/40 rounded p-1.5 mt-1 text-[10px]">
+        ⚠ Schema validation: couldn't fetch the live page ({v.fetch_error}). Schema may still be valid — Google's crawl will tell you for sure.
+      </div>
+    )
+  }
+  if (summary.no_jsonld) {
+    return (
+      <div className="bg-[#fff7ed] border border-[#d97706]/40 rounded p-1.5 mt-1 text-[10px]">
+        ⚠ Schema validation: no JSON-LD found on the live page. If you have a schema plugin (Yoast / RankMath / Schema Pro) it usually injects automatically — check the plugin is active + configured.
+      </div>
+    )
+  }
+  const tone = summary.error_count > 0 ? 'bg-[#fef2f2] border-[#c0392b]/40' :
+    summary.warning_count > 0 ? 'bg-[#fff7ed] border-[#d97706]/40' :
+    'bg-[#f0fdf4] border-[#16a34a]/40'
+  const headline = summary.error_count > 0
+    ? `⚠ ${summary.error_count} schema error${summary.error_count === 1 ? '' : 's'} on the live page`
+    : summary.warning_count > 0
+      ? `${summary.total_entities} JSON-LD entities found; ${summary.warning_count} warning${summary.warning_count === 1 ? '' : 's'}`
+      : `✓ ${summary.total_entities} JSON-LD entities found, all valid`
+  return (
+    <details className={`text-[10px] border rounded mt-1 ${tone}`}>
+      <summary className="cursor-pointer py-1 px-2 font-medium">
+        🏷️ {headline}
+      </summary>
+      <div className="p-2 space-y-1">
+        {(v.blocks || []).map((b, bi) => (
+          <div key={bi}>
+            <div className="font-mono text-[9px] text-muted">Block #{b.block_index + 1} — {b.entity_count} entit{b.entity_count === 1 ? 'y' : 'ies'}</div>
+            {b.entities.map((e, ei) => (
+              <div key={ei} className="ml-3 mt-0.5">
+                <div>
+                  <span className="font-mono">{e.type || '(no type)'}</span>
+                  {e.ok ? <span className="ml-1 text-[#16a34a]">✓ valid</span> : <span className="ml-1 text-[#c0392b]">⚠ errors</span>}
+                </div>
+                {(e.errors || []).map((err, i) => <div key={i} className="text-[#c0392b] ml-3">• {err}</div>)}
+                {(e.warnings || []).map((w, i) => <div key={i} className="text-[#d97706] ml-3">• {w}</div>)}
+              </div>
+            ))}
+          </div>
+        ))}
+        <div className="text-[9px] text-muted italic pt-1">
+          Validated against schema.org's @context + @type + per-type required fields. For the full Google Rich Results check, paste the URL into <a href="https://search.google.com/test/rich-results" target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">search.google.com/test/rich-results</a>.
+        </div>
+      </div>
+    </details>
+  )
+}
+
 // Per-page Google Search Console performance block. Lazy: only
 // fetches when operator clicks "Pull GSC data" so we don't blow
 // API quota on every workspace open. Three states:
@@ -1780,6 +1837,7 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
               {success.warnings.map((w, i) => <div key={i} className="text-[#d97706]">⚠ {w}</div>)}
             </div>
           )}
+          {success.schema_validation && <SchemaValidationSummary v={success.schema_validation} />}
         </div>
       )}
     </div>
