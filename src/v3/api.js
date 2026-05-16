@@ -853,6 +853,25 @@ export const runLandingSiteAudit = () =>
     return r.json()
   })
 
+// Replace the full ai_citations array for a landing page.
+// Operators paste in Google AI Overview / ChatGPT / Perplexity
+// snippets that quote this page so we can tell Claude on every
+// subsequent audit + propose: "preserve the language earning
+// these citations." Server validates + caps each row.
+export const setLandingPageAiCitations = (landingPageId, citations) =>
+  fetch(`${apiBase()}/content/landing/${landingPageId}/ai-citations`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ ai_citations: citations }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setLandingPageAiCitations failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // CTA tracking — fetch the tracking snippet (to paste into WP)
 // plus the rolling 28-day click count so the operator can verify
 // the snippet is live ("clicks_28d > 0" = it's working).

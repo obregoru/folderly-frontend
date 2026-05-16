@@ -145,6 +145,7 @@ export default function LandingPages() {
       setActive({
         ...r,
         strategy_hint: full?.page?.strategy_hint || '',
+        ai_citations: Array.isArray(full?.page?.ai_citations) ? full.page.ai_citations : [],
         history: full?.versions || [],
       })
       await reload()
@@ -177,6 +178,7 @@ export default function LandingPages() {
         landing_page_id: page.id,
         version_id: mostRecent?.id || null,
         strategy_hint: r.page?.strategy_hint || page.strategy_hint || '',
+        ai_citations: Array.isArray(r.page?.ai_citations) ? r.page.ai_citations : [],
         page: {
           wp_post_id: page.wp_post_id,
           url: page.url,
@@ -442,7 +444,7 @@ export default function LandingPages() {
 }
 
 function PageWorkspace({ data, requireBackupAck }) {
-  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint } = data
+  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations } = data
   const links = page.links || []
   const internalLinks = links.filter(l => l.type === 'internal')
   const externalLinks = links.filter(l => l.type === 'external')
@@ -608,6 +610,16 @@ function PageWorkspace({ data, requireBackupAck }) {
           Tip: describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff.
         </div>
       </div>
+
+      {/* AI Overview citations — operator-pasted snippets where
+          Google AI Overview / ChatGPT / Perplexity / etc. quote
+          this page. Threaded into every audit + propose run as
+          "PROTECT THIS LANGUAGE" guidance so a rewrite doesn't
+          accidentally lose the AI Overview citation. */}
+      <AiCitationsCard
+        landingPageId={landing_page_id}
+        initial={initialCitations}
+      />
 
       {/* Search Console — per-page performance block. Lazy-fetches
           on operator click since GSC API calls cost (~2-5 round
@@ -1303,6 +1315,208 @@ function SchemaValidationSummary({ v }) {
 //      Google OAuth flow in a popup.
 //   2. GSC connected but no site selected → site picker dropdown.
 //   3. GSC fully set up → "Pull GSC data" + result display.
+// AI Overview citation manager. Operators paste in snippets from
+// Google AI Overview / ChatGPT / Perplexity / etc. that quote this
+// page, plus the originating query + a source label. The list is
+// threaded into every audit + propose run via the page's strategy
+// context — Claude is told "PROTECT THIS LANGUAGE" so rewrites
+// preserve the concepts + distinctive phrasing earning the
+// citation. Whole array is sent on every save; server validates +
+// caps each row.
+const CITATION_SOURCES = [
+  { value: 'google-ai-overview', label: 'Google AI Overview' },
+  { value: 'chatgpt',            label: 'ChatGPT' },
+  { value: 'perplexity',         label: 'Perplexity' },
+  { value: 'bing-copilot',       label: 'Bing Copilot' },
+  { value: 'claude',             label: 'Claude' },
+  { value: 'gemini',             label: 'Gemini' },
+  { value: 'you-com',            label: 'You.com' },
+  { value: 'other',              label: 'Other' },
+]
+function sourceLabel(v) {
+  const s = CITATION_SOURCES.find(x => x.value === v)
+  return s ? s.label : (v || 'Unknown')
+}
+function AiCitationsCard({ landingPageId, initial }) {
+  const [citations, setCitations] = useState(Array.isArray(initial) ? initial : [])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState(null)
+  // Add-form state. Kept inline (not a modal) since the workspace
+  // is already a long scroll — modals would compound the awkward.
+  const [addOpen, setAddOpen] = useState(false)
+  const [draftQuery, setDraftQuery] = useState('')
+  const [draftSnippet, setDraftSnippet] = useState('')
+  const [draftSource, setDraftSource] = useState('google-ai-overview')
+  const [draftNotes, setDraftNotes] = useState('')
+
+  // Re-sync local state when the operator switches pages — initial
+  // value is per-page, not session-wide.
+  useEffect(() => {
+    setCitations(Array.isArray(initial) ? initial : [])
+    setAddOpen(false)
+    setDraftQuery(''); setDraftSnippet(''); setDraftSource('google-ai-overview'); setDraftNotes('')
+  }, [landingPageId, initial])
+
+  const persist = async (next) => {
+    setSaving(true); setError(null); setSaved(false)
+    try {
+      const r = await api.setLandingPageAiCitations(landingPageId, next)
+      setCitations(r.ai_citations || [])
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const addOne = async () => {
+    if (!draftQuery.trim() || !draftSnippet.trim()) {
+      setError('Query and snippet are both required.')
+      return
+    }
+    const next = [
+      ...citations,
+      {
+        query: draftQuery.trim(),
+        snippet: draftSnippet.trim(),
+        source: draftSource,
+        notes: draftNotes.trim() || undefined,
+        captured_at: new Date().toISOString(),
+      },
+    ]
+    await persist(next)
+    setAddOpen(false)
+    setDraftQuery(''); setDraftSnippet(''); setDraftNotes(''); setDraftSource('google-ai-overview')
+  }
+
+  const removeOne = async (id) => {
+    if (!confirm('Remove this citation? Claude will no longer be told to preserve this language on future runs.')) return
+    await persist(citations.filter(c => c.id !== id))
+  }
+
+  return (
+    <div className="bg-[#eef2ff] border border-[#6366f1]/30 rounded p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-medium text-[#4338ca]">🤖 AI Overview citations to preserve</span>
+        <span className="text-[9px] text-muted">
+          ({citations.length}) Quoted by Google AI, ChatGPT, etc. → Claude will be told to protect this language.
+        </span>
+        <div className="flex-1" />
+        {saving && <span className="text-[9px] text-muted">Saving…</span>}
+        {saved && <span className="text-[9px] text-[#16a34a]">✓ Saved</span>}
+        <button
+          onClick={() => setAddOpen(o => !o)}
+          className="text-[10px] py-0.5 px-2 bg-[#4338ca] text-white border-none rounded cursor-pointer"
+        >{addOpen ? 'Cancel' : '+ Add citation'}</button>
+      </div>
+
+      {addOpen && (
+        <div className="bg-white border border-[#6366f1]/30 rounded p-2 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <label className="text-[9px] text-muted w-14">Source</label>
+            <select
+              value={draftSource}
+              onChange={e => setDraftSource(e.target.value)}
+              className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            >
+              {CITATION_SOURCES.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <label className="text-[9px] text-muted w-14">Query</label>
+            <input
+              type="text"
+              value={draftQuery}
+              onChange={e => setDraftQuery(e.target.value)}
+              placeholder='e.g. "What is make and take" or "best perfume bar in milwaukee"'
+              className="flex-1 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1.5 outline-none focus:border-[#4338ca]"
+            />
+          </div>
+          <div>
+            <label className="text-[9px] text-muted block mb-0.5">Pasted snippet from the AI answer (the part that came from this page)</label>
+            <textarea
+              value={draftSnippet}
+              onChange={e => setDraftSnippet(e.target.value)}
+              rows={5}
+              placeholder='Paste the AI Overview text here, e.g.: "A make-and-take is a hands-on workshop, class, or drop-in event where participants create a project with provided supplies and take their finished item home that same day..."'
+              className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 outline-none focus:border-[#4338ca] resize-y font-sans"
+            />
+          </div>
+          <div>
+            <label className="text-[9px] text-muted block mb-0.5">Notes (optional — context for the operator)</label>
+            <input
+              type="text"
+              value={draftNotes}
+              onChange={e => setDraftNotes(e.target.value)}
+              placeholder='e.g. "Captured 2026-05-16, position #1 in AI Overview, source link cited"'
+              className="w-full text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1.5 outline-none focus:border-[#4338ca]"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-1.5 pt-1">
+            <button
+              onClick={() => setAddOpen(false)}
+              className="text-[10px] py-1 px-2 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer"
+            >Cancel</button>
+            <button
+              onClick={addOne}
+              disabled={saving || !draftQuery.trim() || !draftSnippet.trim()}
+              className="text-[10px] py-1 px-3 bg-[#4338ca] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            >Save citation</button>
+          </div>
+        </div>
+      )}
+
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+
+      {citations.length === 0 && !addOpen && (
+        <div className="text-[10px] text-muted italic">
+          No citations yet. When you find an AI Overview / ChatGPT / Perplexity answer that quotes this page, paste it in here so Claude protects that language on future rewrites.
+        </div>
+      )}
+
+      {citations.length > 0 && (
+        <div className="space-y-1">
+          {citations.map(c => (
+            <details key={c.id} className="bg-white border border-[#e5e5e5] rounded">
+              <summary className="cursor-pointer py-1.5 px-2 text-[10px] flex items-center gap-2">
+                <span className="text-[9px] py-0.5 px-1.5 rounded bg-[#eef2ff] text-[#4338ca] font-medium">
+                  {sourceLabel(c.source)}
+                </span>
+                <span className="font-medium truncate flex-1">"{c.query}"</span>
+                <span className="text-[9px] text-muted flex-shrink-0">
+                  {c.captured_at ? new Date(c.captured_at).toLocaleDateString() : ''}
+                </span>
+              </summary>
+              <div className="p-2 border-t border-[#f0f0f0] space-y-1.5">
+                <div className="text-[10px] whitespace-pre-wrap bg-[#fafafa] border-l-2 border-[#6366f1] px-2 py-1.5 italic">
+                  {c.snippet}
+                </div>
+                {c.notes && <div className="text-[9px] text-muted"><b>Notes:</b> {c.notes}</div>}
+                <div className="flex items-center justify-end">
+                  <button
+                    onClick={() => removeOne(c.id)}
+                    disabled={saving}
+                    className="text-[9px] py-0.5 px-1.5 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
+                  >Remove</button>
+                </div>
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
+
+      <div className="text-[9px] text-muted italic">
+        Tip: when you Google a brand-relevant query and see an AI Overview that quotes this page, paste the whole AI answer above. Claude reads these on every audit + propose run and is explicitly told to preserve the concepts + distinctive phrasing that earned the citation.
+      </div>
+    </div>
+  )
+}
+
 function GscBlock({ landingPageId, pageUrl }) {
   const [status, setStatus] = useState(null) // { connected, site_url } once loaded
   const [statusBusy, setStatusBusy] = useState(true)
