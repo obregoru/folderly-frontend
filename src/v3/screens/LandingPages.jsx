@@ -875,6 +875,16 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace }) {
         </div>
       </details>
 
+      {/* Schema.org — Phase 6. Generates JSON-LD blocks tailored
+          to the current version's content + tenant brand. Operator
+          copies each block into Yoast Premium custom schema /
+          Schema Pro / theme snippet. Native deploy can come later
+          once per-plugin REST paths are validated. */}
+      <SchemaBlock
+        landingPageId={landingPageId}
+        versionId={currentVersionId}
+      />
+
       {/* Deploy — Phase 5. Big red CTA so the operator can't miss
           that this is the irreversible-without-rollback step. */}
       <DeployBlock
@@ -888,6 +898,125 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace }) {
       <div className="text-[9px] text-muted italic">
         Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
       </div>
+    </div>
+  )
+}
+
+function SchemaBlock({ landingPageId, versionId }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [result, setResult] = useState(null)
+  const [elapsed, setElapsed] = useState(0)
+  const [copiedIndex, setCopiedIndex] = useState(null)
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return }
+    const start = Date.now()
+    const tick = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [busy])
+  // Reset on version change so a humanize / re-proposal clears the
+  // stale schema view.
+  useEffect(() => {
+    setResult(null); setError(null); setCopiedIndex(null)
+  }, [versionId])
+
+  const handleGenerate = async () => {
+    if (busy || !landingPageId || !versionId) return
+    setBusy(true); setError(null)
+    try {
+      const r = await api.generateLandingPageSchema(landingPageId, versionId)
+      setResult(r)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copy = async (idx, text) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedIndex(idx)
+      setTimeout(() => setCopiedIndex(c => (c === idx ? null : c)), 2000)
+    } catch {
+      alert('Clipboard write failed — manually copy from the textarea.')
+    }
+  }
+  const copyAll = async () => {
+    if (!result?.blocks) return
+    const scripts = result.blocks.map(b => `<script type="application/ld+json">\n${JSON.stringify(b.jsonld, null, 2)}\n</script>`).join('\n\n')
+    try {
+      await navigator.clipboard.writeText(scripts)
+      setCopiedIndex(-1)
+      setTimeout(() => setCopiedIndex(c => (c === -1 ? null : c)), 2000)
+    } catch {
+      alert('Clipboard write failed.')
+    }
+  }
+
+  const blocks = result?.blocks || []
+  const missing = result?.missing_data_notes || []
+
+  return (
+    <div className="border border-[#6C5CE7]/30 rounded p-3 space-y-2 bg-[#fafbff]">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-medium text-[#6C5CE7]">🏷️ Schema.org structured data</span>
+        <span className="text-[9px] text-muted">Generates JSON-LD blocks (LocalBusiness, Service, FAQ, BreadcrumbList) tailored to this page.</span>
+        <div className="flex-1" />
+        <button
+          onClick={handleGenerate}
+          disabled={busy || !versionId}
+          className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          title="Sends the current version's content + tenant brand info to Claude. Returns ready-to-paste JSON-LD."
+        >{busy ? `Generating… ${elapsed}s` : result ? '🔄 Re-generate' : '🏷️ Generate schema'}</button>
+        {result && blocks.length > 0 && (
+          <button
+            onClick={copyAll}
+            className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+            title="Copy all blocks as a single <script>-wrapped chunk ready to paste into a theme snippet or schema plugin."
+          >{copiedIndex === -1 ? '✓ Copied' : '📋 Copy all'}</button>
+        )}
+      </div>
+      {busy && <div className="text-[10px] text-muted italic">Claude is generating JSON-LD blocks (~10-30s). One block per applicable schema type.</div>}
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+      {!result && !busy && !error && (
+        <div className="text-[10px] text-muted italic">
+          Click Generate to produce schema blocks for this version. Operator copies each block into Yoast Premium custom schema, Schema Pro, or a theme snippet.
+        </div>
+      )}
+      {result && blocks.length === 0 && (
+        <div className="text-[10px] text-muted italic">No applicable schema types detected for this page.</div>
+      )}
+      {blocks.length > 0 && (
+        <div className="space-y-1.5">
+          {blocks.map((b, i) => (
+            <details key={i} className="text-[10px] bg-white border border-[#e5e5e5] rounded">
+              <summary className="cursor-pointer py-1 px-2 flex items-center gap-2">
+                <span className="font-medium text-ink">{b.type}</span>
+                <span className="text-muted truncate flex-1">{b.why}</span>
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); copy(i, JSON.stringify(b.jsonld, null, 2)) }}
+                  className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                >{copiedIndex === i ? '✓ Copied' : '📋 Copy'}</button>
+              </summary>
+              <pre className="p-2 bg-[#fafafa] overflow-auto max-h-[300px] text-[9px] font-mono whitespace-pre-wrap">{JSON.stringify(b.jsonld, null, 2)}</pre>
+            </details>
+          ))}
+        </div>
+      )}
+      {missing.length > 0 && (
+        <details className="text-[10px] bg-[#fff7ed] border border-[#d97706]/30 rounded">
+          <summary className="cursor-pointer py-1 px-2 text-[#d97706] font-medium">⚠ {missing.length} field(s) Claude skipped because it didn't have the data</summary>
+          <ul className="list-disc pl-5 py-1 px-2 text-muted">
+            {missing.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+        </details>
+      )}
+      {result && (
+        <div className="text-[9px] text-muted italic">
+          Paste blocks into Yoast Premium → Schema tab → custom schema, OR into your theme's <code>functions.php</code> (wp_head action), OR a schema plugin like Schema Pro. We don't auto-inject because plugin support for REST-based schema updates varies.
+        </div>
+      )}
     </div>
   )
 }

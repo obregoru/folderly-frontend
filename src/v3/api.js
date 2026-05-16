@@ -725,6 +725,23 @@ export const rollbackLandingPage = (id, backupVersionId) =>
     return r.json()
   })
 
+// Generate Schema.org JSON-LD blocks (LocalBusiness, Service,
+// FAQPage, BreadcrumbList, etc.) for a landing-page version.
+// Stored on landing_page_versions.schema_jsonld so the FE
+// doesn't have to regenerate on tab switch.
+export const generateLandingPageSchema = (id, versionId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/generate-schema`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `generateLandingPageSchema failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
   fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })
