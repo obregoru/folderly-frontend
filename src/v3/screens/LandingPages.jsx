@@ -488,7 +488,13 @@ function PageWorkspace({ data }) {
                 : `${selectedSuggestions.size} suggestion(s) flagged — ready to generate.`}
           </div>
         )}
-        {proposal && <ProposalDiff proposal={proposal} sourcePage={page} />}
+        {proposal && (
+          <ProposalDiff
+            proposal={proposal}
+            sourcePage={page}
+            landingPageId={landing_page_id}
+          />
+        )}
       </div>
 
       <div className="text-[9px] text-muted italic">
@@ -583,7 +589,72 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
   )
 }
 
-function ProposalDiff({ proposal, sourcePage }) {
+function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace }) {
+  // ZeroGPT + humanize state — lives here so re-generating the
+  // proposal naturally resets both. `aiResult` tracks the latest
+  // detect-ai call: { score, flagged_sentences, detected_at }.
+  // `currentVersionId` swaps to the humanized version once the
+  // operator runs Humanize, so subsequent detect-ai calls run on
+  // the new version (not the original proposal).
+  const [aiResult, setAiResult] = useState(null)
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState(null)
+  const [humanBusy, setHumanBusy] = useState(false)
+  const [humanError, setHumanError] = useState(null)
+  const [humanElapsed, setHumanElapsed] = useState(0)
+  const [currentVersionId, setCurrentVersionId] = useState(proposal?.version_id || null)
+  const [currentBodyHtml, setCurrentBodyHtml] = useState(proposal?.proposal?.body_html || '')
+  const [humanNotes, setHumanNotes] = useState(null)
+  // Reset transient state whenever the parent passes a NEW proposal
+  // (e.g. operator clicked Re-generate). React identity check on
+  // proposal.version_id keeps the state fresh without manual clears.
+  useEffect(() => {
+    setAiResult(null); setAiError(null); setHumanError(null); setHumanNotes(null)
+    setCurrentVersionId(proposal?.version_id || null)
+    setCurrentBodyHtml(proposal?.proposal?.body_html || '')
+  }, [proposal?.version_id])
+  useEffect(() => {
+    if (!humanBusy) { setHumanElapsed(0); return }
+    const start = Date.now()
+    const tick = setInterval(() => setHumanElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [humanBusy])
+
+  const detectAi = async () => {
+    if (aiBusy || !landingPageId || !currentVersionId) return
+    setAiBusy(true); setAiError(null)
+    try {
+      const r = await api.detectLandingPageAi(landingPageId, currentVersionId)
+      setAiResult(r.ai_detection)
+    } catch (e) {
+      setAiError(e?.message || String(e))
+    } finally {
+      setAiBusy(false)
+    }
+  }
+  const humanize = async () => {
+    if (humanBusy || !landingPageId || !currentVersionId) return
+    setHumanBusy(true); setHumanError(null)
+    try {
+      const r = await api.humanizeLandingPageVersion(landingPageId, currentVersionId)
+      // Swap the diff target to the humanized version. The AI score
+      // resets — operator should re-run detect-ai to confirm it
+      // dropped.
+      setCurrentVersionId(r.version_id)
+      setCurrentBodyHtml(r.body_html)
+      setAiResult(null)
+      setHumanNotes(r.notes || null)
+      // Bubble up to parent so the proposal panel knows the deploy
+      // target should be the humanized version (Phase 5 will read
+      // currentVersionId off the proposal panel).
+      if (typeof onReplace === 'function') onReplace({ version_id: r.version_id, body_html: r.body_html })
+    } catch (e) {
+      setHumanError(e?.message || String(e))
+    } finally {
+      setHumanBusy(false)
+    }
+  }
+
   const p = proposal?.proposal || {}
   const linksKept = Array.isArray(p.links_kept) ? p.links_kept : []
   const linksRefined = Array.isArray(p.links_refined) ? p.links_refined : []
@@ -712,6 +783,56 @@ function ProposalDiff({ proposal, sourcePage }) {
         )}
       </div>
 
+      {/* AI-detection (ZeroGPT) + humanize loop — Phase 4 */}
+      <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-ink">🤖 AI-detection</span>
+          <span className="text-muted">ZeroGPT scans the proposed body and flags sentences that read as machine-written.</span>
+          <div className="flex-1" />
+          <button
+            onClick={detectAi}
+            disabled={aiBusy || !currentVersionId}
+            className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+            title="Run ZeroGPT on the current proposed body."
+          >{aiBusy ? 'Scoring…' : aiResult ? '🔄 Re-check' : '🔍 Check AI score'}</button>
+          {aiResult && (aiResult.flagged_sentences?.length > 0 || (aiResult.score || 0) > 20) && (
+            <button
+              onClick={humanize}
+              disabled={humanBusy}
+              className="text-[10px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              title="Ask Claude to rewrite the body more naturally, targeting any flagged sentences. Links and structure preserved. Creates a new version."
+            >{humanBusy ? `Humanizing… ${humanElapsed}s` : '✍️ Humanize'}</button>
+          )}
+        </div>
+        {aiError && <div className="text-[10px] text-[#c0392b]">⚠ {aiError}</div>}
+        {humanError && <div className="text-[10px] text-[#c0392b]">⚠ {humanError}</div>}
+        {aiResult && (
+          <div className="space-y-1">
+            <AiScoreBar score={aiResult.score} />
+            {aiResult.flagged_sentences?.length > 0 ? (
+              <details className="text-[10px]">
+                <summary className="cursor-pointer text-muted">{aiResult.flagged_sentences.length} sentence{aiResult.flagged_sentences.length === 1 ? '' : 's'} flagged — expand to view</summary>
+                <ul className="list-disc pl-4 space-y-0.5 mt-1">
+                  {aiResult.flagged_sentences.map((s, i) => (
+                    <li key={i} className="text-[#d97706]"><i>"{s}"</i></li>
+                  ))}
+                </ul>
+              </details>
+            ) : (
+              <div className="text-[10px] text-muted italic">No per-sentence flags returned.</div>
+            )}
+          </div>
+        )}
+        {humanNotes && (
+          <div className="text-[10px] bg-[#fff7ed] border border-[#d97706]/30 rounded p-1.5 mt-1">
+            <b>Humanize notes:</b> {humanNotes}
+          </div>
+        )}
+        {!aiResult && !aiBusy && !aiError && (
+          <div className="text-[10px] text-muted italic">Click "Check AI score" to scan the proposed body via ZeroGPT.</div>
+        )}
+      </div>
+
       {/* Rendered preview — side-by-side current vs proposed in
           sandboxed iframes. Sandbox="" blocks scripts, popups,
           forms, top-navigation, etc. so any HTML Claude produces
@@ -730,8 +851,8 @@ function ProposalDiff({ proposal, sourcePage }) {
             <RenderedPreview html={sourcePage?.body_html || ''} tone="red" />
           </div>
           <div>
-            <div className="text-[9px] text-muted mb-1">Proposed</div>
-            <RenderedPreview html={p.body_html || ''} tone="green" />
+            <div className="text-[9px] text-muted mb-1">Proposed{currentVersionId !== proposal?.version_id ? ' (humanized)' : ''}</div>
+            <RenderedPreview html={currentBodyHtml || ''} tone="green" />
           </div>
         </div>
         <div className="text-[8px] text-muted italic px-2 pb-2">
@@ -749,8 +870,8 @@ function ProposalDiff({ proposal, sourcePage }) {
             <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 max-h-[400px] overflow-auto">{sourcePage?.body_html || '(empty)'}</pre>
           </div>
           <div>
-            <div className="text-[9px] text-muted mb-1">Proposed</div>
-            <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#f0fdf4] border border-[#2D9A5E]/30 rounded p-2 max-h-[400px] overflow-auto">{p.body_html || '(empty)'}</pre>
+            <div className="text-[9px] text-muted mb-1">Proposed{currentVersionId !== proposal?.version_id ? ' (humanized)' : ''}</div>
+            <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#f0fdf4] border border-[#2D9A5E]/30 rounded p-2 max-h-[400px] overflow-auto">{currentBodyHtml || '(empty)'}</pre>
           </div>
         </div>
       </details>
@@ -758,6 +879,31 @@ function ProposalDiff({ proposal, sourcePage }) {
       <div className="text-[9px] text-muted italic">
         Phase 3 v1: review the diff. ZeroGPT AI-detection on the proposed body comes in Phase 4. Backup + deploy lands in Phase 5 — proposal is staged on landing_page_versions until then.
       </div>
+    </div>
+  )
+}
+
+// ZeroGPT score bar: 0-30 green (probably human), 30-60 amber
+// (mixed signals), 60+ red (likely AI). ZeroGPT is noisy so this
+// is a soft signal — the operator decides whether to act on it.
+function AiScoreBar({ score }) {
+  const s = Number(score) || 0
+  const verdict = s >= 60 ? 'Likely AI-written'
+    : s >= 30 ? 'Mixed signals'
+    : 'Reads as human'
+  const cls = s >= 60 ? 'bg-[#c0392b] text-white'
+    : s >= 30 ? 'bg-[#d97706] text-white'
+    : 'bg-[#2D9A5E] text-white'
+  return (
+    <div className="flex items-center gap-2 text-[10px]">
+      <div className="flex-1 bg-[#f0f0f0] rounded h-3 overflow-hidden border border-[#e5e5e5]">
+        <div
+          className={`h-full ${s >= 60 ? 'bg-[#c0392b]' : s >= 30 ? 'bg-[#d97706]' : 'bg-[#2D9A5E]'}`}
+          style={{ width: `${Math.max(2, Math.min(100, s))}%` }}
+        />
+      </div>
+      <span className={`py-0.5 px-1.5 rounded font-bold ${cls}`}>{s.toFixed(0)}%</span>
+      <span className="text-muted">{verdict}</span>
     </div>
   )
 }

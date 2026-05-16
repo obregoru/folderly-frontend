@@ -658,6 +658,38 @@ export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds }
     return r.json()
   })
 
+// Run ZeroGPT on a landing-page version. Returns the score +
+// flagged sentences; also persists on the version row so the FE
+// doesn't have to re-call ZeroGPT on every tab switch.
+export const detectLandingPageAi = (id, versionId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/detect-ai`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `detectLandingPageAi failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Ask Claude to rewrite the version to sound more human. Uses any
+// ZeroGPT-flagged sentences on the version as targeted guidance.
+// Returns a new ai-suggested version (humanized).
+export const humanizeLandingPageVersion = (id, versionId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/humanize`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `humanizeLandingPageVersion failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
   fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })
