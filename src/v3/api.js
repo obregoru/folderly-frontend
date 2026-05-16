@@ -674,6 +674,22 @@ export const detectLandingPageAi = (id, versionId) =>
     return r.json()
   })
 
+// Score how well a version's body matches the brand's voice
+// profile. Returns { overall_score, verdict, drift_passages,
+// summary }. Pairs with ZeroGPT (different failure mode).
+export const voiceCheckLandingPageVersion = (id, versionId) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/voice-check`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `voiceCheckLandingPageVersion failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Ask Claude to rewrite the version to sound more human. Uses any
 // ZeroGPT-flagged sentences on the version as targeted guidance.
 // Returns a new ai-suggested version (humanized).

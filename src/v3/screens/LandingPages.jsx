@@ -791,11 +791,17 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
   const [currentVersionId, setCurrentVersionId] = useState(proposal?.version_id || null)
   const [currentBodyHtml, setCurrentBodyHtml] = useState(proposal?.proposal?.body_html || '')
   const [humanNotes, setHumanNotes] = useState(null)
+  // Voice-check state (pairs with AI-detection — different failure
+  // mode). Lazy: only runs when operator clicks Check brand voice.
+  const [voiceResult, setVoiceResult] = useState(null)
+  const [voiceBusy, setVoiceBusy] = useState(false)
+  const [voiceError, setVoiceError] = useState(null)
   // Reset transient state whenever the parent passes a NEW proposal
   // (e.g. operator clicked Re-generate). React identity check on
   // proposal.version_id keeps the state fresh without manual clears.
   useEffect(() => {
     setAiResult(null); setAiError(null); setHumanError(null); setHumanNotes(null)
+    setVoiceResult(null); setVoiceError(null)
     setCurrentVersionId(proposal?.version_id || null)
     setCurrentBodyHtml(proposal?.proposal?.body_html || '')
   }, [proposal?.version_id])
@@ -805,6 +811,19 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
     const tick = setInterval(() => setHumanElapsed(Math.floor((Date.now() - start) / 1000)), 500)
     return () => clearInterval(tick)
   }, [humanBusy])
+
+  const checkVoice = async () => {
+    if (voiceBusy || !landingPageId || !currentVersionId) return
+    setVoiceBusy(true); setVoiceError(null)
+    try {
+      const r = await api.voiceCheckLandingPageVersion(landingPageId, currentVersionId)
+      setVoiceResult(r)
+    } catch (e) {
+      setVoiceError(e?.message || String(e))
+    } finally {
+      setVoiceBusy(false)
+    }
+  }
 
   const detectAi = async () => {
     if (aiBusy || !landingPageId || !currentVersionId) return
@@ -1016,6 +1035,30 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
         )}
         {!aiResult && !aiBusy && !aiError && (
           <div className="text-[10px] text-muted italic">Click "Check AI score" to scan the proposed body via ZeroGPT.</div>
+        )}
+      </div>
+
+      {/* Brand-voice consistency check — pairs with ZeroGPT but
+          catches a different failure mode. ZeroGPT: "is this
+          machine-written?" Voice check: "does this sound like THIS
+          brand?" Generic-helpful prose passes ZeroGPT but fails
+          voice check. */}
+      <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-ink">🎤 Brand voice</span>
+          <span className="text-muted">Catches "human but generic" — copy that passes ZeroGPT but doesn't sound like your brand.</span>
+          <div className="flex-1" />
+          <button
+            onClick={checkVoice}
+            disabled={voiceBusy || !currentVersionId}
+            className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+            title="Score the proposed body against the brand voice profile (tenant brand_rules + audience_notes + strategy_hint + up to 2 sample on-voice pages)."
+          >{voiceBusy ? 'Checking…' : voiceResult ? '🔄 Re-check voice' : '🎤 Check brand voice'}</button>
+        </div>
+        {voiceError && <div className="text-[10px] text-[#c0392b]">⚠ {voiceError}</div>}
+        {voiceResult && <VoiceResult result={voiceResult} />}
+        {!voiceResult && !voiceBusy && !voiceError && (
+          <div className="text-[10px] text-muted italic">Click "Check brand voice" to score how on-brand the proposed body reads.</div>
         )}
       </div>
 
@@ -2205,6 +2248,59 @@ function CreateNewLandingPage({ pages, onCreated }) {
             : 'Creates a blank WP page. Set strategy hint + run audit + propose afterward to generate content.'}
         </span>
       </div>
+    </div>
+  )
+}
+
+// Renders the brand-voice consistency check result. Score bar +
+// verdict tag + summary + quoted drift passages with fix
+// directions. Designed for a quick eyeball: "does this need a
+// voice pass before deploy?"
+function VoiceResult({ result }) {
+  if (!result) return null
+  const score = Number(result.overall_score) || 0
+  const verdict = result.verdict || 'neutral-generic'
+  const verdictColor = verdict === 'on-voice' ? 'bg-[#2D9A5E] text-white'
+    : verdict === 'off-brand' ? 'bg-[#c0392b] text-white'
+    : 'bg-[#d97706] text-white'
+  const verdictLabel = verdict === 'on-voice' ? 'On-voice'
+    : verdict === 'off-brand' ? 'Off-brand'
+    : 'Neutral / generic'
+  const barColor = score >= 75 ? 'bg-[#2D9A5E]' : score >= 50 ? 'bg-[#d97706]' : 'bg-[#c0392b]'
+  return (
+    <div className="space-y-1 text-[10px]">
+      <div className="flex items-center gap-2">
+        <div className="flex-1 bg-[#f0f0f0] rounded h-3 overflow-hidden border border-[#e5e5e5]">
+          <div className={`h-full ${barColor}`} style={{ width: `${Math.max(2, Math.min(100, score))}%` }} />
+        </div>
+        <span className={`py-0.5 px-1.5 rounded font-bold ${verdictColor}`}>{score}</span>
+        <span className={`text-[9px] py-0.5 px-1.5 rounded border uppercase font-bold ${verdictColor.replace('bg-', 'border-').replace('text-white', 'bg-white text-[#111]')}`}>{verdictLabel}</span>
+      </div>
+      {result.summary && (
+        <div className="text-ink">{result.summary}</div>
+      )}
+      {Array.isArray(result.drift_passages) && result.drift_passages.length > 0 && (
+        <details open>
+          <summary className="cursor-pointer text-muted">
+            {result.drift_passages.length} passage{result.drift_passages.length === 1 ? '' : 's'} drifting — expand to view
+          </summary>
+          <div className="space-y-1.5 mt-1">
+            {result.drift_passages.map((p, i) => (
+              <div key={i} className="bg-[#fff7ed] border border-[#d97706]/30 rounded p-1.5">
+                <div className="italic text-[#854d0e]">"{p.quote}"</div>
+                {p.issue && <div className="mt-0.5"><b>Issue:</b> {p.issue}</div>}
+                {p.fix_direction && <div className="mt-0.5"><b>Fix:</b> {p.fix_direction}</div>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+      {result.sample_count != null && (
+        <div className="text-[9px] text-muted italic">
+          Compared against tenant voice profile + {result.sample_count} on-voice sample page{result.sample_count === 1 ? '' : 's'}.
+          {result.sample_count === 0 && ' No deployed pages yet for sampling — score is based on tenant voice signals alone, which is thinner.'}
+        </div>
+      )}
     </div>
   )
 }
