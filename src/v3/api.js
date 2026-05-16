@@ -853,6 +853,50 @@ export const runLandingSiteAudit = () =>
     return r.json()
   })
 
+// CTA tracking — fetch the tracking snippet (to paste into WP)
+// plus the rolling 28-day click count so the operator can verify
+// the snippet is live ("clicks_28d > 0" = it's working).
+export const getCtaSettings = () =>
+  fetch(`${apiBase()}/content/landing/cta-settings`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getCtaSettings failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Per-CTA click counts for a single landing page, over the last
+// 28 days. Returns anchors in document order + any "orphan"
+// cta_id rows (CTAs that had clicks before being restructured
+// out of the current version).
+export const getCtaStats = (landingPageId) =>
+  fetch(`${apiBase()}/content/landing/${landingPageId}/cta-stats`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getCtaStats failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Upcoming shopping / seasonal moments + which landing pages are
+// likely to benefit from a refresh ahead of each. Window defaults
+// to 90 days; we surface a season only once it's within both the
+// window AND its season-specific lead-time threshold (so Christmas
+// shows up 60 days out, Valentine's at 35, etc.).
+export const getSeasonalSuggestions = ({ windowDays } = {}) => {
+  const qs = windowDays ? `?window_days=${encodeURIComponent(windowDays)}` : ''
+  return fetch(`${apiBase()}/content/landing/seasonal${qs}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSeasonalSuggestions failed (${r.status})`)
+      }
+      return r.json()
+    })
+}
+
 // Record / clear a one-time acknowledgment for a landing-tab gate.
 // Currently used keys: 'backup_guide' (shown before first deploy).
 // Pass value: null to UNSET (re-opens the auto-show).

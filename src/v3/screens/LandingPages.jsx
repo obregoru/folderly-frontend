@@ -79,6 +79,24 @@ export default function LandingPages() {
       setSiteAuditBusy(false)
     }
   }
+  // Seasonal awareness — shopping moments coming up in the next 90
+  // days AND past their lead-time threshold (so Christmas appears 60
+  // days out, Valentine's at 35, etc.). Pages are matched by
+  // keyword search across label / strategy_hint / latest body_excerpt
+  // so the operator gets a "refresh this for Mother's Day" reminder.
+  // Loaded once on mount; cheap enough that no manual refresh is
+  // worth the UI noise — operator can reload the tab.
+  const [seasonal, setSeasonal] = useState(null)
+  const [seasonalError, setSeasonalError] = useState(null)
+  const [seasonalDismissed, setSeasonalDismissed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    api.getSeasonalSuggestions()
+      .then(r => { if (alive) setSeasonal(r) })
+      .catch(e => { if (alive) setSeasonalError(e?.message || String(e)) })
+    return () => { alive = false }
+  }, [])
+
   // Active workspace state — when an operator picks a page or imports
   // one fresh, the parsed page lives here so the right pane renders.
   const [active, setActive] = useState(null)
@@ -284,6 +302,26 @@ export default function LandingPages() {
         />
       )}
 
+      {/* Seasonal awareness banner — surfaces upcoming shopping
+          seasons + which managed pages likely benefit from a
+          pre-season refresh. Dismiss is session-only (no server
+          ack) — operators see it again next visit. */}
+      {!seasonalDismissed && seasonal && seasonal.upcoming && seasonal.upcoming.length > 0 && (
+        <SeasonalBanner
+          upcoming={seasonal.upcoming}
+          onDismiss={() => setSeasonalDismissed(true)}
+          onOpenPage={(pageId) => {
+            const p = state.pages.find(pp => pp.id === pageId)
+            if (p) openPage(p)
+          }}
+        />
+      )}
+      {seasonalError && (
+        <div className="bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 text-[10px] text-[#c0392b]">
+          Seasonal suggestions unavailable: {seasonalError}
+        </div>
+      )}
+
       {/* WP-not-configured banner — short-circuits everything else.
           Sends the operator to the social-media tenant settings since
           that's where wp_app_password lives today; we'll move it to a
@@ -356,6 +394,13 @@ export default function LandingPages() {
               if (created) openPage(created)
             }}
           />
+
+          {/* CTA tracking install state — once expanded, shows the
+              tracking snippet for one-time copy-paste into WP +
+              a 28d click count that flips to "✓ installed" the
+              moment any beacon fires. Collapsed by default since
+              this is a setup-once concern. */}
+          <CtaSettingsCard />
 
           {/* Managed pages list — hierarchical (children indented
               under their parent). Parents render first; orphan
@@ -569,6 +614,13 @@ function PageWorkspace({ data, requireBackupAck }) {
           trips per page) and not every page workspace open is
           interested in metrics. */}
       <GscBlock landingPageId={landing_page_id} pageUrl={page.url} />
+
+      {/* CTA click tracking — per-anchor click counts for the last
+          28 days. Lazy-loaded on expand so the workspace open is
+          fast. Shows even with zero clicks (anchors exist, snippet
+          may not be installed yet — the per-tenant install state
+          is surfaced separately at the top of the Landing tab). */}
+      <CtaStatsBlock landingPageId={landing_page_id} />
 
       {/* Yoast meta surface — only when present */}
       {page.yoast_meta && (
@@ -1516,6 +1568,276 @@ function GscMetrics({ data }) {
           </div>
         </details>
       )}
+    </div>
+  )
+}
+
+// Tenant-level CTA tracking settings — the one-time install of
+// the JS snippet operators paste into WordPress. Collapsed by
+// default; on expand we fetch the snippet + last-28d count and
+// surface a clear "installed / not installed" indicator. After
+// the operator confirms install, they shouldn't need to revisit
+// this card — per-page click counts live inside each workspace.
+function CtaSettingsCard() {
+  const [open, setOpen] = useState(false)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!open || data) return
+    setLoading(true); setError(null)
+    api.getCtaSettings()
+      .then(r => setData(r))
+      .catch(e => setError(e?.message || String(e)))
+      .finally(() => setLoading(false))
+  }, [open, data])
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(data.snippet)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    } catch (e) {
+      // Fallback: prompt the user to copy manually.
+      alert('Copy failed — select the snippet text and copy with Cmd/Ctrl+C.')
+    }
+  }
+  const refresh = () => { setData(null) }
+  return (
+    <details onToggle={e => setOpen(e.target.open)} className="bg-white border border-[#e5e5e5] rounded">
+      <summary className="cursor-pointer py-2 px-3 text-[11px] flex items-center gap-2">
+        <span className="font-medium">🎯 CTA tracking</span>
+        {data && (
+          <span className={`text-[9px] py-0.5 px-1.5 rounded ${data.installed ? 'bg-[#dcfce7] text-[#16a34a]' : 'bg-[#fef3c7] text-[#92400e]'}`}>
+            {data.installed ? `✓ Installed · ${data.clicks_28d} clicks (28d)` : 'Not installed yet'}
+          </span>
+        )}
+        <span className="flex-1" />
+        <span className="text-[9px] text-muted">Paste once into WordPress to capture link clicks.</span>
+      </summary>
+      <div className="p-3 border-t border-[#f0f0f0] space-y-2">
+        {loading && <div className="text-[10px] text-muted italic">Loading…</div>}
+        {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+        {data && (
+          <>
+            <div className="text-[10px] text-muted">
+              On every landing-page deploy we tag each link with a stable <code>data-fldy-cta</code> attribute. Paste this snippet ONCE into WordPress (Custom HTML block in the footer, a header/footer plugin, or your theme's <code>functions.php</code> as a <code>wp_footer</code> hook) and we'll capture clicks on every tagged link across the whole site. No further setup per page.
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={copy}
+                className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+              >{copied ? '✓ Copied' : '📋 Copy snippet'}</button>
+              <button
+                onClick={refresh}
+                className="text-[10px] py-1 px-2 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer"
+                title="Re-check whether clicks have started arriving"
+              >↻ Re-check install</button>
+              {data.last_click_at && (
+                <span className="text-[9px] text-muted">Last click: {new Date(data.last_click_at).toLocaleString()}</span>
+              )}
+            </div>
+            <pre className="text-[9px] bg-[#0f172a] text-[#e2e8f0] rounded p-2 overflow-x-auto whitespace-pre font-mono leading-snug max-h-[280px]">
+{data.snippet}
+            </pre>
+            <div className="text-[9px] text-muted">
+              <b>Privacy:</b> the snippet sends the clicked link's id + href + anchor text + your page URL + referrer. The end-user's IP is hashed server-side (not stored in plaintext) and used only for rate-limiting. No cookies, no fingerprinting.
+            </div>
+          </>
+        )}
+      </div>
+    </details>
+  )
+}
+
+// Per-page CTA click counts. Lazy-loaded on expand. Each anchor in
+// the page's current body shows: clicks (28d), last clicked at,
+// destination href + anchor text. "Orphan" cta_ids (CTAs that were
+// in a prior version + are no longer in the current body but still
+// had clicks) get a separate row so the operator can see historical
+// pull even after a restructure.
+function CtaStatsBlock({ landingPageId }) {
+  const [open, setOpen] = useState(false)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  useEffect(() => {
+    if (!open || data) return
+    setLoading(true); setError(null)
+    api.getCtaStats(landingPageId)
+      .then(r => setData(r))
+      .catch(e => setError(e?.message || String(e)))
+      .finally(() => setLoading(false))
+  }, [open, data, landingPageId])
+  const refresh = () => { setData(null) }
+  return (
+    <details onToggle={e => setOpen(e.target.open)} className="bg-white border border-[#e5e5e5] rounded">
+      <summary className="cursor-pointer py-2 px-3 text-[11px] flex items-center gap-2">
+        <span className="font-medium">📊 CTA click stats (28d)</span>
+        {data && (
+          <span className="text-[9px] text-muted">
+            {data.total_clicks_28d} total click{data.total_clicks_28d === 1 ? '' : 's'} across {data.ctas.filter(c => c.in_current_version).length} link{data.ctas.filter(c => c.in_current_version).length === 1 ? '' : 's'}
+          </span>
+        )}
+        <span className="flex-1" />
+        <span className="text-[9px] text-muted">Which links on this page are working.</span>
+      </summary>
+      <div className="p-2 border-t border-[#f0f0f0] space-y-2">
+        {loading && <div className="text-[10px] text-muted italic">Loading…</div>}
+        {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+        {data && (
+          <>
+            <div className="flex items-center justify-end">
+              <button
+                onClick={refresh}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer"
+              >↻ Refresh</button>
+            </div>
+            {data.ctas.length === 0 ? (
+              <div className="text-[10px] text-muted italic">No links on this page yet. Deploy a version with at least one anchor to start tracking.</div>
+            ) : (
+              <div className="space-y-0.5">
+                {/* Current-version anchors first, ordered by document position. */}
+                {data.ctas.filter(c => c.in_current_version).map(c => {
+                  const tone = c.clicks_28d === 0 ? 'bg-[#fafafa] text-muted'
+                    : c.clicks_28d < 5 ? 'bg-[#fff7ed] text-[#92400e]'
+                    : 'bg-[#dcfce7] text-[#166534]'
+                  return (
+                    <div key={c.cta_id || `pos-${c.position}`} className="flex items-center gap-2 text-[10px] py-1 px-1.5 border-b border-[#f0f0f0] last:border-0">
+                      <span className="text-muted font-mono w-5 text-right">{c.position}.</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="truncate"><b>{c.anchor || <span className="italic text-muted">(no text)</span>}</b></div>
+                        <div className="text-[9px] text-muted font-mono truncate">→ {c.href || '(no href)'}</div>
+                      </div>
+                      <span className={`text-[9px] py-0.5 px-1.5 rounded font-mono ${tone}`}>
+                        {c.clicks_28d}
+                      </span>
+                      {c.last_clicked_at && (
+                        <span className="text-[8px] text-muted w-20 text-right" title={new Date(c.last_clicked_at).toLocaleString()}>
+                          {timeAgoShort(c.last_clicked_at)}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+                {/* Orphans: clicks recorded against cta_ids that are no
+                    longer in the current body. Surface separately so
+                    they don't masquerade as "current page is working"
+                    signal. */}
+                {data.ctas.some(c => !c.in_current_version) && (
+                  <details className="pt-1 border-t border-dashed border-[#e5e5e5]">
+                    <summary className="cursor-pointer text-[9px] text-muted py-1">
+                      Historical CTAs (no longer in current body) — {data.ctas.filter(c => !c.in_current_version).length}
+                    </summary>
+                    <div className="pl-2 pt-1 space-y-0.5">
+                      {data.ctas.filter(c => !c.in_current_version).map(c => (
+                        <div key={c.cta_id} className="flex items-center gap-2 text-[10px] py-0.5 text-muted">
+                          <span className="font-mono">{c.cta_id}</span>
+                          <span className="flex-1" />
+                          <span className="font-mono">{c.clicks_28d} clicks</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </details>
+  )
+}
+
+// Compact relative-time formatter — used by CTA stats. Matches
+// "5m / 3h / 2d / 12d" style for tight columns. Falls back to
+// the absolute date for anything older than 28 days (which
+// shouldn't happen given the 28d window, but defensive).
+function timeAgoShort(iso) {
+  try {
+    const d = new Date(iso).getTime()
+    const diffMs = Date.now() - d
+    const m = Math.floor(diffMs / 60000)
+    if (m < 1) return 'just now'
+    if (m < 60) return `${m}m ago`
+    const h = Math.floor(m / 60)
+    if (h < 24) return `${h}h ago`
+    const days = Math.floor(h / 24)
+    if (days < 28) return `${days}d ago`
+    return new Date(iso).toLocaleDateString()
+  } catch { return '' }
+}
+
+// Seasonal awareness banner. Compact strip listing upcoming
+// shopping/seasonal moments — newest first — with matched-page
+// chips that jump straight into the workspace. The BE only
+// surfaces seasons that are both inside the 90-day window AND past
+// their lead-time threshold, so the list is naturally short (1-3
+// items most of the year).
+function SeasonalBanner({ upcoming, onDismiss, onOpenPage }) {
+  // Soonest season drives the banner accent. Within ≤14 days =
+  // urgent (amber); within ≤45 days = warm (lavender); further
+  // out = neutral. Just affects the left strip and the days_ahead
+  // pill so the operator can triage at a glance.
+  const soonest = upcoming[0]
+  const accent = soonest.days_ahead <= 14 ? 'border-[#d97706] bg-[#fff7ed]'
+    : soonest.days_ahead <= 45 ? 'border-[#6C5CE7]/40 bg-[#f5f3ff]'
+    : 'border-[#e5e5e5] bg-[#fafafa]'
+  return (
+    <div className={`border rounded p-2.5 space-y-2 ${accent}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold">📅 Upcoming seasonal moments</span>
+        <span className="text-[9px] text-muted">Refresh pages ahead of the rush.</span>
+        <div className="flex-1" />
+        <button
+          onClick={onDismiss}
+          className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
+          title="Hide for this session"
+        >✕ Hide</button>
+      </div>
+      <div className="space-y-1.5">
+        {upcoming.map(s => {
+          const urgent = s.days_ahead <= 14
+          return (
+            <details key={s.id} className="bg-white border border-[#e5e5e5] rounded">
+              <summary className="cursor-pointer py-1.5 px-2 text-[10px] flex items-center gap-2">
+                <span className={`text-[9px] py-0.5 px-1.5 rounded font-mono ${urgent ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#f0f0f0] text-muted'}`}>
+                  {s.days_ahead === 0 ? 'TODAY' : `${s.days_ahead}d`}
+                </span>
+                <span className="font-medium text-ink">{s.name}</span>
+                <span className="text-muted">· {s.date}</span>
+                <span className="flex-1" />
+                <span className="text-[9px] text-muted">
+                  {s.page_count} matched page{s.page_count === 1 ? '' : 's'}
+                </span>
+              </summary>
+              <div className="p-2 border-t border-[#f0f0f0] space-y-1.5">
+                <div className="text-[10px]"><b className="text-muted">Applies to:</b> {s.applies_to}</div>
+                <div className="text-[10px]"><b className="text-muted">Refresh angle:</b> {s.refresh_angle}</div>
+                {s.pages && s.pages.length > 0 ? (
+                  <div className="pt-1 space-y-1">
+                    <div className="text-[9px] text-muted uppercase font-medium tracking-wide">Matched pages</div>
+                    {s.pages.map(p => (
+                      <div key={p.id} className="flex items-center gap-2 text-[10px] bg-[#fafafa] border border-[#f0f0f0] rounded px-2 py-1">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{p.label}</div>
+                          <div className="text-[9px] text-muted truncate">{p.why}</div>
+                        </div>
+                        <button
+                          onClick={() => onOpenPage(p.id)}
+                          className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0"
+                        >Open →</button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[9px] text-muted italic pt-1">No managed pages obviously match. Consider whether a new page would help — Create new landing page above.</div>
+                )}
+              </div>
+            </details>
+          )
+        })}
+      </div>
     </div>
   )
 }
