@@ -28,14 +28,15 @@ import type { CaptionStyle, WordStyle } from './styleTypes';
 // CaptionLayer is used outside CaptionedVideo.
 import '../animation/presets';
 
-// Subset Inter to weights / italic variants we actually use, latin
-// only. Default loadInter() pulls every weight × every italic ×
-// every subset (~63 woff2 requests) which trips Google Fonts' 429
-// limit on warm-cache reload.
+// Subset Inter to weights we actually use, latin only. Default
+// loadInter() pulls every weight × every subset (~30+ woff2
+// requests) which trips Google Fonts' 429 limit on warm-cache
+// reload. Italic variants aren't used by this component's render
+// path — if a downstream consumer ever needs them, add a separate
+// `loadInter('italic', {...})` call here.
 const { fontFamily: defaultFontFamily } = loadInter('normal', {
   weights: ['400', '700', '800'],
   subsets: ['latin'],
-  ital: ['0', '1'],
 });
 
 export interface CaptionLayerProps {
