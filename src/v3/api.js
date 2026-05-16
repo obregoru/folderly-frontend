@@ -822,6 +822,20 @@ export const fetchLandingPageGsc = (id) =>
     return r.json()
   })
 
+// Re-run the per-page audit on every managed page for this
+// tenant. Useful after strategy_hint changes or when site
+// capabilities update. Sequential on the BE — can take 30s-2m+
+// depending on page count + Claude latency.
+export const bulkAuditLandingPages = () =>
+  fetch(`${apiBase()}/content/landing/bulk-audit`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'bulk audit failed')
+    return r.json()
+  })
+
 // Run the cross-page site audit — orphans, broken links,
 // cannibalization, stale pages, un-deployed proposals,
 // strategic coverage gaps. Returns findings grouped by
