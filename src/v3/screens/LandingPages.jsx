@@ -193,24 +193,27 @@ export default function LandingPages() {
             )}
           </div>
 
-          {/* Managed pages list */}
+          {/* Create new landing page — collapsed by default */}
+          <CreateNewLandingPage
+            pages={state.pages}
+            onCreated={async (newId) => {
+              await reload()
+              // Open the new page in the workspace immediately.
+              const fresh = await api.listLandingPages().catch(() => null)
+              const created = fresh?.pages?.find(p => p.id === newId)
+              if (created) openPage(created)
+            }}
+          />
+
+          {/* Managed pages list — hierarchical (children indented
+              under their parent). Parents render first; orphan
+              children with a parent_landing_page_id that no longer
+              resolves get rendered at top level so they stay
+              accessible. */}
           {state.pages.length > 0 && (
             <div className="bg-white border border-[#e5e5e5] rounded p-3">
               <div className="text-[11px] font-medium mb-2">Managed pages ({state.pages.length})</div>
-              <div className="space-y-1">
-                {state.pages.map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => openPage(p)}
-                    className="w-full flex items-center gap-2 text-[11px] py-1.5 px-2 bg-[#fafafa] hover:bg-[#f0eff5] border border-[#e5e5e5] rounded cursor-pointer text-left"
-                  >
-                    <span className="font-medium truncate flex-1">{p.label || `Post ${p.wp_post_id}`}</span>
-                    {p.cornerstone && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Cornerstone</span>}
-                    <span className="font-mono text-[9px] text-muted">#{p.wp_post_id}</span>
-                    <span className="text-[9px] text-muted">{p.last_imported_at ? new Date(p.last_imported_at).toLocaleDateString() : '—'}</span>
-                  </button>
-                ))}
-              </div>
+              <ManagedPagesTree pages={state.pages} onOpen={openPage} />
             </div>
           )}
 
@@ -1220,6 +1223,183 @@ function VersionHistory({ history, landingPageId, onRolledBack }) {
         })}
       </div>
     </details>
+  )
+}
+
+// Hierarchical render of the managed pages. Parents render at top
+// level; children appear indented under them. Only one level of
+// indent is rendered even if the DB supports deeper nesting —
+// arbitrary depth would get unwieldy in a flat list. If/when an
+// operator legitimately needs 3 levels, we'd swap this for a
+// tree component; for now the use case is `LA → Pasadena/Downey`
+// which is two levels.
+function ManagedPagesTree({ pages, onOpen }) {
+  // Build a parent → children map. Orphans (children whose parent
+  // doesn't resolve in this list, e.g. cross-tenant deletion) get
+  // bumped to top level so they stay accessible.
+  const byId = new Map(pages.map(p => [p.id, p]))
+  const parents = []
+  const childrenByParent = new Map()
+  for (const p of pages) {
+    const parentId = p.parent_landing_page_id || null
+    if (parentId && byId.has(parentId)) {
+      if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, [])
+      childrenByParent.get(parentId).push(p)
+    } else {
+      parents.push(p)
+    }
+  }
+  return (
+    <div className="space-y-1">
+      {parents.map(p => (
+        <div key={p.id}>
+          <PageRow page={p} onOpen={onOpen} indent={0} />
+          {(childrenByParent.get(p.id) || []).map(child => (
+            <PageRow key={child.id} page={child} onOpen={onOpen} indent={1} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PageRow({ page, onOpen, indent = 0 }) {
+  return (
+    <button
+      onClick={() => onOpen(page)}
+      className="w-full flex items-center gap-2 text-[11px] py-1.5 px-2 bg-[#fafafa] hover:bg-[#f0eff5] border border-[#e5e5e5] rounded cursor-pointer text-left"
+      style={indent > 0 ? { marginLeft: `${indent * 16}px` } : undefined}
+    >
+      {indent > 0 && <span className="text-muted">↳</span>}
+      <span className="font-medium truncate flex-1">{page.label || `Post ${page.wp_post_id}`}</span>
+      {page.cornerstone && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Cornerstone</span>}
+      <span className="font-mono text-[9px] text-muted">#{page.wp_post_id}</span>
+      <span className="text-[9px] text-muted">{page.last_imported_at ? new Date(page.last_imported_at).toLocaleDateString() : '—'}</span>
+    </button>
+  )
+}
+
+// Create-new-landing-page form. Collapsed by default to avoid
+// cluttering the steady-state Landing tab. When expanded:
+//   - Title (required) — becomes WP page title
+//   - Slug (optional) — WP auto-generates from title if blank
+//   - Parent (optional, dropdown of existing pages) — sets both
+//     our internal parent_landing_page_id FK AND WP's native
+//     parent post id so the WP page tree mirrors ours.
+//   - Status — draft (default; safe) or publish (live immediately)
+//
+// On success: parent re-loads + opens the new page in the workspace.
+function CreateNewLandingPage({ pages, onCreated }) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [slug, setSlug] = useState('')
+  const [parentId, setParentId] = useState('')
+  const [status, setStatus] = useState('draft')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  const reset = () => { setTitle(''); setSlug(''); setParentId(''); setStatus('draft'); setError(null) }
+
+  const handleCreate = async () => {
+    if (busy || !title.trim()) return
+    setBusy(true); setError(null)
+    try {
+      const r = await api.createLandingPage({
+        title: title.trim(),
+        slug: slug.trim() || undefined,
+        parent_landing_page_id: parentId ? Number(parentId) : undefined,
+        status,
+      })
+      reset()
+      setOpen(false)
+      if (typeof onCreated === 'function' && r?.landing_page_id) {
+        onCreated(r.landing_page_id)
+      }
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-[11px] py-1 px-3 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+        title="Spin up a brand-new WP page + landing_pages row. Status defaults to draft so nothing goes live until you deploy via Phase 5."
+      >+ Create new landing page</button>
+    )
+  }
+  return (
+    <div className="bg-white border border-[#6C5CE7]/40 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium">+ Create new landing page</span>
+        <span className="text-[9px] text-muted">Creates a draft WP page + manages it here</span>
+        <div className="flex-1" />
+        <button
+          onClick={() => { reset(); setOpen(false) }}
+          className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
+        >✕ Close</button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-[10px] block">
+          <span className="text-muted">Title <span className="text-[#c0392b]">*</span></span>
+          <input
+            type="text"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="e.g. Make & Take Milwaukee — Candle bars, paint & sip…"
+            className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7]"
+          />
+        </label>
+        <label className="text-[10px] block">
+          <span className="text-muted">Slug (optional)</span>
+          <input
+            type="text"
+            value={slug}
+            onChange={e => setSlug(e.target.value.replace(/[^a-z0-9-]/gi, '-').toLowerCase())}
+            placeholder="auto from title"
+            className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7] font-mono"
+          />
+        </label>
+        <label className="text-[10px] block">
+          <span className="text-muted">Parent page (optional)</span>
+          <select
+            value={parentId}
+            onChange={e => setParentId(e.target.value)}
+            className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 bg-white"
+          >
+            <option value="">(none — top level)</option>
+            {pages.filter(p => !p.parent_landing_page_id).map(p => (
+              <option key={p.id} value={p.id}>{p.label || `Post ${p.wp_post_id}`}</option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[10px] block">
+          <span className="text-muted">Initial status</span>
+          <select
+            value={status}
+            onChange={e => setStatus(e.target.value)}
+            className="w-full mt-0.5 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 bg-white"
+          >
+            <option value="draft">Draft (recommended — not live yet)</option>
+            <option value="publish">Publish (live immediately)</option>
+          </select>
+        </label>
+      </div>
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleCreate}
+          disabled={busy || !title.trim()}
+          className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+        >{busy ? 'Creating…' : '+ Create'}</button>
+        <span className="text-[9px] text-muted">
+          Creates the WP page, opens it in the workspace, then set the strategy hint + run audit + propose to generate content.
+        </span>
+      </div>
+    </div>
   )
 }
 
