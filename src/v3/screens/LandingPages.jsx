@@ -712,10 +712,37 @@ function ProposalDiff({ proposal, sourcePage }) {
         )}
       </div>
 
+      {/* Rendered preview — side-by-side current vs proposed in
+          sandboxed iframes. Sandbox="" blocks scripts, popups,
+          forms, top-navigation, etc. so any HTML Claude produces
+          can't break out. Inline stylesheet approximates a
+          generic WordPress prose theme so the preview looks like
+          a real page, not naked HTML on a white background.
+          (Doesn't perfectly match makeandtake.com's theme — the
+          live deploy in Phase 5 will look slightly different —
+          but it's much closer to "how it'll read" than the raw
+          HTML view below.) */}
+      <details className="border border-[#e5e5e5] rounded" open>
+        <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">Rendered preview (current vs proposed)</summary>
+        <div className="grid grid-cols-2 gap-2 p-2">
+          <div>
+            <div className="text-[9px] text-muted mb-1">Current</div>
+            <RenderedPreview html={sourcePage?.body_html || ''} tone="red" />
+          </div>
+          <div>
+            <div className="text-[9px] text-muted mb-1">Proposed</div>
+            <RenderedPreview html={p.body_html || ''} tone="green" />
+          </div>
+        </div>
+        <div className="text-[8px] text-muted italic px-2 pb-2">
+          Approximate styling — actual rendering will use the live theme on deploy. Scripts and forms are disabled in this preview.
+        </div>
+      </details>
+
       {/* Body diff — full HTML side-by-side. Paragraph-level
           highlight is Phase 4/5 territory; v1 = full bodies. */}
       <details className="border border-[#e5e5e5] rounded">
-        <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">Body HTML diff (current vs proposed)</summary>
+        <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">Body HTML source (current vs proposed)</summary>
         <div className="grid grid-cols-2 gap-2 p-2">
           <div>
             <div className="text-[9px] text-muted mb-1">Current</div>
@@ -732,6 +759,55 @@ function ProposalDiff({ proposal, sourcePage }) {
         Phase 3 v1: review the diff. ZeroGPT AI-detection on the proposed body comes in Phase 4. Backup + deploy lands in Phase 5 — proposal is staged on landing_page_versions until then.
       </div>
     </div>
+  )
+}
+
+// Sandbox=""-iframe renderer for a chunk of HTML. Used by the
+// proposal diff to show a styled preview of current vs proposed
+// page bodies. Why sandboxed:
+//   - No scripts can run (sandbox="" denies allow-scripts)
+//   - No top-navigation, no popups, no forms
+//   - Same-origin is also denied so it can't read cookies / storage
+// The preview is a best-effort approximation of how WP would render
+// the post_content. We don't have the live theme's stylesheet so
+// we ship a minimal one inline — close enough for "does this read
+// like a webpage?" but not identical to the deployed look.
+function RenderedPreview({ html, tone = 'green' }) {
+  const borderClass = tone === 'red' ? 'border-[#c0392b]/30' : 'border-[#2D9A5E]/30'
+  const previewCss = `
+    html, body { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2937; background: #fff; }
+    h1, h2, h3, h4, h5, h6 { font-weight: 700; line-height: 1.25; margin: 1.5em 0 0.5em; color: #111; }
+    h1 { font-size: 1.8em; }
+    h2 { font-size: 1.4em; }
+    h3 { font-size: 1.2em; }
+    p { margin: 0.8em 0; }
+    ul, ol { margin: 0.8em 0; padding-left: 1.4em; }
+    li { margin: 0.3em 0; }
+    a { color: #6C5CE7; text-decoration: underline; }
+    a:hover { color: #5847d4; }
+    strong, b { font-weight: 700; }
+    em, i { font-style: italic; }
+    img { max-width: 100%; height: auto; display: block; margin: 1em 0; border-radius: 4px; }
+    blockquote { border-left: 3px solid #6C5CE7; margin: 1em 0; padding: 0.5em 1em; background: #f9f7ff; color: #4b5563; }
+    code { background: #f3f4f6; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+    pre { background: #f3f4f6; padding: 1em; border-radius: 4px; overflow-x: auto; }
+    hr { border: 0; border-top: 1px solid #e5e7eb; margin: 2em 0; }
+    figure { margin: 1em 0; }
+    figcaption { text-align: center; font-size: 0.85em; color: #6b7280; margin-top: 0.5em; }
+    /* WP block-editor often emits wp-block-* wrappers — let them flow naturally */
+    .wp-block-image { margin: 1em 0; }
+    .wp-block-buttons { margin: 1em 0; }
+    .wp-block-button__link { display: inline-block; padding: 0.5em 1em; background: #6C5CE7; color: #fff !important; text-decoration: none !important; border-radius: 4px; }
+  `
+  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${previewCss}</style></head><body>${html || '<p style="color:#9ca3af;font-style:italic;">(empty body)</p>'}</body></html>`
+  return (
+    <iframe
+      title="rendered preview"
+      sandbox=""
+      srcDoc={srcDoc}
+      className={`w-full rounded border bg-white ${borderClass}`}
+      style={{ height: '500px' }}
+    />
   )
 }
 
