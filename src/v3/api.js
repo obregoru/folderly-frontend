@@ -742,6 +742,23 @@ export const generateLandingPageSchema = (id, versionId) =>
     return r.json()
   })
 
+// Record / clear a one-time acknowledgment for a landing-tab gate.
+// Currently used keys: 'backup_guide' (shown before first deploy).
+// Pass value: null to UNSET (re-opens the auto-show).
+export const setLandingAcknowledgment = (key, value) =>
+  fetch(`${apiBase()}/content/landing/acknowledge`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ key, value: value === null ? null : true }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setLandingAcknowledgment failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // List available landing-page templates (city guide, location page,
 // Shop Hop event, category page) for the Create form's picker.
 export const listLandingPageTemplates = () =>
