@@ -742,6 +742,23 @@ export const generateLandingPageSchema = (id, versionId) =>
     return r.json()
   })
 
+// Run the cross-page site audit — orphans, broken links,
+// cannibalization, stale pages, un-deployed proposals,
+// strategic coverage gaps. Returns findings grouped by
+// category (graph / content / deploy / strategy).
+export const runLandingSiteAudit = () =>
+  fetch(`${apiBase()}/content/landing/site-audit`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `runLandingSiteAudit failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Record / clear a one-time acknowledgment for a landing-tab gate.
 // Currently used keys: 'backup_guide' (shown before first deploy).
 // Pass value: null to UNSET (re-opens the auto-show).
