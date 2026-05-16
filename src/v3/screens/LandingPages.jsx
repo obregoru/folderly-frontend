@@ -592,7 +592,14 @@ function PageWorkspace({ data, requireBackupAck }) {
           <span className="text-[9px] text-muted">SEO · AEO · GEO · E-E-A-T · AI-naturalness · breadcrumbs</span>
           <div className="flex-1" />
           {audit?.created_at && (
-            <span className="text-[9px] text-muted">Last run {new Date(audit.created_at).toLocaleString()}</span>
+            <span className="text-[9px] text-muted">
+              Last run {new Date(audit.created_at).toLocaleString()}
+              {typeof audit.web_search_uses === 'number' && (
+                audit.web_search_uses > 0
+                  ? <span className="ml-1 text-[#16a34a]" title="Audit compared against the top SERP results via web_search">· 🔎 {audit.web_search_uses} SERP {audit.web_search_uses === 1 ? 'lookup' : 'lookups'}</span>
+                  : <span className="ml-1 text-muted" title="Audit didn't use web_search this run">· no SERP comparison</span>
+              )}
+            </span>
           )}
           <button
             onClick={runAudit}
