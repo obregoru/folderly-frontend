@@ -742,6 +742,70 @@ export const generateLandingPageSchema = (id, versionId) =>
     return r.json()
   })
 
+// Google Search Console — get a Google OAuth authorization URL
+// for this tenant. FE redirects (or pops up) to this URL; on
+// approval Google redirects to our callback which stores the
+// refresh token.
+export const getGscAuthorizeUrl = () =>
+  fetch(`${apiBase()}/content/landing/gsc/authorize-url`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'authorize-url failed')
+      return r.json()
+    })
+
+// Whether this tenant has connected GSC + which site is selected.
+export const getGscStatus = () =>
+  fetch(`${apiBase()}/content/landing/gsc/status`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'status failed')
+      return r.json()
+    })
+
+// List the operator's verified Search Console properties so they
+// can pick which one corresponds to the site we manage.
+export const listGscSites = () =>
+  fetch(`${apiBase()}/content/landing/gsc/sites`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'list-sites failed')
+      return r.json()
+    })
+
+// Set the chosen GSC property (e.g. "sc-domain:makeandtake.com"
+// or "https://makeandtake.com/").
+export const setGscSite = (site_url) =>
+  fetch(`${apiBase()}/content/landing/gsc/site`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ site_url }),
+  }).then(async r => {
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'set-site failed')
+    return r.json()
+  })
+
+// Disconnect GSC (wipe refresh_token + site_url).
+export const disconnectGsc = () =>
+  fetch(`${apiBase()}/content/landing/gsc`, {
+    method: 'DELETE',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'disconnect failed')
+    return r.json()
+  })
+
+// Fetch current 28d vs prior 28d GSC metrics for a specific
+// landing page's URL. Operator triggers via "Pull GSC data".
+export const fetchLandingPageGsc = (id) =>
+  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/gsc`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'GSC fetch failed')
+    return r.json()
+  })
+
 // Run the cross-page site audit — orphans, broken links,
 // cannibalization, stale pages, un-deployed proposals,
 // strategic coverage gaps. Returns findings grouped by
