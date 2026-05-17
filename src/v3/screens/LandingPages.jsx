@@ -174,14 +174,13 @@ export default function LandingPages() {
           body_html = v?.version?.body_html || ''
         } catch {}
       }
-      // Surface the most recent audit row inline so an operator who
-      // ran an audit, hit a proxy timeout, and reopened the page
-      // doesn't have to re-run a (potentially expensive) Claude call
-      // to recover the result. The audits[] list is already on the
-      // payload — we just reshape the newest row to match the POST
-      // /audit response so the rest of the workspace renders without
-      // a special-case branch.
-      const mostRecentAudit = (r.audits || [])[0]
+      // Surface the most recent completed audit row inline so an
+      // operator who ran an audit + reopened the page doesn't have
+      // to re-run a (potentially expensive) Claude call to recover
+      // the result. Skip `running` and `failed` rows — they have
+      // no findings to render. Pre-status rows (back-compat) are
+      // treated as `done`.
+      const mostRecentAudit = (r.audits || []).find(a => !a.status || a.status === 'done')
       const recoveredAudit = mostRecentAudit ? {
         audit_id: mostRecentAudit.id,
         version_id: mostRecentAudit.version_id,
@@ -527,55 +526,45 @@ function PageWorkspace({ data, requireBackupAck }) {
     setAuditBusy(true); setAuditError(null)
     setProposal(null)
     setProposalError(null)
-    // Note the start timestamp so the recovery path can distinguish
-    // "this audit completed despite the fetch timing out" from "the
-    // audit never ran". Web-search-heavy audits run 100-150s and
-    // routinely outlast Cloudflare's 100s edge timeout — the BE
-    // writes the audit successfully but the response never reaches
-    // the browser.
-    const startedAt = Date.now()
     try {
-      const r = await api.runLandingPageAudit(landing_page_id)
-      setAudit(r)
+      // BE returns `{ audit_id, status: 'running', ... }` immediately
+      // and runs Claude in the background — no proxy timeout possible.
+      // We poll the audit row every 4s until status flips to 'done'
+      // (success) or 'failed' (Claude / API error). Soft cap at 5 min
+      // since even web-search-heavy audits finish in 2-3.
+      const startResp = await api.runLandingPageAudit(landing_page_id)
+      if (!startResp || !startResp.audit_id) {
+        throw new Error('audit kickoff returned no audit_id')
+      }
+      const auditId = startResp.audit_id
+      const deadline = Date.now() + 5 * 60 * 1000
+      let final = null
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 4000))
+        try {
+          const r = await api.getLandingPageAudit(landing_page_id, auditId)
+          const a = r?.audit
+          if (a?.status === 'done') { final = a; break }
+          if (a?.status === 'failed') {
+            throw new Error(a.error || 'Audit failed (see server logs).')
+          }
+        } catch (pollErr) {
+          // Transient poll failures (network blip) — keep trying.
+          // A persistent failure will eventually trip the deadline.
+          if (pollErr?.message?.includes('Audit failed')) throw pollErr
+        }
+      }
+      if (!final) throw new Error('Audit timed out after 5 minutes. The Claude call may still be running — refresh in a moment to see if it completed.')
+      setAudit({
+        audit_id: final.id,
+        version_id: final.version_id,
+        findings: final.findings,
+        model_used: final.model_used,
+        created_at: final.created_at,
+      })
       setSelectedSuggestions(new Set())
     } catch (e) {
-      // Poll for a fresh audit row before surfacing the error.
-      // Cloudflare's 100s edge timeout is the most common cause —
-      // the BE finished the audit + wrote the row, the browser
-      // just never got the response. We check every 5s for up to
-      // 4 minutes (well past the typical 2-2.5 min worst case).
-      let recovered = null
-      const deadline = Date.now() + 4 * 60 * 1000
-      while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 5000))
-        try {
-          const r = await api.getLandingPage(landing_page_id)
-          // Match an audit row created after the run started — that
-          // guarantees we're not picking up a pre-existing audit.
-          const fresh = (r.audits || []).find(a => {
-            const t = a.created_at ? new Date(a.created_at).getTime() : 0
-            return t >= startedAt - 5000 // 5s slack for clock skew
-          })
-          if (fresh) {
-            recovered = {
-              audit_id: fresh.id,
-              version_id: fresh.version_id,
-              findings: fresh.findings,
-              model_used: fresh.model_used,
-              created_at: fresh.created_at,
-            }
-            break
-          }
-        } catch {}
-      }
-      if (recovered) {
-        setAudit(recovered)
-        setSelectedSuggestions(new Set())
-        // Show a soft notice so the operator understands what happened.
-        setAuditError("Audit completed but the response timed out at the proxy (typical for web-search-heavy audits). Recovered the result from the database.")
-      } else {
-        setAuditError(e?.message || String(e))
-      }
+      setAuditError(e?.message || String(e))
     } finally {
       setAuditBusy(false)
     }
