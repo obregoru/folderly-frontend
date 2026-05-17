@@ -174,11 +174,28 @@ export default function LandingPages() {
           body_html = v?.version?.body_html || ''
         } catch {}
       }
+      // Surface the most recent audit row inline so an operator who
+      // ran an audit, hit a proxy timeout, and reopened the page
+      // doesn't have to re-run a (potentially expensive) Claude call
+      // to recover the result. The audits[] list is already on the
+      // payload — we just reshape the newest row to match the POST
+      // /audit response so the rest of the workspace renders without
+      // a special-case branch.
+      const mostRecentAudit = (r.audits || [])[0]
+      const recoveredAudit = mostRecentAudit ? {
+        audit_id: mostRecentAudit.id,
+        version_id: mostRecentAudit.version_id,
+        findings: mostRecentAudit.findings,
+        model_used: mostRecentAudit.model_used,
+        created_at: mostRecentAudit.created_at,
+        recovered_from_history: true,
+      } : null
       setActive({
         landing_page_id: page.id,
         version_id: mostRecent?.id || null,
         strategy_hint: r.page?.strategy_hint || page.strategy_hint || '',
         ai_citations: Array.isArray(r.page?.ai_citations) ? r.page.ai_citations : [],
+        recovered_audit: recoveredAudit,
         page: {
           wp_post_id: page.wp_post_id,
           url: page.url,
@@ -444,7 +461,7 @@ export default function LandingPages() {
 }
 
 function PageWorkspace({ data, requireBackupAck }) {
-  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations } = data
+  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit } = data
   const links = page.links || []
   const internalLinks = links.filter(l => l.type === 'internal')
   const externalLinks = links.filter(l => l.type === 'external')
@@ -479,9 +496,18 @@ function PageWorkspace({ data, requireBackupAck }) {
   // re-fetch. Selected suggestions feed Phase 3's proposal
   // generator (not wired here — just stored locally for now so the
   // operator can shape their shortlist while reviewing).
-  const [audit, setAudit] = useState(null)
+  // Audit state. Pre-populated from the most recent audit row on
+  // workspace open so an operator who hit a proxy timeout (or just
+  // opened a previously-audited page) sees the existing findings
+  // without re-running the Claude call. Recovered audits carry a
+  // `recovered_from_history: true` flag so the UI can show a
+  // "this is the saved result from {date}" note.
+  const [audit, setAudit] = useState(recoveredAudit || null)
   const [auditBusy, setAuditBusy] = useState(false)
   const [auditError, setAuditError] = useState(null)
+  // When the operator switches pages, swap the audit too — without
+  // this, stale findings from page A would render on page B.
+  useEffect(() => { setAudit(recoveredAudit || null) }, [landing_page_id, recoveredAudit])
   const [activeDim, setActiveDim] = useState('seo')
   const [selectedSuggestions, setSelectedSuggestions] = useState(new Set())
   // Elapsed-seconds counter while audit is in flight — Claude can
@@ -501,12 +527,55 @@ function PageWorkspace({ data, requireBackupAck }) {
     setAuditBusy(true); setAuditError(null)
     setProposal(null)
     setProposalError(null)
+    // Note the start timestamp so the recovery path can distinguish
+    // "this audit completed despite the fetch timing out" from "the
+    // audit never ran". Web-search-heavy audits run 100-150s and
+    // routinely outlast Cloudflare's 100s edge timeout — the BE
+    // writes the audit successfully but the response never reaches
+    // the browser.
+    const startedAt = Date.now()
     try {
       const r = await api.runLandingPageAudit(landing_page_id)
       setAudit(r)
       setSelectedSuggestions(new Set())
     } catch (e) {
-      setAuditError(e?.message || String(e))
+      // Poll for a fresh audit row before surfacing the error.
+      // Cloudflare's 100s edge timeout is the most common cause —
+      // the BE finished the audit + wrote the row, the browser
+      // just never got the response. We check every 5s for up to
+      // 4 minutes (well past the typical 2-2.5 min worst case).
+      let recovered = null
+      const deadline = Date.now() + 4 * 60 * 1000
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 5000))
+        try {
+          const r = await api.getLandingPage(landing_page_id)
+          // Match an audit row created after the run started — that
+          // guarantees we're not picking up a pre-existing audit.
+          const fresh = (r.audits || []).find(a => {
+            const t = a.created_at ? new Date(a.created_at).getTime() : 0
+            return t >= startedAt - 5000 // 5s slack for clock skew
+          })
+          if (fresh) {
+            recovered = {
+              audit_id: fresh.id,
+              version_id: fresh.version_id,
+              findings: fresh.findings,
+              model_used: fresh.model_used,
+              created_at: fresh.created_at,
+            }
+            break
+          }
+        } catch {}
+      }
+      if (recovered) {
+        setAudit(recovered)
+        setSelectedSuggestions(new Set())
+        // Show a soft notice so the operator understands what happened.
+        setAuditError("Audit completed but the response timed out at the proxy (typical for web-search-heavy audits). Recovered the result from the database.")
+      } else {
+        setAuditError(e?.message || String(e))
+      }
     } finally {
       setAuditBusy(false)
     }
