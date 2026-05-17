@@ -2523,7 +2523,7 @@ function SchemaBlock({ landingPageId, versionId }) {
       )}
       {result && (
         <div className="text-[9px] text-muted italic">
-          Paste blocks into Yoast Premium → Schema tab → custom schema, OR into your theme's <code>functions.php</code> (wp_head action), OR a schema plugin like Schema Pro. We don't auto-inject because plugin support for REST-based schema updates varies.
+          These blocks deploy automatically with the page — they're appended to the body as <code>&lt;script type="application/ld+json"&gt;</code> tags inside Gutenberg <code>core/html</code> blocks, fenced so re-deploys replace rather than duplicate. No paste required. (If your install also runs Yoast Premium's auto-schema, both will coexist — Google merges duplicate JSON-LD blocks of the same type.)
         </div>
       )}
     </div>
