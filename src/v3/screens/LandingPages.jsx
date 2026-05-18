@@ -2671,7 +2671,7 @@ function SetupWizardModal({ data, onClose, onRefresh, onOpenPage, onAfterMutatio
     setBusy(true); setError(null)
     try {
       if (action === "run-pipeline") {
-        await api.runSetupSlotPipeline(slotId)
+        await api.runSetupSlotPipeline(slotId, { regenerate: !!extras?.regenerate })
         // Refresh once immediately so the slot flips into running
         // state; the polling effect above takes over from there.
         await onRefresh()
@@ -2809,6 +2809,7 @@ function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenP
                 : "bg-[#dbeafe] text-[#1d4ed8]"
               }`}>
                 {PIPELINE_STAGE_LABELS[pipeline.stage] || pipeline.stage}
+                {pipeline?.regenerate && <span className="ml-1 opacity-70">· 🔄 fresh</span>}
               </span>
             )}
           </div>
@@ -2842,18 +2843,40 @@ function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenP
             >🤖 {slot.effective_status === "created" ? "Generate content" : "Audit + auto-fill"}</button>
           )}
           {stageReady && slot.mapped_page && (
-            <button
-              onClick={() => onOpenPage(slot.mapped_page.id)}
-              className="text-[9px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer"
-              title="Pipeline is done — review the proposed content + deploy from the regular workspace."
-            >Review & deploy →</button>
+            <>
+              <button
+                onClick={() => onOpenPage(slot.mapped_page.id)}
+                className="text-[9px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer"
+                title="Pipeline is done — review the proposed content + deploy from the regular workspace."
+              >Review & deploy →</button>
+              <button
+                onClick={() => {
+                  if (!confirm("Regenerate from scratch?\n\nThe current AI proposal stays in version history (you can roll back to it from the workspace), but a fresh proposal will be generated and become the new latest version. Use when the previous proposal wasn't right.")) return
+                  onAction("run-pipeline", { regenerate: true })
+                }}
+                disabled={busy}
+                className="text-[9px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+                title="Discard the current proposal and start fresh from the original imported / scaffold version. Previous proposal stays in version history."
+              >🔄 Regenerate</button>
+            </>
           )}
           {stageFailed && (
-            <button
-              onClick={() => onAction("run-pipeline")}
-              disabled={busy}
-              className="text-[9px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-50"
-            >Retry</button>
+            <>
+              <button
+                onClick={() => onAction("run-pipeline")}
+                disabled={busy}
+                className="text-[9px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                title="Retry from where it failed (uses the most-recent source version)."
+              >Retry</button>
+              <button
+                onClick={() => {
+                  if (!confirm("Regenerate from scratch?\n\nStarts fresh from the original imported / scaffold version, ignoring any prior AI proposals.")) return
+                  onAction("run-pipeline", { regenerate: true })
+                }}
+                disabled={busy}
+                className="text-[9px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+              >🔄 Regenerate</button>
+            </>
           )}
           {isDone && slot.mapped_page && !stageReady && (
             <button

@@ -888,11 +888,18 @@ export const getSetupProgress = () =>
 // propose + schema-gen in the background; FE polls
 // getSetupProgress() to see live progress. Returns immediately
 // with { ok, slot_id, stage: 'auditing' }.
-export const runSetupSlotPipeline = (slotId) =>
+//
+// regenerate: when true, the pipeline ignores prior AI proposals
+// and starts fresh from the original imported / scaffold version.
+// Use when the previous proposal wasn't right and operator wants
+// a clean redo (e.g. created a page, started generating, quit,
+// returned days later and wants new content).
+export const runSetupSlotPipeline = (slotId, { regenerate = false } = {}) =>
   fetch(`${apiBase()}/content/landing/setup-progress/slot/${encodeURIComponent(slotId)}/run-pipeline`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
+    body: JSON.stringify({ regenerate }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
