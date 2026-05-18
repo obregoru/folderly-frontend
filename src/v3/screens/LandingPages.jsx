@@ -642,12 +642,16 @@ function PageWorkspace({ data, requireBackupAck }) {
 
   const runProposal = async () => {
     if (proposalBusy || !landing_page_id) return
-    // Audit-gated path requires accepted suggestions. No-audit path
-    // (scaffold / fresh page generation) requires nothing extra.
     if (audit?.audit_id && selectedSuggestions.size === 0) return
     setProposalBusy(true); setProposalError(null)
     try {
-      const r = await api.proposeLandingPageRewrite(landing_page_id,
+      // BE returns { version_id, status: 'running' } immediately;
+      // the actual Claude work runs in the background. Poll the
+      // version row until proposal_status flips to 'done' (or
+      // 'failed'). Six-dimension proposals run 100-150s — well
+      // past Cloudflare's 100s edge timeout, so the sync version
+      // of this call would CORS-error out.
+      const start = await api.proposeLandingPageRewrite(landing_page_id,
         audit?.audit_id
           ? {
               auditId: audit.audit_id,
@@ -655,7 +659,51 @@ function PageWorkspace({ data, requireBackupAck }) {
             }
           : {}
       )
-      setProposal(r)
+      const newVersionId = start?.version_id
+      if (!newVersionId) throw new Error('Proposal kickoff returned no version_id')
+
+      // Poll up to 5 minutes; checks every 5s.
+      const deadline = Date.now() + 5 * 60 * 1000
+      let finalVersion = null
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 5000))
+        try {
+          const r = await api.getLandingPageVersion(landing_page_id, newVersionId)
+          const v = r?.version
+          if (v?.proposal_status === 'done') { finalVersion = v; break }
+          if (v?.proposal_status === 'failed') {
+            throw new Error(v.proposal_error || 'Proposal failed (see server logs).')
+          }
+        } catch (pollErr) {
+          if (pollErr?.message?.includes('Proposal failed')) throw pollErr
+          // Transient poll error — keep trying.
+        }
+      }
+      if (!finalVersion) throw new Error('Proposal timed out after 5 minutes. Refresh in a moment to see if it completed.')
+
+      // Reshape into the {version_id, proposal, source_links} shape
+      // that ProposalDiff renders against. Rich metadata (rationale,
+      // summary, link ledger) comes from proposal_meta which the BG
+      // handler populates after Claude returns.
+      const meta = finalVersion.proposal_meta || {}
+      setProposal({
+        version_id: finalVersion.id,
+        created_at: finalVersion.created_at,
+        proposal: {
+          title: finalVersion.title,
+          body_html: finalVersion.body_html,
+          meta_description: finalVersion.meta_description,
+          focus_keyword: finalVersion.focus_keyword,
+          links_kept: meta.links_kept || [],
+          links_refined: meta.links_refined || [],
+          links_added: meta.links_added || [],
+          links_removed: meta.links_removed || [],
+          summary_of_changes: meta.summary_of_changes || [],
+          rationale: meta.rationale || '',
+        },
+        proposed_links: finalVersion.links_meta || [],
+        source_links: start.source_links || [],
+      })
     } catch (e) {
       setProposalError(e?.message || String(e))
     } finally {
