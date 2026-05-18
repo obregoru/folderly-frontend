@@ -638,17 +638,23 @@ export const runLandingPageAudit = (id) =>
     return r.json()
   })
 
-// Generate a rewrite proposal from the operator's accepted audit
-// suggestions. Returns the proposal inline + persists it as an
-// ai-suggested version row.
-export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds }) =>
+// Generate a rewrite proposal. Two modes:
+//   - With audit: pass { auditId, acceptedSuggestionIds } — Claude
+//     addresses the selected findings.
+//   - Without audit: pass nothing or { auditId: null } — Claude
+//     generates content from scratch using the strategy hint +
+//     indexed site pages as source material. Use for scaffold
+//     pages where audit is pointless.
+export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds } = {}) =>
   fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/propose`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
     body: JSON.stringify({
-      audit_id: auditId,
-      accepted_suggestion_ids: acceptedSuggestionIds,
+      ...(auditId != null ? { audit_id: auditId } : {}),
+      ...(Array.isArray(acceptedSuggestionIds) && acceptedSuggestionIds.length > 0
+        ? { accepted_suggestion_ids: acceptedSuggestionIds }
+        : {}),
     }),
   }).then(async r => {
     if (!r.ok) {

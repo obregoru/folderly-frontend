@@ -641,13 +641,20 @@ function PageWorkspace({ data, requireBackupAck }) {
   }, [proposalBusy])
 
   const runProposal = async () => {
-    if (proposalBusy || !landing_page_id || !audit?.audit_id || selectedSuggestions.size === 0) return
+    if (proposalBusy || !landing_page_id) return
+    // Audit-gated path requires accepted suggestions. No-audit path
+    // (scaffold / fresh page generation) requires nothing extra.
+    if (audit?.audit_id && selectedSuggestions.size === 0) return
     setProposalBusy(true); setProposalError(null)
     try {
-      const r = await api.proposeLandingPageRewrite(landing_page_id, {
-        auditId: audit.audit_id,
-        acceptedSuggestionIds: Array.from(selectedSuggestions),
-      })
+      const r = await api.proposeLandingPageRewrite(landing_page_id,
+        audit?.audit_id
+          ? {
+              auditId: audit.audit_id,
+              acceptedSuggestionIds: Array.from(selectedSuggestions),
+            }
+          : {}
+      )
       setProposal(r)
     } catch (e) {
       setProposalError(e?.message || String(e))
@@ -887,16 +894,18 @@ function PageWorkspace({ data, requireBackupAck }) {
           )}
           <button
             onClick={runProposal}
-            disabled={proposalBusy || !audit?.audit_id || selectedSuggestions.size === 0}
+            disabled={proposalBusy || (audit?.audit_id && selectedSuggestions.size === 0)}
             className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
             title={
-              !audit?.audit_id ? 'Run an audit first.'
-              : selectedSuggestions.size === 0 ? 'Tick the audit findings you want addressed.'
-              : `Send ${selectedSuggestions.size} suggestion(s) to Claude and get a rewrite proposal. Takes 30-90s.`
+              audit?.audit_id && selectedSuggestions.size === 0 ? 'Tick the audit findings you want addressed.'
+              : audit?.audit_id ? `Send ${selectedSuggestions.size} suggestion(s) to Claude and get a rewrite proposal. Takes 30-90s.`
+              : 'No audit yet — generate proposal directly from the strategy hint + site source material. Takes 1-2 min.'
             }
           >{proposalBusy
               ? `Generating… ${proposalElapsed}s`
-              : proposal ? '🔄 Re-generate proposal' : '💡 Generate proposal'}</button>
+              : proposal ? '🔄 Re-generate proposal'
+              : audit?.audit_id ? '💡 Generate proposal'
+              : '✨ Generate from scratch'}</button>
         </div>
         {proposalBusy && (
           <div className="text-[10px] text-muted italic">
@@ -907,7 +916,7 @@ function PageWorkspace({ data, requireBackupAck }) {
         {!proposal && !proposalBusy && !proposalError && (
           <div className="text-[10px] text-muted italic">
             {!audit?.audit_id
-              ? 'Run an audit first, then tick suggestions to include.'
+              ? "No audit yet — that's fine for scaffold or low-content pages. Click ✨ Generate from scratch to have Claude write content using the strategy hint + indexed site pages as source material."
               : selectedSuggestions.size === 0
                 ? 'Tick the audit findings you want addressed (each card has a checkbox), then click Generate proposal.'
                 : `${selectedSuggestions.size} suggestion(s) flagged — ready to generate.`}
