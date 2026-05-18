@@ -79,6 +79,18 @@ export default function LandingPages() {
       setSiteAuditBusy(false)
     }
   }
+  // Fan-out plan — tenant-specific canonical page set (Make & Take
+  // only today). Fetched on mount; null = hide the button entirely.
+  // No big-bang creation — operator picks which entries to run via
+  // the modal, defaulting to Tier 1.
+  const [fanOutData, setFanOutData] = useState(null)
+  const [fanOutModalOpen, setFanOutModalOpen] = useState(false)
+  useEffect(() => {
+    api.getFanOutPlan()
+      .then(r => setFanOutData(r.plan ? r : null))
+      .catch(() => setFanOutData(null))
+  }, [])
+
   // Seasonal awareness — shopping moments coming up in the next 90
   // days AND past their lead-time threshold (so Christmas appears 60
   // days out, Valentine's at 35, etc.). Pages are matched by
@@ -289,6 +301,15 @@ export default function LandingPages() {
           className="text-[10px] py-1 px-2 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer flex-shrink-0 whitespace-nowrap"
           title="Show the WordPress backup guide. Recommended before doing any page deploys."
         >📚 Backup guide</button>
+        {/* Tenant-specific canonical page set — Make & Take has one
+            configured; other tenants don't see the button. */}
+        {fanOutData && fanOutData.plan && (
+          <button
+            onClick={() => setFanOutModalOpen(true)}
+            className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer flex-shrink-0 whitespace-nowrap"
+            title="Create the canonical recommended page set for this tenant. Pick which tiers to start with."
+          >🪄 Fan out pages</button>
+        )}
       </div>
 
       {/* Site audit result panel — only visible after Run site
@@ -458,6 +479,23 @@ export default function LandingPages() {
           isPreDeployGate={!!pendingDeployRef.current}
           onAcknowledge={handleBackupAcknowledge}
           onClose={handleBackupClose}
+        />
+      )}
+
+      {/* Fan-out modal: tier-grouped checklist of the canonical
+          page set this tenant should build. Defaults to Tier 1
+          checked, others unchecked. */}
+      {fanOutModalOpen && fanOutData && (
+        <FanOutModal
+          data={fanOutData}
+          onClose={() => setFanOutModalOpen(false)}
+          onCreated={async () => {
+            setFanOutModalOpen(false)
+            await reload()
+            // Refresh the plan so already_exists flags update.
+            const fresh = await api.getFanOutPlan().catch(() => null)
+            if (fresh?.plan) setFanOutData(fresh)
+          }}
         />
       )}
     </div>
@@ -2407,6 +2445,198 @@ function SiteStat({ label, value, tone }) {
 // One-time pre-deploy guide for setting up WordPress site-level
 // backups (hosting + UpdraftPlus + manual snapshot before deploys).
 // Auto-shows when the operator first clicks Deploy on this tenant;
+// Fan-out modal: tier-grouped checklist of the canonical page set
+// for this tenant. Defaults to Tier 1 checked (foundation pages
+// every makeandtake.com install should have), other tiers
+// unchecked. Operator scans the list, deselects anything they
+// don't want, hits Create. Pages create as drafts in WordPress
+// + show up in the Managed pages tree afterward.
+function FanOutModal({ data, onClose, onCreated }) {
+  const plan = data.plan || []
+  const tierDescriptions = data.tier_descriptions || {}
+  // Initial selection: Tier 1 checked, others unchecked. Plus skip
+  // anything already_exists (operator can opt back in).
+  const [selectedIds, setSelectedIds] = useState(() => {
+    const s = new Set()
+    for (const p of plan) {
+      if (p.tier === 1 && !p.already_exists) s.add(p.id)
+    }
+    return s
+  })
+  const [running, setRunning] = useState(false)
+  const [results, setResults] = useState(null)
+  const [error, setError] = useState(null)
+
+  const toggleOne = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const toggleTier = (tier, value) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      for (const p of plan) {
+        if (p.tier !== tier || p.already_exists) continue
+        if (value) next.add(p.id)
+        else next.delete(p.id)
+      }
+      return next
+    })
+  }
+
+  // Group plan items by tier for rendering.
+  const tiers = {}
+  for (const p of plan) {
+    const t = p.tier || 0
+    if (!tiers[t]) tiers[t] = []
+    tiers[t].push(p)
+  }
+  const tierKeys = Object.keys(tiers).sort((a, b) => Number(a) - Number(b))
+
+  const ids = Array.from(selectedIds)
+  const handleRun = async () => {
+    if (running || ids.length === 0) return
+    if (!confirm(`Create ${ids.length} page(s) as drafts in WordPress? You'll deploy each one through the normal Audit → Propose → Deploy flow afterward.`)) return
+    setRunning(true); setError(null); setResults(null)
+    try {
+      const r = await api.runFanOut(ids)
+      setResults(r)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3">
+      <div className="bg-white rounded shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-3 border-b border-[#e5e5e5] flex items-center gap-2">
+          <h3 className="text-[13px] font-semibold flex-1">🪄 Fan out recommended pages</h3>
+          <span className="text-[10px] text-muted">
+            {ids.length} of {plan.length} selected
+          </span>
+          <button onClick={onClose} className="text-[12px] text-muted bg-transparent border-none cursor-pointer">✕</button>
+        </div>
+        <div className="text-[10px] text-muted px-3 py-2 bg-[#fafafa] border-b border-[#e5e5e5]">
+          The canonical schema-aware page set for this tenant. Each entry uses a template + pre-filled values. Pages create as <b>drafts</b> in WordPress — you'll run audit → propose → deploy on each afterward. Tier 1 is checked by default; expand other tiers to add more.
+        </div>
+
+        {!results && (
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {tierKeys.map(tierKey => {
+              const tierItems = tiers[tierKey]
+              const tierMeta = tierDescriptions[tierKey] || { label: `Tier ${tierKey}`, subtitle: '' }
+              const tierActiveItems = tierItems.filter(p => !p.already_exists)
+              const tierSelected = tierActiveItems.filter(p => selectedIds.has(p.id)).length
+              const allSelected = tierActiveItems.length > 0 && tierSelected === tierActiveItems.length
+              const noneSelected = tierSelected === 0
+              return (
+                <details key={tierKey} open={Number(tierKey) === 1} className="border border-[#e5e5e5] rounded">
+                  <summary className="cursor-pointer py-2 px-2.5 bg-[#fafafa] flex items-center gap-2">
+                    <span className="text-[11px] font-semibold">{tierMeta.label}</span>
+                    <span className="text-[9px] text-muted">— {tierMeta.subtitle}</span>
+                    <span className="flex-1" />
+                    <span className="text-[9px] text-muted">
+                      {tierSelected} / {tierActiveItems.length} selected
+                    </span>
+                    <button
+                      onClick={e => { e.preventDefault(); toggleTier(Number(tierKey), !allSelected) }}
+                      className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer"
+                    >{allSelected ? 'Clear tier' : noneSelected ? 'Select tier' : 'Select all'}</button>
+                  </summary>
+                  <div className="divide-y divide-[#f0f0f0]">
+                    {tierItems.map(item => {
+                      const checked = selectedIds.has(item.id)
+                      const disabled = item.already_exists
+                      return (
+                        <label key={item.id} className={`flex items-start gap-2 py-2 px-2.5 ${disabled ? 'opacity-50' : 'cursor-pointer hover:bg-[#fafafa]'}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disabled}
+                            onChange={() => toggleOne(item.id)}
+                            className="mt-0.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[11px] flex items-center gap-2 flex-wrap">
+                              <code className="text-[#6C5CE7] font-mono">{item.label}</code>
+                              <span className="text-[9px] py-0.5 px-1.5 rounded bg-[#f0f0f0] text-muted">{item.template_id}</span>
+                              {disabled && (
+                                <span className="text-[9px] py-0.5 px-1.5 rounded bg-[#dcfce7] text-[#166534]">✓ already exists</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-muted mt-0.5">{item.why}</div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </details>
+              )
+            })}
+          </div>
+        )}
+
+        {results && (
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            <div className="text-[11px] font-semibold">Done.</div>
+            <div className="grid grid-cols-3 gap-2 text-[10px]">
+              <Stat label="Created" value={results.summary?.created || 0} tone="ok" />
+              <Stat label="Skipped (already exists)" value={results.summary?.skipped || 0} />
+              <Stat label="Failed" value={results.summary?.failed || 0} tone={results.summary?.failed > 0 ? 'warn' : 'ok'} />
+            </div>
+            <div className="space-y-1 pt-2">
+              {(results.results || []).map(r => {
+                const item = plan.find(p => p.id === r.id)
+                const tone = r.success ? 'text-[#166534]' : r.skipped ? 'text-muted' : 'text-[#c0392b]'
+                return (
+                  <div key={r.id} className="flex items-start gap-2 text-[10px] py-1 border-b border-[#f0f0f0] last:border-0">
+                    <span className={tone}>
+                      {r.success ? '✓' : r.skipped ? '○' : '✗'}
+                    </span>
+                    <code className="text-[#6C5CE7] font-mono flex-1">{item?.label || r.id}</code>
+                    {r.error && <span className="text-[9px] text-[#c0392b]">{r.error}</span>}
+                    {r.reason && <span className="text-[9px] text-muted">{r.reason}</span>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {error && <div className="px-3 py-2 text-[10px] text-[#c0392b] border-t border-[#e5e5e5]">⚠ {error}</div>}
+
+        <div className="p-3 border-t border-[#e5e5e5] flex items-center gap-2">
+          <span className="text-[10px] text-muted flex-1">
+            {!results && (ids.length === 0
+              ? 'Select at least one page to continue.'
+              : `${ids.length} page${ids.length === 1 ? '' : 's'} will be created as drafts. Audit + Propose + Deploy each via the normal flow afterward.`
+            )}
+            {results && 'Refresh the page list — new drafts are now in the Managed pages tree.'}
+          </span>
+          {!results && (
+            <>
+              <button onClick={onClose} className="text-[10px] py-1.5 px-3 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer">Cancel</button>
+              <button
+                onClick={handleRun}
+                disabled={running || ids.length === 0}
+                className="text-[10px] py-1.5 px-3 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              >{running ? 'Creating…' : `Create ${ids.length} page${ids.length === 1 ? '' : 's'}`}</button>
+            </>
+          )}
+          {results && (
+            <button onClick={onCreated} className="text-[10px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer">Done</button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // also openable any time from the "📚 Backup guide" header button.
 // Acknowledgment persists on tenants.landing_acknowledgments.
 function BackupGuideModal({ alreadyAcknowledged, isPreDeployGate, onAcknowledge, onClose }) {

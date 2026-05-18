@@ -853,6 +853,36 @@ export const runLandingSiteAudit = () =>
     return r.json()
   })
 
+// Fetch the tenant-specific fan-out plan (canonical page set
+// + tier organization). Returns { plan: null } when no plan is
+// configured for the tenant — the FE uses that to hide the button.
+export const getFanOutPlan = () =>
+  fetch(`${apiBase()}/content/landing/fan-out/plan`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getFanOutPlan failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Batch-create the selected fan-out plan entries. ids is an array
+// of plan-entry ids (from getFanOutPlan().plan[].id). Returns
+// { results: [{ id, success, landing_page_id?, error?, skipped? }] }.
+export const runFanOut = (ids) =>
+  fetch(`${apiBase()}/content/landing/fan-out`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ ids }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `runFanOut failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Replace the full ai_citations array for a landing page.
 // Operators paste in Google AI Overview / ChatGPT / Perplexity
 // snippets that quote this page so we can tell Claude on every
