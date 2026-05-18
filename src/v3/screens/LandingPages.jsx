@@ -8,7 +8,7 @@
 // Phase 1 covers: configure default post ID, list managed pages,
 // import (or re-import) one, see the parsed state.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../api'
 
 export default function LandingPages() {
@@ -2640,6 +2640,16 @@ function SetupWizardModal({ data, onClose, onRefresh, onOpenPage, onAfterMutatio
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
+  // Auto-poll while any slot has a pipeline in progress. Stops as
+  // soon as every slot is either idle, ready_for_review, or failed.
+  const ACTIVE_STAGES = useMemo(() => new Set(["auditing", "proposing", "generating_schema"]), [])
+  const hasActivePipeline = plan.some(p => p.stored?.pipeline?.stage && ACTIVE_STAGES.has(p.stored.pipeline.stage))
+  useEffect(() => {
+    if (!hasActivePipeline) return
+    const tick = setInterval(() => { onRefresh().catch(() => {}) }, 8000)
+    return () => clearInterval(tick)
+  }, [hasActivePipeline, onRefresh])
+
   // Group plan by tier for rendering.
   const tiers = {}
   for (const p of plan) {
@@ -2660,8 +2670,15 @@ function SetupWizardModal({ data, onClose, onRefresh, onOpenPage, onAfterMutatio
     if (busy) return
     setBusy(true); setError(null)
     try {
-      await api.updateSetupSlot(slotId, action, extras)
-      await onAfterMutation()
+      if (action === "run-pipeline") {
+        await api.runSetupSlotPipeline(slotId)
+        // Refresh once immediately so the slot flips into running
+        // state; the polling effect above takes over from there.
+        await onRefresh()
+      } else {
+        await api.updateSetupSlot(slotId, action, extras)
+        await onAfterMutation()
+      }
     } catch (e) {
       setError(e?.message || String(e))
     } finally {
@@ -2739,6 +2756,23 @@ function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenP
   const isDone = slot.effective_status === "deployed" || slot.effective_status === "created" || slot.effective_status === "mapped"
   const isSkipped = slot.effective_status === "skipped"
 
+  // Pipeline state — runs only for mapped/created slots. Stages
+  // live on slot.stored.pipeline as the BE writes them.
+  const pipeline = slot.stored?.pipeline || null
+  const PIPELINE_STAGE_LABELS = {
+    auditing: "🔍 Auditing (~1-2 min)",
+    proposing: "✍️ Drafting proposal (~1-2 min)",
+    generating_schema: "🏷️ Generating schema (~30s)",
+    ready_for_review: "✓ Ready for review",
+    failed: "✗ Failed",
+  }
+  const stageRunning = pipeline?.stage && ["auditing", "proposing", "generating_schema"].includes(pipeline.stage)
+  const stageReady = pipeline?.stage === "ready_for_review"
+  const stageFailed = pipeline?.stage === "failed"
+  // Slot is pipeline-eligible if it has a mapped landing page +
+  // hasn't been deployed yet (deployed pages don't need re-pipeline).
+  const canRunPipeline = slot.mapped_page && slot.effective_status !== "deployed" && slot.effective_status !== "skipped"
+
   return (
     <div className={`border ${tone.border} ${tone.bg} rounded`}>
       <div className="flex items-start gap-2 p-2">
@@ -2761,14 +2795,58 @@ function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenP
                 Suggested match: {slot.auto_suggested_page.label}
               </span>
             )}
+            {pipeline?.stage && (
+              <span className={`text-[9px] py-0.5 px-1.5 rounded ${
+                stageReady ? "bg-[#dcfce7] text-[#166534]"
+                : stageFailed ? "bg-[#fef2f2] text-[#c0392b]"
+                : "bg-[#dbeafe] text-[#1d4ed8]"
+              }`}>
+                {PIPELINE_STAGE_LABELS[pipeline.stage] || pipeline.stage}
+              </span>
+            )}
           </div>
           <div className="text-[10px] text-muted mt-0.5">{slot.why}</div>
           {slot.stored?.skipped_reason && (
             <div className="text-[10px] text-muted italic mt-0.5">Skipped: {slot.stored.skipped_reason}</div>
           )}
+          {stageFailed && pipeline?.error && (
+            <div className="text-[10px] text-[#c0392b] italic mt-0.5">⚠ {pipeline.error}</div>
+          )}
+          {stageRunning && (
+            <div className="text-[9px] text-muted italic mt-0.5">
+              Pipeline running — close anytime, comes back when you reopen the wizard.
+            </div>
+          )}
+          {pipeline?.auto_accepted_finding_count != null && (
+            <div className="text-[9px] text-muted mt-0.5">
+              Auto-accepted {pipeline.auto_accepted_finding_count} audit finding{pipeline.auto_accepted_finding_count === 1 ? '' : 's'} (critical + important)
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {isDone && slot.mapped_page && (
+          {canRunPipeline && !stageRunning && !stageReady && (
+            <button
+              onClick={() => onAction("run-pipeline")}
+              disabled={busy}
+              className="text-[9px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              title="Run audit + propose + schema-gen end-to-end. Auto-accepts critical+important audit findings. ~3-5 min."
+            >🤖 Auto-fill</button>
+          )}
+          {stageReady && slot.mapped_page && (
+            <button
+              onClick={() => onOpenPage(slot.mapped_page.id)}
+              className="text-[9px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer"
+              title="Pipeline is done — review the proposed content + deploy from the regular workspace."
+            >Review & deploy →</button>
+          )}
+          {stageFailed && (
+            <button
+              onClick={() => onAction("run-pipeline")}
+              disabled={busy}
+              className="text-[9px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            >Retry</button>
+          )}
+          {isDone && slot.mapped_page && !stageReady && (
             <button
               onClick={() => onOpenPage(slot.mapped_page.id)}
               className="text-[9px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"

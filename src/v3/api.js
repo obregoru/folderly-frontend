@@ -884,6 +884,23 @@ export const getSetupProgress = () =>
       return r.json()
     })
 
+// Kick off the auto-content pipeline for a slot. Runs audit +
+// propose + schema-gen in the background; FE polls
+// getSetupProgress() to see live progress. Returns immediately
+// with { ok, slot_id, stage: 'auditing' }.
+export const runSetupSlotPipeline = (slotId) =>
+  fetch(`${apiBase()}/content/landing/setup-progress/slot/${encodeURIComponent(slotId)}/run-pipeline`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `runSetupSlotPipeline failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Apply an action to a slot in the Site Setup Wizard. Actions:
 //   - 'map': associate slot with an existing landing_page_id
 //   - 'create': create a new WP page from the slot's template
