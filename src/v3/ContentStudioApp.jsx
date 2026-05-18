@@ -77,7 +77,7 @@ export default function ContentStudioApp() {
             Schedule
           </NavButton>
           <NavButton active={screen === 'landing'} onClick={() => setScreen('landing')}>
-            Landing
+            Pages
           </NavButton>
           <NavButton active={screen === 'config'} onClick={() => setScreen('config')}>
             Config

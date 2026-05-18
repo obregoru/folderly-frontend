@@ -54,7 +54,7 @@ export default function LandingPages() {
   }, [bulkAuditBusy])
   const runBulkAudit = async () => {
     if (bulkAuditBusy) return
-    if (!confirm(`Re-audit every managed landing page for this tenant? This calls Claude once per page (~10-30s each) — total runtime scales with page count. Useful after a strategy hint change.`)) return
+    if (!confirm(`Re-audit every managed page for this tenant? This calls Claude once per page (~10-30s each) — total runtime scales with page count. Useful after a strategy hint change.`)) return
     setBulkAuditBusy(true); setBulkAuditError(null); setBulkAuditOpen(true)
     try {
       const r = await api.bulkAuditLandingPages()
@@ -217,7 +217,7 @@ export default function LandingPages() {
   }
 
   if (state.loading) {
-    return <div className="text-[11px] text-muted italic py-8 text-center">Loading landing pages…</div>
+    return <div className="text-[11px] text-muted italic py-8 text-center">Loading pages…</div>
   }
 
   // Deploy-gate handler. If the operator hasn't acknowledged the
@@ -257,8 +257,8 @@ export default function LandingPages() {
     <div className="space-y-3">
       <div className="flex items-start gap-3">
         <div className="flex-1">
-          <h2 className="text-[13px] font-semibold">Landing Pages</h2>
-          <div className="text-[10px] text-muted">SEO/marketing manager for your home page and other key landing pages. Imports from WordPress, audits SEO + AEO + GEO + E-E-A-T + AI-naturalness, proposes improvements with internal-link suggestions, and lets you back up + deploy approved changes.</div>
+          <h2 className="text-[13px] font-semibold">Pages</h2>
+          <div className="text-[10px] text-muted">SEO/marketing manager for your home page and other key pages. Imports from WordPress, audits SEO + AEO + GEO + E-E-A-T + AI-naturalness, proposes improvements with internal-link suggestions, and lets you back up + deploy approved changes.</div>
         </div>
         {/* Cross-page site audit — surfaces orphans, broken links,
             cannibalization, stale pages, strategic gaps. */}
@@ -266,7 +266,7 @@ export default function LandingPages() {
           onClick={runSiteAudit}
           disabled={siteAuditBusy}
           className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
-          title="Look at the whole landing-page portfolio: orphans, broken links, pages targeting overlapping keywords, stale content, missing strategy hints, un-deployed proposals."
+          title="Look at the whole page portfolio: orphans, broken links, pages targeting overlapping keywords, stale content, missing strategy hints, un-deployed proposals."
         >{siteAuditBusy ? 'Auditing…' : '🌐 Site audit'}</button>
         {/* Bulk per-page audit — re-runs the standard audit on
             every managed page. Useful after a strategy shift. */}
@@ -282,7 +282,7 @@ export default function LandingPages() {
         <button
           onClick={() => setBackupGuideOpen(true)}
           className="text-[10px] py-1 px-2 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer flex-shrink-0 whitespace-nowrap"
-          title="Show the WordPress backup guide. Recommended before doing any landing-page deploys."
+          title="Show the WordPress backup guide. Recommended before doing any page deploys."
         >📚 Backup guide</button>
       </div>
 
@@ -357,7 +357,7 @@ export default function LandingPages() {
         <>
           {/* Tenant default + ad-hoc import controls */}
           <div className="bg-white border border-[#e5e5e5] rounded p-3 space-y-2">
-            <div className="text-[11px] font-medium">Default landing page</div>
+            <div className="text-[11px] font-medium">Default page</div>
             <div className="text-[10px] text-muted">
               The WP post ID for the page this workspace opens by default. Paste the integer (e.g. <code>144</code>) or the full <code>wp-admin/post.php?post=144</code> edit URL.
             </div>
@@ -793,7 +793,7 @@ function PageWorkspace({ data, requireBackupAck }) {
         </div>
         {auditBusy && (
           <div className="text-[10px] text-muted italic">
-            Claude is reading the page (~30-90s on a typical landing page — the model has to scan the whole body, headings, and links to score 5 dimensions). Don't refresh the tab.
+            Claude is reading the page (~30-90s on a typical page — the model has to scan the whole body, headings, and links to score 5 dimensions). Don't refresh the tab.
           </div>
         )}
         {auditError && <div className="text-[10px] text-[#c0392b]">⚠ {auditError}</div>}
@@ -1764,7 +1764,7 @@ function GscBlock({ landingPageId, pageUrl }) {
         <div className="text-[10px] text-muted italic">No GSC property selected yet. Click "Change site" above to pick one.</div>
       )}
       {status?.connected && status?.site_url && !pageUrl && (
-        <div className="text-[10px] text-muted italic">This landing page has no URL yet — re-import from WordPress so GSC has a URL to query.</div>
+        <div className="text-[10px] text-muted italic">This page has no URL yet — re-import from WordPress so GSC has a URL to query.</div>
       )}
     </div>
   )
@@ -1893,7 +1893,7 @@ function CtaSettingsCard() {
         {data && (
           <>
             <div className="text-[10px] text-muted">
-              On every landing-page deploy we tag each link with a stable <code>data-fldy-cta</code> attribute. Paste this snippet ONCE into WordPress (Custom HTML block in the footer, a header/footer plugin, or your theme's <code>functions.php</code> as a <code>wp_footer</code> hook) and we'll capture clicks on every tagged link across the whole site. No further setup per page.
+              On every page deploy we tag each link with a stable <code>data-fldy-cta</code> attribute. Paste this snippet ONCE into WordPress (Custom HTML block in the footer, a header/footer plugin, or your theme's <code>functions.php</code> as a <code>wp_footer</code> hook) and we'll capture clicks on every tagged link across the whole site. No further setup per page.
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -2103,7 +2103,7 @@ function SeasonalBanner({ upcoming, onDismiss, onOpenPage }) {
                     ))}
                   </div>
                 ) : (
-                  <div className="text-[9px] text-muted italic pt-1">No managed pages obviously match. Consider whether a new page would help — Create new landing page above.</div>
+                  <div className="text-[9px] text-muted italic pt-1">No managed pages obviously match. Consider whether a new page would help — Create new page above.</div>
                 )}
               </div>
             </details>
@@ -2275,7 +2275,7 @@ function BulkAuditPanel({ busy, elapsed, error, result, onClose, onOpenPage }) {
         </div>
       )}
       {result?.total === 0 && (
-        <div className="text-[10px] text-muted italic">No managed pages to audit. Create some via the "+ Create new landing page" button.</div>
+        <div className="text-[10px] text-muted italic">No managed pages to audit. Create some via the "+ Create new page" button.</div>
       )}
     </div>
   )
@@ -2316,7 +2316,7 @@ function BackupGuideModal({ alreadyAcknowledged, isPreDeployGate, onAcknowledge,
             <p className="text-[11px] text-muted mt-0.5">
               {isPreDeployGate
                 ? <span>You're about to push changes to a live WordPress site. Take 15 minutes to confirm backups are in place — it could save your site if a deploy ever goes wrong.</span>
-                : <span>Reference guide for setting up WordPress backups before working with Landing Page Manager deploys.</span>}
+                : <span>Reference guide for setting up WordPress backups before deploying page changes.</span>}
             </p>
           </div>
           <button
@@ -2374,7 +2374,7 @@ function BackupGuideModal({ alreadyAcknowledged, isPreDeployGate, onAcknowledge,
           {/* Step 3 */}
           <div className="border border-[#e5e5e5] rounded p-2.5 space-y-1">
             <div className="font-medium text-ink">Step 3 — Manual backup before deploy sessions <span className="text-[10px] text-muted font-normal">(30 seconds)</span></div>
-            <p className="text-muted">Before any session of Landing Page Manager deployments:</p>
+            <p className="text-muted">Before any session of page deployments:</p>
             <ol className="list-decimal pl-5 text-muted">
               <li>Open WP admin → <strong>Settings → UpdraftPlus Backups</strong></li>
               <li>Click <strong>"Backup Now"</strong></li>
@@ -2834,13 +2834,13 @@ function CreateNewLandingPage({ pages, onCreated }) {
         onClick={() => setOpen(true)}
         className="text-[11px] py-1 px-3 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
         title="Spin up a brand-new WP page + landing_pages row. Status defaults to draft so nothing goes live until you deploy via Phase 5."
-      >+ Create new landing page</button>
+      >+ Create new page</button>
     )
   }
   return (
     <div className="bg-white border border-[#6C5CE7]/40 rounded p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <span className="text-[11px] font-medium">+ Create new landing page</span>
+        <span className="text-[11px] font-medium">+ Create new page</span>
         <span className="text-[9px] text-muted">Creates a draft WP page + manages it here</span>
         <div className="flex-1" />
         <button
