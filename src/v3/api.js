@@ -8,7 +8,7 @@
 // Every wrapper throws on non-2xx with a useful message — no
 // {ok, error} return shapes. Callers use try/catch.
 
-import { tenantSlug, setTenantSlug, getCsrfToken, setCsrfToken, getMe, getSettings } from '../api'
+import { tenantSlug, setTenantSlug, getCsrfToken, setCsrfToken, getMe, getSettings, csrfFetch } from '../api'
 
 // Re-export the shared helpers so V3 components don't need to know
 // they're sourced from src/api.js. If we ever split fully, only this
@@ -35,7 +35,7 @@ const jsonHeaders = () => {
 
 // ── Tenant content config ─────────────────────────────────────────
 export const getContentConfig = () =>
-  fetch(`${apiBase()}/content/config`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/config`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -45,7 +45,7 @@ export const getContentConfig = () =>
     })
 
 export const updateContentConfig = (patch) =>
-  fetch(`${apiBase()}/content/config`, {
+  csrfFetch(`${apiBase()}/content/config`, {
     method: 'PUT',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -60,7 +60,7 @@ export const updateContentConfig = (patch) =>
 
 // ── Indexed-content listing (debug + UI) ──────────────────────────
 export const getContentIndex = () =>
-  fetch(`${apiBase()}/content/index`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/index`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -74,7 +74,7 @@ export const getContentIndex = () =>
 // modified_at. Used when you've changed embedding providers or
 // want to back-fill rows whose previous embedding call failed.
 export const refreshContentIndex = (opts = {}) =>
-  fetch(`${apiBase()}/content/index/refresh`, {
+  csrfFetch(`${apiBase()}/content/index/refresh`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -93,7 +93,7 @@ export const refreshContentIndex = (opts = {}) =>
 // upload. Works without auth checks beyond the standard tenant
 // wrapper since the response is pure boolean state.
 export const getStorageStatus = () =>
-  fetch(`${apiBase()}/content/storage-status`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/storage-status`, { credentials: 'include' })
     .then(r => r.json())
     .catch(() => ({ configured: false }))
 
@@ -102,7 +102,7 @@ export const getStorageStatus = () =>
 // FE autocomplete on the editor + read-only category chips on
 // ideation candidate cards.
 export const getTaxonomy = () =>
-  fetch(`${apiBase()}/content/taxonomy`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/taxonomy`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -116,7 +116,7 @@ export const getTaxonomy = () =>
 // chosen template. BE persists to blog_topics and returns the
 // candidates inline so the UI shows them immediately.
 export const ideateTopics = ({ template, promptText }) =>
-  fetch(`${apiBase()}/content/topics/ideate`, {
+  csrfFetch(`${apiBase()}/content/topics/ideate`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -131,7 +131,7 @@ export const ideateTopics = ({ template, promptText }) =>
 
 // List recent ideation runs.
 export const listTopics = () =>
-  fetch(`${apiBase()}/content/topics`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/topics`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -142,7 +142,7 @@ export const listTopics = () =>
 
 // Fetch one ideation run by id (with full candidates + accept state).
 export const getTopic = (id) =>
-  fetch(`${apiBase()}/content/topics/${id}`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/topics/${id}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -153,7 +153,7 @@ export const getTopic = (id) =>
 
 // Accept candidate(s) → BE creates blog_posts rows in 'drafting' status.
 export const acceptTopics = (topicId, indices) =>
-  fetch(`${apiBase()}/content/topics/${topicId}/accept`, {
+  csrfFetch(`${apiBase()}/content/topics/${topicId}/accept`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -168,7 +168,7 @@ export const acceptTopics = (topicId, indices) =>
 
 // ── Blog drafts list ──────────────────────────────────────────────
 export const listBlogPosts = () =>
-  fetch(`${apiBase()}/content/blog-posts`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/blog-posts`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -179,7 +179,7 @@ export const listBlogPosts = () =>
 
 // Single draft, full row (includes body_md + generation metadata).
 export const getBlogPost = (id) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -190,7 +190,7 @@ export const getBlogPost = (id) =>
 
 // Manual edit. Pass any subset of editable fields.
 export const updateBlogPost = (id, patch) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}`, {
     method: 'PUT',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -216,7 +216,7 @@ export const updateBlogPost = (id, patch) =>
 //   each one. Combine with styleHint='fix_flagged_sentences' for the
 //   "fix what ZeroGPT flagged" flow.
 export const generateBlogPost = (id, opts = {}) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}/generate`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}/generate`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -247,7 +247,7 @@ export const uploadBlogImage = (postId, file, meta = {}) => {
   // Don't set Content-Type — the browser fills in the multipart
   // boundary automatically. Manually set csrf header only.
   const c = getCsrfToken()
-  return fetch(`${apiBase()}/content/blog-posts/${postId}/images`, {
+  return csrfFetch(`${apiBase()}/content/blog-posts/${postId}/images`, {
     method: 'POST',
     headers: c ? { 'x-csrf-token': c } : {},
     credentials: 'include',
@@ -263,7 +263,7 @@ export const uploadBlogImage = (postId, file, meta = {}) => {
 
 // Edit metadata (filename, alt, caption, role, position).
 export const updateBlogImage = (postId, imageId, patch) =>
-  fetch(`${apiBase()}/content/blog-posts/${postId}/images/${imageId}`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${postId}/images/${imageId}`, {
     method: 'PUT',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -285,7 +285,7 @@ export const updateBlogImage = (postId, imageId, patch) =>
 export const listWpMedia = ({ search = '', page = 1, perPage = 24 } = {}) => {
   const params = new URLSearchParams({ page: String(page), per_page: String(perPage) })
   if (search) params.set('search', search)
-  return fetch(`${apiBase()}/content/wp-media?${params}`, { credentials: 'include' })
+  return csrfFetch(`${apiBase()}/content/wp-media?${params}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -299,7 +299,7 @@ export const listWpMedia = ({ search = '', page = 1, perPage = 24 } = {}) => {
 // upload-to-supabase step; resulting blog_post_images row has
 // wp_media_id pre-set so publish-time treats it as already-uploaded.
 export const attachWpMedia = (postId, mediaItem, { role = 'inline', positionAfterH2Index = null, altOverride = null, captionOverride = null } = {}) =>
-  fetch(`${apiBase()}/content/blog-posts/${postId}/images/from-wp`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${postId}/images/from-wp`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -325,7 +325,7 @@ export const attachWpMedia = (postId, mediaItem, { role = 'inline', positionAfte
 
 // Set or clear a category's default image. Pass mediaItem=null to clear.
 export const setCategoryDefaultImage = (taxonomyId, mediaItem) =>
-  fetch(`${apiBase()}/content/taxonomy/${taxonomyId}/default-image`, {
+  csrfFetch(`${apiBase()}/content/taxonomy/${taxonomyId}/default-image`, {
     method: 'PUT',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -344,7 +344,7 @@ export const setCategoryDefaultImage = (taxonomyId, mediaItem) =>
 
 // Delete an image (storage object + row).
 export const deleteBlogImage = (postId, imageId) =>
-  fetch(`${apiBase()}/content/blog-posts/${postId}/images/${imageId}`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${postId}/images/${imageId}`, {
     method: 'DELETE',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -363,7 +363,7 @@ export const deleteBlogImage = (postId, imageId) =>
 //   'draft'             → land in WP Admin as draft for review
 //   'private'           → published but only visible to logged-in users
 export const publishBlogPost = (id, opts = {}) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}/publish`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}/publish`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -387,7 +387,7 @@ export const publishBlogPost = (id, opts = {}) =>
 export const getLinkCandidates = (postId, k = 12, constraintModeOverride = null) => {
   const params = new URLSearchParams({ k: String(k) })
   if (constraintModeOverride) params.set('constraint_mode', constraintModeOverride)
-  return fetch(`${apiBase()}/content/blog-posts/${postId}/link-candidates?${params}`, { credentials: 'include' })
+  return csrfFetch(`${apiBase()}/content/blog-posts/${postId}/link-candidates?${params}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -405,7 +405,7 @@ export const getLinkCandidates = (postId, k = 12, constraintModeOverride = null)
 export const scheduleBlogPost = (id, opts = {}) => {
   const body = {}
   if (opts.scheduledFor) body.scheduled_for = new Date(opts.scheduledFor).toISOString()
-  return fetch(`${apiBase()}/content/blog-posts/${id}/schedule`, {
+  return csrfFetch(`${apiBase()}/content/blog-posts/${id}/schedule`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -421,7 +421,7 @@ export const scheduleBlogPost = (id, opts = {}) => {
 
 // Pull a 'scheduled' draft back to 'ready'. Clears scheduled_for.
 export const unscheduleBlogPost = (id) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}/unschedule`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}/unschedule`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -437,7 +437,7 @@ export const unscheduleBlogPost = (id) =>
 // { ok: true, zerogpt_score, last_zerogpt_check } or { skipped: true,
 // reason } when the API key isn't configured.
 export const recheckZeroGpt = (id) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}/zerogpt-recheck`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}/zerogpt-recheck`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -452,7 +452,7 @@ export const recheckZeroGpt = (id) =>
 // Run a fresh drift-checker score (Haiku-backed self-critique against
 // the audience lock + template constraints).
 export const recheckDrift = (id) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}/drift-recheck`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}/drift-recheck`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -467,7 +467,7 @@ export const recheckDrift = (id) =>
 // Calendar view: returns N weeks of cadence slots + scheduled / published
 // posts attached. weeks defaults to 4 (max 12).
 export const getSchedule = (weeks = 4) =>
-  fetch(`${apiBase()}/content/schedule?weeks=${weeks}`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/schedule?weeks=${weeks}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -478,7 +478,7 @@ export const getSchedule = (weeks = 4) =>
 
 // Flip the WP post back to draft. Local status returns to 'ready'.
 export const unpublishBlogPost = (id) =>
-  fetch(`${apiBase()}/content/blog-posts/${id}/unpublish`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${id}/unpublish`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -492,7 +492,7 @@ export const unpublishBlogPost = (id) =>
 
 // V3 Phase 7 — recent lifecycle events for the Dashboard panel.
 export const getActivity = (limit = 50) =>
-  fetch(`${apiBase()}/content/activity?limit=${limit}`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/activity?limit=${limit}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -516,7 +516,7 @@ export const searchFreePhotos = ({ query, page = 1, perPage = 24, provider = 'pe
     provider,
   })
   if (orientation) params.set('orientation', orientation)
-  return fetch(`${apiBase()}/content/free-photos?${params}`, { credentials: 'include' })
+  return csrfFetch(`${apiBase()}/content/free-photos?${params}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -531,7 +531,7 @@ export const searchFreePhotos = ({ query, page = 1, perPage = 24, provider = 'pe
 // like a direct upload. Pass the full normalized photo object the
 // search returned + role/position options.
 export const attachFreePhoto = (postId, photo, { role = 'inline', positionAfterH2Index = null, altOverride = null, captionOverride = null, searchQuery = null } = {}) =>
-  fetch(`${apiBase()}/content/blog-posts/${postId}/images/from-free-photo`, {
+  csrfFetch(`${apiBase()}/content/blog-posts/${postId}/images/from-free-photo`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -565,7 +565,7 @@ export const attachFreePhoto = (postId, photo, { role = 'inline', positionAfterH
 // that to render a "Connect WordPress first" CTA instead of an
 // otherwise-useless Import button).
 export const listLandingPages = () =>
-  fetch(`${apiBase()}/content/landing`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -578,7 +578,7 @@ export const listLandingPages = () =>
 // raw integer OR a wp-admin edit URL — BE parses either out of the
 // same input.
 export const setLandingPageDefault = (postIdOrUrl) =>
-  fetch(`${apiBase()}/content/landing/settings`, {
+  csrfFetch(`${apiBase()}/content/landing/settings`, {
     method: 'PATCH',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -596,7 +596,7 @@ export const setLandingPageDefault = (postIdOrUrl) =>
 // the parsed page + capabilities so the workspace can render
 // immediately without a follow-up fetch.
 export const importLandingPage = (wpPostIdOrUrl) =>
-  fetch(`${apiBase()}/content/landing/import`, {
+  csrfFetch(`${apiBase()}/content/landing/import`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -612,7 +612,7 @@ export const importLandingPage = (wpPostIdOrUrl) =>
 // Full state of one managed landing page — the row, version history
 // (most-recent 50), and audit history (most-recent 20).
 export const getLandingPage = (id) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -626,7 +626,7 @@ export const getLandingPage = (id) =>
 // imported / human-edited / ai-suggested version. Stores findings
 // on landing_page_audits and returns them inline.
 export const runLandingPageAudit = (id) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audit`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audit`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -646,7 +646,7 @@ export const runLandingPageAudit = (id) =>
 //     indexed site pages as source material. Use for scaffold
 //     pages where audit is pointless.
 export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds } = {}) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/propose`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/propose`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -668,7 +668,7 @@ export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds }
 // flagged sentences; also persists on the version row so the FE
 // doesn't have to re-call ZeroGPT on every tab switch.
 export const detectLandingPageAi = (id, versionId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/detect-ai`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/detect-ai`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -684,7 +684,7 @@ export const detectLandingPageAi = (id, versionId) =>
 // profile. Returns { overall_score, verdict, drift_passages,
 // summary }. Pairs with ZeroGPT (different failure mode).
 export const voiceCheckLandingPageVersion = (id, versionId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/voice-check`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/voice-check`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -700,7 +700,7 @@ export const voiceCheckLandingPageVersion = (id, versionId) =>
 // ZeroGPT-flagged sentences on the version as targeted guidance.
 // Returns a new ai-suggested version (humanized).
 export const humanizeLandingPageVersion = (id, versionId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/humanize`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/humanize`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -717,7 +717,7 @@ export const humanizeLandingPageVersion = (id, versionId) =>
 // available. Returns { backup_version_id, wp_link, wp_modified,
 // warnings: [...] }.
 export const deployLandingPageVersion = (id, versionId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/deploy`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/deploy`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -734,7 +734,7 @@ export const deployLandingPageVersion = (id, versionId) =>
 // new pre-rollback backup, then PUTs the chosen backup's content
 // back to WP. Returns { prebackup_version_id, wp_link }.
 export const rollbackLandingPage = (id, backupVersionId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/rollback`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/rollback`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -752,7 +752,7 @@ export const rollbackLandingPage = (id, backupVersionId) =>
 // Stored on landing_page_versions.schema_jsonld so the FE
 // doesn't have to regenerate on tab switch.
 export const generateLandingPageSchema = (id, versionId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/generate-schema`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/generate-schema`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -769,7 +769,7 @@ export const generateLandingPageSchema = (id, versionId) =>
 // approval Google redirects to our callback which stores the
 // refresh token.
 export const getGscAuthorizeUrl = () =>
-  fetch(`${apiBase()}/content/landing/gsc/authorize-url`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/gsc/authorize-url`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'authorize-url failed')
       return r.json()
@@ -777,7 +777,7 @@ export const getGscAuthorizeUrl = () =>
 
 // Whether this tenant has connected GSC + which site is selected.
 export const getGscStatus = () =>
-  fetch(`${apiBase()}/content/landing/gsc/status`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/gsc/status`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'status failed')
       return r.json()
@@ -786,7 +786,7 @@ export const getGscStatus = () =>
 // List the operator's verified Search Console properties so they
 // can pick which one corresponds to the site we manage.
 export const listGscSites = () =>
-  fetch(`${apiBase()}/content/landing/gsc/sites`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/gsc/sites`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'list-sites failed')
       return r.json()
@@ -795,7 +795,7 @@ export const listGscSites = () =>
 // Set the chosen GSC property (e.g. "sc-domain:makeandtake.com"
 // or "https://makeandtake.com/").
 export const setGscSite = (site_url) =>
-  fetch(`${apiBase()}/content/landing/gsc/site`, {
+  csrfFetch(`${apiBase()}/content/landing/gsc/site`, {
     method: 'PATCH',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -807,7 +807,7 @@ export const setGscSite = (site_url) =>
 
 // Disconnect GSC (wipe refresh_token + site_url).
 export const disconnectGsc = () =>
-  fetch(`${apiBase()}/content/landing/gsc`, {
+  csrfFetch(`${apiBase()}/content/landing/gsc`, {
     method: 'DELETE',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -819,7 +819,7 @@ export const disconnectGsc = () =>
 // Fetch current 28d vs prior 28d GSC metrics for a specific
 // landing page's URL. Operator triggers via "Pull GSC data".
 export const fetchLandingPageGsc = (id) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/gsc`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/gsc`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -833,7 +833,7 @@ export const fetchLandingPageGsc = (id) =>
 // capabilities update. Sequential on the BE — can take 30s-2m+
 // depending on page count + Claude latency.
 export const bulkAuditLandingPages = () =>
-  fetch(`${apiBase()}/content/landing/bulk-audit`, {
+  csrfFetch(`${apiBase()}/content/landing/bulk-audit`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -847,7 +847,7 @@ export const bulkAuditLandingPages = () =>
 // strategic coverage gaps. Returns findings grouped by
 // category (graph / content / deploy / strategy).
 export const runLandingSiteAudit = () =>
-  fetch(`${apiBase()}/content/landing/site-audit`, {
+  csrfFetch(`${apiBase()}/content/landing/site-audit`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -864,7 +864,7 @@ export const runLandingSiteAudit = () =>
 // Deploy reads from version.body_html, so saved edits flow
 // straight to WordPress on the next deploy.
 export const updateLandingVersionBody = (landingPageId, versionId, bodyHtml) =>
-  fetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/body`, {
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/body`, {
     method: 'PATCH',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -882,7 +882,7 @@ export const updateLandingVersionBody = (landingPageId, versionId, bodyHtml) =>
 // field. Deploy reads from these columns so edits flow straight
 // to WordPress on the next deploy without re-running propose.
 export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
-  fetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/meta`, {
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/meta`, {
     method: 'PATCH',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -899,7 +899,7 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
 // wizard: plan + per-slot progress + tenant's WP pages list for
 // mapping. One round trip; cheap to call on every modal open.
 export const getSetupProgress = () =>
-  fetch(`${apiBase()}/content/landing/setup-progress`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/setup-progress`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -919,7 +919,7 @@ export const getSetupProgress = () =>
 // a clean redo (e.g. created a page, started generating, quit,
 // returned days later and wants new content).
 export const runSetupSlotPipeline = (slotId, { regenerate = false } = {}) =>
-  fetch(`${apiBase()}/content/landing/setup-progress/slot/${encodeURIComponent(slotId)}/run-pipeline`, {
+  csrfFetch(`${apiBase()}/content/landing/setup-progress/slot/${encodeURIComponent(slotId)}/run-pipeline`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -939,7 +939,7 @@ export const runSetupSlotPipeline = (slotId, { regenerate = false } = {}) =>
 //   - 'skip' / 'unskip': mark slot skipped or revert
 //   - 'unmap': clear the mapping (revert to pending)
 export const updateSetupSlot = (slotId, action, extras = {}) =>
-  fetch(`${apiBase()}/content/landing/setup-progress/slot`, {
+  csrfFetch(`${apiBase()}/content/landing/setup-progress/slot`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -956,7 +956,7 @@ export const updateSetupSlot = (slotId, action, extras = {}) =>
 // + tier organization). Returns { plan: null } when no plan is
 // configured for the tenant — the FE uses that to hide the button.
 export const getFanOutPlan = () =>
-  fetch(`${apiBase()}/content/landing/fan-out/plan`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/fan-out/plan`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -969,7 +969,7 @@ export const getFanOutPlan = () =>
 // of plan-entry ids (from getFanOutPlan().plan[].id). Returns
 // { results: [{ id, success, landing_page_id?, error?, skipped? }] }.
 export const runFanOut = (ids) =>
-  fetch(`${apiBase()}/content/landing/fan-out`, {
+  csrfFetch(`${apiBase()}/content/landing/fan-out`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -988,7 +988,7 @@ export const runFanOut = (ids) =>
 // subsequent audit + propose: "preserve the language earning
 // these citations." Server validates + caps each row.
 export const setLandingPageAiCitations = (landingPageId, citations) =>
-  fetch(`${apiBase()}/content/landing/${landingPageId}/ai-citations`, {
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/ai-citations`, {
     method: 'PATCH',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -1005,7 +1005,7 @@ export const setLandingPageAiCitations = (landingPageId, citations) =>
 // plus the rolling 28-day click count so the operator can verify
 // the snippet is live ("clicks_28d > 0" = it's working).
 export const getCtaSettings = () =>
-  fetch(`${apiBase()}/content/landing/cta-settings`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/cta-settings`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -1019,7 +1019,7 @@ export const getCtaSettings = () =>
 // cta_id rows (CTAs that had clicks before being restructured
 // out of the current version).
 export const getCtaStats = (landingPageId) =>
-  fetch(`${apiBase()}/content/landing/${landingPageId}/cta-stats`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/cta-stats`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -1035,7 +1035,7 @@ export const getCtaStats = (landingPageId) =>
 // shows up 60 days out, Valentine's at 35, etc.).
 export const getSeasonalSuggestions = ({ windowDays } = {}) => {
   const qs = windowDays ? `?window_days=${encodeURIComponent(windowDays)}` : ''
-  return fetch(`${apiBase()}/content/landing/seasonal${qs}`, { credentials: 'include' })
+  return csrfFetch(`${apiBase()}/content/landing/seasonal${qs}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -1049,7 +1049,7 @@ export const getSeasonalSuggestions = ({ windowDays } = {}) => {
 // Currently used keys: 'backup_guide' (shown before first deploy).
 // Pass value: null to UNSET (re-opens the auto-show).
 export const setLandingAcknowledgment = (key, value) =>
-  fetch(`${apiBase()}/content/landing/acknowledge`, {
+  csrfFetch(`${apiBase()}/content/landing/acknowledge`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -1065,7 +1065,7 @@ export const setLandingAcknowledgment = (key, value) =>
 // List available landing-page templates (city guide, location page,
 // Shop Hop event, category page) for the Create form's picker.
 export const listLandingPageTemplates = () =>
-  fetch(`${apiBase()}/content/landing/templates`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/templates`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -1080,7 +1080,7 @@ export const listLandingPageTemplates = () =>
 // on. Body: { title, slug?, parent_landing_page_id?, initial_body?,
 // status?: 'draft' | 'publish' }.
 export const createLandingPage = ({ title, slug, parent_landing_page_id, initial_body, status, template_id, template_vars }) =>
-  fetch(`${apiBase()}/content/landing/create`, {
+  csrfFetch(`${apiBase()}/content/landing/create`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -1096,7 +1096,7 @@ export const createLandingPage = ({ title, slug, parent_landing_page_id, initial
 // Set the per-page strategy hint that Claude uses on every audit /
 // proposal / schema run. Empty string clears the hint.
 export const setLandingPageStrategyHint = (id, hint) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/strategy-hint`, {
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/strategy-hint`, {
     method: 'PATCH',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -1111,7 +1111,7 @@ export const setLandingPageStrategyHint = (id, hint) =>
 
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))
@@ -1123,7 +1123,7 @@ export const getLandingPageAudit = (id, auditId) =>
 // Full body_html + raw payload for one specific version. Fetched
 // lazily so the list endpoint stays cheap.
 export const getLandingPageVersion = (id, versionId) =>
-  fetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`, { credentials: 'include' })
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`, { credentials: 'include' })
     .then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}))

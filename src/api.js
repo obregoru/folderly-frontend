@@ -75,7 +75,7 @@ async function refreshCsrf() {
 // rehydrating /me. Use for any state-changing request whose 403 path
 // would otherwise surface a confusing "Invalid CSRF token" error to
 // the user.
-async function csrfFetch(url, init) {
+export async function csrfFetch(url, init) {
   const r = await fetch(url, init)
   if (r.status !== 403) return r
   // Peek without consuming so the caller can still read the body if
