@@ -2759,7 +2759,14 @@ function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenP
   // Pipeline state — runs only for mapped/created slots. Stages
   // live on slot.stored.pipeline as the BE writes them.
   const pipeline = slot.stored?.pipeline || null
-  const PIPELINE_STAGE_LABELS = {
+  // Microcopy depends on whether the slot was mapped (audit ran)
+  // or created (audit skipped — proposing expands the scaffold).
+  const PIPELINE_STAGE_LABELS = pipeline?.audit_skipped ? {
+    proposing: "✍️ Drafting content from scratch (~1-2 min)",
+    generating_schema: "🏷️ Generating schema (~30s)",
+    ready_for_review: "✓ Ready for review",
+    failed: "✗ Failed",
+  } : {
     auditing: "🔍 Auditing (~1-2 min)",
     proposing: "✍️ Drafting proposal (~1-2 min)",
     generating_schema: "🏷️ Generating schema (~30s)",
@@ -2829,8 +2836,10 @@ function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenP
               onClick={() => onAction("run-pipeline")}
               disabled={busy}
               className="text-[9px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50"
-              title="Run audit + propose + schema-gen end-to-end. Auto-accepts critical+important audit findings. ~3-5 min."
-            >🤖 Auto-fill</button>
+              title={slot.effective_status === "created"
+                ? "New page — propose + schema-gen (no audit since the scaffold has nothing meaningful to audit yet). ~2-3 min."
+                : "Existing page — audit + propose + schema-gen. Auto-accepts critical+important audit findings. ~3-5 min."}
+            >🤖 {slot.effective_status === "created" ? "Generate content" : "Audit + auto-fill"}</button>
           )}
           {stageReady && slot.mapped_page && (
             <button
