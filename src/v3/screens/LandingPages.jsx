@@ -1096,8 +1096,44 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
   const summary = Array.isArray(p.summary_of_changes) ? p.summary_of_changes : []
   const sourceTitle = sourcePage?.title || ''
   const sourceMeta = sourcePage?.yoast_meta?.description || ''
-  const titleChanged = (p.title || '').trim() && (p.title || '').trim() !== sourceTitle.trim()
-  const metaChanged = (p.meta_description || '').trim() && (p.meta_description || '').trim() !== sourceMeta.trim()
+
+  // Editable meta state. Operator can refine Claude's suggested
+  // title / meta description / focus keyword before deploy —
+  // there are real reasons to override (trademark, length,
+  // regional emphasis). Edits save on blur; deploy reads from the
+  // updated version row, so saved edits flow to WordPress without
+  // re-running propose.
+  const [editTitle, setEditTitle] = useState(p.title || '')
+  const [editMeta, setEditMeta] = useState(p.meta_description || '')
+  const [editFocus, setEditFocus] = useState(p.focus_keyword || '')
+  const [metaSaving, setMetaSaving] = useState(false)
+  const [metaSaved, setMetaSaved] = useState(null)
+  const [metaError, setMetaError] = useState(null)
+  // Re-seed when the proposal changes (re-generate).
+  useEffect(() => {
+    setEditTitle(p.title || '')
+    setEditMeta(p.meta_description || '')
+    setEditFocus(p.focus_keyword || '')
+    setMetaSaved(null); setMetaError(null)
+  }, [proposal?.version_id])
+
+  const saveMeta = async (field, value) => {
+    if (!landingPageId || !currentVersionId) return
+    setMetaSaving(true); setMetaError(null); setMetaSaved(null)
+    try {
+      const r = await api.updateLandingVersionMeta(landingPageId, currentVersionId, { [field]: value })
+      setMetaSaved(`${field === 'title' ? 'Title' : field === 'meta_description' ? 'Meta description' : 'Focus keyword'} saved`)
+      setTimeout(() => setMetaSaved(null), 2000)
+      return r
+    } catch (e) {
+      setMetaError(e?.message || String(e))
+    } finally {
+      setMetaSaving(false)
+    }
+  }
+
+  const titleChanged = (editTitle || '').trim() && (editTitle || '').trim() !== sourceTitle.trim()
+  const metaChanged = (editMeta || '').trim() && (editMeta || '').trim() !== sourceMeta.trim()
 
   // Detect any existing href that doesn't appear in kept/refined/
   // removed — that's an unexpected disappearance the operator
@@ -1129,31 +1165,78 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
         </div>
       )}
 
-      {/* Title / meta / focus keyword diff */}
-      {(titleChanged || metaChanged || p.focus_keyword) && (
-        <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1">
-          <div className="font-medium text-ink">Meta changes</div>
-          {titleChanged && (
-            <div>
-              <div className="text-muted">Title (before):</div>
-              <div className="bg-[#fef2f2] border-l-2 border-[#c0392b] pl-2 py-0.5">{sourceTitle || <i>(none)</i>}</div>
-              <div className="text-muted mt-1">Title (proposed):</div>
-              <div className="bg-[#f0fdf4] border-l-2 border-[#2D9A5E] pl-2 py-0.5">{p.title}</div>
-            </div>
-          )}
-          {metaChanged && (
-            <div className="pt-1">
-              <div className="text-muted">Meta description (before):</div>
-              <div className="bg-[#fef2f2] border-l-2 border-[#c0392b] pl-2 py-0.5">{sourceMeta || <i>(none)</i>}</div>
-              <div className="text-muted mt-1">Meta description (proposed):</div>
-              <div className="bg-[#f0fdf4] border-l-2 border-[#2D9A5E] pl-2 py-0.5">{p.meta_description}</div>
-            </div>
-          )}
-          {p.focus_keyword && (
-            <div className="pt-1"><b>Focus keyword:</b> {p.focus_keyword}</div>
-          )}
+      {/* Title / meta / focus keyword — editable. Operator can refine
+          Claude's suggestion before deploy (saves on blur). Deploy
+          reads from the version row, so edits flow through. */}
+      <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="font-medium text-ink">Meta changes</span>
+          <span className="text-[9px] text-muted">Editable — save on blur</span>
+          <span className="flex-1" />
+          {metaSaving && <span className="text-[9px] text-muted">Saving…</span>}
+          {metaSaved && <span className="text-[9px] text-[#16a34a]">✓ {metaSaved}</span>}
+          {metaError && <span className="text-[9px] text-[#c0392b]">⚠ {metaError}</span>}
         </div>
-      )}
+
+        {/* Title */}
+        <div>
+          <div className="text-muted">Title (before):</div>
+          <div className="bg-[#fef2f2] border-l-2 border-[#c0392b] pl-2 py-0.5">{sourceTitle || <i>(none)</i>}</div>
+          <div className="text-muted mt-1 flex items-center gap-2">
+            <span>Title (proposed, editable):</span>
+            <span className={`text-[9px] ${editTitle.length > 60 ? 'text-[#d97706]' : 'text-muted'}`}>
+              {editTitle.length}/60 chars
+              {editTitle.length > 60 && <span> · Google may truncate</span>}
+            </span>
+          </div>
+          <input
+            type="text"
+            value={editTitle}
+            onChange={e => setEditTitle(e.target.value)}
+            onBlur={() => {
+              if (editTitle !== (p.title || '')) saveMeta('title', editTitle)
+            }}
+            className="w-full bg-[#f0fdf4] border-l-2 border-[#2D9A5E] pl-2 py-1 text-[10px] outline-none focus:bg-white focus:border-[#2D9A5E] focus:ring-1 focus:ring-[#2D9A5E]/30"
+          />
+        </div>
+
+        {/* Meta description */}
+        <div>
+          <div className="text-muted">Meta description (before):</div>
+          <div className="bg-[#fef2f2] border-l-2 border-[#c0392b] pl-2 py-0.5">{sourceMeta || <i>(none)</i>}</div>
+          <div className="text-muted mt-1 flex items-center gap-2">
+            <span>Meta description (proposed, editable):</span>
+            <span className={`text-[9px] ${editMeta.length > 160 ? 'text-[#d97706]' : 'text-muted'}`}>
+              {editMeta.length}/160 chars
+              {editMeta.length > 160 && <span> · Google may truncate</span>}
+            </span>
+          </div>
+          <textarea
+            value={editMeta}
+            onChange={e => setEditMeta(e.target.value)}
+            onBlur={() => {
+              if (editMeta !== (p.meta_description || '')) saveMeta('meta_description', editMeta)
+            }}
+            rows={3}
+            className="w-full bg-[#f0fdf4] border-l-2 border-[#2D9A5E] pl-2 py-1 text-[10px] outline-none focus:bg-white focus:border-[#2D9A5E] focus:ring-1 focus:ring-[#2D9A5E]/30 resize-y font-sans"
+          />
+        </div>
+
+        {/* Focus keyword */}
+        <div>
+          <div className="text-muted">Focus keyword (editable):</div>
+          <input
+            type="text"
+            value={editFocus}
+            onChange={e => setEditFocus(e.target.value)}
+            onBlur={() => {
+              if (editFocus !== (p.focus_keyword || '')) saveMeta('focus_keyword', editFocus)
+            }}
+            placeholder="e.g. candle bar milwaukee"
+            className="w-full bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] outline-none focus:border-[#2D9A5E]"
+          />
+        </div>
+      </div>
 
       {/* Link ledger — kept / refined / added / removed / unaccounted */}
       <div className="bg-white border border-[#e5e5e5] rounded p-2">

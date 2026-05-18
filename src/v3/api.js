@@ -853,6 +853,24 @@ export const runLandingSiteAudit = () =>
     return r.json()
   })
 
+// Edit a proposal's title / meta description / focus keyword
+// before deploy. Pass any subset of the three; null clears the
+// field. Deploy reads from these columns so edits flow straight
+// to WordPress on the next deploy without re-running propose.
+export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
+  fetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/meta`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(fields || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateLandingVersionMeta failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch the tenant-specific fan-out plan (canonical page set
 // + tier organization). Returns { plan: null } when no plan is
 // configured for the tenant — the FE uses that to hide the button.
