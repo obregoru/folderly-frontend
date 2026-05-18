@@ -3047,7 +3047,7 @@ function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenP
           )}
           {stageRunning && (
             <div className="text-[9px] text-muted italic mt-0.5">
-              Pipeline running — close anytime, comes back when you reopen the wizard.
+              Pipeline running — auto-refreshing every 8s. Safe to close (state is saved server-side) but you don't have to.
             </div>
           )}
           {pipeline?.auto_accepted_finding_count != null && (
