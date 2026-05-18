@@ -547,7 +547,7 @@ function PageWorkspace({ data, requireBackupAck }) {
 
   // Audit state — null until the operator clicks Run audit. Caches
   // findings keyed by audit row id so switching dimensions doesn't
-  // re-fetch. Selected suggestions feed Phase 3's proposal
+  // re-fetch. Selected suggestions feed the proposal
   // generator (not wired here — just stored locally for now so the
   // operator can shape their shortlist while reviewing).
   // Audit state. Pre-populated from the most recent audit row on
@@ -625,7 +625,7 @@ function PageWorkspace({ data, requireBackupAck }) {
     }
   }
 
-  // Proposal state — Phase 3. Lives alongside audit so the diff
+  // Proposal state. Lives alongside audit so the diff
   // view can render the current vs proposed bodies + the
   // link-change ledger Claude emits.
   const [proposal, setProposal] = useState(null)
@@ -931,7 +931,7 @@ function PageWorkspace({ data, requireBackupAck }) {
         )}
       </div>
 
-      {/* Proposal panel — Phase 3 */}
+      {/* Proposal panel */}
       <div className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Rewrite proposal</span>
@@ -980,9 +980,6 @@ function PageWorkspace({ data, requireBackupAck }) {
         )}
       </div>
 
-      <div className="text-[9px] text-muted italic">
-        Phase 3 landed: proposal + diff view. AI detection (ZeroGPT) → Phase 4. Backup + deploy + rollback → Phase 5.
-      </div>
     </div>
   )
 }
@@ -1043,7 +1040,7 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
             return (
               <div key={f.suggestion_id || i} className="bg-white border border-[#e5e5e5] rounded p-2 text-[10px] space-y-1">
                 <div className="flex items-start gap-2">
-                  <label className="flex items-center gap-1 cursor-pointer pt-0.5" title="Include in Phase 3 proposal (FE only for now — sent to producer in Phase 3)">
+                  <label className="flex items-center gap-1 cursor-pointer pt-0.5" title="Include this finding in the next proposal — Claude will address it in the rewrite.">
                     <input
                       type="checkbox"
                       checked={isSelected}
@@ -1065,7 +1062,7 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
       )}
       {selected.size > 0 && (
         <div className="text-[10px] text-[#6C5CE7] italic">
-          {selected.size} suggestion{selected.size === 1 ? '' : 's'} flagged for inclusion. (Will feed Phase 3's proposal generator once it ships.)
+          {selected.size} suggestion{selected.size === 1 ? '' : 's'} flagged. Click <b>Generate proposal</b> below to have Claude implement them in a rewrite.
         </div>
       )}
     </div>
@@ -3950,7 +3947,7 @@ function CreateNewLandingPage({ pages, onCreated }) {
       <button
         onClick={() => setOpen(true)}
         className="text-[11px] py-1 px-3 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
-        title="Spin up a brand-new WP page + landing_pages row. Status defaults to draft so nothing goes live until you deploy via Phase 5."
+        title="Spin up a brand-new WP page + landing_pages row. Status defaults to draft so nothing goes live until you deploy."
       >+ Create new page</button>
     )
   }
