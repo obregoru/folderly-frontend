@@ -1452,22 +1452,14 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
           live deploy in Phase 5 will look slightly different —
           but it's much closer to "how it'll read" than the raw
           HTML view below.) */}
-      <details className="border border-[#e5e5e5] rounded" open>
-        <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">Rendered preview (current vs proposed)</summary>
-        <div className="grid grid-cols-2 gap-2 p-2">
-          <div>
-            <div className="text-[9px] text-muted mb-1">Current</div>
-            <RenderedPreview html={sourcePage?.body_html || ''} tone="red" />
-          </div>
-          <div>
-            <div className="text-[9px] text-muted mb-1">Proposed{currentVersionId !== proposal?.version_id ? ' (humanized)' : ''}</div>
-            <RenderedPreview html={currentBodyHtml || ''} tone="green" />
-          </div>
-        </div>
-        <div className="text-[8px] text-muted italic px-2 pb-2">
-          Approximate styling — actual rendering will use the live theme on deploy. Scripts and forms are disabled in this preview.
-        </div>
-      </details>
+      <RenderedPreviewSection
+        sourcePage={sourcePage}
+        currentBodyHtml={currentBodyHtml}
+        landingPageId={landingPageId}
+        currentVersionId={currentVersionId}
+        isHumanized={currentVersionId !== proposal?.version_id}
+        onSaved={(newHtml) => setCurrentBodyHtml(newHtml)}
+      />
 
       {/* Body diff — full HTML side-by-side. Right side is now
           editable so the operator can tweak phrasing / fix typos /
@@ -2666,6 +2658,84 @@ function SiteStat({ label, value, tone }) {
 // unchecked. Operator scans the list, deselects anything they
 // don't want, hits Create. Pages create as drafts in WordPress
 // + show up in the Managed pages tree afterward.
+// Rendered preview section. Left side = current live page (read-
+// only iframe). Right side has a mode toggle:
+//   - Preview (default): iframe rendering of currentBodyHtml
+//   - Edit:               contentEditable div with the same styling
+// In Edit mode, operator clicks into the preview and edits text
+// inline. Save commits the edited innerHTML to the version row;
+// deploy reads from there.
+function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const [savedAt, setSavedAt] = useState(null)
+
+  const save = async (newHtml) => {
+    if (!landingPageId || !currentVersionId) return
+    setSaving(true); setError(null)
+    try {
+      const r = await api.updateLandingVersionBody(landingPageId, currentVersionId, newHtml)
+      if (typeof onSaved === 'function') onSaved(r.body_html)
+      setSavedAt(Date.now())
+      setEditing(false)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <details className="border border-[#e5e5e5] rounded" open>
+      <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium flex items-center gap-2">
+        <span>Rendered preview (current vs {isHumanized ? 'humanized' : 'proposed'})</span>
+        {editing && <span className="text-[#16a34a]">· editing</span>}
+        {savedAt && !editing && <span className="text-[9px] text-[#16a34a]">· ✓ saved</span>}
+      </summary>
+      <div className="grid grid-cols-2 gap-2 p-2">
+        <div>
+          <div className="text-[9px] text-muted mb-1">Current (live)</div>
+          <RenderedPreview html={sourcePage?.body_html || ''} tone="red" />
+        </div>
+        <div>
+          <div className="text-[9px] text-muted mb-1 flex items-center gap-2">
+            <span>{isHumanized ? 'Humanized' : 'Proposed'} — {editing ? 'editing in place' : 'click ✏️ Edit to modify'}</span>
+            <span className="flex-1" />
+            {!editing && (
+              <button
+                onClick={() => { setEditing(true); setError(null); setSavedAt(null) }}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer"
+                title="Edit the proposed content inline in the preview. Save commits changes to the version row; deploy reads from there."
+              >✏️ Edit preview</button>
+            )}
+            {editing && (
+              <button
+                onClick={() => { setEditing(false); setError(null) }}
+                disabled={saving}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
+              >Cancel</button>
+            )}
+          </div>
+          {editing ? (
+            <EditableRenderedPreview
+              html={currentBodyHtml || ''}
+              onSave={save}
+              busy={saving}
+            />
+          ) : (
+            <RenderedPreview html={currentBodyHtml || ''} tone="green" />
+          )}
+          {error && <div className="text-[9px] text-[#c0392b] mt-1">⚠ {error}</div>}
+        </div>
+      </div>
+      <div className="text-[8px] text-muted italic px-2 pb-2">
+        Approximate styling — actual rendering will use the live theme on deploy. Scripts and forms are disabled in this preview. Inline edits save to the version row; you can also edit raw HTML below.
+      </div>
+    </details>
+  )
+}
+
 // Editable body-HTML diff. Left side (current) stays read-only;
 // right side (proposed) is an editable textarea so the operator
 // can tweak phrasing / fix typos / adjust copy before deploy.
@@ -4108,34 +4178,45 @@ function AiScoreBar({ score }) {
 // the post_content. We don't have the live theme's stylesheet so
 // we ship a minimal one inline — close enough for "does this read
 // like a webpage?" but not identical to the deployed look.
+// Inline CSS shared between the iframe (read-only) and the
+// contentEditable mode (editable). Kept as a string so the iframe
+// can include it via srcDoc and the editable mode can drop it
+// into a <style> tag inside the wrapper.
+const RENDERED_PREVIEW_CSS = `
+    .fldy-preview { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2937; background: #fff; }
+    .fldy-preview h1, .fldy-preview h2, .fldy-preview h3, .fldy-preview h4, .fldy-preview h5, .fldy-preview h6 { font-weight: 700; line-height: 1.25; margin: 1.5em 0 0.5em; color: #111; }
+    .fldy-preview h1 { font-size: 1.8em; }
+    .fldy-preview h2 { font-size: 1.4em; }
+    .fldy-preview h3 { font-size: 1.2em; }
+    .fldy-preview p { margin: 0.8em 0; }
+    .fldy-preview ul, .fldy-preview ol { margin: 0.8em 0; padding-left: 1.4em; }
+    .fldy-preview li { margin: 0.3em 0; }
+    .fldy-preview a { color: #6C5CE7; text-decoration: underline; }
+    .fldy-preview a:hover { color: #5847d4; }
+    .fldy-preview strong, .fldy-preview b { font-weight: 700; }
+    .fldy-preview em, .fldy-preview i { font-style: italic; }
+    .fldy-preview img { max-width: 100%; height: auto; display: block; margin: 1em 0; border-radius: 4px; }
+    .fldy-preview blockquote { border-left: 3px solid #6C5CE7; margin: 1em 0; padding: 0.5em 1em; background: #f9f7ff; color: #4b5563; }
+    .fldy-preview code { background: #f3f4f6; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+    .fldy-preview pre { background: #f3f4f6; padding: 1em; border-radius: 4px; overflow-x: auto; }
+    .fldy-preview hr { border: 0; border-top: 1px solid #e5e7eb; margin: 2em 0; }
+    .fldy-preview figure { margin: 1em 0; }
+    .fldy-preview figcaption { text-align: center; font-size: 0.85em; color: #6b7280; margin-top: 0.5em; }
+    .fldy-preview .wp-block-image { margin: 1em 0; }
+    .fldy-preview .wp-block-buttons { margin: 1em 0; }
+    .fldy-preview .wp-block-button__link { display: inline-block; padding: 0.5em 1em; background: #6C5CE7; color: #fff !important; text-decoration: none !important; border-radius: 4px; }
+    .fldy-preview[contenteditable="true"] { outline: 2px solid #2D9A5E; outline-offset: -2px; }
+    .fldy-preview[contenteditable="true"]:focus { outline-color: #16a34a; }
+`
+
 function RenderedPreview({ html, tone = 'green' }) {
   const borderClass = tone === 'red' ? 'border-[#c0392b]/30' : 'border-[#2D9A5E]/30'
-  const previewCss = `
-    html, body { margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2937; background: #fff; }
-    h1, h2, h3, h4, h5, h6 { font-weight: 700; line-height: 1.25; margin: 1.5em 0 0.5em; color: #111; }
-    h1 { font-size: 1.8em; }
-    h2 { font-size: 1.4em; }
-    h3 { font-size: 1.2em; }
-    p { margin: 0.8em 0; }
-    ul, ol { margin: 0.8em 0; padding-left: 1.4em; }
-    li { margin: 0.3em 0; }
-    a { color: #6C5CE7; text-decoration: underline; }
-    a:hover { color: #5847d4; }
-    strong, b { font-weight: 700; }
-    em, i { font-style: italic; }
-    img { max-width: 100%; height: auto; display: block; margin: 1em 0; border-radius: 4px; }
-    blockquote { border-left: 3px solid #6C5CE7; margin: 1em 0; padding: 0.5em 1em; background: #f9f7ff; color: #4b5563; }
-    code { background: #f3f4f6; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
-    pre { background: #f3f4f6; padding: 1em; border-radius: 4px; overflow-x: auto; }
-    hr { border: 0; border-top: 1px solid #e5e7eb; margin: 2em 0; }
-    figure { margin: 1em 0; }
-    figcaption { text-align: center; font-size: 0.85em; color: #6b7280; margin-top: 0.5em; }
-    /* WP block-editor often emits wp-block-* wrappers — let them flow naturally */
-    .wp-block-image { margin: 1em 0; }
-    .wp-block-buttons { margin: 1em 0; }
-    .wp-block-button__link { display: inline-block; padding: 0.5em 1em; background: #6C5CE7; color: #fff !important; text-decoration: none !important; border-radius: 4px; }
-  `
-  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${previewCss}</style></head><body>${html || '<p style="color:#9ca3af;font-style:italic;">(empty body)</p>'}</body></html>`
+  // Iframe-flavored CSS (without the .fldy-preview class wrapper).
+  const iframeCss = RENDERED_PREVIEW_CSS.replace(/\.fldy-preview\s*/g, "").replace(/\.fldy-preview\[contenteditable[^}]+\}/g, "")
+  const fullCss = `html, body { margin:0; padding:0; }
+    body { padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2937; background: #fff; }
+    ${iframeCss}`
+  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${fullCss}</style></head><body>${html || '<p style="color:#9ca3af;font-style:italic;">(empty body)</p>'}</body></html>`
   return (
     <iframe
       title="rendered preview"
@@ -4144,6 +4225,82 @@ function RenderedPreview({ html, tone = 'green' }) {
       className={`w-full rounded border bg-white ${borderClass}`}
       style={{ height: '500px' }}
     />
+  )
+}
+
+// Editable variant of RenderedPreview. Renders the body_html
+// inside a contentEditable div (not an iframe — iframes can't be
+// edited from the parent without scripts). The wrapper class
+// fldy-preview applies the same WP-prose styling so it looks
+// like the read-only preview.
+//
+// Save is explicit — operator clicks the green Save button when
+// ready, rather than auto-save on blur. Two reasons:
+//   1. contentEditable normalizes HTML on input (strips block
+//      comments, reformats tags) — operator should explicitly
+//      commit to that change, not have it happen silently.
+//   2. Yoast FAQ blocks lose their `<!-- wp:yoast/faq-block -->`
+//      wrapper when content-edited, which kills Yoast Premium's
+//      FAQPage schema auto-emit. The microcopy warns about this.
+function EditableRenderedPreview({ html, onSave, busy }) {
+  const ref = useRef(null)
+  const [dirty, setDirty] = useState(false)
+  // Hydrate the contentEditable div with the current HTML once on
+  // mount. Subsequent React re-renders DON'T overwrite the user's
+  // in-progress edits — only the initial render seeds the DOM.
+  useEffect(() => {
+    if (ref.current && ref.current.innerHTML !== html) {
+      ref.current.innerHTML = html || ''
+      setDirty(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const handleInput = () => {
+    if (!dirty) setDirty(true)
+  }
+  const save = () => {
+    if (!ref.current || busy || !dirty) return
+    const newHtml = ref.current.innerHTML
+    onSave(newHtml)
+    setDirty(false)
+  }
+  const revert = () => {
+    if (!ref.current) return
+    ref.current.innerHTML = html || ''
+    setDirty(false)
+  }
+  return (
+    <div className="space-y-1">
+      <style>{RENDERED_PREVIEW_CSS}</style>
+      <div
+        ref={ref}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        spellCheck={true}
+        className="fldy-preview w-full rounded border border-[#2D9A5E]/40 bg-white overflow-auto"
+        style={{ height: '500px' }}
+      />
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] text-muted italic flex-1">
+          Click anywhere in the preview to edit text inline. Save commits your changes to the version (deploy reads from there).
+          {' '}<b>Heads-up:</b> editing here can normalize WordPress block markers — for Yoast FAQ blocks specifically, prefer the Body HTML source editor below to keep schema intact.
+        </span>
+        {dirty && (
+          <button
+            onClick={revert}
+            disabled={busy}
+            className="text-[9px] py-1 px-2 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
+          >Revert</button>
+        )}
+        <button
+          onClick={save}
+          disabled={busy || !dirty}
+          className="text-[9px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          title="Save the edits made in the preview. Deploy reads from the saved version."
+        >{busy ? 'Saving…' : dirty ? '💾 Save preview edits' : '✓ Saved'}</button>
+      </div>
+    </div>
   )
 }
 
