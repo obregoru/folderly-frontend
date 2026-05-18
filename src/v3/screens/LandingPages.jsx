@@ -1421,21 +1421,22 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
         </div>
       </details>
 
-      {/* Body diff — full HTML side-by-side. Paragraph-level
-          highlight is Phase 4/5 territory; v1 = full bodies. */}
-      <details className="border border-[#e5e5e5] rounded">
-        <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">Body HTML source (current vs proposed)</summary>
-        <div className="grid grid-cols-2 gap-2 p-2">
-          <div>
-            <div className="text-[9px] text-muted mb-1">Current</div>
-            <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 max-h-[400px] overflow-auto">{sourcePage?.body_html || '(empty)'}</pre>
-          </div>
-          <div>
-            <div className="text-[9px] text-muted mb-1">Proposed{currentVersionId !== proposal?.version_id ? ' (humanized)' : ''}</div>
-            <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#f0fdf4] border border-[#2D9A5E]/30 rounded p-2 max-h-[400px] overflow-auto">{currentBodyHtml || '(empty)'}</pre>
-          </div>
-        </div>
-      </details>
+      {/* Body diff — full HTML side-by-side. Right side is now
+          editable so the operator can tweak phrasing / fix typos /
+          adjust copy before deploy. WP block-editor HTML
+          (<!-- wp:paragraph --> etc) round-trips verbatim through a
+          textarea — WYSIWYG editors mangle those block comments, so
+          plain HTML edit is the safe path. Save updates the
+          version row; rendered-preview above + deploy both read
+          from the new body. */}
+      <EditableBodyDiff
+        sourcePage={sourcePage}
+        currentBodyHtml={currentBodyHtml}
+        landingPageId={landingPageId}
+        currentVersionId={currentVersionId}
+        versionLabel={currentVersionId !== proposal?.version_id ? 'humanized' : 'proposed'}
+        onSaved={(newHtml) => setCurrentBodyHtml(newHtml)}
+      />
 
       {/* Schema.org — Phase 6. Generates JSON-LD blocks tailored
           to the current version's content + tenant brand. Operator
@@ -2617,6 +2618,106 @@ function SiteStat({ label, value, tone }) {
 // unchecked. Operator scans the list, deselects anything they
 // don't want, hits Create. Pages create as drafts in WordPress
 // + show up in the Managed pages tree afterward.
+// Editable body-HTML diff. Left side (current) stays read-only;
+// right side (proposed) is an editable textarea so the operator
+// can tweak phrasing / fix typos / adjust copy before deploy.
+// Uses a textarea (not Quill) intentionally — WordPress block-
+// editor HTML contains <!-- wp:paragraph --> / <!-- wp:yoast/
+// faq-block --> block comments that rich-text editors strip
+// during normalization. Textarea preserves them verbatim.
+function EditableBodyDiff({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, versionLabel, onSaved }) {
+  const [draft, setDraft] = useState(currentBodyHtml || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState(null)
+  const [editing, setEditing] = useState(false)
+  // Re-seed when the parent's currentBodyHtml changes (re-propose,
+  // humanize, slot switch) so we don't show stale draft state.
+  useEffect(() => {
+    setDraft(currentBodyHtml || '')
+    setSaved(false); setError(null); setEditing(false)
+  }, [currentBodyHtml, currentVersionId])
+
+  const isDirty = draft !== (currentBodyHtml || '')
+
+  const save = async () => {
+    if (saving || !isDirty || !landingPageId || !currentVersionId) return
+    setSaving(true); setError(null); setSaved(false)
+    try {
+      const r = await api.updateLandingVersionBody(landingPageId, currentVersionId, draft)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+      if (typeof onSaved === 'function') onSaved(r.body_html)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <details className="border border-[#e5e5e5] rounded">
+      <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium">
+        Body HTML source (current vs {versionLabel})
+        {isDirty && <span className="ml-2 text-[#d97706]">· unsaved edits</span>}
+      </summary>
+      <div className="grid grid-cols-2 gap-2 p-2">
+        <div>
+          <div className="text-[9px] text-muted mb-1">Current (live)</div>
+          <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 max-h-[400px] overflow-auto">{sourcePage?.body_html || '(empty)'}</pre>
+        </div>
+        <div>
+          <div className="text-[9px] text-muted mb-1 flex items-center gap-2">
+            <span>{versionLabel === 'humanized' ? 'Humanized' : 'Proposed'} — editable</span>
+            <span className="flex-1" />
+            {!editing && (
+              <button
+                onClick={() => setEditing(true)}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                title="Edit the proposed body HTML inline. Edits save to the version row; deploy reads from there."
+              >✏️ Edit</button>
+            )}
+            {editing && (
+              <>
+                {saving && <span className="text-[8px] text-muted">Saving…</span>}
+                {saved && <span className="text-[8px] text-[#16a34a]">✓ Saved</span>}
+                <button
+                  onClick={() => { setDraft(currentBodyHtml || ''); setEditing(false); setError(null) }}
+                  disabled={saving}
+                  className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
+                >Cancel</button>
+                <button
+                  onClick={save}
+                  disabled={saving || !isDirty}
+                  className="text-[9px] py-0.5 px-1.5 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                  title="Save the edited body to this version. Deploy will use the saved version."
+                >Save</button>
+              </>
+            )}
+          </div>
+          {editing ? (
+            <textarea
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              spellCheck={true}
+              className="w-full text-[10px] font-mono whitespace-pre-wrap bg-white border border-[#2D9A5E]/30 rounded p-2 max-h-[400px] outline-none focus:border-[#2D9A5E] focus:ring-1 focus:ring-[#2D9A5E]/30 resize-y"
+              style={{ minHeight: '300px' }}
+            />
+          ) : (
+            <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-[#f0fdf4] border border-[#2D9A5E]/30 rounded p-2 max-h-[400px] overflow-auto">{currentBodyHtml || '(empty)'}</pre>
+          )}
+          {error && <div className="text-[9px] text-[#c0392b] mt-1">⚠ {error}</div>}
+          {editing && (
+            <div className="text-[8px] text-muted italic mt-1">
+              Tip: WordPress block comments (<code>&lt;!-- wp:paragraph --&gt;</code>) must stay intact for the block editor to recognize the content as proper blocks. Edit the text inside the paragraph tags, not the block comments themselves.
+            </div>
+          )}
+        </div>
+      </div>
+    </details>
+  )
+}
+
 // Per-slot status badge tone mapping.
 function statusTone(status) {
   switch (status) {

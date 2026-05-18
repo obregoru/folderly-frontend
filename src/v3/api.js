@@ -859,6 +859,24 @@ export const runLandingSiteAudit = () =>
     return r.json()
   })
 
+// Edit a proposal's body_html before deploy. Re-parses links /
+// headings / images server-side so the diff stays consistent.
+// Deploy reads from version.body_html, so saved edits flow
+// straight to WordPress on the next deploy.
+export const updateLandingVersionBody = (landingPageId, versionId, bodyHtml) =>
+  fetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/body`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ body_html: bodyHtml }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateLandingVersionBody failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Edit a proposal's title / meta description / focus keyword
 // before deploy. Pass any subset of the three; null clears the
 // field. Deploy reads from these columns so edits flow straight
