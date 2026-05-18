@@ -83,13 +83,20 @@ export default function LandingPages() {
   // only today). Fetched on mount; null = hide the button entirely.
   // No big-bang creation — operator picks which entries to run via
   // the modal, defaulting to Tier 1.
-  const [fanOutData, setFanOutData] = useState(null)
-  const [fanOutModalOpen, setFanOutModalOpen] = useState(false)
-  useEffect(() => {
-    api.getFanOutPlan()
-      .then(r => setFanOutData(r.plan ? r : null))
-      .catch(() => setFanOutData(null))
-  }, [])
+  // Site Setup Wizard — replaces the older one-shot fan-out modal.
+  // Persistent per-slot state; operator can walk away + return.
+  // The button only renders if the tenant has a configured plan.
+  const [setupData, setSetupData] = useState(null)
+  const [setupWizardOpen, setSetupWizardOpen] = useState(false)
+  const refreshSetup = async () => {
+    try {
+      const r = await api.getSetupProgress()
+      setSetupData(r.plan ? r : null)
+    } catch {
+      setSetupData(null)
+    }
+  }
+  useEffect(() => { refreshSetup() }, [])
 
   // Seasonal awareness — shopping moments coming up in the next 90
   // days AND past their lead-time threshold (so Christmas appears 60
@@ -303,12 +310,12 @@ export default function LandingPages() {
         >📚 Backup guide</button>
         {/* Tenant-specific canonical page set — Make & Take has one
             configured; other tenants don't see the button. */}
-        {fanOutData && fanOutData.plan && (
+        {setupData && setupData.plan && (
           <button
-            onClick={() => setFanOutModalOpen(true)}
+            onClick={() => setSetupWizardOpen(true)}
             className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer flex-shrink-0 whitespace-nowrap"
-            title="Create the canonical recommended page set for this tenant. Pick which tiers to start with."
-          >🪄 Fan out pages</button>
+            title="Site Setup Wizard — walk through the canonical page set for this tenant. Map existing pages or create new ones, slot by slot. Progress saves automatically."
+          >🪄 Site setup wizard</button>
         )}
       </div>
 
@@ -482,19 +489,24 @@ export default function LandingPages() {
         />
       )}
 
-      {/* Fan-out modal: tier-grouped checklist of the canonical
-          page set this tenant should build. Defaults to Tier 1
-          checked, others unchecked. */}
-      {fanOutModalOpen && fanOutData && (
-        <FanOutModal
-          data={fanOutData}
-          onClose={() => setFanOutModalOpen(false)}
-          onCreated={async () => {
-            setFanOutModalOpen(false)
+      {/* Site Setup Wizard — persistent per-slot state, tier-grouped
+          map of every recommended page. Map existing / create new /
+          skip per slot; status badges + actions update in place. */}
+      {setupWizardOpen && setupData && (
+        <SetupWizardModal
+          data={setupData}
+          onClose={() => setSetupWizardOpen(false)}
+          onRefresh={refreshSetup}
+          onOpenPage={(landingPageId) => {
+            const p = state.pages.find(pp => pp.id === landingPageId)
+            if (p) {
+              openPage(p)
+              setSetupWizardOpen(false)
+            }
+          }}
+          onAfterMutation={async () => {
             await reload()
-            // Refresh the plan so already_exists flags update.
-            const fresh = await api.getFanOutPlan().catch(() => null)
-            if (fresh?.plan) setFanOutData(fresh)
+            await refreshSetup()
           }}
         />
       )}
@@ -2596,6 +2608,282 @@ function SiteStat({ label, value, tone }) {
 // unchecked. Operator scans the list, deselects anything they
 // don't want, hits Create. Pages create as drafts in WordPress
 // + show up in the Managed pages tree afterward.
+// Per-slot status badge tone mapping.
+function statusTone(status) {
+  switch (status) {
+    case "deployed":  return { bg: "bg-[#dcfce7]", fg: "text-[#166534]", border: "border-[#16a34a]/40", icon: "✓" }
+    case "created":   return { bg: "bg-[#dbeafe]", fg: "text-[#1d4ed8]", border: "border-[#3b82f6]/40", icon: "📝" }
+    case "mapped":    return { bg: "bg-[#f5f3ff]", fg: "text-[#5b21b6]", border: "border-[#8b5cf6]/40", icon: "🔗" }
+    case "skipped":   return { bg: "bg-[#f0f0f0]", fg: "text-muted", border: "border-[#e5e5e5]", icon: "—" }
+    default:          return { bg: "bg-white", fg: "text-muted", border: "border-[#e5e5e5]", icon: "○" }
+  }
+}
+function statusLabel(status) {
+  switch (status) {
+    case "deployed":  return "Deployed"
+    case "created":   return "Created (draft)"
+    case "mapped":    return "Mapped to existing"
+    case "skipped":   return "Skipped"
+    default:          return "Pending"
+  }
+}
+
+// Site Setup Wizard. Persistent per-slot state — operator walks
+// through the canonical plan, mapping existing pages or creating
+// new ones, slot by slot. Each slot tracks: status, mapped
+// landing_page_id, slug override, optional skip reason.
+function SetupWizardModal({ data, onClose, onRefresh, onOpenPage, onAfterMutation }) {
+  const plan = data.plan || []
+  const pages = data.pages || []
+  const tierDescriptions = data.tier_descriptions || {}
+  const [activeSlotId, setActiveSlotId] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Group plan by tier for rendering.
+  const tiers = {}
+  for (const p of plan) {
+    const t = p.tier || 0
+    if (!tiers[t]) tiers[t] = []
+    tiers[t].push(p)
+  }
+  const tierKeys = Object.keys(tiers).sort((a, b) => Number(a) - Number(b))
+
+  // Overall progress summary.
+  const totalSlots = plan.length
+  const counts = plan.reduce((acc, p) => {
+    acc[p.effective_status] = (acc[p.effective_status] || 0) + 1
+    return acc
+  }, {})
+
+  const submitAction = async (slotId, action, extras = {}) => {
+    if (busy) return
+    setBusy(true); setError(null)
+    try {
+      await api.updateSetupSlot(slotId, action, extras)
+      await onAfterMutation()
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3">
+      <div className="bg-white rounded shadow-xl max-w-5xl w-full max-h-[92vh] overflow-hidden flex flex-col">
+        <div className="p-3 border-b border-[#e5e5e5] flex items-center gap-2">
+          <h3 className="text-[13px] font-semibold flex-1">🪄 Site Setup Wizard</h3>
+          <span className="text-[10px] text-muted">
+            {(counts.deployed || 0) + (counts.created || 0) + (counts.mapped || 0) + (counts.skipped || 0)} / {totalSlots} progressed
+            {counts.deployed > 0 && <span className="ml-1 text-[#16a34a]">· {counts.deployed} deployed</span>}
+          </span>
+          <button onClick={onClose} className="text-[12px] text-muted bg-transparent border-none cursor-pointer">✕</button>
+        </div>
+        <div className="text-[10px] text-muted px-3 py-2 bg-[#fafafa] border-b border-[#e5e5e5]">
+          Each slot below is a recommended page for this tenant. For each: <b>Map to existing</b> WP page, <b>Create new</b> from the template, or <b>Skip</b>. Progress saves automatically — close + come back any time. Created or mapped pages open in the regular workspace (Audit → Propose → Deploy as normal).
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {tierKeys.map(tierKey => {
+            const tierItems = tiers[tierKey]
+            const tierMeta = tierDescriptions[tierKey] || { label: `Tier ${tierKey}`, subtitle: '' }
+            const done = tierItems.filter(p => p.effective_status === 'deployed' || p.effective_status === 'created' || p.effective_status === 'mapped' || p.effective_status === 'skipped').length
+            return (
+              <details key={tierKey} open={Number(tierKey) === 1 || done < tierItems.length}>
+                <summary className="cursor-pointer py-2 px-2.5 bg-[#fafafa] border border-[#e5e5e5] rounded flex items-center gap-2">
+                  <span className="text-[11px] font-semibold">{tierMeta.label}</span>
+                  <span className="text-[9px] text-muted">— {tierMeta.subtitle}</span>
+                  <span className="flex-1" />
+                  <span className="text-[9px] text-muted">{done} / {tierItems.length} progressed</span>
+                </summary>
+                <div className="space-y-1.5 pt-2">
+                  {tierItems.map(slot => (
+                    <SetupSlotCard
+                      key={slot.id}
+                      slot={slot}
+                      pages={pages}
+                      active={activeSlotId === slot.id}
+                      setActive={() => setActiveSlotId(activeSlotId === slot.id ? null : slot.id)}
+                      busy={busy}
+                      onAction={(action, extras) => submitAction(slot.id, action, extras)}
+                      onOpenPage={onOpenPage}
+                    />
+                  ))}
+                </div>
+              </details>
+            )
+          })}
+        </div>
+
+        {error && <div className="px-3 py-2 text-[10px] text-[#c0392b] border-t border-[#e5e5e5]">⚠ {error}</div>}
+
+        <div className="p-3 border-t border-[#e5e5e5] flex items-center gap-2">
+          <span className="text-[10px] text-muted flex-1">
+            Progress autosaves on every action. Close anytime — pick up here later.
+          </span>
+          <button onClick={onClose} className="text-[10px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer">Done</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// One slot in the wizard. Renders a compact card with status,
+// rationale, and inline action panel that expands on click.
+function SetupSlotCard({ slot, pages, active, setActive, busy, onAction, onOpenPage }) {
+  const tone = statusTone(slot.effective_status)
+  const [slugOverride, setSlugOverride] = useState(slot.stored?.slug_override || "")
+  const [mapTarget, setMapTarget] = useState(slot.mapped_page?.id || slot.auto_suggested_page?.id || "")
+  const [skipReason, setSkipReason] = useState(slot.stored?.skipped_reason || "")
+  const isDone = slot.effective_status === "deployed" || slot.effective_status === "created" || slot.effective_status === "mapped"
+  const isSkipped = slot.effective_status === "skipped"
+
+  return (
+    <div className={`border ${tone.border} ${tone.bg} rounded`}>
+      <div className="flex items-start gap-2 p-2">
+        <span className={`text-[9px] py-0.5 px-1.5 rounded font-mono flex-shrink-0 ${tone.fg} bg-white border ${tone.border}`}>
+          {tone.icon} {statusLabel(slot.effective_status)}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <code className="text-[#6C5CE7] font-mono text-[11px]">{slot.label}</code>
+            <span className="text-[9px] py-0.5 px-1.5 rounded bg-white text-muted border border-[#e5e5e5]">
+              {slot.template_id}
+            </span>
+            {slot.mapped_page && (
+              <span className="text-[9px] py-0.5 px-1.5 rounded bg-[#f5f3ff] text-[#5b21b6]">
+                ↔ {slot.mapped_page.label} (page #{slot.mapped_page.id})
+              </span>
+            )}
+            {!slot.mapped_page && slot.auto_suggested_page && (
+              <span className="text-[9px] py-0.5 px-1.5 rounded bg-[#fffbeb] text-[#92400e]">
+                Suggested match: {slot.auto_suggested_page.label}
+              </span>
+            )}
+          </div>
+          <div className="text-[10px] text-muted mt-0.5">{slot.why}</div>
+          {slot.stored?.skipped_reason && (
+            <div className="text-[10px] text-muted italic mt-0.5">Skipped: {slot.stored.skipped_reason}</div>
+          )}
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {isDone && slot.mapped_page && (
+            <button
+              onClick={() => onOpenPage(slot.mapped_page.id)}
+              className="text-[9px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+            >Open →</button>
+          )}
+          <button
+            onClick={setActive}
+            disabled={busy}
+            className="text-[9px] py-1 px-2 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
+          >{active ? 'Close' : isDone ? 'Change' : isSkipped ? 'Un-skip' : 'Action'}</button>
+        </div>
+      </div>
+
+      {active && (
+        <div className="border-t border-[#e5e5e5] p-2 space-y-2 bg-white">
+          {/* Action 1: Map to existing page */}
+          {!isSkipped && (
+            <div className="border border-[#e5e5e5] rounded p-2 space-y-1">
+              <div className="text-[10px] font-medium">🔗 Map to an existing WordPress page</div>
+              <div className="text-[9px] text-muted">If a page already covers this slot's purpose, pick it here. Existing audit / propose / deploy history stays intact.</div>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={mapTarget}
+                  onChange={e => setMapTarget(e.target.value)}
+                  className="flex-1 text-[10px] border border-[#e5e5e5] rounded py-1 px-1.5 bg-white"
+                >
+                  <option value="">— pick a page —</option>
+                  {pages.map(p => {
+                    const mappedElsewhere = p.mapped_to_slot && p.mapped_to_slot !== slot.id
+                    return (
+                      <option key={p.id} value={p.id} disabled={mappedElsewhere}>
+                        {p.label} {p.url ? `· ${p.url}` : ''} {mappedElsewhere ? `(used by ${p.mapped_to_slot})` : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+                <button
+                  onClick={() => onAction('map', { landing_page_id: Number(mapTarget) })}
+                  disabled={busy || !mapTarget}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                >Map</button>
+                {slot.mapped_page && (
+                  <button
+                    onClick={() => onAction('unmap')}
+                    disabled={busy}
+                    className="text-[10px] py-1 px-2 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
+                  >Unmap</button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action 2: Create new from template */}
+          {!isSkipped && slot.effective_status !== "created" && slot.effective_status !== "deployed" && (
+            <div className="border border-[#e5e5e5] rounded p-2 space-y-1">
+              <div className="text-[10px] font-medium">📝 Create a new page from the <code>{slot.template_id}</code> template</div>
+              <div className="text-[9px] text-muted">A WP page draft is created with the template's body scaffold + pre-filled strategy hint. You'll Audit / Propose / Deploy via the regular workspace afterward.</div>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[10px] text-muted">Slug:</label>
+                <input
+                  type="text"
+                  value={slugOverride || slot.label.replace(/^\/|\/$/g, "")}
+                  onChange={e => setSlugOverride(e.target.value.replace(/^\/|\/$/g, ""))}
+                  className="flex-1 text-[10px] border border-[#e5e5e5] rounded py-1 px-1.5 outline-none focus:border-[#16a34a] font-mono"
+                />
+                <button
+                  onClick={() => onAction('create', { slug_override: slugOverride || null })}
+                  disabled={busy}
+                  className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                >{busy ? '…' : 'Create'}</button>
+              </div>
+            </div>
+          )}
+
+          {/* Action 3: Skip / Un-skip */}
+          <div className="border border-[#e5e5e5] rounded p-2 space-y-1">
+            <div className="text-[10px] font-medium">
+              {isSkipped ? '— Un-skip this slot' : '— Skip this slot'}
+            </div>
+            <div className="text-[9px] text-muted">
+              {isSkipped
+                ? "Re-open this slot if you want to address it after all."
+                : "Mark as not applicable for this tenant. You can un-skip later."}
+            </div>
+            {!isSkipped && (
+              <input
+                type="text"
+                value={skipReason}
+                onChange={e => setSkipReason(e.target.value)}
+                placeholder="Optional reason (e.g. 'covered by an existing /faq2/ page')"
+                className="w-full text-[10px] border border-[#e5e5e5] rounded py-1 px-1.5 outline-none focus:border-[#94a3b8]"
+              />
+            )}
+            <div className="flex items-center justify-end">
+              {isSkipped ? (
+                <button
+                  onClick={() => onAction('unskip')}
+                  disabled={busy}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#94a3b8] text-ink rounded cursor-pointer disabled:opacity-50"
+                >Un-skip</button>
+              ) : (
+                <button
+                  onClick={() => onAction('skip', { skipped_reason: skipReason || null })}
+                  disabled={busy}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#94a3b8] text-ink rounded cursor-pointer disabled:opacity-50"
+                >Skip</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function FanOutModal({ data, onClose, onCreated }) {
   const plan = data.plan || []
   const tierDescriptions = data.tier_descriptions || {}

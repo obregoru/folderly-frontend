@@ -871,6 +871,39 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
     return r.json()
   })
 
+// Site Setup Wizard — fetch the full state needed to render the
+// wizard: plan + per-slot progress + tenant's WP pages list for
+// mapping. One round trip; cheap to call on every modal open.
+export const getSetupProgress = () =>
+  fetch(`${apiBase()}/content/landing/setup-progress`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSetupProgress failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Apply an action to a slot in the Site Setup Wizard. Actions:
+//   - 'map': associate slot with an existing landing_page_id
+//   - 'create': create a new WP page from the slot's template
+//     (optional slug_override)
+//   - 'skip' / 'unskip': mark slot skipped or revert
+//   - 'unmap': clear the mapping (revert to pending)
+export const updateSetupSlot = (slotId, action, extras = {}) =>
+  fetch(`${apiBase()}/content/landing/setup-progress/slot`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ slot_id: slotId, action, ...extras }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateSetupSlot failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch the tenant-specific fan-out plan (canonical page set
 // + tier organization). Returns { plan: null } when no plan is
 // configured for the tenant — the FE uses that to hide the button.
