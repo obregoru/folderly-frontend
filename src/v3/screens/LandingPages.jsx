@@ -212,12 +212,53 @@ export default function LandingPages() {
         created_at: mostRecentAudit.created_at,
         recovered_from_history: true,
       } : null
+      // Surface the most recent COMPLETED ai-suggested proposal so
+      // ProposalDiff renders (and the Deploy button shows up)
+      // immediately when an operator reopens the page from the
+      // wizard or sidebar. Without this, the workspace looks empty
+      // even though a fresh proposal sits in version history. Only
+      // pick versions where proposal_status='done' (skips running /
+      // failed); legacy rows without a status are treated as done.
+      const latestProposalRow = (r.versions || []).find(v =>
+        v.kind === 'ai-suggested' &&
+        (!v.proposal_status || v.proposal_status === 'done')
+      )
+      let recoveredProposal = null
+      if (latestProposalRow) {
+        try {
+          const vresp = await api.getLandingPageVersion(page.id, latestProposalRow.id)
+          const v = vresp?.version
+          if (v) {
+            const meta = v.proposal_meta || {}
+            recoveredProposal = {
+              version_id: v.id,
+              created_at: v.created_at,
+              recovered_from_history: true,
+              proposal: {
+                title: v.title,
+                body_html: v.body_html,
+                meta_description: v.meta_description,
+                focus_keyword: v.focus_keyword,
+                links_kept: meta.links_kept || [],
+                links_refined: meta.links_refined || [],
+                links_added: meta.links_added || [],
+                links_removed: meta.links_removed || [],
+                summary_of_changes: meta.summary_of_changes || [],
+                rationale: meta.rationale || '',
+              },
+              proposed_links: v.links_meta || [],
+              source_links: [],
+            }
+          }
+        } catch {}
+      }
       setActive({
         landing_page_id: page.id,
         version_id: mostRecent?.id || null,
         strategy_hint: r.page?.strategy_hint || page.strategy_hint || '',
         ai_citations: Array.isArray(r.page?.ai_citations) ? r.page.ai_citations : [],
         recovered_audit: recoveredAudit,
+        recovered_proposal: recoveredProposal,
         page: {
           wp_post_id: page.wp_post_id,
           url: page.url,
@@ -402,6 +443,13 @@ export default function LandingPages() {
                 placeholder="144 or https://example.com/wp-admin/post.php?post=144"
                 className="flex-1 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7]"
               />
+              {active?.page?.wp_post_id && String(active.page.wp_post_id) !== defaultDraft.trim() && (
+                <button
+                  onClick={() => setDefaultDraft(String(active.page.wp_post_id))}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer whitespace-nowrap"
+                  title={`Fill in the current page's WP post ID (${active.page.wp_post_id}) so you can save it as the default with one click.`}
+                >Use current (#{active.page.wp_post_id})</button>
+              )}
               <button
                 onClick={handleSetDefault}
                 disabled={defaultSaving}
@@ -515,7 +563,7 @@ export default function LandingPages() {
 }
 
 function PageWorkspace({ data, requireBackupAck }) {
-  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit } = data
+  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit, recovered_proposal: recoveredProposal } = data
   const links = page.links || []
   const internalLinks = links.filter(l => l.type === 'internal')
   const externalLinks = links.filter(l => l.type === 'external')
@@ -627,8 +675,15 @@ function PageWorkspace({ data, requireBackupAck }) {
 
   // Proposal state. Lives alongside audit so the diff
   // view can render the current vs proposed bodies + the
-  // link-change ledger Claude emits.
-  const [proposal, setProposal] = useState(null)
+  // link-change ledger Claude emits. Pre-populated with the most
+  // recent completed ai-suggested version so the Deploy button
+  // renders immediately when reopening from the wizard or sidebar
+  // (no need to re-run propose). Recovered proposals carry a
+  // `recovered_from_history: true` flag.
+  const [proposal, setProposal] = useState(recoveredProposal || null)
+  // Swap when operator changes pages — otherwise a recovered
+  // proposal from page A would render on page B.
+  useEffect(() => { setProposal(recoveredProposal || null) }, [landing_page_id, recoveredProposal])
   const [proposalBusy, setProposalBusy] = useState(false)
   const [proposalError, setProposalError] = useState(null)
   const [proposalElapsed, setProposalElapsed] = useState(0)
