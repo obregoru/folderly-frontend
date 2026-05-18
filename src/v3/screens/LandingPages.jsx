@@ -1447,6 +1447,68 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
 // Post-deploy schema validation summary. Shown inline in the
 // deploy success block so the operator sees Rich-Results-style
 // validation feedback immediately, before they navigate away.
+// Post-deploy validator links. Three third-party tools that
+// independently parse the live page's structured data:
+//
+//   - Schema.org Validator: the neutral / canonical validator
+//     run by Schema.org with help from Google. Tests JSON-LD,
+//     Microdata, RDFa. The first stop for "is my schema valid."
+//   - Google Rich Results Test: Google's view — tells you which
+//     of your schema entities are rich-result-eligible.
+//   - Bing URL Inspection: Microsoft/Bing's equivalent of GSC
+//     URL inspection. Shows how Bing parses the page (Bing is
+//     the upstream of ChatGPT search + Bing Copilot, so this
+//     matters for AI surfaces too). Requires Bing Webmaster
+//     account login.
+function ExternalValidatorLinks({ liveUrl }) {
+  if (!liveUrl) return null
+  const encoded = encodeURIComponent(liveUrl)
+  const schemaOrgValidator = `https://validator.schema.org/#url=${encoded}`
+  const googleRichResults = `https://search.google.com/test/rich-results?url=${encoded}`
+  // Bing's URL inspection doesn't accept a ?url= param — it only
+  // takes the URL once the user is inside Webmaster Tools. Best
+  // we can do is deep-link to the inspection page; user pastes
+  // the URL there.
+  const bingInspect = `https://www.bing.com/webmasters/url-inspection`
+  return (
+    <div className="bg-white border border-[#e5e5e5] rounded p-1.5 mt-1 space-y-1">
+      <div className="text-[10px] text-muted font-medium">Verify on third-party tools</div>
+      <div className="flex flex-wrap gap-1.5 text-[9px]">
+        <a
+          href={schemaOrgValidator}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="py-0.5 px-1.5 bg-[#6C5CE7] text-white rounded no-underline"
+          title="Schema.org's canonical validator — neutral test of JSON-LD / Microdata / RDFa"
+        >🧪 Schema.org Validator</a>
+        <a
+          href={googleRichResults}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="py-0.5 px-1.5 bg-[#4285f4] text-white rounded no-underline"
+          title="Google's view — tells you which entities are rich-result-eligible"
+        >🔎 Google Rich Results Test</a>
+        <a
+          href={bingInspect}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="py-0.5 px-1.5 bg-[#0078d4] text-white rounded no-underline"
+          title="Bing Webmaster URL Inspection — Microsoft's equivalent (Bing powers ChatGPT search + Copilot, so this matters for AI surfaces too). Requires Bing Webmaster login."
+        >🅼 Bing URL Inspection</a>
+        <button
+          type="button"
+          onClick={() => { navigator.clipboard?.writeText(liveUrl).catch(() => {}) }}
+          className="py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer"
+          title="Copy the live URL — paste into Bing Webmaster URL Inspection (it doesn't accept a URL param)"
+        >📋 Copy URL</button>
+      </div>
+      <div className="text-[9px] text-muted italic">
+        Run a clean validation now (Schema.org + Google open with the URL prefilled). For Bing, copy the URL then paste it into the inspection tool after sign-in.
+      </div>
+    </div>
+  )
+}
+
 function SchemaValidationSummary({ v }) {
   if (!v) return null
   const summary = v.summary || {}
@@ -3028,6 +3090,9 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
             </div>
           )}
           {success.schema_validation && <SchemaValidationSummary v={success.schema_validation} />}
+          {success.wp_link && (
+            <ExternalValidatorLinks liveUrl={success.wp_link} />
+          )}
         </div>
       )}
     </div>
