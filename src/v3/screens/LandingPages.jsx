@@ -144,6 +144,10 @@ export default function LandingPages() {
       const full = await api.getLandingPage(r.landing_page_id).catch(() => null)
       setActive({
         ...r,
+        // detected_schema arrives top-level from the import response;
+        // fold it into page so PageWorkspace's single-source-of-truth
+        // for page metadata matches the openPage path.
+        page: { ...r.page, detected_schema: r.detected_schema || null },
         strategy_hint: full?.page?.strategy_hint || '',
         ai_citations: Array.isArray(full?.page?.ai_citations) ? full.page.ai_citations : [],
         history: full?.versions || [],
@@ -205,6 +209,7 @@ export default function LandingPages() {
           headings: mostRecent?.headings_meta || [],
           images: mostRecent?.images_meta || [],
           yoast_meta: mostRecent?.yoast_meta || null,
+          detected_schema: mostRecent?.detected_schema || null,
         },
         capabilities: page.capabilities || {},
         history: r.versions || [],
@@ -702,6 +707,16 @@ function PageWorkspace({ data, requireBackupAck }) {
             {page.yoast_meta.canonical && <div><b>Canonical:</b> {page.yoast_meta.canonical}</div>}
           </div>
         </details>
+      )}
+
+      {/* Detected JSON-LD schema — what's already live on the page,
+          captured at import time. Sourced from a public-URL fetch
+          (Yoast/RankMath/etc. emit schema in <head>, not body). The
+          summary tells the operator what types are present + whether
+          there are validation errors. Helps decide what types to
+          generate vs. what's already covered. */}
+      {page.detected_schema && (
+        <DetectedSchemaBlock detected={page.detected_schema} />
       )}
 
       {/* Quick stats */}
@@ -1373,6 +1388,104 @@ function SchemaValidationSummary({ v }) {
 //      Google OAuth flow in a popup.
 //   2. GSC connected but no site selected → site picker dropdown.
 //   3. GSC fully set up → "Pull GSC data" + result display.
+// Detected JSON-LD on the live page, captured at import time.
+// Shows the operator exactly what schema types Yoast/Rank Math/etc.
+// are already emitting — separate concern from "what schema should
+// we generate to fill the gaps." Renders as a single collapsible
+// block with a one-line summary by default + a per-block breakdown
+// when expanded. Errors highlighted; ok'd entities listed.
+function DetectedSchemaBlock({ detected }) {
+  if (!detected) return null
+  if (detected.fetch_error) {
+    return (
+      <details className="text-[10px] border border-[#fef3c7] rounded">
+        <summary className="cursor-pointer py-1.5 px-2 bg-[#fffbeb] text-[#92400e] font-medium">
+          🏷️ Detected schema — couldn't fetch live page
+        </summary>
+        <div className="p-2 text-muted">
+          <div><b>URL:</b> {detected.url}</div>
+          <div><b>Error:</b> {detected.fetch_error}</div>
+          <div className="italic mt-1">Schema detection runs by fetching the public URL of the page. If the page is draft/private, or behind a maintenance plugin, this fails — re-import after publishing.</div>
+        </div>
+      </details>
+    )
+  }
+  const s = detected.summary || {}
+  if (s.no_jsonld) {
+    return (
+      <details className="text-[10px] border border-[#fef3c7] rounded">
+        <summary className="cursor-pointer py-1.5 px-2 bg-[#fffbeb] text-[#92400e] font-medium">
+          🏷️ No JSON-LD schema detected on live page
+        </summary>
+        <div className="p-2 text-muted space-y-1">
+          <div>The page fetched cleanly (HTTP {detected.http_status}) but no <code>&lt;script type="application/ld+json"&gt;</code> blocks were found in the HTML.</div>
+          <div className="italic">Most SEO plugins (Yoast, Rank Math, AIOSEO) emit schema by default. Either your SEO plugin isn't configured, or it's being stripped before render. The next deploy will auto-inject whatever blocks Posty Posty generates.</div>
+        </div>
+      </details>
+    )
+  }
+  // Collect types across all blocks for the one-line summary.
+  const typeCounts = {}
+  for (const b of detected.blocks || []) {
+    for (const e of b.entities || []) {
+      const t = e.type || 'Unknown'
+      typeCounts[t] = (typeCounts[t] || 0) + 1
+    }
+  }
+  const typesSummary = Object.entries(typeCounts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([t, n]) => n > 1 ? `${t} ×${n}` : t)
+    .join(', ')
+  const tone = s.error_count > 0 ? 'border-[#fef2f2] bg-[#fef2f2]'
+    : s.warning_count > 0 ? 'border-[#fef3c7] bg-[#fffbeb]'
+    : 'border-[#dcfce7] bg-[#f0fdf4]'
+  return (
+    <details className={`text-[10px] border rounded ${tone}`}>
+      <summary className="cursor-pointer py-1.5 px-2 font-medium flex items-center gap-2">
+        <span>🏷️ Detected schema on live page</span>
+        <span className="text-[9px] font-normal text-muted">
+          {s.total_entities} entit{s.total_entities === 1 ? 'y' : 'ies'} · {typesSummary || 'no recognized types'}
+          {s.error_count > 0 && <span className="text-[#c0392b]"> · {s.error_count} error{s.error_count === 1 ? '' : 's'}</span>}
+          {s.warning_count > 0 && s.error_count === 0 && <span className="text-[#92400e]"> · {s.warning_count} warning{s.warning_count === 1 ? '' : 's'}</span>}
+        </span>
+      </summary>
+      <div className="p-2 bg-white border-t border-[#e5e5e5] space-y-2">
+        <div className="text-[9px] text-muted">
+          Captured by fetching <a href={detected.url} target="_blank" rel="noopener" className="text-[#6C5CE7] underline">{detected.url}</a> at {detected.fetched_at ? new Date(detected.fetched_at).toLocaleString() : 'import time'}. This is what Yoast / Rank Math / etc. is already emitting — the propose + schema flows will avoid duplicating these types.
+        </div>
+        {(detected.blocks || []).map((b, bi) => (
+          <details key={bi} className="border border-[#e5e5e5] rounded" open={detected.blocks.length === 1}>
+            <summary className="cursor-pointer py-1 px-2 bg-[#fafafa] text-[10px] font-medium">
+              Block #{(b.block_index ?? bi) + 1} — {b.entity_count} entit{b.entity_count === 1 ? 'y' : 'ies'}
+            </summary>
+            <div className="p-1.5 space-y-1">
+              {(b.entities || []).map((e, i) => {
+                const okTone = e.ok ? 'text-[#16a34a]' : e.errors?.length > 0 ? 'text-[#c0392b]' : 'text-[#92400e]'
+                return (
+                  <div key={i} className="text-[10px] border-b border-[#f0f0f0] last:border-0 py-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{e.type || '?'}</span>
+                      <span className={`text-[9px] ${okTone}`}>
+                        {e.ok ? '✓ valid' : e.errors?.length > 0 ? '⚠ errors' : '⚠ warnings'}
+                      </span>
+                    </div>
+                    {(e.errors || []).map((err, ei) => (
+                      <div key={`e-${ei}`} className="pl-3 text-[9px] text-[#c0392b]">• {err}</div>
+                    ))}
+                    {(e.warnings || []).map((w, wi) => (
+                      <div key={`w-${wi}`} className="pl-3 text-[9px] text-muted">• {w}</div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          </details>
+        ))}
+      </div>
+    </details>
+  )
+}
+
 // AI Overview citation manager. Operators paste in snippets from
 // Google AI Overview / ChatGPT / Perplexity / etc. that quote this
 // page, plus the originating query + a source label. The list is
