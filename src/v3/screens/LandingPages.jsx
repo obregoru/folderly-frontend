@@ -360,6 +360,11 @@ export default function LandingPages() {
         )}
       </div>
 
+      {/* Tenant-wide editorial policy — applies to every audit +
+          propose call across all pages. Collapsed by default so it
+          doesn't crowd the UI; expand to edit. */}
+      <EditorialPolicyEditor />
+
       {/* Site audit result panel — only visible after Run site
           audit is clicked. Findings are grouped into 4 buckets so
           the operator can navigate by issue type. */}
@@ -2456,6 +2461,116 @@ function timeAgoShort(iso) {
 // surfaces seasons that are both inside the 90-day window AND past
 // their lead-time threshold, so the list is naturally short (1-3
 // items most of the year).
+// Tenant-wide editorial policy editor. Collapsed by default so it
+// doesn't dominate the Pages header. The policy auto-prepends to
+// every audit + propose call alongside per-page strategy hints —
+// it's where cross-cutting rules (brand separation, neutrality on
+// causes, voice discipline) live so they don't have to be re-typed
+// per page. Loads lazily on first expand to keep the initial
+// render light.
+function EditorialPolicyEditor() {
+  const [open, setOpen] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [policy, setPolicy] = useState('')
+  const [original, setOriginal] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [saved, setSaved] = useState(false)
+
+  const load = async () => {
+    try {
+      const r = await api.getEditorialPolicy()
+      const text = r?.editorial_policy || ''
+      setPolicy(text)
+      setOriginal(text)
+      setLoaded(true)
+    } catch (e) {
+      setError(e?.message || String(e))
+    }
+  }
+
+  const handleToggle = () => {
+    setOpen(o => {
+      if (!o && !loaded) load()
+      return !o
+    })
+  }
+
+  const save = async () => {
+    if (busy) return
+    setBusy(true); setError(null); setSaved(false)
+    try {
+      await api.setEditorialPolicy(policy)
+      setOriginal(policy)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const isDirty = loaded && policy !== original
+  const charCount = policy.length
+
+  return (
+    <details open={open} className="border border-[#e5e5e5] rounded bg-white">
+      <summary
+        onClick={(e) => { e.preventDefault(); handleToggle() }}
+        className="cursor-pointer py-2 px-3 flex items-center gap-2"
+      >
+        <span className="text-[11px] font-medium">📜 Tenant-wide editorial policy</span>
+        <span className="text-[9px] text-muted">
+          Applies to every audit + propose call across all pages. Brand separation, neutrality on causes, voice discipline.
+        </span>
+        <span className="flex-1" />
+        {loaded && (
+          <span className="text-[9px] text-muted">
+            {original ? `${original.length.toLocaleString()} chars saved` : 'empty'}
+          </span>
+        )}
+        <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
+      </summary>
+      {open && (
+        <div className="p-3 pt-0 space-y-2">
+          {!loaded && !error && (
+            <div className="text-[10px] text-muted italic">Loading…</div>
+          )}
+          {error && (
+            <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>
+          )}
+          {loaded && (
+            <>
+              <div className="text-[10px] text-muted">
+                Free-form prose. Auto-prepended to every Claude call for this tenant as <em>highest priority</em>, before per-page strategy hints. Overrides per-page conflicts.
+              </div>
+              <textarea
+                value={policy}
+                onChange={e => setPolicy(e.target.value)}
+                rows={14}
+                spellCheck={false}
+                className="w-full text-[11px] font-mono border border-[#e5e5e5] rounded p-2 outline-none focus:border-[#6C5CE7] resize-y"
+                placeholder="e.g. BRAND SEPARATION (HARD RULE): makeandtake.com is a publication, not a venue. Never use first-person ownership..."
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-muted">{charCount.toLocaleString()} chars</span>
+                {saved && <span className="text-[9px] text-[#16a34a]">✓ Saved</span>}
+                <span className="flex-1" />
+                <button
+                  onClick={save}
+                  disabled={busy || !isDirty}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                >{busy ? 'Saving…' : 'Save policy'}</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </details>
+  )
+}
+
 function SeasonalBanner({ upcoming, onDismiss, onOpenPage }) {
   // Soonest season drives the banner accent. Within ≤14 days =
   // urgent (amber); within ≤45 days = warm (lavender); further

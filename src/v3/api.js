@@ -895,6 +895,36 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
     return r.json()
   })
 
+// Tenant-wide editorial policy — free-form prose the operator
+// writes once per tenant; auto-prepended to every audit + propose
+// call alongside the per-page strategy hint. Used to encode
+// cross-cutting rules (brand separation, neutrality on causes,
+// voice discipline) so they don't have to be re-typed on every
+// page.
+export const getEditorialPolicy = () =>
+  csrfFetch(`${apiBase()}/content/landing/editorial-policy`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getEditorialPolicy failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const setEditorialPolicy = (text) =>
+  csrfFetch(`${apiBase()}/content/landing/editorial-policy`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ editorial_policy: text || null }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setEditorialPolicy failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Site Setup Wizard — fetch the full state needed to render the
 // wizard: plan + per-slot progress + tenant's WP pages list for
 // mapping. One round trip; cheap to call on every modal open.
