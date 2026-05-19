@@ -248,6 +248,12 @@ export default function LandingPages() {
               },
               proposed_links: v.links_meta || [],
               source_links: [],
+              // Surface check results on the latest version so the
+              // per-page WorkflowWizard can show 'AI checked / voice
+              // checked' status without making separate API calls.
+              ai_detection: v.ai_detection || null,
+              voice_check: v.voice_check || null,
+              deployed_at: v.deployed_at || null,
             }
           }
         } catch {}
@@ -812,6 +818,19 @@ function PageWorkspace({ data, requireBackupAck }) {
         <div className="text-[9px] font-mono text-muted whitespace-nowrap">WP #{page.wp_post_id}</div>
       </div>
 
+      {/* Workflow wizard — 5-step tracker showing what's been done
+          on this page + what's recommended next. Steps can be run
+          in any order (layered workflow support). Each card has a
+          status badge, last-action date, and click-to-jump-to-panel
+          for the matching action. */}
+      <WorkflowWizard
+        page={page}
+        audit={audit}
+        proposal={proposal}
+        history={history}
+        recoveredProposal={recoveredProposal}
+      />
+
       {/* Site capabilities pill row — shows the operator what we
           detected so they can sanity-check before trusting downstream
           audit/proposal recommendations. */}
@@ -971,7 +990,7 @@ function PageWorkspace({ data, requireBackupAck }) {
       )}
 
       {/* Audit panel — Phase 2 */}
-      <div className="border border-[#6C5CE7]/30 rounded p-3 space-y-2 bg-[#fafbff]">
+      <div data-workflow-anchor="audit" className="border border-[#6C5CE7]/30 rounded p-3 space-y-2 bg-[#fafbff]">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-medium text-[#6C5CE7]">🔍 5-dimension audit</span>
           <span className="text-[9px] text-muted">SEO · AEO · GEO · E-E-A-T · AI-naturalness · breadcrumbs</span>
@@ -1015,8 +1034,11 @@ function PageWorkspace({ data, requireBackupAck }) {
         )}
       </div>
 
-      {/* Proposal panel */}
-      <div className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
+      {/* Proposal panel — also serves as anchor target for steps
+          3 (AI check), 4 (voice check), and refine (🎯 Re-propose
+          with feedback) since those actions all live inside this
+          panel via ProposalDiff. */}
+      <div data-workflow-anchor="proposal" data-workflow-anchor-secondary="ai-check voice-check refine" className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Rewrite proposal</span>
           <span className="text-[9px] text-muted">Full body rewrite using: tenant editorial policy + page strategy hint + AI Overview citations (preserve + restore) + selected audit findings + (on 🎯 Re-propose) latest AI-detection + voice-check feedback. Existing links preserved by design.</span>
@@ -2691,6 +2713,193 @@ function timeAgoShort(iso) {
 // causes, voice discipline) live so they don't have to be re-typed
 // per page. Loads lazily on first expand to keep the initial
 // render light.
+// Per-page workflow wizard. 5-step tracker showing where the page
+// is in its lifecycle. Each step shows status (done/never/stale)
+// + last-action timestamp + a button to scroll to the relevant
+// panel for taking that action. Steps can be done in any order
+// across multiple sessions — the wizard reads state from BE-
+// persisted data, not in-session state alone.
+function WorkflowWizard({ page, audit, proposal, history, recoveredProposal }) {
+  // Step 1 — Audit. Done if last_audited_at on the page row OR an
+  // audit was run this session.
+  const auditDate = audit?.created_at || page?.last_audited_at || null
+  const hasAudit = !!auditDate
+  const isAuditStale = hasAudit && (Date.now() - new Date(auditDate).getTime() > 30 * 24 * 60 * 60 * 1000)
+
+  // Step 2 — Proposal. Done if a proposal exists in-session OR a
+  // recovered ai-suggested version exists.
+  const proposalDate = proposal?.created_at || recoveredProposal?.created_at || null
+  const hasProposal = !!proposalDate
+
+  // Step 3 — AI score. Read from recoveredProposal.ai_detection
+  // (which surfaces the latest version's check).
+  const aiDetection = recoveredProposal?.ai_detection || null
+  const hasAi = !!aiDetection
+  const aiScore = aiDetection?.score
+  const aiActionable = aiDetection?.actionable_flagged_count
+
+  // Step 4 — Voice check.
+  const voiceCheck = recoveredProposal?.voice_check || null
+  const hasVoice = !!voiceCheck
+  const voiceScore = voiceCheck?.overall_score
+  const voiceVerdict = voiceCheck?.verdict
+  const voiceActionable = voiceCheck?.actionable_drift_count
+
+  // Step 5 — Deploy. Done if last_deployed_at OR a deployed_at on
+  // the latest version. "Stale" if deployed BEFORE the last audit
+  // (meaning audit findings haven't been applied to live yet).
+  const deployDate = page?.last_deployed_at || recoveredProposal?.deployed_at || null
+  const hasDeploy = !!deployDate
+  const isDeployStale = hasDeploy && hasAudit &&
+    new Date(deployDate) < new Date(auditDate)
+
+  // Determine the recommended next step. Earliest unfinished step
+  // in the standard flow wins. Refinement step (re-propose with
+  // feedback) is recommended when checks have been run AND scores
+  // indicate the content needs work.
+  const wantsRefine = (hasAi && aiActionable > 0) || (hasVoice && voiceScore != null && voiceScore < 65)
+  let next = 'audit'
+  if (hasAudit) {
+    if (!hasProposal) next = 'proposal'
+    else if (!hasAi) next = 'ai-check'
+    else if (!hasVoice) next = 'voice-check'
+    else if (wantsRefine) next = 'refine'
+    else if (!hasDeploy || isDeployStale) next = 'deploy'
+    else next = 'complete'
+  }
+
+  // Helpers for rendering each step.
+  const fmtShort = (d) => d ? new Date(d).toLocaleDateString() : null
+  const stepCardCls = (key) => {
+    const isNext = next === key
+    return `flex-1 min-w-[140px] border rounded p-2 ${
+      isNext ? 'border-[#6C5CE7] bg-[#f5f3ff] shadow-sm' : 'border-[#e5e5e5] bg-white'
+    }`
+  }
+  const statusBadge = (state, color = 'gray') => {
+    const cls = {
+      done:    'bg-[#dcfce7] text-[#16a34a]',
+      stale:   'bg-[#fff7ed] text-[#d97706]',
+      never:   'bg-[#f0f0f0] text-muted',
+      next:    'bg-[#6C5CE7] text-white',
+      warning: 'bg-[#fef2f2] text-[#c0392b]',
+    }[state] || 'bg-[#f0f0f0] text-muted'
+    return cls
+  }
+
+  // Each step's status icon + scroll-target id (we use HTML id
+  // anchors so the click handler just sets window.location.hash
+  // OR scrolls into view). For simplicity, we use a data-anchor
+  // attribute matching panel ids set below.
+  const scrollTo = (anchor) => {
+    if (typeof document === 'undefined') return
+    // Try primary anchor first, then any element listing this
+    // anchor in its data-workflow-anchor-secondary attribute (e.g.
+    // ai-check, voice-check, refine all live inside the proposal
+    // panel via ProposalDiff).
+    let el = document.querySelector(`[data-workflow-anchor="${anchor}"]`)
+    if (!el) {
+      const candidates = document.querySelectorAll('[data-workflow-anchor-secondary]')
+      for (const c of candidates) {
+        const list = (c.getAttribute('data-workflow-anchor-secondary') || '').split(/\s+/)
+        if (list.includes(anchor)) { el = c; break }
+      }
+    }
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      el.style.transition = 'box-shadow 0.4s ease'
+      el.style.boxShadow = '0 0 0 3px rgba(108,92,231,0.4)'
+      setTimeout(() => { el.style.boxShadow = '' }, 1500)
+    }
+  }
+
+  const Step = ({ num, label, status, statusText, date, anchor, nextHint }) => {
+    const isNext = next === anchor
+    return (
+      <button
+        onClick={() => scrollTo(anchor)}
+        className={`${stepCardCls(anchor)} text-left cursor-pointer hover:shadow-sm transition-shadow`}
+        title={isNext ? `Recommended next step. Click to jump to the section.` : `Click to jump to the ${label} section.`}
+      >
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className={`text-[9px] py-0.5 px-1.5 rounded font-bold ${isNext ? statusBadge('next') : statusBadge(status)}`}>
+            {num}
+          </span>
+          <span className="text-[10px] font-medium flex-1 truncate">{label}</span>
+          {isNext && <span className="text-[8px] text-[#6C5CE7] font-bold">NEXT</span>}
+        </div>
+        <div className={`text-[9px] ${
+          status === 'done' ? 'text-[#16a34a]'
+          : status === 'stale' ? 'text-[#d97706]'
+          : status === 'warning' ? 'text-[#c0392b]'
+          : 'text-muted'
+        }`}>{statusText}</div>
+        {date && <div className="text-[8px] text-muted mt-0.5">{date}</div>}
+      </button>
+    )
+  }
+
+  return (
+    <div className="bg-[#fafbff] border border-[#6C5CE7]/30 rounded p-2.5 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium text-[#6C5CE7]">🪄 Page workflow</span>
+        <span className="text-[9px] text-muted">Click any step to jump to its section. Steps can be done in any order across sessions.</span>
+        <div className="flex-1" />
+        {next === 'complete' && (
+          <span className="text-[10px] py-0.5 px-2 bg-[#16a34a] text-white rounded font-bold">✓ Complete</span>
+        )}
+      </div>
+      <div className="flex items-stretch gap-1.5 flex-wrap">
+        <Step
+          num="1"
+          label="Audit"
+          status={!hasAudit ? 'never' : isAuditStale ? 'stale' : 'done'}
+          statusText={!hasAudit ? 'Never audited' : isAuditStale ? 'Stale (>30d)' : '✓ Audited'}
+          date={fmtShort(auditDate)}
+          anchor="audit"
+        />
+        <Step
+          num="2"
+          label="Proposal"
+          status={!hasProposal ? 'never' : 'done'}
+          statusText={!hasProposal ? 'No proposal yet' : '✓ Proposal ready'}
+          date={fmtShort(proposalDate)}
+          anchor="proposal"
+        />
+        <Step
+          num="3"
+          label="AI score"
+          status={!hasAi ? 'never' : aiActionable > 0 ? 'warning' : 'done'}
+          statusText={!hasAi ? 'Never checked' : `Score ${aiScore}% · ${aiActionable ?? 0} actionable`}
+          date={hasAi ? fmtShort(aiDetection.detected_at) : null}
+          anchor="ai-check"
+        />
+        <Step
+          num="4"
+          label="Voice check"
+          status={!hasVoice ? 'never' : voiceActionable > 0 ? 'warning' : 'done'}
+          statusText={!hasVoice ? 'Never checked' : `${voiceScore} · ${voiceVerdict || '?'}`}
+          date={hasVoice ? fmtShort(voiceCheck.checked_at) : null}
+          anchor="voice-check"
+        />
+        <Step
+          num="5"
+          label="Deploy"
+          status={!hasDeploy ? 'never' : isDeployStale ? 'stale' : 'done'}
+          statusText={!hasDeploy ? 'Never deployed' : isDeployStale ? 'Stale (audit newer)' : '✓ Live'}
+          date={fmtShort(deployDate)}
+          anchor="deploy"
+        />
+      </div>
+      {wantsRefine && hasProposal && (
+        <div className="text-[9px] text-[#d97706] bg-[#fff7ed] border border-[#d97706]/30 rounded p-1.5">
+          💡 Score(s) suggest the content needs work. Use <b>🎯 Re-propose with feedback</b> in the Proposal panel to regenerate addressing the flagged sentences + voice drifts. Then re-check.
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EditorialPolicyEditor() {
   const [open, setOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -4193,7 +4402,7 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
     }
   }
   return (
-    <div className="border border-[#c0392b]/40 rounded p-3 bg-[#fef2f2] space-y-2">
+    <div data-workflow-anchor="deploy" className="border border-[#c0392b]/40 rounded p-3 bg-[#fef2f2] space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[11px] font-medium text-[#c0392b]">🚀 Deploy to WordPress</span>
         <span className="text-[9px] text-muted">Replaces the live page's body + title + (when Yoast Premium) meta description + focus keyword. Live page snapshotted as a backup first.</span>
