@@ -512,15 +512,12 @@ export default function LandingPages() {
               resolves get rendered at top level so they stay
               accessible. */}
           {state.pages.length > 0 && (
-            <div className="bg-white border border-[#e5e5e5] rounded p-3">
-              <div className="text-[11px] font-medium mb-2">Managed pages ({state.pages.length})</div>
-              <ManagedPagesTree
-                pages={state.pages}
-                onOpen={openPage}
-                defaultPostId={state.default_post_id}
-                activeLandingPageId={active?.landing_page_id || null}
-              />
-            </div>
+            <ManagedPagesPanel
+              pages={state.pages}
+              onOpen={openPage}
+              defaultPostId={state.default_post_id}
+              activeLandingPageId={active?.landing_page_id || null}
+            />
           )}
 
           {/* Workspace — the parsed page from the most recent import */}
@@ -4324,6 +4321,117 @@ function VersionHistory({ history, landingPageId, onRolledBack }) {
 // operator legitimately needs 3 levels, we'd swap this for a
 // tree component; for now the use case is `LA → Pasadena/Downey`
 // which is two levels.
+// Determine workflow completion state for a page. Used by both
+// the filter chips (count pages by state) and the inline next-step
+// indicator on each row. Returns: { hasAudit, hasAi, hasVoice,
+// hasDeploy, isComplete, nextStep }.
+function getPageWorkflowState(page) {
+  const hasAudit = !!page.last_audited_at
+  const hasAi = !!page.latest_ai_detection
+  const hasVoice = !!page.latest_voice_check
+  const hasDeploy = !!page.last_deployed_at
+  // "Complete" = audited + AI checked + voice checked + deployed
+  // (and deployed AFTER the last audit so changes are applied).
+  const auditApplied = hasAudit && hasDeploy &&
+    new Date(page.last_deployed_at) >= new Date(page.last_audited_at)
+  const isComplete = hasAudit && hasAi && hasVoice && hasDeploy && auditApplied
+  // Recommend the EARLIEST missing step in the standard flow.
+  let nextStep = null
+  if (!hasAudit) nextStep = 'audit'
+  else if (!hasAi) nextStep = 'ai-check'
+  else if (!hasVoice) nextStep = 'voice-check'
+  else if (!hasDeploy || !auditApplied) nextStep = 'deploy'
+  return { hasAudit, hasAi, hasVoice, hasDeploy, auditApplied, isComplete, nextStep }
+}
+
+// Top-level managed pages panel with column headers + filter chips
+// for completion state. Filters operate client-side over the
+// already-fetched pages array. Filter options:
+//   • All — every page
+//   • Needs audit — last_audited_at is null
+//   • Needs AI check — latest_ai_detection is null
+//   • Needs voice check — latest_voice_check is null
+//   • Not deployed — last_deployed_at is null
+//   • Complete — every step done + deploy is after last audit
+// Each chip shows the matching count so the operator sees at a
+// glance how much work is left site-wide.
+function ManagedPagesPanel({ pages, onOpen, defaultPostId, activeLandingPageId }) {
+  const [filter, setFilter] = useState('all')
+
+  const counts = useMemo(() => {
+    const c = { all: pages.length, audit: 0, ai: 0, voice: 0, deploy: 0, complete: 0 }
+    for (const p of pages) {
+      const s = getPageWorkflowState(p)
+      if (!s.hasAudit) c.audit++
+      if (!s.hasAi) c.ai++
+      if (!s.hasVoice) c.voice++
+      if (!s.hasDeploy || !s.auditApplied) c.deploy++
+      if (s.isComplete) c.complete++
+    }
+    return c
+  }, [pages])
+
+  const filteredPages = useMemo(() => {
+    if (filter === 'all') return pages
+    return pages.filter(p => {
+      const s = getPageWorkflowState(p)
+      if (filter === 'audit') return !s.hasAudit
+      if (filter === 'ai') return !s.hasAi
+      if (filter === 'voice') return !s.hasVoice
+      if (filter === 'deploy') return !s.hasDeploy || !s.auditApplied
+      if (filter === 'complete') return s.isComplete
+      return true
+    })
+  }, [pages, filter])
+
+  const chipCls = (key) =>
+    `text-[10px] py-1 px-2 rounded cursor-pointer whitespace-nowrap border ${
+      filter === key
+        ? 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+        : 'bg-white text-ink border-[#e5e5e5] hover:bg-[#f0eff5]'
+    }`
+
+  return (
+    <div className="bg-white border border-[#e5e5e5] rounded p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-medium">Managed pages</span>
+        <span className="text-[10px] text-muted">— filter by what's left to do</span>
+      </div>
+      {/* Filter chips */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button onClick={() => setFilter('all')} className={chipCls('all')}>All ({counts.all})</button>
+        <button onClick={() => setFilter('audit')} className={chipCls('audit')} title="Pages that have never been audited">Needs audit ({counts.audit})</button>
+        <button onClick={() => setFilter('ai')} className={chipCls('ai')} title="Pages where AI detection has not been run on the latest version">Needs AI check ({counts.ai})</button>
+        <button onClick={() => setFilter('voice')} className={chipCls('voice')} title="Pages where brand voice check has not been run on the latest version">Needs voice check ({counts.voice})</button>
+        <button onClick={() => setFilter('deploy')} className={chipCls('deploy')} title="Pages never deployed OR deployed before the last audit (changes pending)">Needs deploy ({counts.deploy})</button>
+        <button onClick={() => setFilter('complete')} className={chipCls('complete')} title="Audited + AI checked + voice checked + deployed after audit">Complete ({counts.complete})</button>
+      </div>
+      {/* Column headers */}
+      <div className="grid items-center gap-2 text-[9px] text-muted uppercase font-medium px-2 py-1 border-b border-[#e5e5e5]" style={{ gridTemplateColumns: '1fr 60px 70px 70px 70px 70px 70px' }}>
+        <span>Page</span>
+        <span className="text-right">WP #</span>
+        <span className="text-right" title="Last imported from WordPress">📥 Imported</span>
+        <span className="text-right" title="Last audited (analysis date)">🔍 Audited</span>
+        <span className="text-right" title="Last AI-detection score on latest version">🤖 AI</span>
+        <span className="text-right" title="Last brand-voice verdict on latest version">🎙️ Voice</span>
+        <span className="text-right" title="Last deployed to WordPress">🚀 Deployed</span>
+      </div>
+      {filteredPages.length === 0 ? (
+        <div className="text-[10px] text-muted italic px-2 py-3 text-center">
+          No pages match this filter. {filter !== 'all' && <button onClick={() => setFilter('all')} className="underline text-[#6C5CE7] bg-transparent border-none cursor-pointer">Show all</button>}
+        </div>
+      ) : (
+        <ManagedPagesTree
+          pages={filteredPages}
+          onOpen={onOpen}
+          defaultPostId={defaultPostId}
+          activeLandingPageId={activeLandingPageId}
+        />
+      )}
+    </div>
+  )
+}
+
 function ManagedPagesTree({ pages, onOpen, defaultPostId, activeLandingPageId }) {
   // Build a parent → children map. Orphans (children whose parent
   // doesn't resolve in this list, e.g. cross-tenant deletion) get
@@ -4392,34 +4500,60 @@ function ManagedPagesTree({ pages, onOpen, defaultPostId, activeLandingPageId })
 
 function PageRow({ page, onOpen, indent = 0, isDefault = false, dimmed = false, isActive = false }) {
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—'
+  const ai = page.latest_ai_detection || null
+  const voice = page.latest_voice_check || null
+  // AI score color: low (≤40%) = green, mid (40-65%) = amber, high (>65%) = red.
+  const aiScore = ai?.score
+  const aiClass = aiScore == null ? 'text-muted'
+    : aiScore <= 40 ? 'text-[#16a34a]'
+    : aiScore <= 65 ? 'text-[#d97706]'
+    : 'text-[#c0392b]'
+  const voiceScore = voice?.overall_score
+  const voiceClass = voiceScore == null ? 'text-muted'
+    : voiceScore >= 75 ? 'text-[#16a34a]'
+    : voiceScore >= 50 ? 'text-[#d97706]'
+    : 'text-[#c0392b]'
   return (
     <button
       onClick={() => onOpen(page)}
-      className={`w-full flex items-center gap-2 text-[11px] py-1.5 px-2 ${
+      className={`w-full grid items-center gap-2 text-[11px] py-1.5 px-2 ${
         isActive ? 'bg-[#dcfce7] border-[#16a34a]/40' :
         isDefault && !dimmed ? 'bg-[#f5f3ff] border-[#6C5CE7]/30' : 'bg-[#fafafa] border-[#e5e5e5]'
       } hover:bg-[#f0eff5] border rounded cursor-pointer text-left ${dimmed ? 'opacity-60' : ''}`}
-      style={indent > 0 ? { marginLeft: `${indent * 16}px` } : undefined}
+      style={{
+        ...(indent > 0 ? { marginLeft: `${indent * 16}px` } : {}),
+        gridTemplateColumns: '1fr 60px 70px 70px 70px 70px 70px',
+      }}
       title={dimmed ? 'Also pinned at the top as the Default page' : isActive ? 'Currently loaded in the workspace below' : undefined}
     >
-      {indent > 0 && <span className="text-muted">↳</span>}
-      <span className="font-medium truncate flex-1">{page.label || `Post ${page.wp_post_id}`}</span>
-      {isActive && <span className="text-[8px] bg-[#16a34a] text-white py-0.5 px-1 rounded uppercase font-bold">Loaded</span>}
-      {isDefault && !dimmed && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Default</span>}
-      {page.cornerstone && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Cornerstone</span>}
-      <span className="font-mono text-[9px] text-muted">#{page.wp_post_id}</span>
+      <div className="flex items-center gap-2 min-w-0">
+        {indent > 0 && <span className="text-muted">↳</span>}
+        <span className="font-medium truncate flex-1">{page.label || `Post ${page.wp_post_id}`}</span>
+        {isActive && <span className="text-[8px] bg-[#16a34a] text-white py-0.5 px-1 rounded uppercase font-bold">Loaded</span>}
+        {isDefault && !dimmed && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Def</span>}
+        {page.cornerstone && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Corn</span>}
+      </div>
+      <span className="font-mono text-[9px] text-muted text-right">#{page.wp_post_id}</span>
       <span
-        className="text-[9px] text-muted whitespace-nowrap"
-        title={`Last imported from WordPress: ${page.last_imported_at ? new Date(page.last_imported_at).toLocaleString() : 'never'}`}
-      >📥 {fmtDate(page.last_imported_at)}</span>
+        className="text-[9px] text-muted text-right whitespace-nowrap"
+        title={`Last imported: ${page.last_imported_at ? new Date(page.last_imported_at).toLocaleString() : 'never'}`}
+      >{fmtDate(page.last_imported_at)}</span>
       <span
-        className={`text-[9px] whitespace-nowrap ${page.last_audited_at ? 'text-[#6C5CE7]' : 'text-muted'}`}
-        title={`Last audited (analysis): ${page.last_audited_at ? new Date(page.last_audited_at).toLocaleString() : 'never audited'}`}
-      >🔍 {fmtDate(page.last_audited_at)}</span>
+        className={`text-[9px] text-right whitespace-nowrap ${page.last_audited_at ? 'text-[#6C5CE7]' : 'text-muted'}`}
+        title={`Last audited: ${page.last_audited_at ? new Date(page.last_audited_at).toLocaleString() : 'never audited'}`}
+      >{fmtDate(page.last_audited_at)}</span>
       <span
-        className={`text-[9px] whitespace-nowrap ${page.last_deployed_at ? 'text-[#16a34a]' : 'text-muted'}`}
-        title={`Last deployed to WordPress: ${page.last_deployed_at ? new Date(page.last_deployed_at).toLocaleString() : 'never deployed'}`}
-      >🚀 {fmtDate(page.last_deployed_at)}</span>
+        className={`text-[9px] text-right whitespace-nowrap ${aiClass}`}
+        title={ai ? `AI score ${aiScore}% on ${ai.detected_at ? new Date(ai.detected_at).toLocaleString() : 'unknown'} — ${ai.actionable_flagged_count ?? '?'} actionable flagged sentence(s)` : 'AI check never run'}
+      >{ai ? `${aiScore}%` : '—'}</span>
+      <span
+        className={`text-[9px] text-right whitespace-nowrap ${voiceClass}`}
+        title={voice ? `Voice score ${voiceScore}, verdict: ${voice.verdict || '?'}, checked ${voice.checked_at ? new Date(voice.checked_at).toLocaleString() : 'unknown'} — ${voice.actionable_drift_count ?? '?'} actionable drift(s)` : 'Voice check never run'}
+      >{voice ? voiceScore : '—'}</span>
+      <span
+        className={`text-[9px] text-right whitespace-nowrap ${page.last_deployed_at ? 'text-[#16a34a]' : 'text-muted'}`}
+        title={`Last deployed: ${page.last_deployed_at ? new Date(page.last_deployed_at).toLocaleString() : 'never deployed'}`}
+      >{fmtDate(page.last_deployed_at)}</span>
     </button>
   )
 }
