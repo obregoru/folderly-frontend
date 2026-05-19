@@ -700,9 +700,9 @@ function PageWorkspace({ data, requireBackupAck }) {
     return () => clearInterval(tick)
   }, [proposalBusy])
 
-  const runProposal = async () => {
+  const runProposal = async ({ useCheckFeedback = false } = {}) => {
     if (proposalBusy || !landing_page_id) return
-    if (audit?.audit_id && selectedSuggestions.size === 0) return
+    if (audit?.audit_id && selectedSuggestions.size === 0 && !useCheckFeedback) return
     setProposalBusy(true); setProposalError(null)
     try {
       // BE returns { version_id, status: 'running' } immediately;
@@ -711,14 +711,15 @@ function PageWorkspace({ data, requireBackupAck }) {
       // 'failed'). Six-dimension proposals run 100-150s — well
       // past Cloudflare's 100s edge timeout, so the sync version
       // of this call would CORS-error out.
-      const start = await api.proposeLandingPageRewrite(landing_page_id,
-        audit?.audit_id
+      const start = await api.proposeLandingPageRewrite(landing_page_id, {
+        ...(audit?.audit_id
           ? {
               auditId: audit.audit_id,
               acceptedSuggestionIds: Array.from(selectedSuggestions),
             }
-          : {}
-      )
+          : {}),
+        ...(useCheckFeedback ? { useCheckFeedback: true } : {}),
+      })
       const newVersionId = start?.version_id
       if (!newVersionId) throw new Error('Proposal kickoff returned no version_id')
 
@@ -1008,7 +1009,7 @@ function PageWorkspace({ data, requireBackupAck }) {
             <span className="text-[9px] text-muted">Generated {new Date(proposal.created_at).toLocaleString()}</span>
           )}
           <button
-            onClick={runProposal}
+            onClick={() => runProposal()}
             disabled={proposalBusy || (audit?.audit_id && selectedSuggestions.size === 0)}
             className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
             title={
@@ -1021,6 +1022,22 @@ function PageWorkspace({ data, requireBackupAck }) {
               : proposal ? '🔄 Re-generate proposal'
               : audit?.audit_id ? '💡 Generate proposal'
               : '✨ Generate from scratch'}</button>
+          {/* Re-propose with check feedback. Available once a proposal
+              exists — the BE loads the latest ai-suggested version's
+              ai_detection + voice_check (if either has been run) and
+              feeds them into the propose prompt as targeted
+              remediation guidance. Falls back to plain regenerate
+              if no checks have been run yet (BE handles that case
+              gracefully). Tooltip surfaces the loop pattern so
+              operators see when this is useful vs the plain regen. */}
+          {proposal && !proposalBusy && (
+            <button
+              onClick={() => runProposal({ useCheckFeedback: true })}
+              disabled={proposalBusy}
+              className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
+              title="Re-propose using the most recent Check AI Score + Check Voice results. Claude reads the flagged sentences and voice drifts and rewrites the equivalent content specifically to address them. Falls back to plain regenerate if no checks have been run yet."
+            >🎯 Re-propose with feedback</button>
+          )}
         </div>
         {proposalBusy && (
           <div className="text-[10px] text-muted italic">

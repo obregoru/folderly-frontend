@@ -645,7 +645,7 @@ export const runLandingPageAudit = (id) =>
 //     generates content from scratch using the strategy hint +
 //     indexed site pages as source material. Use for scaffold
 //     pages where audit is pointless.
-export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds } = {}) =>
+export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds, useCheckFeedback } = {}) =>
   csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/propose`, {
     method: 'POST',
     headers: jsonHeaders(),
@@ -655,6 +655,11 @@ export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds }
       ...(Array.isArray(acceptedSuggestionIds) && acceptedSuggestionIds.length > 0
         ? { accepted_suggestion_ids: acceptedSuggestionIds }
         : {}),
+      // When set, the BE reads the most recent ai-suggested version's
+      // ai_detection + voice_check and feeds them into the propose
+      // prompt as remediation guidance. Closes the loop between
+      // measurement (Check AI Score / Check Voice) and action.
+      ...(useCheckFeedback ? { use_check_feedback: true } : {}),
     }),
   }).then(async r => {
     if (!r.ok) {
