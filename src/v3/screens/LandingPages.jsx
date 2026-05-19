@@ -637,6 +637,29 @@ function PageWorkspace({ data, requireBackupAck }) {
   // When the operator switches pages, swap the audit too — without
   // this, stale findings from page A would render on page B.
   useEffect(() => { setAudit(recoveredAudit || null) }, [landing_page_id, recoveredAudit])
+
+  // Per-finding state (manual_done / skipped / pending). Optimistic
+  // update — we update local state immediately + PATCH the BE; if
+  // the BE call fails, the next workspace re-open will reload from
+  // BE state.
+  const handleFindingStateChange = async (suggestionId, state) => {
+    if (!audit?.audit_id) return
+    setAudit(prev => {
+      if (!prev) return prev
+      const nextStates = { ...(prev.finding_states || {}) }
+      if (state === 'pending') {
+        delete nextStates[suggestionId]
+      } else {
+        nextStates[suggestionId] = { state, set_at: new Date().toISOString() }
+      }
+      return { ...prev, finding_states: nextStates }
+    })
+    try {
+      await api.setAuditFindingState(landing_page_id, audit.audit_id, { suggestionId, state })
+    } catch (e) {
+      console.warn('Failed to persist finding state:', e?.message || e)
+    }
+  }
   const [activeDim, setActiveDim] = useState('seo')
   const [selectedSuggestions, setSelectedSuggestions] = useState(new Set())
   // Elapsed-seconds counter while audit is in flight — Claude can
@@ -1027,6 +1050,8 @@ function PageWorkspace({ data, requireBackupAck }) {
             setActiveDim={setActiveDim}
             selected={selectedSuggestions}
             toggleSuggestion={toggleSuggestion}
+            findingStates={audit.finding_states || {}}
+            onFindingStateChange={handleFindingStateChange}
           />
         )}
         {!audit && !auditBusy && !auditError && (
@@ -1114,7 +1139,7 @@ const DIMENSIONS = [
   { key: 'ai_naturalness', label: 'AI vs human', hint: 'Sentence variance, AI-tells, specifics, anecdotes' },
 ]
 
-function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSuggestion }) {
+function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSuggestion, findingStates, onFindingStateChange }) {
   // Score color for each dimension tab — green at 85+, amber 60-84,
   // red below 60. Lets the operator pick which dimension to attack
   // first at a glance.
@@ -1159,20 +1184,44 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
             const sevColors = sev === 'critical' ? 'border-[#c0392b] bg-[#fef2f2] text-[#c0392b]'
               : sev === 'important' ? 'border-[#d97706] bg-[#fff7ed] text-[#d97706]'
               : 'border-[#94a3b8] bg-[#f0f0f0] text-muted'
+            const findingState = findingStates?.[f.suggestion_id]?.state || 'pending'
+            const isManualDone = findingState === 'manual_done'
+            const isSkipped = findingState === 'skipped'
+            const stateRowCls = isManualDone ? 'opacity-60 bg-[#f0fdf4] border-[#16a34a]/30'
+              : isSkipped ? 'opacity-50 bg-[#fafafa] border-[#94a3b8]/30'
+              : 'bg-white border-[#e5e5e5]'
+            const setState = (newState) => onFindingStateChange?.(f.suggestion_id, newState === findingState ? 'pending' : newState)
             return (
-              <div key={f.suggestion_id || i} className="bg-white border border-[#e5e5e5] rounded p-2 text-[10px] space-y-1">
+              <div key={f.suggestion_id || i} className={`border rounded p-2 text-[10px] space-y-1 ${stateRowCls}`}>
                 <div className="flex items-start gap-2">
                   <label className="flex items-center gap-1 cursor-pointer pt-0.5" title="Include this finding in the next proposal — Claude will address it in the rewrite.">
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSuggestion(f.suggestion_id)}
+                      disabled={isManualDone || isSkipped}
                     />
                   </label>
                   <span className={`text-[8px] py-0.5 px-1 rounded border uppercase font-bold ${sevColors}`}>{sev}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-ink">{f.title}</div>
+                    <div className={`font-medium ${isManualDone || isSkipped ? 'line-through text-muted' : 'text-ink'}`}>{f.title}</div>
                     {f.target && <div className="text-[9px] text-muted font-mono truncate">→ {f.target}</div>}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => setState('manual_done')}
+                      className={`text-[9px] py-0.5 px-1.5 rounded cursor-pointer border ${
+                        isManualDone ? 'bg-[#16a34a] text-white border-[#16a34a]' : 'bg-white text-muted border-[#e5e5e5] hover:bg-[#f0fdf4] hover:border-[#16a34a]'
+                      }`}
+                      title="Mark as manually handled outside the system (e.g. fixed in WP admin, set up a redirect, requested a backlink)."
+                    >{isManualDone ? '✓ Done' : '✋ Manual'}</button>
+                    <button
+                      onClick={() => setState('skipped')}
+                      className={`text-[9px] py-0.5 px-1.5 rounded cursor-pointer border ${
+                        isSkipped ? 'bg-[#94a3b8] text-white border-[#94a3b8]' : 'bg-white text-muted border-[#e5e5e5] hover:bg-[#fafafa]'
+                      }`}
+                      title="Skip this finding — won't fix or not relevant. Falls off the pending count."
+                    >{isSkipped ? '⛔ Skipped' : '⛔ Skip'}</button>
                   </div>
                 </div>
                 {f.detail && <div className="pl-5 text-muted">{f.detail}</div>}
@@ -2721,10 +2770,31 @@ function timeAgoShort(iso) {
 // persisted data, not in-session state alone.
 function WorkflowWizard({ page, audit, proposal, history, recoveredProposal }) {
   // Step 1 — Audit. Done if last_audited_at on the page row OR an
-  // audit was run this session.
+  // audit was run this session. Plus per-finding state tracking:
+  // each finding is pending / manual_done / skipped. Pending count
+  // = "still needs your attention." Done + skipped = "addressed."
   const auditDate = audit?.created_at || page?.last_audited_at || null
   const hasAudit = !!auditDate
   const isAuditStale = hasAudit && (Date.now() - new Date(auditDate).getTime() > 30 * 24 * 60 * 60 * 1000)
+  // Walk all findings across all dimensions; classify by state.
+  let totalFindings = 0
+  let pendingFindings = 0
+  let manualDoneFindings = 0
+  let skippedFindings = 0
+  if (audit?.findings) {
+    const states = audit.finding_states || {}
+    for (const dim of ['seo', 'aeo', 'geo', 'eeat', 'ai_naturalness']) {
+      const list = Array.isArray(audit.findings?.[dim]?.findings) ? audit.findings[dim].findings : []
+      for (const f of list) {
+        totalFindings++
+        const s = states[f.suggestion_id]?.state || 'pending'
+        if (s === 'manual_done') manualDoneFindings++
+        else if (s === 'skipped') skippedFindings++
+        else pendingFindings++
+      }
+    }
+  }
+  const auditNeedsWork = hasAudit && pendingFindings > 0
 
   // Step 2 — Proposal. Done if a proposal exists in-session OR a
   // recovered ai-suggested version exists.
@@ -2760,7 +2830,8 @@ function WorkflowWizard({ page, audit, proposal, history, recoveredProposal }) {
   const wantsRefine = (hasAi && aiActionable > 0) || (hasVoice && voiceScore != null && voiceScore < 65)
   let next = 'audit'
   if (hasAudit) {
-    if (!hasProposal) next = 'proposal'
+    if (auditNeedsWork) next = 'audit' // findings still pending — operator should address them first
+    else if (!hasProposal) next = 'proposal'
     else if (!hasAi) next = 'ai-check'
     else if (!hasVoice) next = 'voice-check'
     else if (wantsRefine) next = 'refine'
@@ -2853,8 +2924,14 @@ function WorkflowWizard({ page, audit, proposal, history, recoveredProposal }) {
         <Step
           num="1"
           label="Audit"
-          status={!hasAudit ? 'never' : isAuditStale ? 'stale' : 'done'}
-          statusText={!hasAudit ? 'Never audited' : isAuditStale ? 'Stale (>30d)' : '✓ Audited'}
+          status={!hasAudit ? 'never' : isAuditStale ? 'stale' : auditNeedsWork ? 'warning' : 'done'}
+          statusText={
+            !hasAudit ? 'Never audited' :
+            isAuditStale ? `Stale (>30d) · ${pendingFindings}/${totalFindings} pending` :
+            auditNeedsWork ? `⚠ ${pendingFindings}/${totalFindings} pending` :
+            totalFindings > 0 ? `✓ All ${totalFindings} addressed` :
+            '✓ Audited (no findings)'
+          }
           date={fmtShort(auditDate)}
           anchor="audit"
         />

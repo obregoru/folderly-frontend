@@ -900,6 +900,25 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
     return r.json()
   })
 
+// Per-finding state on an audit. Operator marks findings as
+// 'manual_done' (handled outside the system), 'skipped' (won't
+// fix), or 'pending' (default — back to unhandled). Pending
+// findings surface as "still needs your attention" in the
+// workflow wizard so manual tasks don't get forgotten.
+export const setAuditFindingState = (landingPageId, auditId, { suggestionId, state, note }) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/audits/${auditId}/finding-states`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ suggestion_id: suggestionId, state, ...(note ? { note } : {}) }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setAuditFindingState failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Live-page schema validator. Fetches the page from WP and
 // validates its JSON-LD entities (same validator the deploy
 // success block uses, but operator-triggered). Useful for
