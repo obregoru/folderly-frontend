@@ -2039,14 +2039,14 @@ function AiCitationsCard({ landingPageId, initial }) {
   }
 
   const addOne = async () => {
-    if (!draftQuery.trim() || !draftSnippet.trim()) {
-      setError('Query and snippet are both required.')
+    if (!draftSnippet.trim()) {
+      setError('Snippet is required (the content to protect). Query is optional — leave blank for "protect regardless of query".')
       return
     }
     const next = [
       ...citations,
       {
-        query: draftQuery.trim(),
+        query: draftQuery.trim(), // optional — empty string OK
         snippet: draftSnippet.trim(),
         source: draftSource,
         notes: draftNotes.trim() || undefined,
@@ -2094,12 +2094,12 @@ function AiCitationsCard({ landingPageId, initial }) {
             </select>
           </div>
           <div className="flex items-center gap-1.5">
-            <label className="text-[9px] text-muted w-14">Query</label>
+            <label className="text-[9px] text-muted w-14">Query <span className="opacity-60">(optional)</span></label>
             <input
               type="text"
               value={draftQuery}
               onChange={e => setDraftQuery(e.target.value)}
-              placeholder='e.g. "What is make and take" or "best perfume bar in milwaukee"'
+              placeholder='e.g. "What is make and take" — or leave blank to protect this content regardless of query'
               className="flex-1 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1.5 outline-none focus:border-[#4338ca]"
             />
           </div>
