@@ -1022,7 +1022,7 @@ function PageWorkspace({ data, requireBackupAck }) {
       <div className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Rewrite proposal</span>
-          <span className="text-[9px] text-muted">Generates a full body rewrite that addresses selected audit suggestions. Existing links preserved by design.</span>
+          <span className="text-[9px] text-muted">Full body rewrite using: tenant editorial policy + page strategy hint + AI Overview citations (preserve + restore) + selected audit findings + (on 🎯 Re-propose) latest AI-detection + voice-check feedback. Existing links preserved by design.</span>
           <div className="flex-1" />
           {proposal?.created_at && (
             <span className="text-[9px] text-muted">Generated {new Date(proposal.created_at).toLocaleString()}</span>
@@ -1033,8 +1033,8 @@ function PageWorkspace({ data, requireBackupAck }) {
             className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
             title={
               audit?.audit_id && selectedSuggestions.size === 0 ? 'Tick the audit findings you want addressed.'
-              : audit?.audit_id ? `Send ${selectedSuggestions.size} suggestion(s) to Claude and get a rewrite proposal. Takes 30-90s.`
-              : 'No audit yet — generate proposal directly from the strategy hint + site source material. Takes 1-2 min.'
+              : audit?.audit_id ? `Send ${selectedSuggestions.size} audit suggestion(s) + the tenant editorial policy + page strategy hint + AI Overview citations (preserve/restore) to Claude. Returns a rewrite proposal. Takes ~100-150s.`
+              : 'No audit findings selected — Claude writes from scratch using the tenant editorial policy + page strategy hint + indexed site source material + AI Overview citations (preserve/restore). For 🎯 Re-propose with feedback, also pulls the latest AI-detection + voice-check. Takes ~100-150s.'
             }
           >{proposalBusy
               ? `Generating… ${proposalElapsed}s`
