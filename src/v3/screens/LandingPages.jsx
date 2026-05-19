@@ -514,7 +514,12 @@ export default function LandingPages() {
           {state.pages.length > 0 && (
             <div className="bg-white border border-[#e5e5e5] rounded p-3">
               <div className="text-[11px] font-medium mb-2">Managed pages ({state.pages.length})</div>
-              <ManagedPagesTree pages={state.pages} onOpen={openPage} defaultPostId={state.default_post_id} />
+              <ManagedPagesTree
+                pages={state.pages}
+                onOpen={openPage}
+                defaultPostId={state.default_post_id}
+                activeLandingPageId={active?.landing_page_id || null}
+              />
             </div>
           )}
 
@@ -4319,7 +4324,7 @@ function VersionHistory({ history, landingPageId, onRolledBack }) {
 // operator legitimately needs 3 levels, we'd swap this for a
 // tree component; for now the use case is `LA → Pasadena/Downey`
 // which is two levels.
-function ManagedPagesTree({ pages, onOpen, defaultPostId }) {
+function ManagedPagesTree({ pages, onOpen, defaultPostId, activeLandingPageId }) {
   // Build a parent → children map. Orphans (children whose parent
   // doesn't resolve in this list, e.g. cross-tenant deletion) get
   // bumped to top level so they stay accessible.
@@ -4349,7 +4354,13 @@ function ManagedPagesTree({ pages, onOpen, defaultPostId }) {
       {defaultPage && (
         <div className="border border-[#6C5CE7]/40 rounded p-1 bg-[#fafbff] mb-2">
           <div className="text-[9px] text-[#6C5CE7] font-medium px-1 pb-1">⭐ Default page (set in Default page section above)</div>
-          <PageRow page={defaultPage} onOpen={onOpen} indent={0} isDefault />
+          <PageRow
+            page={defaultPage}
+            onOpen={onOpen}
+            indent={0}
+            isDefault
+            isActive={activeLandingPageId === defaultPage.id}
+          />
         </div>
       )}
       {parents.map(p => (
@@ -4360,6 +4371,7 @@ function ManagedPagesTree({ pages, onOpen, defaultPostId }) {
             indent={0}
             isDefault={defaultPostId && p.wp_post_id === defaultPostId}
             dimmed={defaultPostId && p.wp_post_id === defaultPostId}
+            isActive={activeLandingPageId === p.id}
           />
           {(childrenByParent.get(p.id) || []).map(child => (
             <PageRow
@@ -4369,6 +4381,7 @@ function ManagedPagesTree({ pages, onOpen, defaultPostId }) {
               indent={1}
               isDefault={defaultPostId && child.wp_post_id === defaultPostId}
               dimmed={defaultPostId && child.wp_post_id === defaultPostId}
+              isActive={activeLandingPageId === child.id}
             />
           ))}
         </div>
@@ -4377,18 +4390,20 @@ function ManagedPagesTree({ pages, onOpen, defaultPostId }) {
   )
 }
 
-function PageRow({ page, onOpen, indent = 0, isDefault = false, dimmed = false }) {
+function PageRow({ page, onOpen, indent = 0, isDefault = false, dimmed = false, isActive = false }) {
   return (
     <button
       onClick={() => onOpen(page)}
       className={`w-full flex items-center gap-2 text-[11px] py-1.5 px-2 ${
+        isActive ? 'bg-[#dcfce7] border-[#16a34a]/40' :
         isDefault && !dimmed ? 'bg-[#f5f3ff] border-[#6C5CE7]/30' : 'bg-[#fafafa] border-[#e5e5e5]'
       } hover:bg-[#f0eff5] border rounded cursor-pointer text-left ${dimmed ? 'opacity-60' : ''}`}
       style={indent > 0 ? { marginLeft: `${indent * 16}px` } : undefined}
-      title={dimmed ? 'Also pinned at the top as the Default page' : undefined}
+      title={dimmed ? 'Also pinned at the top as the Default page' : isActive ? 'Currently loaded in the workspace below' : undefined}
     >
       {indent > 0 && <span className="text-muted">↳</span>}
       <span className="font-medium truncate flex-1">{page.label || `Post ${page.wp_post_id}`}</span>
+      {isActive && <span className="text-[8px] bg-[#16a34a] text-white py-0.5 px-1 rounded uppercase font-bold">Loaded</span>}
       {isDefault && !dimmed && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Default</span>}
       {page.cornerstone && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Cornerstone</span>}
       <span className="font-mono text-[9px] text-muted">#{page.wp_post_id}</span>
