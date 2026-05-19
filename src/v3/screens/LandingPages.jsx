@@ -4391,6 +4391,7 @@ function ManagedPagesTree({ pages, onOpen, defaultPostId, activeLandingPageId })
 }
 
 function PageRow({ page, onOpen, indent = 0, isDefault = false, dimmed = false, isActive = false }) {
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString() : '—'
   return (
     <button
       onClick={() => onOpen(page)}
@@ -4407,7 +4408,18 @@ function PageRow({ page, onOpen, indent = 0, isDefault = false, dimmed = false, 
       {isDefault && !dimmed && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Default</span>}
       {page.cornerstone && <span className="text-[8px] bg-[#6C5CE7] text-white py-0.5 px-1 rounded uppercase">Cornerstone</span>}
       <span className="font-mono text-[9px] text-muted">#{page.wp_post_id}</span>
-      <span className="text-[9px] text-muted">{page.last_imported_at ? new Date(page.last_imported_at).toLocaleDateString() : '—'}</span>
+      <span
+        className="text-[9px] text-muted whitespace-nowrap"
+        title={`Last imported from WordPress: ${page.last_imported_at ? new Date(page.last_imported_at).toLocaleString() : 'never'}`}
+      >📥 {fmtDate(page.last_imported_at)}</span>
+      <span
+        className={`text-[9px] whitespace-nowrap ${page.last_audited_at ? 'text-[#6C5CE7]' : 'text-muted'}`}
+        title={`Last audited (analysis): ${page.last_audited_at ? new Date(page.last_audited_at).toLocaleString() : 'never audited'}`}
+      >🔍 {fmtDate(page.last_audited_at)}</span>
+      <span
+        className={`text-[9px] whitespace-nowrap ${page.last_deployed_at ? 'text-[#16a34a]' : 'text-muted'}`}
+        title={`Last deployed to WordPress: ${page.last_deployed_at ? new Date(page.last_deployed_at).toLocaleString() : 'never deployed'}`}
+      >🚀 {fmtDate(page.last_deployed_at)}</span>
     </button>
   )
 }
