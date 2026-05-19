@@ -522,7 +522,21 @@ export default function LandingPages() {
           {activeLoading && (
             <div className="text-[11px] text-muted italic py-4 text-center">Loading page…</div>
           )}
-          {active && <PageWorkspace data={active} requireBackupAck={requireBackupAck} />}
+          {active && (
+            <PageWorkspace
+              // Force a full re-mount on page switch. Without this,
+              // PageWorkspace and its children (SchemaTypesAllowlist,
+              // SchemaBlock, DeployBlock, etc.) keep their internal
+              // state across page changes — so allowlist selections,
+              // schema results, etc. leak between pages. Re-mounting
+              // on landing_page_id change gives a clean slate every
+              // time. UI state like expanded sections resets, but
+              // that's the right tradeoff for cross-page correctness.
+              key={active.landing_page_id}
+              data={active}
+              requireBackupAck={requireBackupAck}
+            />
+          )}
         </>
       )}
 
@@ -1839,6 +1853,20 @@ function SchemaTypesAllowlist({ landingPageId }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [saved, setSaved] = useState(false)
+
+  // Reset on page switch. PageWorkspace now has a key= prop that
+  // forces full re-mount on landing_page_id change, so this useEffect
+  // is mostly belt-and-suspenders — covers the edge case where the
+  // component stays mounted (e.g. parent doesn't pass the key or
+  // changes the prop without re-mounting).
+  useEffect(() => {
+    setLoaded(false)
+    setSelected(null)
+    setOriginal(null)
+    setError(null)
+    setSaved(false)
+    setOpen(false)
+  }, [landingPageId])
 
   const load = async () => {
     try {
