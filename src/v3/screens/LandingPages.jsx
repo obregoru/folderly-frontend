@@ -1516,29 +1516,19 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
           live deploy in Phase 5 will look slightly different —
           but it's much closer to "how it'll read" than the raw
           HTML view below.) */}
-      <RenderedPreviewSection
+      {/* Body editor with mode toggle. Operator picks Rendered
+          preview (contentEditable, friendlier) OR HTML source
+          (textarea, byte-exact, preserves WP block comments). One
+          mode visible at a time; switching reloads from the saved
+          version (so save before switching or you'll lose unsaved
+          edits). Schema regen + deploy both read from the saved
+          version regardless of which mode the edit was made in. */}
+      <BodyEditorWithToggle
         sourcePage={sourcePage}
         currentBodyHtml={currentBodyHtml}
         landingPageId={landingPageId}
         currentVersionId={currentVersionId}
         isHumanized={currentVersionId !== proposal?.version_id}
-        onSaved={(newHtml) => setCurrentBodyHtml(newHtml)}
-      />
-
-      {/* Body diff — full HTML side-by-side. Right side is now
-          editable so the operator can tweak phrasing / fix typos /
-          adjust copy before deploy. WP block-editor HTML
-          (<!-- wp:paragraph --> etc) round-trips verbatim through a
-          textarea — WYSIWYG editors mangle those block comments, so
-          plain HTML edit is the safe path. Save updates the
-          version row; rendered-preview above + deploy both read
-          from the new body. */}
-      <EditableBodyDiff
-        sourcePage={sourcePage}
-        currentBodyHtml={currentBodyHtml}
-        landingPageId={landingPageId}
-        currentVersionId={currentVersionId}
-        versionLabel={currentVersionId !== proposal?.version_id ? 'humanized' : 'proposed'}
         onSaved={(newHtml) => setCurrentBodyHtml(newHtml)}
       />
 
@@ -3018,6 +3008,71 @@ function SiteStat({ label, value, tone }) {
 // In Edit mode, operator clicks into the preview and edits text
 // inline. Save commits the edited innerHTML to the version row;
 // deploy reads from there.
+// Body editor with mode toggle. Wraps RenderedPreviewSection
+// (contentEditable preview) + EditableBodyDiff (textarea HTML
+// source). Only one renders at a time based on `mode`. Switching
+// modes re-mounts the underlying component, which re-seeds from
+// the current saved body — so unsaved local edits are lost on
+// switch (warning surfaced in UI). Save commits to DB; both
+// schema regen + deploy read from the saved version.
+function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, onSaved }) {
+  const [mode, setMode] = useState('preview') // 'preview' | 'html'
+  // Re-mount key forces the underlying editor to discard its local
+  // state on mode switch — otherwise unsaved drafts in one mode
+  // could leak visually into the other. The actual save target is
+  // always the DB so cross-mode leakage would also confuse the
+  // operator about what's persisted.
+  const editorKey = `${mode}-${currentVersionId}`
+  return (
+    <div className="border border-[#e5e5e5] rounded">
+      <div className="flex items-center gap-2 p-2 bg-[#fafafa] border-b border-[#e5e5e5]">
+        <span className="text-[10px] font-medium">Body editor</span>
+        <span className="text-[9px] text-muted italic">
+          Switching modes reloads from the saved version — save your edits first or they'll be discarded.
+        </span>
+        <span className="flex-1" />
+        <div className="flex items-center border border-[#e5e5e5] rounded overflow-hidden">
+          <button
+            onClick={() => setMode('preview')}
+            className={`text-[9px] py-1 px-2 cursor-pointer border-none ${
+              mode === 'preview' ? 'bg-[#6C5CE7] text-white' : 'bg-white text-ink hover:bg-[#fafafa]'
+            }`}
+            title="Edit in the rendered preview (contentEditable). Friendlier for prose edits; can normalize HTML / strip WP block comments."
+          >👁 Rendered preview</button>
+          <button
+            onClick={() => setMode('html')}
+            className={`text-[9px] py-1 px-2 cursor-pointer border-none ${
+              mode === 'html' ? 'bg-[#6C5CE7] text-white' : 'bg-white text-ink hover:bg-[#fafafa]'
+            }`}
+            title="Edit raw HTML (textarea). Byte-exact; preserves WP block comments + any structure. Best for structural edits + fact corrections that need to land exactly as typed."
+          >📝 HTML source</button>
+        </div>
+      </div>
+      {mode === 'preview' ? (
+        <RenderedPreviewSection
+          key={editorKey}
+          sourcePage={sourcePage}
+          currentBodyHtml={currentBodyHtml}
+          landingPageId={landingPageId}
+          currentVersionId={currentVersionId}
+          isHumanized={isHumanized}
+          onSaved={onSaved}
+        />
+      ) : (
+        <EditableBodyDiff
+          key={editorKey}
+          sourcePage={sourcePage}
+          currentBodyHtml={currentBodyHtml}
+          landingPageId={landingPageId}
+          currentVersionId={currentVersionId}
+          versionLabel={isHumanized ? 'humanized' : 'proposed'}
+          onSaved={onSaved}
+        />
+      )}
+    </div>
+  )
+}
+
 function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
