@@ -839,6 +839,13 @@ function PageWorkspace({ data, requireBackupAck }) {
         </div>
       </div>
 
+      {/* Per-page schema allowlist — explicit operator-declared set
+          of Schema.org @type values this page is allowed to emit.
+          Stops Claude from guessing (and slipping in Service /
+          LocalBusiness for publication contexts). Collapsed by
+          default; loads on first expand. */}
+      <SchemaTypesAllowlist landingPageId={landing_page_id} />
+
       {/* AI Overview citations — operator-pasted snippets where
           Google AI Overview / ChatGPT / Perplexity / etc. quote
           this page. Threaded into every audit + propose run as
@@ -1810,6 +1817,185 @@ function sourceLabel(v) {
   const s = CITATION_SOURCES.find(x => x.value === v)
   return s ? s.label : (v || 'Unknown')
 }
+// Per-page schema allowlist. The operator picks which Schema.org
+// types this specific page is allowed to emit; the schema generator
+// + deploy filter both enforce the list. null/empty = no restriction
+// (Claude decides — original behavior). Collapsed by default; loads
+// catalog + current setting on first expand to keep workspace open
+// cheap.
+function SchemaTypesAllowlist({ landingPageId }) {
+  const [open, setOpen] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [catalog, setCatalog] = useState([])
+  const [selected, setSelected] = useState(null)
+  const [original, setOriginal] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [saved, setSaved] = useState(false)
+
+  const load = async () => {
+    try {
+      const [cat, mine] = await Promise.all([
+        api.getSchemaTypesCatalog(),
+        api.getLandingPageSchemaTypes(landingPageId),
+      ])
+      setCatalog(cat?.types || [])
+      const initial = Array.isArray(mine?.schema_types) ? mine.schema_types : null
+      setSelected(initial)
+      setOriginal(initial)
+      setLoaded(true)
+    } catch (e) {
+      setError(e?.message || String(e))
+    }
+  }
+
+  const handleToggle = () => {
+    setOpen(o => {
+      if (!o && !loaded) load()
+      return !o
+    })
+  }
+
+  const toggle = (type) => {
+    setSelected(prev => {
+      const cur = Array.isArray(prev) ? new Set(prev) : new Set()
+      if (cur.has(type)) cur.delete(type)
+      else cur.add(type)
+      return Array.from(cur)
+    })
+  }
+
+  const setNone = () => setSelected(null)
+
+  const save = async () => {
+    if (busy) return
+    setBusy(true); setError(null); setSaved(false)
+    try {
+      const payload = Array.isArray(selected) && selected.length > 0 ? selected : null
+      await api.setLandingPageSchemaTypes(landingPageId, payload)
+      setOriginal(payload)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const isDirty = JSON.stringify(selected) !== JSON.stringify(original)
+
+  const groups = useMemo(() => {
+    const g = {}
+    for (const t of catalog) {
+      const k = t.group || 'other'
+      if (!g[k]) g[k] = []
+      g[k].push(t)
+    }
+    return g
+  }, [catalog])
+
+  const groupLabels = {
+    page: 'Page envelope',
+    list: 'Lists',
+    nav: 'Navigation',
+    content: 'Content',
+    venue: 'Venue / commercial',
+    event: 'Event',
+    commerce: 'E-commerce',
+    identity: 'Brand identity',
+    other: 'Other',
+  }
+
+  return (
+    <details open={open} className="border border-[#6C5CE7]/40 rounded bg-[#fafbff]">
+      <summary
+        onClick={(e) => { e.preventDefault(); handleToggle() }}
+        className="cursor-pointer py-2 px-3 flex items-center gap-2"
+      >
+        <span className="text-[11px] font-medium text-[#6C5CE7]">🏷️ Page schema allowlist</span>
+        <span className="text-[9px] text-muted">
+          Explicit per-page Schema.org @type allowlist. Stops Claude from guessing — schema-gen + deploy both enforce.
+        </span>
+        <span className="flex-1" />
+        {loaded && (
+          <span className="text-[9px] text-muted">
+            {Array.isArray(original) && original.length > 0
+              ? `${original.length} type(s) allowed`
+              : 'No restriction'}
+          </span>
+        )}
+        <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
+      </summary>
+      {open && (
+        <div className="p-3 pt-0 space-y-2">
+          {!loaded && !error && (
+            <div className="text-[10px] text-muted italic">Loading…</div>
+          )}
+          {error && (
+            <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>
+          )}
+          {loaded && (
+            <>
+              <div className="text-[10px] text-muted">
+                Pick which types this page is allowed to emit. Schema generator drops anything outside the list — even if Claude thinks it fits. Empty = no restriction (Claude decides).
+              </div>
+              <div className="space-y-2">
+                {Object.entries(groups).map(([groupKey, items]) => (
+                  <div key={groupKey} className="border border-[#e5e5e5] rounded bg-white p-2">
+                    <div className="text-[10px] font-semibold text-[#6C5CE7] mb-1">{groupLabels[groupKey] || groupKey}</div>
+                    <div className="space-y-1">
+                      {items.map(t => {
+                        const isChecked = Array.isArray(selected) && selected.includes(t.type)
+                        return (
+                          <label key={t.type} className="flex items-start gap-2 text-[10px] cursor-pointer hover:bg-[#fafafa] rounded p-1">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggle(t.type)}
+                              className="mt-0.5 cursor-pointer"
+                            />
+                            <div className="flex-1">
+                              <span className="font-mono text-[#6C5CE7]">{t.type}</span>
+                              <span className="ml-2 text-muted">{t.note}</span>
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={setNone}
+                  className="text-[9px] py-1 px-2 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
+                  title="Clear the allowlist — no restriction, Claude decides which types fit."
+                >Clear (no restriction)</button>
+                {saved && <span className="text-[9px] text-[#16a34a]">✓ Saved</span>}
+                <span className="flex-1" />
+                <span className="text-[9px] text-muted">
+                  {Array.isArray(selected) && selected.length > 0
+                    ? `${selected.length} type(s) selected`
+                    : 'No types selected (Claude will decide on next regen)'}
+                </span>
+                <button
+                  onClick={save}
+                  disabled={busy || !isDirty}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                >{busy ? 'Saving…' : 'Save allowlist'}</button>
+              </div>
+              <div className="text-[9px] text-muted italic">
+                After saving: click <b>🏷️ Re-generate</b> in the Schema.org structured data panel below to regenerate schema honoring the new allowlist. No need to re-run propose — only the schema regenerates.
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </details>
+  )
+}
+
 function AiCitationsCard({ landingPageId, initial }) {
   const [citations, setCitations] = useState(Array.isArray(initial) ? initial : [])
   const [saving, setSaving] = useState(false)

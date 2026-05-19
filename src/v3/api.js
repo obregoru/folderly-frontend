@@ -895,6 +895,44 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
     return r.json()
   })
 
+// Per-page schema allowlist. Lets the operator declare exactly
+// which Schema.org @type values this page is allowed to emit. The
+// schema generator + deploy filter both enforce the allowlist.
+// null = no restriction (current behavior; Claude decides).
+export const getSchemaTypesCatalog = () =>
+  csrfFetch(`${apiBase()}/content/landing/schema-types-catalog`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSchemaTypesCatalog failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const getLandingPageSchemaTypes = (id) =>
+  csrfFetch(`${apiBase()}/content/landing/${id}/schema-types`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getLandingPageSchemaTypes failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const setLandingPageSchemaTypes = (id, schemaTypes) =>
+  csrfFetch(`${apiBase()}/content/landing/${id}/schema-types`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ schema_types: schemaTypes }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setLandingPageSchemaTypes failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Tenant-wide editorial policy — free-form prose the operator
 // writes once per tenant; auto-prepended to every audit + propose
 // call alongside the per-page strategy hint. Used to encode
