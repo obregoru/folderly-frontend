@@ -3939,6 +3939,12 @@ function SchemaBlock({ landingPageId, versionId }) {
   const [result, setResult] = useState(null)
   const [elapsed, setElapsed] = useState(0)
   const [copiedIndex, setCopiedIndex] = useState(null)
+  // Live-schema check state — separate from generate state so the
+  // operator can check live + regenerate without clobbering one
+  // result with the other.
+  const [liveBusy, setLiveBusy] = useState(false)
+  const [liveError, setLiveError] = useState(null)
+  const [liveResult, setLiveResult] = useState(null)
   useEffect(() => {
     if (!busy) { setElapsed(0); return }
     const start = Date.now()
@@ -3946,10 +3952,13 @@ function SchemaBlock({ landingPageId, versionId }) {
     return () => clearInterval(tick)
   }, [busy])
   // Reset on version change so a humanize / re-proposal clears the
-  // stale schema view.
+  // stale schema view. Also reset on page change (landingPageId) so
+  // navigating between pages doesn't leak Milwaukee's results onto
+  // FAQ's panel (same bug class we just fixed on DeployBlock).
   useEffect(() => {
     setResult(null); setError(null); setCopiedIndex(null)
-  }, [versionId])
+    setLiveResult(null); setLiveError(null); setLiveBusy(false)
+  }, [versionId, landingPageId])
 
   const handleGenerate = async () => {
     if (busy || !landingPageId || !versionId) return
@@ -3961,6 +3970,19 @@ function SchemaBlock({ landingPageId, versionId }) {
       setError(e?.message || String(e))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const handleCheckLive = async () => {
+    if (liveBusy || !landingPageId) return
+    setLiveBusy(true); setLiveError(null)
+    try {
+      const r = await api.checkLiveSchema(landingPageId)
+      setLiveResult(r)
+    } catch (e) {
+      setLiveError(e?.message || String(e))
+    } finally {
+      setLiveBusy(false)
     }
   }
 
@@ -4007,6 +4029,12 @@ function SchemaBlock({ landingPageId, versionId }) {
             title="Copy all blocks as a single <script>-wrapped chunk ready to paste into a theme snippet or schema plugin."
           >{copiedIndex === -1 ? '✓ Copied' : '📋 Copy all'}</button>
         )}
+        <button
+          onClick={handleCheckLive}
+          disabled={liveBusy || !landingPageId}
+          className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
+          title="Fetch the LIVE page from WordPress + validate its JSON-LD entities. Same validator the deploy success block uses, but you can run it anytime — useful for confirming schema is actually rendering correctly without redeploying."
+        >{liveBusy ? 'Checking…' : '🔎 Check live schema'}</button>
       </div>
       {busy && <div className="text-[10px] text-muted italic">Claude is generating JSON-LD blocks (~10-30s). One block per applicable schema type.</div>}
       {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
@@ -4048,6 +4076,23 @@ function SchemaBlock({ landingPageId, versionId }) {
           These blocks deploy automatically with the page — they're appended to the body as <code>&lt;script type="application/ld+json"&gt;</code> tags inside Gutenberg <code>core/html</code> blocks, fenced so re-deploys replace rather than duplicate. No paste required. (If your install also runs Yoast Premium's auto-schema, both will coexist — Google merges duplicate JSON-LD blocks of the same type.)
         </div>
       )}
+
+      {/* Live-schema check results — what's CURRENTLY on the
+          published page (after our injection + Yoast auto-emit +
+          any other plugin/theme schema). Separate from the
+          generate-schema results above so the operator can compare
+          "what we generated for THIS version" vs "what's actually
+          live now." */}
+      {liveError && <div className="text-[10px] text-[#c0392b] mt-1">⚠ Live check: {liveError}</div>}
+      {liveResult && (
+        <div className="border-t border-[#6C5CE7]/20 pt-2 mt-1 space-y-1">
+          <div className="text-[10px] font-medium text-[#2D9A5E]">🔎 Live page schema (just fetched from {liveResult.url})</div>
+          <SchemaValidationSummary v={liveResult} />
+          <div className="text-[9px] text-muted italic">
+            Shows ALL JSON-LD on the live page — what we injected, what Yoast auto-emits, what the theme/other plugins emit. If you see types here you didn't expect (e.g. a rogue LocalBusiness), it's coming from somewhere outside Posty Posty's pipeline.
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -4063,6 +4108,15 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
     const tick = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 500)
     return () => clearInterval(tick)
   }, [busy])
+  // Reset deploy state on page/version switch. Without this, the
+  // ✓ Deployed success block (including schema_validation summary
+  // + wp_link) from a prior deploy stays visible when the operator
+  // navigates to a different page — they see the OLD page's
+  // validation results misattributed to the NEW page. Real bug
+  // observed when deploying Milwaukee then opening FAQ.
+  useEffect(() => {
+    setSuccess(null); setError(null); setBusy(false)
+  }, [landingPageId, versionId])
   const handleDeploy = async () => {
     if (busy || !landingPageId || !versionId) return
     // Run the deploy after the backup-guide gate. If operator

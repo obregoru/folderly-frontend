@@ -895,6 +895,20 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
     return r.json()
   })
 
+// Live-page schema validator. Fetches the page from WP and
+// validates its JSON-LD entities (same validator the deploy
+// success block uses, but operator-triggered). Useful for
+// confirming schema is rendering correctly without redeploying.
+export const checkLiveSchema = (id) =>
+  csrfFetch(`${apiBase()}/content/landing/${id}/check-live-schema`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `checkLiveSchema failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Per-page schema allowlist. Lets the operator declare exactly
 // which Schema.org @type values this page is allowed to emit. The
 // schema generator + deploy filter both enforce the allowlist.
