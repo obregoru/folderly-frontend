@@ -864,6 +864,20 @@ function PageWorkspace({ data, requireBackupAck }) {
   // Swap when operator changes pages — otherwise a recovered
   // proposal from page A would render on page B.
   useEffect(() => { setProposal(recoveredProposal || null) }, [landing_page_id, recoveredProposal])
+  // In-session check results (lifted up from ProposalDiff via the
+  // onCheckResult callback) so the WorkflowWizard sees fresh AI +
+  // voice scores immediately after a check completes, without
+  // waiting for a workspace re-open. Reset on page switch.
+  const [liveCheckResults, setLiveCheckResults] = useState({
+    ai_detection: recoveredProposal?.ai_detection || null,
+    voice_check: recoveredProposal?.voice_check || null,
+  })
+  useEffect(() => {
+    setLiveCheckResults({
+      ai_detection: recoveredProposal?.ai_detection || null,
+      voice_check: recoveredProposal?.voice_check || null,
+    })
+  }, [landing_page_id, recoveredProposal])
   const [proposalBusy, setProposalBusy] = useState(false)
   const [proposalError, setProposalError] = useState(null)
   const [proposalElapsed, setProposalElapsed] = useState(0)
@@ -1005,6 +1019,7 @@ function PageWorkspace({ data, requireBackupAck }) {
         proposal={proposal}
         history={history}
         recoveredProposal={recoveredProposal}
+        liveCheckResults={liveCheckResults}
       />
 
       {/* Current page content preview — what's actually on the page
@@ -1365,6 +1380,16 @@ function PageWorkspace({ data, requireBackupAck }) {
             sourcePage={page}
             landingPageId={landing_page_id}
             requireBackupAck={requireBackupAck}
+            onCheckResult={({ ai_detection, voice_check }) => {
+              // Lift in-session check results up so the WorkflowWizard
+              // immediately reflects scores without waiting for a page
+              // re-open. Only merges keys that were provided.
+              setLiveCheckResults(prev => ({
+                ...prev,
+                ...(ai_detection !== undefined ? { ai_detection } : {}),
+                ...(voice_check !== undefined ? { voice_check } : {}),
+              }))
+            }}
           />
         )}
       </div>
@@ -1482,7 +1507,7 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
   )
 }
 
-function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireBackupAck }) {
+function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireBackupAck, onCheckResult }) {
   // ZeroGPT + humanize state — lives here so re-generating the
   // proposal naturally resets both. `aiResult` tracks the latest
   // detect-ai call: { score, flagged_sentences, detected_at }.
@@ -1525,6 +1550,9 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
     try {
       const r = await api.voiceCheckLandingPageVersion(landingPageId, currentVersionId)
       setVoiceResult(r)
+      // Lift up so the workflow wizard sees the fresh score
+      // immediately (without requiring a workspace re-open).
+      if (typeof onCheckResult === 'function') onCheckResult({ voice_check: r })
     } catch (e) {
       setVoiceError(e?.message || String(e))
     } finally {
@@ -1538,6 +1566,7 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
     try {
       const r = await api.detectLandingPageAi(landingPageId, currentVersionId)
       setAiResult(r.ai_detection)
+      if (typeof onCheckResult === 'function') onCheckResult({ ai_detection: r.ai_detection })
     } catch (e) {
       setAiError(e?.message || String(e))
     } finally {
@@ -3010,7 +3039,7 @@ function timeAgoShort(iso) {
 // panel for taking that action. Steps can be done in any order
 // across multiple sessions — the wizard reads state from BE-
 // persisted data, not in-session state alone.
-function WorkflowWizard({ page, audit, proposal, history, recoveredProposal }) {
+function WorkflowWizard({ page, audit, proposal, history, recoveredProposal, liveCheckResults }) {
   // Step 1 — Audit. Done if last_audited_at on the page row OR an
   // audit was run this session. Plus per-finding state tracking:
   // each finding is pending / manual_done / skipped. Pending count
@@ -3043,15 +3072,16 @@ function WorkflowWizard({ page, audit, proposal, history, recoveredProposal }) {
   const proposalDate = proposal?.created_at || recoveredProposal?.created_at || null
   const hasProposal = !!proposalDate
 
-  // Step 3 — AI score. Read from recoveredProposal.ai_detection
-  // (which surfaces the latest version's check).
-  const aiDetection = recoveredProposal?.ai_detection || null
+  // Step 3 — AI score. Prefer in-session check results (lifted up
+  // from ProposalDiff via onCheckResult), falling back to the
+  // recovered version's stored check.
+  const aiDetection = liveCheckResults?.ai_detection || recoveredProposal?.ai_detection || null
   const hasAi = !!aiDetection
   const aiScore = aiDetection?.score
   const aiActionable = aiDetection?.actionable_flagged_count
 
-  // Step 4 — Voice check.
-  const voiceCheck = recoveredProposal?.voice_check || null
+  // Step 4 — Voice check. Same lift-up pattern.
+  const voiceCheck = liveCheckResults?.voice_check || recoveredProposal?.voice_check || null
   const hasVoice = !!voiceCheck
   const voiceScore = voiceCheck?.overall_score
   const voiceVerdict = voiceCheck?.verdict
