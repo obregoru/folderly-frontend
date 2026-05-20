@@ -1260,6 +1260,29 @@ function PageWorkspace({ data, requireBackupAck }) {
         )}
       </div>
 
+      {/* Quality checks panel — AI detection + brand-voice score on
+          the latest version, runnable WITHOUT generating a proposal
+          first. Targets history[0] (the most recent version row,
+          which is the imported body on a fresh page). When a proposal
+          exists, this panel hides because the same buttons live inside
+          ProposalDiff (targeting the proposal's version_id). Lifts
+          results up via onCheckResult so the WorkflowWizard reflects
+          fresh scores immediately. */}
+      {!proposal && history[0]?.id && (
+        <QualityChecksPanel
+          landingPageId={landing_page_id}
+          versionId={history[0].id}
+          liveCheckResults={liveCheckResults}
+          onCheckResult={({ ai_detection, voice_check }) => {
+            setLiveCheckResults(prev => ({
+              ...prev,
+              ...(ai_detection !== undefined ? { ai_detection } : {}),
+              ...(voice_check !== undefined ? { voice_check } : {}),
+            }))
+          }}
+        />
+      )}
+
       {/* Proposal panel — also serves as anchor target for steps
           3 (AI check), 4 (voice check), and refine (🎯 Re-propose
           with feedback) since those actions all live inside this
@@ -1503,6 +1526,145 @@ function AuditFindings({ findings, activeDim, setActiveDim, selected, toggleSugg
       {selected.size > 0 && (
         <div className="text-[10px] text-[#6C5CE7] italic">
           {selected.size} suggestion{selected.size === 1 ? '' : 's'} flagged. Click <b>Generate proposal</b> below to have Claude implement them in a rewrite.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// QualityChecksPanel — standalone AI detection + brand-voice check
+// surface that runs against any version_id (typically the latest
+// version, which IS the imported body on a freshly-imported page).
+// Solves the case where the operator runs an audit on an existing
+// page and wants to score it BEFORE generating a proposal. When a
+// proposal exists, the equivalent buttons inside ProposalDiff take
+// over (they target the proposal's version_id instead).
+function QualityChecksPanel({ landingPageId, versionId, liveCheckResults, onCheckResult }) {
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState(null)
+  const [voiceBusy, setVoiceBusy] = useState(false)
+  const [voiceError, setVoiceError] = useState(null)
+  const [localAi, setLocalAi] = useState(null)
+  const [localVoice, setLocalVoice] = useState(null)
+
+  // Reset transient state on version switch (e.g. page change).
+  useEffect(() => {
+    setLocalAi(null); setLocalVoice(null); setAiError(null); setVoiceError(null)
+  }, [versionId])
+
+  const ai = localAi || liveCheckResults?.ai_detection || null
+  const voice = localVoice || liveCheckResults?.voice_check || null
+
+  const detectAi = async () => {
+    if (aiBusy || !landingPageId || !versionId) return
+    setAiBusy(true); setAiError(null)
+    try {
+      const r = await api.detectLandingPageAi(landingPageId, versionId)
+      setLocalAi(r.ai_detection)
+      if (typeof onCheckResult === 'function') onCheckResult({ ai_detection: r.ai_detection })
+    } catch (e) {
+      setAiError(e?.message || String(e))
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const checkVoice = async () => {
+    if (voiceBusy || !landingPageId || !versionId) return
+    setVoiceBusy(true); setVoiceError(null)
+    try {
+      const r = await api.voiceCheckLandingPageVersion(landingPageId, versionId)
+      setLocalVoice(r)
+      if (typeof onCheckResult === 'function') onCheckResult({ voice_check: r })
+    } catch (e) {
+      setVoiceError(e?.message || String(e))
+    } finally {
+      setVoiceBusy(false)
+    }
+  }
+
+  if (!versionId) return null
+
+  const aiScore = typeof ai?.score === 'number' ? Math.round(ai.score) : null
+  const voiceScore = typeof voice?.score === 'number' ? Math.round(voice.score) : null
+  // AI: lower is better (less AI-like). Voice: higher is better
+  // (closer to brand tone).
+  const aiColor = aiScore == null ? 'text-muted'
+    : aiScore >= 50 ? 'text-[#c0392b]'
+    : aiScore >= 25 ? 'text-[#d97706]'
+    : 'text-[#16a34a]'
+  const voiceColor = voiceScore == null ? 'text-muted'
+    : voiceScore >= 80 ? 'text-[#16a34a]'
+    : voiceScore >= 60 ? 'text-[#d97706]'
+    : 'text-[#c0392b]'
+
+  return (
+    <div data-workflow-anchor="ai-check" data-workflow-anchor-secondary="voice-check" className="border border-[#0ea5e9]/30 rounded p-3 space-y-2 bg-[#f0f9ff]">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-medium text-[#0369a1]">🧪 Quality checks</span>
+        <span className="text-[9px] text-muted">Scores the latest content (imported body or current proposal). Run BEFORE generating a proposal to inform the rewrite, or after to verify improvement.</span>
+        <div className="flex-1" />
+        <button
+          onClick={detectAi}
+          disabled={aiBusy}
+          className="text-[10px] py-1 px-2 bg-white border border-[#0ea5e9] text-[#0369a1] rounded cursor-pointer disabled:opacity-50"
+          title="Send the latest body to ZeroGPT. Returns an AI-likelihood score (0-100, lower = more human) + per-sentence flags."
+        >{aiBusy ? 'Checking…' : ai ? '🔄 Re-check AI score' : '🤖 Check AI score'}</button>
+        <button
+          onClick={checkVoice}
+          disabled={voiceBusy}
+          className="text-[10px] py-1 px-2 bg-white border border-[#0ea5e9] text-[#0369a1] rounded cursor-pointer disabled:opacity-50"
+          title="Claude scores the latest body against the tenant's brand voice. Returns 0-100 (higher = better fit) plus a list of voice drifts."
+        >{voiceBusy ? 'Checking…' : voice ? '🔄 Re-check voice' : '🎤 Check brand voice'}</button>
+      </div>
+      {aiError && <div className="text-[10px] text-[#c0392b]">⚠ AI check: {aiError}</div>}
+      {voiceError && <div className="text-[10px] text-[#c0392b]">⚠ Voice check: {voiceError}</div>}
+      {(ai || voice) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px]">
+          {ai && (
+            <div className="bg-white border border-[#e5e5e5] rounded p-2">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">AI likelihood</span>
+                <span className={`font-mono ${aiColor}`}>{aiScore != null ? `${aiScore}%` : '—'}</span>
+                {ai.detected_at && <span className="text-[9px] text-muted">· {new Date(ai.detected_at).toLocaleString()}</span>}
+              </div>
+              {Array.isArray(ai.flagged_sentences) && ai.flagged_sentences.length > 0 && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[9px] text-muted">{ai.flagged_sentences.length} flagged sentence{ai.flagged_sentences.length === 1 ? '' : 's'}</summary>
+                  <ul className="list-disc pl-4 pt-1 space-y-0.5">
+                    {ai.flagged_sentences.slice(0, 12).map((s, i) => (
+                      <li key={i} className="text-muted">{typeof s === 'string' ? s : (s.text || s.sentence || JSON.stringify(s))}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+          {voice && (
+            <div className="bg-white border border-[#e5e5e5] rounded p-2">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">Brand voice fit</span>
+                <span className={`font-mono ${voiceColor}`}>{voiceScore != null ? `${voiceScore}/100` : '—'}</span>
+                {voice.checked_at && <span className="text-[9px] text-muted">· {new Date(voice.checked_at).toLocaleString()}</span>}
+              </div>
+              {voice.summary && <div className="text-muted pt-1">{voice.summary}</div>}
+              {Array.isArray(voice.drifts) && voice.drifts.length > 0 && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[9px] text-muted">{voice.drifts.length} voice drift{voice.drifts.length === 1 ? '' : 's'}</summary>
+                  <ul className="list-disc pl-4 pt-1 space-y-0.5">
+                    {voice.drifts.slice(0, 12).map((d, i) => (
+                      <li key={i} className="text-muted">{typeof d === 'string' ? d : (d.note || d.text || d.issue || JSON.stringify(d))}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {!ai && !voice && !aiBusy && !voiceBusy && !aiError && !voiceError && (
+        <div className="text-[10px] text-muted italic">
+          Run a check to score the current content. After both checks have results, generate a proposal — Claude will use the flagged sentences + voice drifts as targeted remediation guidance via 🎯 Re-propose with feedback.
         </div>
       )}
     </div>
