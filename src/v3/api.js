@@ -903,12 +903,12 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
 // Bulk-import-discover: fetch every WP page from the tenant's
 // WordPress install and import any not already managed. Idempotent.
 // Onboards a new tenant in one click instead of typing post IDs.
-export const bulkImportDiscover = ({ dryRun = false, skipIds = [] } = {}) =>
+export const bulkImportDiscover = ({ dryRun = false, skipIds = [], refreshUrls = false } = {}) =>
   csrfFetch(`${apiBase()}/content/landing/bulk-import-discover`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
-    body: JSON.stringify({ dry_run: dryRun, skip_ids: skipIds }),
+    body: JSON.stringify({ dry_run: dryRun, skip_ids: skipIds, refresh_urls: refreshUrls }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))

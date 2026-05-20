@@ -51,14 +51,22 @@ export default function LandingPages() {
   const [bulkImport, setBulkImport] = useState(null)
   const [bulkImportBusy, setBulkImportBusy] = useState(false)
   const [bulkImportError, setBulkImportError] = useState(null)
-  const runBulkImport = async () => {
+  const runBulkImport = async (opts = {}) => {
     if (bulkImportBusy) return
-    if (!confirm('Discover every page on the WordPress install and import any not already managed?\n\nIdempotent — pages already managed are skipped. Use for onboarding a new tenant.')) return
+    const refreshUrls = !!opts.refreshUrls
+    const confirmMsg = refreshUrls
+      ? 'Refresh URLs on all already-imported pages?\n\nThis re-fetches each page from WordPress and updates the stored URL + title to reflect the current canonical domain (useful after switching the WP primary domain). Versions + audit history are NOT touched. Pages not yet imported get imported.'
+      : 'Discover every page on the WordPress install and import any not already managed?\n\nIdempotent — pages already managed are skipped. Use for onboarding a new tenant.'
+    if (!confirm(confirmMsg)) return
     setBulkImportBusy(true); setBulkImportError(null); setBulkImport(null)
     try {
-      const result = await api.bulkImportDiscover()
+      const result = await api.bulkImportDiscover({ refreshUrls })
       setBulkImport(result)
       await reload()
+      // Also refresh setupData so the Site Setup Wizard sees the
+      // newly-imported pages immediately. Without this the wizard
+      // shows stale page list from before the import.
+      await refreshSetup()
     } catch (e) {
       setBulkImportError(e?.message || String(e))
     } finally {
@@ -378,7 +386,7 @@ export default function LandingPages() {
             configured; other tenants don't see the button. */}
         {setupData && setupData.plan && (
           <button
-            onClick={() => setSetupWizardOpen(true)}
+            onClick={async () => { await refreshSetup(); setSetupWizardOpen(true) }}
             className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer flex-shrink-0 whitespace-nowrap"
             title="Site Setup Wizard — walk through the canonical page set for this tenant. Map existing pages or create new ones, slot by slot. Progress saves automatically."
           >🪄 Site setup wizard</button>
@@ -386,12 +394,20 @@ export default function LandingPages() {
         {/* Bulk discover + import — onboard a new tenant by pulling
             every existing WP page in one shot. Idempotent. */}
         {state.wp_configured && (
-          <button
-            onClick={runBulkImport}
-            disabled={bulkImportBusy}
-            className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
-            title="Discover every page from WordPress and import any not already managed. Idempotent — pages already managed are skipped."
-          >{bulkImportBusy ? 'Importing…' : '📥 Discover & import all WP pages'}</button>
+          <>
+            <button
+              onClick={() => runBulkImport()}
+              disabled={bulkImportBusy}
+              className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+              title="Discover every page from WordPress and import any not already managed. Idempotent — pages already managed are skipped."
+            >{bulkImportBusy ? 'Importing…' : '📥 Discover & import all WP pages'}</button>
+            <button
+              onClick={() => runBulkImport({ refreshUrls: true })}
+              disabled={bulkImportBusy}
+              className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+              title="Re-fetch every page from WordPress and update the stored URL + title on already-imported pages. Use after switching the WP primary domain (e.g. Cloudways URL → canonical domain)."
+            >{bulkImportBusy ? 'Refreshing…' : '🔄 Refresh URLs from WP'}</button>
+          </>
         )}
       </div>
 
@@ -411,10 +427,17 @@ export default function LandingPages() {
               <div key={i} className="flex items-center gap-2 py-0.5">
                 <span className={`py-0.5 px-1 rounded uppercase text-[8px] font-bold ${
                   p.status === 'imported' ? 'bg-[#dcfce7] text-[#16a34a]' :
+                  p.status === 'url-refreshed' ? 'bg-[#f5f3ff] text-[#6C5CE7]' :
                   p.status === 'already-imported' ? 'bg-[#f0f0f0] text-muted' :
                   p.status === 'error' ? 'bg-[#fef2f2] text-[#c0392b]' :
                   'bg-[#fafafa] text-muted'
-                }`}>{p.status === 'imported' ? '✓ new' : p.status === 'already-imported' ? 'already' : p.status === 'error' ? '⚠ error' : p.status}</span>
+                }`}>{
+                  p.status === 'imported' ? '✓ new' :
+                  p.status === 'url-refreshed' ? '🔄 url updated' :
+                  p.status === 'already-imported' ? 'already' :
+                  p.status === 'error' ? '⚠ error' :
+                  p.status
+                }</span>
                 <span className="font-mono text-muted">#{p.wp_post_id}</span>
                 <span className="font-medium flex-1 truncate">{p.title || '(no title)'}</span>
                 {p.link && <a href={p.link} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline truncate max-w-[150px]">{p.slug}</a>}
