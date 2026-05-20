@@ -181,6 +181,24 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Save per-clip audio volume multiplier (1.0 = original, 0 = mute,
+  // > 1 boosts). Useful when an original clip's audio is much quieter
+  // than the TTS / music it's being mixed with — boost on the clip so
+  // the final merge isn't dominated by the voiceover.
+  const saveFileVolume = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      const v = Number(file._volume)
+      await api.updateJobFile(id, dbFileId, {
+        volume: Number.isFinite(v) && v >= 0 ? v : 1.0,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save volume failed:', e.message)
+    }
+  }, [])
+
   // Save static video zoom (1.0 = none, 5.0 = max) + crop anchor
   // offsets in [-100, +100] percent. Backend computes the ffmpeg
   // crop x/y from the offsets in the merge normalize step.
@@ -512,6 +530,11 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _trimStart: f.trim_start || 0,
             _trimEnd: f.trim_end ?? null,
             _speed: Number(f.speed) > 0 ? Number(f.speed) : 1.0,
+            // Per-clip audio volume (0 = mute, 1 = original, > 1
+            // boosts). Defaults to 1.0 on legacy rows where the
+            // column is NULL or pre-migration.
+            _volume: Number.isFinite(Number(f.volume)) && Number(f.volume) >= 0
+              ? Number(f.volume) : 1.0,
             // B-roll insert overlay — id of the host file (db id),
             // or null when this clip is a sequential host.
             _insertIntoFileId: f.insert_into_file_id != null ? Number(f.insert_into_file_id) : null,
@@ -712,6 +735,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileToJob,
     saveFileTrim,
     saveFileSpeed,
+    saveFileVolume,
     saveFileFreezeFrame,
     saveFileReversePlay,
     saveFileMirrorFlip,

@@ -95,15 +95,21 @@ export default function App() {
       const item = files.find(f => f.id === e.detail?.itemId)
       if (item) jobSync.saveFileSpeed(item)
     }
+    const onVolumeChange = (e) => {
+      const item = files.find(f => f.id === e.detail?.itemId)
+      if (item) jobSync.saveFileVolume?.(item)
+    }
     window.addEventListener('posty-trim-change', onTrimChange)
     window.addEventListener('posty-trim-thumbs', onTrimThumbs)
     window.addEventListener('posty-speed-change', onSpeedChange)
+    window.addEventListener('posty-volume-change', onVolumeChange)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
       window.removeEventListener('posty-trim-thumbs', onTrimThumbs)
       window.removeEventListener('posty-speed-change', onSpeedChange)
+      window.removeEventListener('posty-volume-change', onVolumeChange)
     }
-  }, [files, jobSync.saveFileTrim, jobSync.saveFileSpeed])
+  }, [files, jobSync.saveFileTrim, jobSync.saveFileSpeed, jobSync.saveFileVolume])
 
   // Check if already logged in
   useEffect(() => {

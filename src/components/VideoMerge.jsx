@@ -180,11 +180,13 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
     // listeners.
     window.addEventListener('posty-insert-overlay-change', bump)
     window.addEventListener('posty-speed-change', bump)
+    window.addEventListener('posty-volume-change', bump)
     return () => {
       window.removeEventListener('posty-video-duration', bump)
       window.removeEventListener('posty-trim-change', bump)
       window.removeEventListener('posty-insert-overlay-change', bump)
       window.removeEventListener('posty-speed-change', bump)
+      window.removeEventListener('posty-volume-change', bump)
     }
   }, [])
 
@@ -545,6 +547,11 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             trim_start: item._trimStart || 0,
             trim_end: item._trimEnd ?? null,
             speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
+            // Per-clip audio volume. 1 = original; > 1 boosts quiet
+            // source audio so it isn't drowned out by TTS / music
+            // in the final mix. 0 = mute.
+            volume: Number.isFinite(Number(item._volume)) && Number(item._volume) >= 0
+              ? Number(item._volume) : 1.0,
             // Static crop zoom on the video clip + anchor offsets.
             // 1.0 = no zoom. offsets in [-100, +100] percent (0 = center).
             video_zoom: Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0,
@@ -853,6 +860,58 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                             </select>
                           </label>
                         )}
+                        {/* Per-clip volume. Useful when the original
+                            audio is quieter than the TTS voiceover or
+                            music bed — boost here so the final mix is
+                            balanced. 1 = original, 0 = mute, > 1
+                            boosts (2 = +6dB, 4 = +12dB). */}
+                        {!itemIsPhoto && (() => {
+                          const volume = Number.isFinite(Number(item._volume)) && Number(item._volume) >= 0
+                            ? Number(item._volume) : 1.0
+                          const changed = Math.abs(volume - 1.0) > 0.001
+                          return (
+                            <label
+                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                                changed
+                                  ? 'bg-[#ecfeff] border-[#0891b2]/60 text-[#0e7490] font-medium'
+                                  : 'bg-white border-border text-muted'
+                              }`}
+                              title={changed
+                                ? `This clip's audio will play at ${volume.toFixed(2)}× of its source level — applied during merge. Set to boost a quiet clip when mixing with TTS / music.`
+                                : 'Audio volume for this clip. Boost quiet videos so they aren\'t drowned out by TTS / music in the merge.'}
+                            >
+                              <span className="text-[10px]">{volume === 0 ? '🔇 Mute' : changed ? `🔊 ${volume.toFixed(2)}×` : 'Volume'}</span>
+                              <select
+                                value={String(volume)}
+                                onChange={e => {
+                                  const newVol = Number(e.target.value)
+                                  if (!Number.isFinite(newVol) || newVol < 0) return
+                                  item._volume = newVol
+                                  try { window.dispatchEvent(new CustomEvent('posty-volume-change', { detail: { itemId: item.id } })) } catch {}
+                                  if (mergedUrl) {
+                                    try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                    setMergedUrl(null)
+                                    mergedBlobRef.current = null
+                                    window._postyMergedVideo = null
+                                  }
+                                }}
+                                className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+                              >
+                                <option value="0">0× (mute)</option>
+                                <option value="0.25">0.25×</option>
+                                <option value="0.5">0.5×</option>
+                                <option value="0.75">0.75×</option>
+                                <option value="1">1× (original)</option>
+                                <option value="1.5">1.5×</option>
+                                <option value="2">2× (+6dB)</option>
+                                <option value="3">3×</option>
+                                <option value="4">4× (+12dB)</option>
+                                <option value="6">6×</option>
+                                <option value="8">8×</option>
+                              </select>
+                            </label>
+                          )
+                        })()}
                         {!itemIsPhoto && (() => {
                           // Freeze-frame effect. When on, BE replaces the
                           // clip's video with a still frame at trimStart
