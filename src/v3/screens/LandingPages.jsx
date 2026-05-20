@@ -827,25 +827,48 @@ function PageWorkspace({ data, requireBackupAck }) {
     return () => clearInterval(tick)
   }, [proposalBusy])
 
-  const runProposal = async ({ useCheckFeedback = false } = {}) => {
+  // Per-page input opt-outs for the next proposal call. Defaults
+  // true; operator can uncheck specific inputs in the toggle panel
+  // before generating. Reset on page switch so flags don't leak.
+  const [includeAudit, setIncludeAudit] = useState(true)
+  const [includeCitations, setIncludeCitations] = useState(true)
+  useEffect(() => {
+    setIncludeAudit(true); setIncludeCitations(true)
+  }, [landing_page_id])
+
+  const runProposal = async ({ useCheckFeedback = false, mode = "update" } = {}) => {
     if (proposalBusy || !landing_page_id) return
-    if (audit?.audit_id && selectedSuggestions.size === 0 && !useCheckFeedback) return
+    if (audit?.audit_id && selectedSuggestions.size === 0 && !useCheckFeedback && includeAudit) {
+      // Only enforce findings-selection check if audit-inputs are on
+      return
+    }
+    // Scratch mode warning — replacing existing content is destructive
+    // (current body becomes a backup but the proposed body is fresh).
+    if (mode === "scratch") {
+      const sourceHasContent = (page?.body_html || "").trim().length > 100
+      if (sourceHasContent) {
+        if (!confirm("⚠ Generate from scratch will REPLACE the existing page content with a brand-new AI-written body.\n\nThe current content will be saved as a backup version (you can roll back), but the proposed version won't preserve it. Existing operator edits, links, and structure may be lost.\n\nUse this for blank scaffolds or when the existing content needs a fundamental rewrite. For targeted improvements, use ✏️ Update existing content instead.\n\nContinue with scratch generation?")) {
+          return
+        }
+      }
+    }
     setProposalBusy(true); setProposalError(null)
     try {
       // BE returns { version_id, status: 'running' } immediately;
       // the actual Claude work runs in the background. Poll the
       // version row until proposal_status flips to 'done' (or
-      // 'failed'). Six-dimension proposals run 100-150s — well
-      // past Cloudflare's 100s edge timeout, so the sync version
-      // of this call would CORS-error out.
+      // 'failed').
       const start = await api.proposeLandingPageRewrite(landing_page_id, {
-        ...(audit?.audit_id
+        ...(audit?.audit_id && includeAudit
           ? {
               auditId: audit.audit_id,
               acceptedSuggestionIds: Array.from(selectedSuggestions),
             }
           : {}),
         ...(useCheckFeedback ? { useCheckFeedback: true } : {}),
+        mode,
+        includeAudit,
+        includeCitations,
       })
       const newVersionId = start?.version_id
       if (!newVersionId) throw new Error('Proposal kickoff returned no version_id')
@@ -935,6 +958,39 @@ function PageWorkspace({ data, requireBackupAck }) {
         history={history}
         recoveredProposal={recoveredProposal}
       />
+
+      {/* Current page content preview — what's actually on the page
+          right now (as imported from WordPress). Lets the operator
+          see what they're working with BEFORE deciding to audit,
+          update, or regenerate. Renders the live body in a styled
+          read-only div so it reads close to the actual page. */}
+      {page.body_html && (
+        <details className="border border-[#e5e5e5] rounded bg-white" open={!proposal}>
+          <summary className="cursor-pointer py-2 px-3 flex items-center gap-2">
+            <span className="text-[11px] font-medium">📄 Current page content</span>
+            <span className="text-[9px] text-muted">
+              {page.body_html ? `${page.body_html.length.toLocaleString()} chars` : 'empty'} · what's live on WordPress right now
+            </span>
+            <span className="flex-1" />
+            {page.url && (
+              <a
+                href={page.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded no-underline"
+                title="Open the live page on WordPress in a new tab"
+              >🔗 Open live page</a>
+            )}
+          </summary>
+          <div className="p-3 max-h-[500px] overflow-auto bg-[#fafafa] border-t border-[#e5e5e5]">
+            <RenderedPreview html={page.body_html} tone="neutral" />
+          </div>
+          <div className="text-[9px] text-muted italic px-3 py-1.5 border-t border-[#e5e5e5]">
+            This is the imported body — what's currently live. Audit + update modes treat this as the source. ✨ Generate from scratch will REPLACE it (with confirmation).
+          </div>
+        </details>
+      )}
 
       {/* Site capabilities pill row — shows the operator what we
           detected so they can sanity-check before trusting downstream
@@ -1147,26 +1203,34 @@ function PageWorkspace({ data, requireBackupAck }) {
           panel via ProposalDiff. */}
       <div data-workflow-anchor="proposal" data-workflow-anchor-secondary="ai-check voice-check refine" className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Rewrite proposal</span>
-          <span className="text-[9px] text-muted">Full body rewrite using: tenant editorial policy + page strategy hint + AI Overview citations (preserve + restore) + selected audit findings + (on 🎯 Re-propose) latest AI-detection + voice-check feedback. Existing links preserved by design.</span>
+          <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Proposal</span>
+          <span className="text-[9px] text-muted">Two modes — ✏️ Update (surgical edits to existing content; recommended for imported pages) OR ✨ Scratch (full rewrite, warns before replacing existing content). Both use: tenant editorial policy + page strategy hint + AI Overview citations + selected audit findings + (on 🎯 Re-propose) latest AI/voice feedback.</span>
           <div className="flex-1" />
           {proposal?.created_at && (
             <span className="text-[9px] text-muted">Generated {new Date(proposal.created_at).toLocaleString()}</span>
           )}
+          {/* Two-mode buttons:
+              ✏️ Update existing (default for pages with content) —
+              applies surgical edits to existing body.
+              ✨ Generate from scratch (with warning) — full rewrite,
+              for blank scaffolds or fundamental redesigns. */}
           <button
-            onClick={() => runProposal()}
-            disabled={proposalBusy || (audit?.audit_id && selectedSuggestions.size === 0)}
+            onClick={() => runProposal({ mode: 'update' })}
+            disabled={proposalBusy || (audit?.audit_id && selectedSuggestions.size === 0 && includeAudit)}
             className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
             title={
-              audit?.audit_id && selectedSuggestions.size === 0 ? 'Tick the audit findings you want addressed.'
-              : audit?.audit_id ? `Send ${selectedSuggestions.size} audit suggestion(s) + the tenant editorial policy + page strategy hint + AI Overview citations (preserve/restore) to Claude. Returns a rewrite proposal. Takes ~100-150s.`
-              : 'No audit findings selected — Claude writes from scratch using the tenant editorial policy + page strategy hint + indexed site source material + AI Overview citations (preserve/restore). For 🎯 Re-propose with feedback, also pulls the latest AI-detection + voice-check. Takes ~100-150s.'
+              audit?.audit_id && selectedSuggestions.size === 0 && includeAudit ? 'Tick the audit findings you want addressed (or uncheck audit input below).'
+              : `Modify the EXISTING content surgically. Applies enabled inputs (audit findings + AI Overview citations + latest check feedback) as targeted edits to the current body. Preserves structure, links, and unchanged sentences. ~100-150s.`
             }
           >{proposalBusy
               ? `Generating… ${proposalElapsed}s`
-              : proposal ? '🔄 Re-generate proposal'
-              : audit?.audit_id ? '💡 Generate proposal'
-              : '✨ Generate from scratch'}</button>
+              : '✏️ Update existing content'}</button>
+          <button
+            onClick={() => runProposal({ mode: 'scratch' })}
+            disabled={proposalBusy}
+            className="text-[10px] py-1 px-2 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
+            title="REPLACE the existing body with a full AI-written rewrite from the strategy hint + template. Existing content becomes a backup version (rollback available). Use for blank scaffolds or fundamental redesigns. Confirms before proceeding."
+          >{proposalBusy ? '...' : '✨ Generate from scratch'}</button>
           {/* Re-propose with check feedback. Available once a proposal
               exists — the BE loads the latest ai-suggested version's
               ai_detection + voice_check (if either has been run) and
@@ -1184,19 +1248,67 @@ function PageWorkspace({ data, requireBackupAck }) {
             >🎯 Re-propose with feedback</button>
           )}
         </div>
+        {/* Input toggle panel — operator can opt OUT of specific
+            inputs before generating. Default = all enabled. Useful
+            when an input is producing bad output (e.g. citations
+            overriding intended changes) or when you want to test
+            'just the audit' or 'just the strategy hint.' */}
+        <details className="text-[9px] border border-[#2D9A5E]/30 rounded bg-white">
+          <summary className="cursor-pointer py-1 px-2 font-medium">
+            ⚙ Inputs used (
+            {[
+              audit?.audit_id && includeAudit && `audit (${selectedSuggestions.size})`,
+              includeCitations && (initialCitations?.length || 0) > 0 && `${initialCitations.length} citation(s)`,
+              recoveredProposal?.ai_detection && 'AI score',
+              recoveredProposal?.voice_check && 'voice check',
+            ].filter(Boolean).join(', ') || 'strategy hint + editorial policy only'}
+            )
+          </summary>
+          <div className="p-2 space-y-1.5">
+            {audit?.audit_id && (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeAudit}
+                  onChange={e => setIncludeAudit(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <div className="font-medium">Audit findings ({selectedSuggestions.size} selected)</div>
+                  <div className="text-muted">Apply the checked audit suggestions in this generation. Uncheck to ignore the audit entirely.</div>
+                </div>
+              </label>
+            )}
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeCitations}
+                onChange={e => setIncludeCitations(e.target.checked)}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <div className="font-medium">AI Overview citations ({(initialCitations || []).length})</div>
+                <div className="text-muted">Preserve / restore the cited content. Uncheck only if you intentionally want to drop the citation-bearing language.</div>
+              </div>
+            </label>
+            <div className="text-muted italic pt-1 border-t border-[#e5e5e5]">
+              Tenant editorial policy + page strategy hint + (on 🎯 Re-propose) AI/voice check feedback are always included — those are baked in, not toggleable here.
+            </div>
+          </div>
+        </details>
         {proposalBusy && (
           <div className="text-[10px] text-muted italic">
-            Claude is writing the full body rewrite (longer than the audit because it has to produce 800-1500 words of polished copy). Don't refresh.
+            Claude is writing the body (longer than the audit because it has to produce 800-1500 words of polished copy). Don't refresh.
           </div>
         )}
         {proposalError && <div className="text-[10px] text-[#c0392b]">⚠ {proposalError}</div>}
         {!proposal && !proposalBusy && !proposalError && (
           <div className="text-[10px] text-muted italic">
             {!audit?.audit_id
-              ? "No audit yet — that's fine for scaffold or low-content pages. Click ✨ Generate from scratch to have Claude write content using the strategy hint + indexed site pages as source material."
-              : selectedSuggestions.size === 0
-                ? 'Tick the audit findings you want addressed (each card has a checkbox), then click Generate proposal.'
-                : `${selectedSuggestions.size} suggestion(s) flagged — ready to generate.`}
+              ? "No audit yet. For most pages, run the audit first → tick the findings you want addressed → click ✏️ Update existing content. For blank scaffolds or fundamental redesigns, use ✨ Generate from scratch instead (will warn before replacing existing content)."
+              : selectedSuggestions.size === 0 && includeAudit
+                ? 'Tick the audit findings you want addressed (each card has a checkbox), then click ✏️ Update existing content. OR uncheck "Audit findings" in the input panel above to generate without audit input.'
+                : `${selectedSuggestions.size} audit suggestion(s) flagged — ready to generate. ✏️ Update modifies existing content surgically; ✨ Scratch replaces it entirely.`}
           </div>
         )}
         {proposal && (
@@ -5278,7 +5390,9 @@ const RENDERED_PREVIEW_CSS = `
 `
 
 function RenderedPreview({ html, tone = 'green' }) {
-  const borderClass = tone === 'red' ? 'border-[#c0392b]/30' : 'border-[#2D9A5E]/30'
+  const borderClass = tone === 'red' ? 'border-[#c0392b]/30'
+    : tone === 'neutral' ? 'border-[#e5e5e5]'
+    : 'border-[#2D9A5E]/30'
   // Iframe-flavored CSS (without the .fldy-preview class wrapper).
   const iframeCss = RENDERED_PREVIEW_CSS.replace(/\.fldy-preview\s*/g, "").replace(/\.fldy-preview\[contenteditable[^}]+\}/g, "")
   const fullCss = `html, body { margin:0; padding:0; }

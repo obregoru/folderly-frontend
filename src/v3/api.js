@@ -645,7 +645,7 @@ export const runLandingPageAudit = (id) =>
 //     generates content from scratch using the strategy hint +
 //     indexed site pages as source material. Use for scaffold
 //     pages where audit is pointless.
-export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds, useCheckFeedback } = {}) =>
+export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds, useCheckFeedback, mode, includeAudit, includeCitations } = {}) =>
   csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/propose`, {
     method: 'POST',
     headers: jsonHeaders(),
@@ -660,6 +660,14 @@ export const proposeLandingPageRewrite = (id, { auditId, acceptedSuggestionIds, 
       // prompt as remediation guidance. Closes the loop between
       // measurement (Check AI Score / Check Voice) and action.
       ...(useCheckFeedback ? { use_check_feedback: true } : {}),
+      // Proposal mode — 'update' (default, surgical edits to existing
+      // content) or 'scratch' (full rewrite, existing body is context
+      // only). Operator picks via FE button.
+      ...(mode ? { mode } : {}),
+      // Per-input opt-out flags. Default true on BE; operator can
+      // uncheck specific inputs in the FE toggle panel.
+      ...(includeAudit === false ? { include_audit: false } : {}),
+      ...(includeCitations === false ? { include_citations: false } : {}),
     }),
   }).then(async r => {
     if (!r.ok) {
