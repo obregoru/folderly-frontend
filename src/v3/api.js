@@ -900,6 +900,23 @@ export const updateLandingVersionMeta = (landingPageId, versionId, fields) =>
     return r.json()
   })
 
+// Bulk-import-discover: fetch every WP page from the tenant's
+// WordPress install and import any not already managed. Idempotent.
+// Onboards a new tenant in one click instead of typing post IDs.
+export const bulkImportDiscover = ({ dryRun = false, skipIds = [] } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/bulk-import-discover`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ dry_run: dryRun, skip_ids: skipIds }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `bulkImportDiscover failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Per-finding state on an audit. Operator marks findings as
 // 'manual_done' (handled outside the system), 'skipped' (won't
 // fix), or 'pending' (default — back to unhandled). Pending

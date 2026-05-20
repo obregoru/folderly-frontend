@@ -46,6 +46,25 @@ export default function LandingPages() {
   const [bulkAuditError, setBulkAuditError] = useState(null)
   const [bulkAuditOpen, setBulkAuditOpen] = useState(false)
   const [bulkAuditElapsed, setBulkAuditElapsed] = useState(0)
+  // Bulk import discovery — fetches all WP pages and imports any
+  // not already managed. Onboards a new tenant in one click.
+  const [bulkImport, setBulkImport] = useState(null)
+  const [bulkImportBusy, setBulkImportBusy] = useState(false)
+  const [bulkImportError, setBulkImportError] = useState(null)
+  const runBulkImport = async () => {
+    if (bulkImportBusy) return
+    if (!confirm('Discover every page on the WordPress install and import any not already managed?\n\nIdempotent — pages already managed are skipped. Use for onboarding a new tenant.')) return
+    setBulkImportBusy(true); setBulkImportError(null); setBulkImport(null)
+    try {
+      const result = await api.bulkImportDiscover()
+      setBulkImport(result)
+      await reload()
+    } catch (e) {
+      setBulkImportError(e?.message || String(e))
+    } finally {
+      setBulkImportBusy(false)
+    }
+  }
   useEffect(() => {
     if (!bulkAuditBusy) { setBulkAuditElapsed(0); return }
     const start = Date.now()
@@ -364,7 +383,47 @@ export default function LandingPages() {
             title="Site Setup Wizard — walk through the canonical page set for this tenant. Map existing pages or create new ones, slot by slot. Progress saves automatically."
           >🪄 Site setup wizard</button>
         )}
+        {/* Bulk discover + import — onboard a new tenant by pulling
+            every existing WP page in one shot. Idempotent. */}
+        {state.wp_configured && (
+          <button
+            onClick={runBulkImport}
+            disabled={bulkImportBusy}
+            className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+            title="Discover every page from WordPress and import any not already managed. Idempotent — pages already managed are skipped."
+          >{bulkImportBusy ? 'Importing…' : '📥 Discover & import all WP pages'}</button>
+        )}
       </div>
+
+      {/* Bulk-import result panel — shows after a discover-and-import run. */}
+      {bulkImportError && (
+        <div className="bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 text-[10px] text-[#c0392b]">
+          ⚠ Bulk import failed: {bulkImportError}
+        </div>
+      )}
+      {bulkImport && (
+        <details open className="bg-white border border-[#2D9A5E]/40 rounded p-3 space-y-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-[#2D9A5E]">
+            ✓ Bulk import complete — discovered {bulkImport.discovered}, imported {bulkImport.imported}, skipped {bulkImport.skipped_existing} already-managed{bulkImport.errors > 0 ? `, ${bulkImport.errors} errors` : ''}
+          </summary>
+          <div className="space-y-0.5 text-[9px] max-h-[300px] overflow-y-auto pt-1">
+            {(bulkImport.pages || []).map((p, i) => (
+              <div key={i} className="flex items-center gap-2 py-0.5">
+                <span className={`py-0.5 px-1 rounded uppercase text-[8px] font-bold ${
+                  p.status === 'imported' ? 'bg-[#dcfce7] text-[#16a34a]' :
+                  p.status === 'already-imported' ? 'bg-[#f0f0f0] text-muted' :
+                  p.status === 'error' ? 'bg-[#fef2f2] text-[#c0392b]' :
+                  'bg-[#fafafa] text-muted'
+                }`}>{p.status === 'imported' ? '✓ new' : p.status === 'already-imported' ? 'already' : p.status === 'error' ? '⚠ error' : p.status}</span>
+                <span className="font-mono text-muted">#{p.wp_post_id}</span>
+                <span className="font-medium flex-1 truncate">{p.title || '(no title)'}</span>
+                {p.link && <a href={p.link} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline truncate max-w-[150px]">{p.slug}</a>}
+                {p.error && <span className="text-[#c0392b] truncate max-w-[200px]">{p.error}</span>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {/* Tenant-wide editorial policy — applies to every audit +
           propose call across all pages. Collapsed by default so it
