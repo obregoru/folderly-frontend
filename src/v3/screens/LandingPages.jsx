@@ -4732,7 +4732,37 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
       const r = await api.previewLandingPageVersion(landingPageId, versionId)
       setPreviewSuccess(r)
     } catch (e) {
-      setPreviewError(e?.message || String(e))
+      const msg = e?.message || String(e)
+      // Auto-create flow: if the failure is 'preview not configured,'
+      // offer to create one automatically + retry. Saves the operator
+      // from manually creating a WP page, finding the post ID, and
+      // pasting it into the settings panel.
+      if (/preview_post_id|preview page not configured/i.test(msg)) {
+        const wantsAutoCreate = confirm(
+          "No preview sandbox is configured for this tenant.\n\n" +
+          "Posty Posty can create one automatically — it'll add a WordPress page titled 'Posty Posty Preview Sandbox' as a DRAFT (not publicly visible) and use it for previews going forward. You can change its status to Private or Published later in WP admin if you want a shareable URL.\n\n" +
+          "Create one now?"
+        )
+        if (wantsAutoCreate) {
+          try {
+            const created = await api.createPreviewPage()
+            // Successfully created; now retry the preview push.
+            const retry = await api.previewLandingPageVersion(landingPageId, versionId)
+            setPreviewSuccess({
+              ...retry,
+              auto_created: !created.already_existed,
+              auto_created_post_id: created.preview_post_id,
+            })
+          } catch (e2) {
+            setPreviewError(`Auto-create failed: ${e2?.message || String(e2)}`)
+          }
+        } else {
+          // Operator declined; show the original error with hint.
+          setPreviewError(msg + " (Set preview_post_id manually in the Preview / scratchpad section at the top of Pages, OR click the button again + accept the auto-create prompt.)")
+        }
+      } else {
+        setPreviewError(msg)
+      }
     } finally {
       setPreviewBusy(false)
     }
@@ -4790,6 +4820,11 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
       {previewSuccess && (
         <div className="text-[10px] bg-[#f5f3ff] border border-[#6C5CE7]/40 rounded p-2 space-y-1">
           <div className="font-medium text-[#6C5CE7]">🪞 Previewed to sandbox</div>
+          {previewSuccess.auto_created && (
+            <div className="bg-[#fff7ed] border border-[#d97706]/40 rounded p-1.5 text-[#854d0e]">
+              ✨ Created a new WP preview page (post <b>#{previewSuccess.auto_created_post_id}</b>) as a draft. Saved as the tenant's preview sandbox going forward. Future previews will reuse the same page.
+            </div>
+          )}
           <div className="text-muted">
             Pushed to preview post <b>#{previewSuccess.preview_post_id}</b>
             {previewSuccess.schema_blocks_count > 0 && ` · ${previewSuccess.schema_blocks_count} schema block(s) injected`}.

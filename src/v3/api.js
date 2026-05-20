@@ -581,6 +581,25 @@ export const listLandingPages = () =>
 // page. Operator views the result rendered in the actual WP theme
 // without committing to a real deploy. Idempotent — subsequent
 // pushes overwrite the preview without history.
+// Auto-create a preview / scratchpad WP page for this tenant.
+// Idempotent — if a preview is already configured, returns the
+// existing preview_post_id without creating a new one. Used by
+// the FE when an operator clicks 🪞 Preview to sandbox without
+// having configured a preview page first.
+export const createPreviewPage = () =>
+  csrfFetch(`${apiBase()}/content/landing/preview/create`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `createPreviewPage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 export const previewLandingPageVersion = (landingPageId, versionId) =>
   csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/preview`, {
     method: 'POST',
