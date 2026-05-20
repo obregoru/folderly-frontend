@@ -1267,7 +1267,7 @@ function PageWorkspace({ data, requireBackupAck }) {
       <div data-workflow-anchor="proposal" data-workflow-anchor-secondary="ai-check voice-check refine" className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Proposal</span>
-          <span className="text-[9px] text-muted">Two modes — ✏️ Update (surgical edits to existing content; recommended for imported pages) OR ✨ Scratch (full rewrite, warns before replacing existing content). Both use: tenant editorial policy + page strategy hint + AI Overview citations + selected audit findings + (on 🎯 Re-propose) latest AI/voice feedback.</span>
+          <span className="text-[9px] text-muted">✏️ Update — applies inputs surgically to the LATEST content (imported body OR current proposal if one exists). Iterates on whatever you're working on. ✨ Scratch — full rewrite, warns before replacing. Inputs: tenant editorial policy + strategy hint + AI citations + selected audit findings + (on 🎯 Re-propose) AI/voice check feedback.</span>
           <div className="flex-1" />
           {proposal?.created_at && (
             <span className="text-[9px] text-muted">Generated {new Date(proposal.created_at).toLocaleString()}</span>
@@ -1283,11 +1283,13 @@ function PageWorkspace({ data, requireBackupAck }) {
             className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
             title={
               audit?.audit_id && selectedSuggestions.size === 0 && includeAudit ? 'Tick the audit findings you want addressed (or uncheck audit input below).'
-              : `Modify the EXISTING content surgically. Applies enabled inputs (audit findings + AI Overview citations + latest check feedback) as targeted edits to the current body. Preserves structure, links, and unchanged sentences. ~100-150s.`
+              : proposal
+                ? 'Iterate on the CURRENT PROPOSAL. Takes the latest generated body + applies enabled inputs (audit findings + AI Overview citations + check feedback) as targeted edits. Preserves what works; modifies only what needs changing. ~100-150s.'
+                : 'Modify the EXISTING content surgically. Applies enabled inputs (audit findings + AI Overview citations + latest check feedback) as targeted edits to the current body. Preserves structure, links, and unchanged sentences. ~100-150s.'
             }
           >{proposalBusy
               ? `Generating… ${proposalElapsed}s`
-              : '✏️ Update existing content'}</button>
+              : proposal ? '✏️ Apply suggestions to proposal' : '✏️ Update existing content'}</button>
           <button
             onClick={() => runProposal({ mode: 'scratch' })}
             disabled={proposalBusy}
