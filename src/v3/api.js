@@ -577,6 +577,38 @@ export const listLandingPages = () =>
 // Update the tenant's default landing-page WP post ID. Accepts the
 // raw integer OR a wp-admin edit URL — BE parses either out of the
 // same input.
+// Push a proposed version to the tenant's preview / scratchpad WP
+// page. Operator views the result rendered in the actual WP theme
+// without committing to a real deploy. Idempotent — subsequent
+// pushes overwrite the preview without history.
+export const previewLandingPageVersion = (landingPageId, versionId) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/preview`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ version_id: versionId }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `previewLandingPageVersion failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const setLandingPagePreview = (postIdOrUrl) =>
+  csrfFetch(`${apiBase()}/content/landing/settings`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ preview_post_id: postIdOrUrl || null }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setLandingPagePreview failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 export const setLandingPageDefault = (postIdOrUrl) =>
   csrfFetch(`${apiBase()}/content/landing/settings`, {
     method: 'PATCH',

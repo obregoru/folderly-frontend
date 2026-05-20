@@ -18,6 +18,7 @@ export default function LandingPages() {
     wp_configured: false,
     wp_site_url: null,
     default_post_id: null,
+    preview_post_id: null,
     acknowledgments: {},
     pages: [],
   })
@@ -152,6 +153,8 @@ export default function LandingPages() {
   const [adhocPostId, setAdhocPostId] = useState('')
   const [defaultDraft, setDefaultDraft] = useState('')
   const [defaultSaving, setDefaultSaving] = useState(false)
+  const [previewDraft, setPreviewDraft] = useState('')
+  const [previewSaving, setPreviewSaving] = useState(false)
 
   const reload = async () => {
     setState(s => ({ ...s, loading: true, error: null }))
@@ -159,11 +162,25 @@ export default function LandingPages() {
       const r = await api.listLandingPages()
       setState({ loading: false, error: null, ...r })
       setDefaultDraft(r.default_post_id ? String(r.default_post_id) : '')
+      setPreviewDraft(r.preview_post_id ? String(r.preview_post_id) : '')
     } catch (e) {
       setState(s => ({ ...s, loading: false, error: e?.message || String(e) }))
     }
   }
   useEffect(() => { reload() }, [])
+
+  const handleSetPreview = async () => {
+    if (previewSaving) return
+    setPreviewSaving(true)
+    try {
+      await api.setLandingPagePreview(previewDraft.trim() || null)
+      await reload()
+    } catch (e) {
+      alert('Save failed: ' + (e?.message || e))
+    } finally {
+      setPreviewSaving(false)
+    }
+  }
 
   const handleSetDefault = async () => {
     if (defaultSaving) return
@@ -572,6 +589,37 @@ export default function LandingPages() {
             </div>
             {activeError && (
               <div className="text-[10px] text-[#c0392b] mt-1">⚠ {activeError}</div>
+            )}
+          </div>
+
+          {/* Preview / scratchpad page configuration. Designate one WP
+              page as a live-rendered sandbox. Operator pushes
+              in-progress proposals here to see the rendered theme
+              version before committing to a real deploy. Hidden from
+              the Managed pages list + bulk-import. */}
+          <div className="bg-white border border-[#e5e5e5] rounded p-3 space-y-2">
+            <div className="text-[11px] font-medium">🪞 Preview / scratchpad page</div>
+            <div className="text-[10px] text-muted">
+              WP post ID of a designated sandbox page. The <b>Preview to sandbox</b> button (next to Deploy on each page) pushes the current proposal here so you can view the rendered theme output without committing a real deploy. Subsequent previews overwrite without version history. This page is hidden from the Managed pages list.
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={previewDraft}
+                onChange={e => setPreviewDraft(e.target.value)}
+                placeholder="e.g. 200 or https://example.com/wp-admin/post.php?post=200"
+                className="flex-1 text-[11px] border border-[#e5e5e5] rounded py-1 px-2 outline-none focus:border-[#6C5CE7]"
+              />
+              <button
+                onClick={handleSetPreview}
+                disabled={previewSaving}
+                className="text-[11px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              >{previewSaving ? 'Saving…' : 'Save preview page'}</button>
+            </div>
+            {state.preview_post_id && (
+              <div className="text-[9px] text-muted italic">
+                ✓ Preview configured (post #{state.preview_post_id}). Pushes from any page's workspace will overwrite this sandbox.
+              </div>
             )}
           </div>
 
@@ -4629,21 +4677,36 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [elapsed, setElapsed] = useState(0)
+  // Preview-to-sandbox state. Separate from deploy state so they
+  // don't overwrite each other's UI feedback.
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [previewError, setPreviewError] = useState(null)
+  const [previewSuccess, setPreviewSuccess] = useState(null)
   useEffect(() => {
     if (!busy) { setElapsed(0); return }
     const start = Date.now()
     const tick = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 500)
     return () => clearInterval(tick)
   }, [busy])
-  // Reset deploy state on page/version switch. Without this, the
-  // ✓ Deployed success block (including schema_validation summary
-  // + wp_link) from a prior deploy stays visible when the operator
-  // navigates to a different page — they see the OLD page's
-  // validation results misattributed to the NEW page. Real bug
-  // observed when deploying Milwaukee then opening FAQ.
+  // Reset deploy + preview state on page/version switch. Without
+  // this, success blocks from a prior page leak onto the current
+  // page's view.
   useEffect(() => {
     setSuccess(null); setError(null); setBusy(false)
+    setPreviewSuccess(null); setPreviewError(null); setPreviewBusy(false)
   }, [landingPageId, versionId])
+  const handlePreview = async () => {
+    if (previewBusy || !landingPageId || !versionId) return
+    setPreviewBusy(true); setPreviewError(null); setPreviewSuccess(null)
+    try {
+      const r = await api.previewLandingPageVersion(landingPageId, versionId)
+      setPreviewSuccess(r)
+    } catch (e) {
+      setPreviewError(e?.message || String(e))
+    } finally {
+      setPreviewBusy(false)
+    }
+  }
   const handleDeploy = async () => {
     if (busy || !landingPageId || !versionId) return
     // Run the deploy after the backup-guide gate. If operator
@@ -4676,8 +4739,14 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
     <div data-workflow-anchor="deploy" className="border border-[#c0392b]/40 rounded p-3 bg-[#fef2f2] space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[11px] font-medium text-[#c0392b]">🚀 Deploy to WordPress</span>
-        <span className="text-[9px] text-muted">Replaces the live page's body + title + (when Yoast Premium) meta description + focus keyword. Live page snapshotted as a backup first.</span>
+        <span className="text-[9px] text-muted">Preview = push to sandbox to see rendered theme version (ephemeral). Deploy = replace the live page (snapshotted as backup first).</span>
         <div className="flex-1" />
+        <button
+          onClick={handlePreview}
+          disabled={previewBusy || !versionId}
+          className="text-[11px] py-1 px-3 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+          title="Push the current proposal to the tenant's preview / scratchpad WP page so you can see the rendered theme output. Doesn't touch the real page. Subsequent pushes overwrite without history. Configure the preview page in tenant settings first (top of Pages screen)."
+        >{previewBusy ? 'Preview…' : '🪞 Preview to sandbox'}</button>
         <button
           onClick={handleDeploy}
           disabled={busy || !versionId}
@@ -4685,6 +4754,26 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
           title="Snapshots live page as backup, then PUTs the current version's content to WP REST API."
         >{busy ? `Deploying… ${elapsed}s` : '🚀 Deploy'}</button>
       </div>
+      {previewError && (
+        <div className="text-[10px] text-[#c0392b]">⚠ Preview failed: {previewError}</div>
+      )}
+      {previewSuccess && (
+        <div className="text-[10px] bg-[#f5f3ff] border border-[#6C5CE7]/40 rounded p-2 space-y-1">
+          <div className="font-medium text-[#6C5CE7]">🪞 Previewed to sandbox</div>
+          <div className="text-muted">
+            Pushed to preview post <b>#{previewSuccess.preview_post_id}</b>
+            {previewSuccess.schema_blocks_count > 0 && ` · ${previewSuccess.schema_blocks_count} schema block(s) injected`}.
+            Preview pages don't accumulate version history.
+          </div>
+          {previewSuccess.wp_link && (
+            <div>
+              <a href={previewSuccess.wp_link} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline font-medium">
+                🔗 Open preview page →
+              </a>
+            </div>
+          )}
+        </div>
+      )}
       {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
       {success && (
         <div className="text-[10px] bg-[#f0fdf4] border border-[#2D9A5E]/40 rounded p-2 space-y-1">
