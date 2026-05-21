@@ -1291,6 +1291,42 @@ export const setLandingPageStrategyHint = (id, hint) =>
     return r.json()
   })
 
+// Save the per-page targeted-update prompt. Separate from
+// strategy_hint by design — this text is ONLY consumed by
+// applyTargetedUpdate() below, never by audit / propose /
+// regenerate. Empty string clears the saved hint.
+export const setLandingPageTargetedUpdateHint = (id, hint) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/targeted-update-hint`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ targeted_update_hint: hint || '' }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setLandingPageTargetedUpdateHint failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Apply a surgical edit pass to the LATEST version (buffer) using
+// the saved targeted-update hint (or an inline override). Returns
+// { version_id, status: 'running' }; poll getLandingPageVersion
+// until proposal_status flips to 'done' (same pattern as propose).
+export const applyLandingPageTargetedUpdate = (id, { hint } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/targeted-update`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(typeof hint === 'string' ? { hint } : {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `applyLandingPageTargetedUpdate failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
   csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })

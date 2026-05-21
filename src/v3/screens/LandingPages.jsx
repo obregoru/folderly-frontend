@@ -210,7 +210,11 @@ export default function LandingPages() {
         // detected_schema arrives top-level from the import response;
         // fold it into page so PageWorkspace's single-source-of-truth
         // for page metadata matches the openPage path.
-        page: { ...r.page, detected_schema: r.detected_schema || null },
+        page: {
+          ...r.page,
+          detected_schema: r.detected_schema || null,
+          targeted_update_hint: full?.page?.targeted_update_hint || '',
+        },
         strategy_hint: full?.page?.strategy_hint || '',
         ai_citations: Array.isArray(full?.page?.ai_citations) ? full.page.ai_citations : [],
         history: full?.versions || [],
@@ -320,6 +324,10 @@ export default function LandingPages() {
           images: mostRecent?.images_meta || [],
           yoast_meta: mostRecent?.yoast_meta || null,
           detected_schema: mostRecent?.detected_schema || null,
+          // Per-page one-shot targeted-update prompt. Surfaced into
+          // page so TargetedUpdateEditor hydrates with the saved
+          // text on workspace open.
+          targeted_update_hint: r.page?.targeted_update_hint || '',
         },
         capabilities: page.capabilities || {},
         history: r.versions || [],
@@ -1098,6 +1106,42 @@ function PageWorkspace({ data, requireBackupAck }) {
           Tip: describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff.
         </div>
       </div>
+
+      {/* Targeted update — one-shot surgical edit instructions. Saved
+          per page but DELIBERATELY NOT threaded into audit / propose /
+          regenerate. Only the 🎯 Apply targeted update button reads
+          this text. Use when the content is mostly good and you just
+          need to change specific parts (e.g. "swap the second
+          paragraph for X" or "drop the testimonials block"). */}
+      <TargetedUpdateEditor
+        landingPageId={landing_page_id}
+        initialHint={data?.page?.targeted_update_hint || ''}
+        onApplied={(version) => {
+          // The new version is now the buffer. Set it as the active
+          // proposal so ProposalDiff renders against it without
+          // waiting for a workspace re-open. Shape matches the
+          // recoveredProposal/runProposal payload.
+          const meta = version.proposal_meta || {}
+          setProposal({
+            version_id: version.id,
+            created_at: version.created_at,
+            proposal: {
+              title: version.title,
+              body_html: version.body_html,
+              meta_description: version.meta_description,
+              focus_keyword: version.focus_keyword,
+              links_kept: [],
+              links_refined: [],
+              links_added: [],
+              links_removed: [],
+              summary_of_changes: Array.isArray(meta.summary_of_changes) ? meta.summary_of_changes : [],
+              rationale: meta.rationale || 'Targeted update applied.',
+            },
+            proposed_links: version.links_meta || [],
+            source_links: [],
+          })
+        }}
+      />
 
       {/* Per-page schema allowlist — explicit operator-declared set
           of Schema.org @type values this page is allowed to emit.
@@ -2536,6 +2580,149 @@ function SchemaTypesAllowlist({ landingPageId }) {
         </div>
       )}
     </details>
+  )
+}
+
+// TargetedUpdateEditor — paste-and-save textbox for one-shot
+// surgical edit instructions. The 🎯 Apply button runs Claude with
+// the latest version (the buffer) + this text and emits a NEW
+// version with only the requested edits applied. DELIBERATELY NOT
+// hooked into audit / propose / regenerate — operators want a way
+// to apply small targeted changes without those instructions
+// leaking into the broader prompts.
+function TargetedUpdateEditor({ landingPageId, initialHint, onApplied }) {
+  const [hint, setHint] = useState(initialHint || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState(null)
+  const [applying, setApplying] = useState(false)
+  const [applyError, setApplyError] = useState(null)
+  const [applyElapsed, setApplyElapsed] = useState(0)
+  const [lastSummary, setLastSummary] = useState(null)
+
+  // Re-sync when the operator switches pages.
+  useEffect(() => { setHint(initialHint || '') }, [initialHint, landingPageId])
+
+  // Elapsed-seconds counter while Claude is in flight — surgical
+  // edits typically finish in 10-30s but a big body can stretch
+  // longer; showing the count keeps the operator from refreshing.
+  useEffect(() => {
+    if (!applying) { setApplyElapsed(0); return }
+    const start = Date.now()
+    setApplyElapsed(0)
+    const tick = setInterval(() => setApplyElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [applying])
+
+  const save = async () => {
+    if (saving || !landingPageId) return
+    setSaving(true); setSaveError(null); setSaved(false)
+    try {
+      await api.setLandingPageTargetedUpdateHint(landingPageId, hint)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setSaveError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const apply = async () => {
+    if (applying || !landingPageId) return
+    const text = (hint || '').trim()
+    if (!text) {
+      setApplyError('Paste targeted-update instructions first.')
+      return
+    }
+    setApplying(true); setApplyError(null); setLastSummary(null)
+    try {
+      // Always save before applying so the buffer doesn't apply
+      // stale persisted text. The endpoint also accepts an inline
+      // override but persisting first keeps the saved state in
+      // sync with what just ran.
+      try { await api.setLandingPageTargetedUpdateHint(landingPageId, hint) } catch {}
+      const start = await api.applyLandingPageTargetedUpdate(landingPageId, { hint: text })
+      const newVersionId = start?.version_id
+      if (!newVersionId) throw new Error('Targeted update kickoff returned no version_id')
+
+      // Poll up to 5 minutes; checks every 5s. Same pattern as
+      // propose/audit.
+      const deadline = Date.now() + 5 * 60 * 1000
+      let finalVersion = null
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 5000))
+        try {
+          const r = await api.getLandingPageVersion(landingPageId, newVersionId)
+          const v = r?.version
+          if (v?.proposal_status === 'done') { finalVersion = v; break }
+          if (v?.proposal_status === 'failed') {
+            throw new Error(v.proposal_error || 'Targeted update failed (see server logs).')
+          }
+        } catch (pollErr) {
+          if (pollErr?.message?.includes('Targeted update failed')) throw pollErr
+        }
+      }
+      if (!finalVersion) throw new Error('Targeted update timed out after 5 minutes. Refresh in a moment to see if it completed.')
+
+      const summary = Array.isArray(finalVersion.proposal_meta?.summary_of_changes)
+        ? finalVersion.proposal_meta.summary_of_changes
+        : []
+      setLastSummary(summary)
+      if (typeof onApplied === 'function') onApplied(finalVersion)
+    } catch (e) {
+      setApplyError(e?.message || String(e))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return (
+    <div className="bg-[#eef2ff] border border-[#6366f1]/40 rounded p-2 space-y-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-medium text-[#4338ca]">🎯 Targeted update — one-shot edits</span>
+        <span className="text-[9px] text-muted">NOT used by audit / propose / regenerate. Only applied when you click Apply below.</span>
+        <div className="flex-1" />
+        <button
+          onClick={save}
+          disabled={saving || applying}
+          className="text-[10px] py-0.5 px-2 bg-white border border-[#6366f1] text-[#4338ca] rounded cursor-pointer disabled:opacity-50"
+          title="Save the instructions for later. Stays attached to this page until you change or clear it."
+        >{saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}</button>
+        <button
+          onClick={apply}
+          disabled={applying || saving || !(hint || '').trim()}
+          className="text-[10px] py-0.5 px-2 bg-[#6366f1] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          title="Run Claude on the LATEST version (the buffer) with these instructions. Preserves everything else. Creates a new version with the edits applied."
+        >{applying ? `Applying… ${applyElapsed}s` : '🎯 Apply targeted update'}</button>
+      </div>
+      <textarea
+        value={hint}
+        onChange={e => setHint(e.target.value)}
+        rows={4}
+        placeholder="e.g. Replace the second paragraph with a stronger lead about [topic]. Drop the testimonials block at the bottom. Change every mention of '2024' to '2026'. — Be specific; this is a surgical edit pass, not a rewrite."
+        className="w-full text-[11px] border border-[#6366f1]/30 rounded p-2 bg-white outline-none focus:border-[#6366f1] resize-y font-sans"
+        disabled={applying}
+      />
+      {saveError && <div className="text-[10px] text-[#c0392b]">⚠ Save: {saveError}</div>}
+      {applyError && <div className="text-[10px] text-[#c0392b]">⚠ Apply: {applyError}</div>}
+      {applying && (
+        <div className="text-[10px] text-muted italic">
+          Claude is editing the buffer (~10-30s on a typical body). Don't refresh. The result becomes the new latest version automatically.
+        </div>
+      )}
+      {lastSummary && lastSummary.length > 0 && (
+        <div className="bg-white border border-[#16a34a]/30 rounded p-2 text-[10px]">
+          <div className="font-medium text-[#16a34a] mb-1">✓ {lastSummary.length} change(s) applied — buffer updated</div>
+          <ul className="list-disc pl-4 text-muted space-y-0.5">
+            {lastSummary.map((s, i) => <li key={i}>{s}</li>)}
+          </ul>
+        </div>
+      )}
+      <div className="text-[9px] text-muted italic">
+        Tip: save the text first if you want to come back to it. Apply reads the LATEST version (whatever's currently in the buffer — imported body, prior proposal, or prior targeted-update) and produces a new version with ONLY the listed edits applied.
+      </div>
+    </div>
   )
 }
 
