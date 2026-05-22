@@ -1112,10 +1112,16 @@ function PageWorkspace({ data, requireBackupAck }) {
           regenerate. Only the 🎯 Apply targeted update button reads
           this text. Use when the content is mostly good and you just
           need to change specific parts (e.g. "swap the second
-          paragraph for X" or "drop the testimonials block"). */}
+          paragraph for X" or "drop the testimonials block").
+          currentBufferHtml = whatever's currently the buffer (the
+          active proposal body if one exists, else the imported body).
+          The editor captures this snapshot the moment Apply is
+          clicked so the before/after preview renders correctly even
+          after the parent's proposal state flips to the new version. */}
       <TargetedUpdateEditor
         landingPageId={landing_page_id}
         initialHint={data?.page?.targeted_update_hint || ''}
+        currentBufferHtml={proposal?.proposal?.body_html || page?.body_html || ''}
         onApplied={(version) => {
           // The new version is now the buffer. Set it as the active
           // proposal so ProposalDiff renders against it without
@@ -2590,7 +2596,15 @@ function SchemaTypesAllowlist({ landingPageId }) {
 // hooked into audit / propose / regenerate — operators want a way
 // to apply small targeted changes without those instructions
 // leaking into the broader prompts.
-function TargetedUpdateEditor({ landingPageId, initialHint, onApplied }) {
+//
+// After Apply completes, an inline rendered Before / After preview
+// drops in below the buttons so the operator can SEE the surgical
+// change without scrolling down to ProposalDiff. The "before" is
+// captured the moment Apply is clicked (whatever the buffer was);
+// the "after" is the new version's body_html. Both render in the
+// same iframe-styled preview the diff section uses, so visual
+// parity is exact.
+function TargetedUpdateEditor({ landingPageId, currentBufferHtml, initialHint, onApplied }) {
   const [hint, setHint] = useState(initialHint || '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -2599,9 +2613,18 @@ function TargetedUpdateEditor({ landingPageId, initialHint, onApplied }) {
   const [applyError, setApplyError] = useState(null)
   const [applyElapsed, setApplyElapsed] = useState(0)
   const [lastSummary, setLastSummary] = useState(null)
+  // Before / after preview state — captured at Apply time so the
+  // operator can see the surgical change inline without scrolling.
+  // Stays sticky across re-renders until cleared or a new update
+  // starts. Reset on page switch.
+  const [beforeHtml, setBeforeHtml] = useState(null)
+  const [afterHtml, setAfterHtml] = useState(null)
 
   // Re-sync when the operator switches pages.
-  useEffect(() => { setHint(initialHint || '') }, [initialHint, landingPageId])
+  useEffect(() => {
+    setHint(initialHint || '')
+    setBeforeHtml(null); setAfterHtml(null); setLastSummary(null)
+  }, [initialHint, landingPageId])
 
   // Elapsed-seconds counter while Claude is in flight — surgical
   // edits typically finish in 10-30s but a big body can stretch
@@ -2635,7 +2658,13 @@ function TargetedUpdateEditor({ landingPageId, initialHint, onApplied }) {
       setApplyError('Paste targeted-update instructions first.')
       return
     }
+    // Snapshot the buffer NOW — once the new version lands the
+    // parent's proposal state flips and currentBufferHtml shifts
+    // to the new body; capturing here pins the "before" for the
+    // inline preview.
+    const snapshotBefore = currentBufferHtml || ''
     setApplying(true); setApplyError(null); setLastSummary(null)
+    setBeforeHtml(null); setAfterHtml(null)
     try {
       // Always save before applying so the buffer doesn't apply
       // stale persisted text. The endpoint also accepts an inline
@@ -2669,6 +2698,8 @@ function TargetedUpdateEditor({ landingPageId, initialHint, onApplied }) {
         ? finalVersion.proposal_meta.summary_of_changes
         : []
       setLastSummary(summary)
+      setBeforeHtml(snapshotBefore)
+      setAfterHtml(finalVersion.body_html || '')
       if (typeof onApplied === 'function') onApplied(finalVersion)
     } catch (e) {
       setApplyError(e?.message || String(e))
@@ -2713,11 +2744,44 @@ function TargetedUpdateEditor({ landingPageId, initialHint, onApplied }) {
       )}
       {lastSummary && lastSummary.length > 0 && (
         <div className="bg-white border border-[#16a34a]/30 rounded p-2 text-[10px]">
-          <div className="font-medium text-[#16a34a] mb-1">✓ {lastSummary.length} change(s) applied — buffer updated</div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="font-medium text-[#16a34a]">✓ {lastSummary.length} change(s) applied — buffer updated</span>
+            <span className="flex-1" />
+            <button
+              onClick={() => { setBeforeHtml(null); setAfterHtml(null); setLastSummary(null) }}
+              className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
+              title="Hide the before/after preview. The buffer change stays applied — this just collapses the inline preview."
+            >Dismiss preview</button>
+          </div>
           <ul className="list-disc pl-4 text-muted space-y-0.5">
             {lastSummary.map((s, i) => <li key={i}>{s}</li>)}
           </ul>
         </div>
+      )}
+      {/* Inline before / after rendered preview — sits right under
+          the Apply button so the operator can verify the surgical
+          edit without scrolling. Iframe-styled to match the diff
+          section below so visual parity is exact. */}
+      {beforeHtml !== null && afterHtml !== null && (
+        <details open className="bg-white border border-[#6366f1]/30 rounded">
+          <summary className="cursor-pointer py-1.5 px-2 text-[10px] font-medium flex items-center gap-2">
+            <span>🔍 Rendered before / after</span>
+            <span className="text-[9px] text-muted">Visual diff of the surgical edit. Scroll down for the full proposal diff + deploy.</span>
+          </summary>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-2">
+            <div>
+              <div className="text-[9px] text-muted mb-1">Before (pre-update buffer)</div>
+              <RenderedPreview html={beforeHtml} tone="red" />
+            </div>
+            <div>
+              <div className="text-[9px] text-muted mb-1">After (new buffer — applied)</div>
+              <RenderedPreview html={afterHtml} tone="green" />
+            </div>
+          </div>
+          <div className="text-[8px] text-muted italic px-2 pb-2">
+            Approximate styling — actual rendering uses the live theme on deploy. The new buffer is also reflected in the proposal diff + deploy block below.
+          </div>
+        </details>
       )}
       <div className="text-[9px] text-muted italic">
         Tip: save the text first if you want to come back to it. Apply reads the LATEST version (whatever's currently in the buffer — imported body, prior proposal, or prior targeted-update) and produces a new version with ONLY the listed edits applied.
