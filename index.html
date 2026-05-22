@@ -50,6 +50,13 @@
   </script>
 
   <meta name="theme-color" content="#5C7A62" />
+  <!-- Lock the app to light-scheme rendering. Without this, iOS
+       Safari (and Android Chrome in some configurations) flip system
+       colors — button text, input defaults, fieldset borders — to
+       white when the device is in dark mode. The settings drawer
+       and other panels that set `bg-white` without ALSO setting an
+       explicit text color then end up white-on-white. -->
+  <meta name="color-scheme" content="light" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

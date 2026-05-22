@@ -44,9 +44,13 @@ export default function SettingsDrawerV2({ open, onClose, settings: settingsProp
   const toggle = (key) => setExpanded(prev => prev === key ? '' : key)
 
   return (
-    <div className="fixed inset-0 z-30 flex flex-col bg-white">
+    // text-ink + color-scheme:light pinned so the drawer renders
+    // correctly when the device is in dark mode. Without this, iOS
+    // Safari was flipping system text colors (button labels,
+    // <input> defaults) to white inside a bg-white container.
+    <div className="fixed inset-0 z-30 flex flex-col bg-white text-ink" style={{ colorScheme: 'light' }}>
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[#e5e5e5]">
-        <div className="text-[12px] font-medium flex-1">Settings</div>
+        <div className="text-[12px] font-medium text-ink flex-1">Settings</div>
         <button
           onClick={onClose}
           className="text-[14px] text-muted bg-transparent border-none cursor-pointer px-1"
@@ -209,16 +213,20 @@ function SectionCard({ icon, label, open, onToggle, desc, children }) {
     <div className="bg-white border border-[#e5e5e5] rounded-lg overflow-hidden mb-1">
       <button
         onClick={onToggle}
-        className="w-full flex items-start gap-3 p-3 bg-transparent border-none cursor-pointer text-left"
+        // text-ink on the button overrides Safari's dark-mode
+        // `ButtonText` system color, which was rendering the label
+        // white-on-white inside the drawer when the device was
+        // in dark mode.
+        className="w-full flex items-start gap-3 p-3 bg-transparent border-none cursor-pointer text-left text-ink"
       >
         <div className="w-10 h-10 rounded bg-[#6C5CE7]/10 flex items-center justify-center text-[20px] flex-shrink-0">{icon}</div>
         <div className="flex-1 min-w-0">
-          <div className="text-[12px] font-medium">{label}</div>
+          <div className="text-[12px] font-medium text-ink">{label}</div>
           {desc && <div className="text-[10px] text-muted mt-0.5">{desc}</div>}
         </div>
         <div className="text-[12px] text-muted">{open ? '▾' : '▸'}</div>
       </button>
-      {open && <div className="px-3 pb-3 border-t border-[#e5e5e5] pt-3">{children}</div>}
+      {open && <div className="px-3 pb-3 border-t border-[#e5e5e5] pt-3 text-ink">{children}</div>}
     </div>
   )
 }
