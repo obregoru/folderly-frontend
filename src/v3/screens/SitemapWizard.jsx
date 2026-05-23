@@ -150,9 +150,15 @@ export default function SitemapWizard() {
 
       <SiteIndexHintEditor />
 
-      <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 min-w-0">
         {/* Sitemap grid — tier-grouped */}
-        <div className="space-y-3">
+        {/* min-w-0 is critical here: CSS Grid tracks default to
+            min-content sizing, so a long slot label (e.g. "Birthday
+            Party Venues Waukesha County") will blow this column past
+            its 2fr allotment and squeeze the editor pane. min-w-0
+            forces the column to honor its fr share + lets the inner
+            truncate classes actually clip. */}
+        <div className="space-y-3 min-w-0">
           {tierList.map(t => {
             const slots = slotsByTier(t.tier)
             return (
@@ -181,30 +187,29 @@ export default function SitemapWizard() {
                       const preview = hint || rationale
                       const previewSource = hint ? 'hint' : (rationale ? 'rationale' : null)
                       return (
-                        <li key={s.id}>
+                        <li key={s.id} className="min-w-0">
                           <button
                             type="button"
                             onClick={() => { setActiveSlotId(s.id); setAdding(false) }}
-                            className={`w-full text-left text-[10px] py-1 px-2 rounded border cursor-pointer flex flex-col gap-0.5 ${
+                            className={`w-full text-left text-[10px] py-1 px-2 rounded border cursor-pointer flex flex-col gap-0.5 min-w-0 ${
                               activeSlotId === s.id
                                 ? 'bg-[#f5f3ff] border-[#6C5CE7] text-ink'
                                 : 'bg-white border-[#e5e5e5] hover:border-[#6C5CE7]'
                             }`}
                           >
-                            <div className="flex items-center gap-2 w-full">
+                            <div className="flex items-center gap-2 w-full min-w-0">
                               <StatusPill status={s.status} />
-                              <span className="flex-1 truncate font-medium">{s.label}</span>
+                              <span className="flex-1 min-w-0 truncate font-medium">{s.label}</span>
                               {s.template_kind && (
-                                <span className="text-[8px] text-muted font-mono">{s.template_kind}</span>
+                                <span className="text-[8px] text-muted font-mono flex-shrink-0">{s.template_kind}</span>
                               )}
                             </div>
                             {preview ? (
                               <div
-                                className="flex items-baseline gap-1 text-[9px] text-muted truncate pl-[2px]"
+                                className="text-[9px] text-muted pl-[2px] truncate w-full"
                                 title={`${previewSource === 'hint' ? 'Page hint' : 'Rationale'}: ${preview}`}
                               >
-                                <span className="flex-shrink-0">{previewSource === 'hint' ? '💡' : '📝'}</span>
-                                <span className="truncate font-normal">{preview}</span>
+                                {previewSource === 'hint' ? '💡 ' : '📝 '}{preview}
                               </div>
                             ) : (
                               <div className="text-[9px] text-muted/60 italic pl-[2px]">
