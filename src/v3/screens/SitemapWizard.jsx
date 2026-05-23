@@ -342,27 +342,45 @@ function PropagateModal({ state, onClose, onRun }) {
                       <th className="text-left py-1 pr-2 font-normal">URL slug</th>
                       <th className="text-left py-1 pr-2 font-normal">Tier</th>
                       <th className="text-left py-1 pr-2 font-normal">Brief says exists?</th>
+                      <th className="text-left py-1 pr-2 font-normal">Competitor</th>
                       <th className="text-left py-1 pr-2 font-normal">Keywords</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(parsed.pages || []).map(p => (
-                      <tr key={p.slot_key} className="border-b border-[#f0f0f0]">
-                        <td className="py-1 pr-2">
-                          <div className="font-medium">{p.label}</div>
-                          <div className="text-[8px] text-muted font-mono">{p.slot_key}</div>
-                        </td>
-                        <td className="py-1 pr-2 font-mono text-[9px]">{p.url_slug || '—'}</td>
-                        <td className="py-1 pr-2">{p.tier}</td>
-                        <td className="py-1 pr-2">
-                          <ExistsPill v={p.exists_at_source} />
-                        </td>
-                        <td className="py-1 pr-2 text-[9px] text-muted">
-                          {(p.target_keywords || []).slice(0, 3).join(', ')}
-                          {(p.target_keywords || []).length > 3 && ` +${p.target_keywords.length - 3}`}
-                        </td>
-                      </tr>
-                    ))}
+                    {(parsed.pages || []).map(p => {
+                      const compUrl = (p.competitor_url || '').trim()
+                      const hasComp = compUrl && /^https?:\/\//i.test(compUrl)
+                      return (
+                        <tr key={p.slot_key} className="border-b border-[#f0f0f0]">
+                          <td className="py-1 pr-2">
+                            <div className="font-medium">{p.label}</div>
+                            <div className="text-[8px] text-muted font-mono">{p.slot_key}</div>
+                          </td>
+                          <td className="py-1 pr-2 font-mono text-[9px]">{p.url_slug || '—'}</td>
+                          <td className="py-1 pr-2">{p.tier}</td>
+                          <td className="py-1 pr-2">
+                            <ExistsPill v={p.exists_at_source} />
+                          </td>
+                          <td className="py-1 pr-2 text-[9px]">
+                            {hasComp ? (
+                              <a
+                                href={compUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[#6C5CE7] underline truncate inline-block max-w-[180px]"
+                                title={compUrl}
+                              >{compUrl.replace(/^https?:\/\//, '')}</a>
+                            ) : (
+                              <span className="text-muted italic">uncontested</span>
+                            )}
+                          </td>
+                          <td className="py-1 pr-2 text-[9px] text-muted">
+                            {(p.target_keywords || []).slice(0, 3).join(', ')}
+                            {(p.target_keywords || []).length > 3 && ` +${p.target_keywords.length - 3}`}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
