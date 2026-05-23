@@ -1554,6 +1554,47 @@ export const applyGapToHint = (slotId) =>
     return r.json()
   })
 
+// Tenant voice-anchor pages — operator-curated existing URLs used
+// as background context (not a style cage) at content-generation
+// time. List / save (replace + scrape) / refresh.
+export const getVoiceAnchors = () =>
+  csrfFetch(`${apiBase()}/content/landing/voice-anchors`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getVoiceAnchors failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const saveVoiceAnchors = (urls) =>
+  csrfFetch(`${apiBase()}/content/landing/voice-anchors`, {
+    method: 'PUT',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ urls: Array.isArray(urls) ? urls : [] }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `saveVoiceAnchors failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const refreshVoiceAnchors = () =>
+  csrfFetch(`${apiBase()}/content/landing/voice-anchors/refresh`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `refreshVoiceAnchors failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Bulk-refresh competitor pages across all slots in the sitemap.
 // mode: 'missing' (default) | 'stale' | 'all'.
 // run_gap_analysis defaults true on the backend; pass false to skip

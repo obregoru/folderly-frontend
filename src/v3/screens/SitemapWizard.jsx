@@ -163,6 +163,7 @@ export default function SitemapWizard() {
       {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
 
       <SiteIndexHintEditor />
+      <VoiceAnchorsEditor />
 
       <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 min-w-0">
         {/* Sitemap grid — tier-grouped */}
@@ -795,6 +796,180 @@ function SiteIndexHintEditor() {
       )}
     </details>
   )
+}
+
+// Tenant-curated voice anchor pages. Operator pastes URLs (one per
+// line) of existing pages on the tenant's site that represent the
+// brand voice / who they are. Save scrapes them via Playwright and
+// stores excerpts. Every propose call thereafter injects the
+// excerpts into the system prompt as BACKGROUND context (not a
+// style cage — better-sounding copy still wins).
+//
+// Lives at the wizard header level (below the sitemap strategy
+// brief) because it's tenant-wide config, not per-slot.
+function VoiceAnchorsEditor() {
+  const [open, setOpen] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [text, setText] = useState('') // textarea — one URL per line
+  const [anchors, setAnchors] = useState([]) // server state for status pills
+  const [original, setOriginal] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [err, setErr] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  const flashMsg = (m) => { setMsg(m); setTimeout(() => setMsg(null), 3000) }
+
+  const anchorsToText = (list) => (list || []).map(a => a.url).join('\n')
+
+  const load = async () => {
+    try {
+      const r = await api.getVoiceAnchors()
+      const list = r?.anchors || []
+      setAnchors(list)
+      const t = anchorsToText(list)
+      setText(t); setOriginal(t); setLoaded(true)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
+  const handleToggle = () => {
+    setOpen(o => {
+      if (!o && !loaded) load()
+      return !o
+    })
+  }
+
+  const save = async () => {
+    if (busy) return
+    setBusy(true); setErr(null)
+    try {
+      const urls = text.split(/\n+/).map(s => s.trim()).filter(Boolean)
+      const r = await api.saveVoiceAnchors(urls)
+      setAnchors(r?.anchors || [])
+      const t = anchorsToText(r?.anchors || [])
+      setText(t); setOriginal(t)
+      flashMsg(`Saved & scraped ${urls.length} anchor(s)`)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const refresh = async () => {
+    if (refreshing) return
+    setRefreshing(true); setErr(null)
+    try {
+      const r = await api.refreshVoiceAnchors()
+      setAnchors(r?.anchors || [])
+      flashMsg(`Refreshed — ${r.scraped} ok, ${r.failed} failed`)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const isDirty = loaded && text.trim() !== original.trim()
+  const okCount = anchors.filter(a => a.fetch_status === 'ok').length
+  const failedCount = anchors.filter(a => a.fetch_status === 'failed').length
+  const pendingCount = anchors.filter(a => !a.fetch_status || a.fetch_status === 'pending').length
+
+  return (
+    <details open={open} className="border border-[#e5e5e5] rounded bg-white">
+      <summary
+        onClick={(e) => { e.preventDefault(); handleToggle() }}
+        className="cursor-pointer py-2 px-3 flex items-center gap-2"
+      >
+        <span className="text-[11px] font-medium">🎙️ Voice anchor pages</span>
+        <span className="text-[9px] text-muted">
+          Existing pages on this tenant's site — background context for content generation (not a style cage)
+        </span>
+        <span className="flex-1" />
+        {loaded && (
+          <span className="text-[9px] text-muted">
+            {anchors.length} anchor{anchors.length === 1 ? '' : 's'}
+            {failedCount > 0 && <span className="text-[#c0392b]"> · {failedCount} failed</span>}
+            {pendingCount > 0 && <span className="text-[#d97706]"> · {pendingCount} pending</span>}
+          </span>
+        )}
+        <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
+      </summary>
+      {open && (
+        <div className="p-3 pt-0 space-y-2">
+          {!loaded && !err && (
+            <div className="text-[10px] text-muted italic">Loading…</div>
+          )}
+          {err && <div className="text-[10px] text-[#c0392b]">⚠ {err}</div>}
+          {loaded && (
+            <>
+              <div className="text-[10px] text-muted">
+                One URL per line. Pages from your tenant's existing site that represent the brand voice + who you are. Excerpts get injected into every content-generation prompt as background — Claude reads them to understand the tenant, but better-sounding copy still wins. Not a style cage.
+              </div>
+              <textarea
+                value={text}
+                onChange={e => setText(e.target.value)}
+                rows={Math.max(6, (text.match(/\n/g) || []).length + 1)}
+                spellCheck={false}
+                className="w-full text-[10px] font-mono border border-[#e5e5e5] rounded p-2 outline-none focus:border-[#6C5CE7] resize-y"
+                placeholder="https://www.poppyandthyme.com/make-and-take&#10;https://www.poppyandthyme.com/make-and-take-parties&#10;..."
+              />
+              {anchors.length > 0 && (
+                <div className="space-y-0.5">
+                  {anchors.map(a => (
+                    <div key={a.id} className="flex items-center gap-2 text-[10px]">
+                      <AnchorStatusPill status={a.fetch_status} />
+                      <a
+                        href={a.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#6C5CE7] underline truncate flex-1 min-w-0"
+                        title={a.url}
+                      >{a.url.replace(/^https?:\/\//, '')}</a>
+                      {a.title && (
+                        <span className="text-[9px] text-muted truncate max-w-[200px]" title={a.title}>· {a.title}</span>
+                      )}
+                      {a.fetch_status === 'failed' && a.fetch_error && (
+                        <span className="text-[9px] text-[#c0392b]" title={a.fetch_error}>⚠</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-1 border-t border-[#f0f0f0]">
+                {msg && <span className="text-[9px] text-[#16a34a]">✓ {msg}</span>}
+                <span className="flex-1" />
+                <button
+                  onClick={refresh}
+                  disabled={refreshing || isDirty || anchors.length === 0}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer disabled:opacity-50"
+                  title="Re-scrape all anchors (catches voice drift when the site updates). Disabled while there are unsaved changes."
+                >{refreshing ? 'Refreshing…' : '🔄 Refresh all'}</button>
+                <button
+                  onClick={save}
+                  disabled={busy || !isDirty}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                  title="Save the URL list and scrape any new entries"
+                >{busy ? 'Saving & scraping…' : 'Save & scrape'}</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </details>
+  )
+}
+
+function AnchorStatusPill({ status }) {
+  const map = {
+    ok: { tone: 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40', label: 'ok' },
+    failed: { tone: 'bg-[#fee2e2] text-[#991b1b] border-[#dc2626]/40', label: 'failed' },
+    pending: { tone: 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40', label: 'pending' },
+  }
+  const m = map[status] || map.pending
+  return <span className={`text-[8px] py-0.5 px-1 rounded border font-mono whitespace-nowrap ${m.tone}`}>{m.label}</span>
 }
 
 function StatusPill({ status }) {
