@@ -127,25 +127,53 @@ export default function SitemapWizard() {
                   <div className="text-[9px] text-muted italic">No slots in this tier yet.</div>
                 ) : (
                   <ul className="space-y-1">
-                    {slots.map(s => (
-                      <li key={s.id}>
-                        <button
-                          type="button"
-                          onClick={() => { setActiveSlotId(s.id); setAdding(false) }}
-                          className={`w-full text-left text-[10px] py-1 px-2 rounded border cursor-pointer flex items-center gap-2 ${
-                            activeSlotId === s.id
-                              ? 'bg-[#f5f3ff] border-[#6C5CE7] text-ink'
-                              : 'bg-white border-[#e5e5e5] hover:border-[#6C5CE7]'
-                          }`}
-                        >
-                          <StatusPill status={s.status} />
-                          <span className="flex-1 truncate font-medium">{s.label}</span>
-                          {s.template_kind && (
-                            <span className="text-[8px] text-muted font-mono">{s.template_kind}</span>
-                          )}
-                        </button>
-                      </li>
-                    ))}
+                    {slots.map(s => {
+                      // Per-slot hint preview. extra_strategy_hint is the
+                      // AI-injection field that seeds landing_pages.strategy_hint
+                      // at scaffold time, so it's the headline. Fall back to
+                      // rationale (operator-readable "why this page exists") so
+                      // a slot with no AI hint but a rationale still says
+                      // something useful on the row. Empty = explicit "no hint"
+                      // dim marker so gaps are visible at a glance.
+                      const hint = (s.extra_strategy_hint || '').trim()
+                      const rationale = (s.rationale || '').trim()
+                      const preview = hint || rationale
+                      const previewSource = hint ? 'hint' : (rationale ? 'rationale' : null)
+                      return (
+                        <li key={s.id}>
+                          <button
+                            type="button"
+                            onClick={() => { setActiveSlotId(s.id); setAdding(false) }}
+                            className={`w-full text-left text-[10px] py-1 px-2 rounded border cursor-pointer flex flex-col gap-0.5 ${
+                              activeSlotId === s.id
+                                ? 'bg-[#f5f3ff] border-[#6C5CE7] text-ink'
+                                : 'bg-white border-[#e5e5e5] hover:border-[#6C5CE7]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 w-full">
+                              <StatusPill status={s.status} />
+                              <span className="flex-1 truncate font-medium">{s.label}</span>
+                              {s.template_kind && (
+                                <span className="text-[8px] text-muted font-mono">{s.template_kind}</span>
+                              )}
+                            </div>
+                            {preview ? (
+                              <div
+                                className="flex items-baseline gap-1 text-[9px] text-muted truncate pl-[2px]"
+                                title={`${previewSource === 'hint' ? 'Page hint' : 'Rationale'}: ${preview}`}
+                              >
+                                <span className="flex-shrink-0">{previewSource === 'hint' ? '💡' : '📝'}</span>
+                                <span className="truncate font-normal">{preview}</span>
+                              </div>
+                            ) : (
+                              <div className="text-[9px] text-muted/60 italic pl-[2px]">
+                                — no hint —
+                              </div>
+                            )}
+                          </button>
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </div>
