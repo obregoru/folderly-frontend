@@ -1554,6 +1554,27 @@ export const applyGapToHint = (slotId) =>
     return r.json()
   })
 
+// Bulk-refresh competitor pages across all slots in the sitemap.
+// mode: 'missing' (default) | 'stale' | 'all'.
+// run_gap_analysis defaults true on the backend; pass false to skip
+// the Haiku calls when you just want fresh scrapes.
+// stale_days: only matters in 'stale' mode; defaults 7.
+// Returns { total, scraped, scrape_failed, analyzed, analysis_failed,
+// elapsed_seconds, slots: [{slot_key, scrape_status, analysis_status?, ...}] }
+export const refreshCompetitors = ({ mode = 'missing', run_gap_analysis = true, stale_days = 7 } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/refresh-competitors`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ mode, run_gap_analysis, stale_days }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `refreshCompetitors failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Materialize a planned slot into a WP draft page + landing_page row
 // + initial imported version. Slot transitions planned → draft.
 export const createWpPageForSlot = (id, { slugOverride } = {}) =>

@@ -33,6 +33,9 @@ export default function SitemapWizard() {
   // parsed { tiers, pages } from parse-brief. Switches into result
   // mode once propagation runs and we have per-slot statuses.
   const [propagateModal, setPropagateModal] = useState(null) // null | { phase, parsed, propagating, result, error }
+  // Bulk competitor-refresh modal state — separate from propagateModal
+  // because the flow is different (no preview phase; just run + result).
+  const [refreshModal, setRefreshModal] = useState(null) // null | { phase, mode, runAnalysis, result, error }
 
   const load = async () => {
     setLoading(true); setError(null)
@@ -99,6 +102,16 @@ export default function SitemapWizard() {
     }
   }
 
+  // Bulk competitor refresh. mode: 'missing' | 'stale' | 'all'.
+  // runAnalysis controls whether gap analysis runs after scraping.
+  // Long-running synchronous call (2-5 min for 24 slots with analysis).
+  const openRefreshModal = (mode, runAnalysis) => {
+    setRefreshModal({ phase: 'running', mode, runAnalysis, result: null, error: null })
+    api.refreshCompetitors({ mode, run_gap_analysis: runAnalysis })
+      .then(r => setRefreshModal(m => ({ ...m, phase: 'result', result: r })))
+      .catch(e => setRefreshModal(m => ({ ...m, phase: 'error', error: e?.message || String(e) })))
+  }
+
   if (loading) {
     return <div className="text-[11px] text-muted italic py-8 text-center">Loading sitemap plan…</div>
   }
@@ -134,6 +147,7 @@ export default function SitemapWizard() {
           className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer flex-shrink-0"
           title="Parse the 📋 Sitemap strategy brief into tiers + pages via Claude, then for each page: check if it exists on WP or your existing source domain, and import/scrape accordingly. Slots that don't exist anywhere stay 'planned'."
         >🪄 Generate initial sitemap</button>
+        <RefreshCompetitorsMenu onChoose={openRefreshModal} />
         <button
           onClick={reseed}
           disabled={reseeding}
@@ -266,6 +280,187 @@ export default function SitemapWizard() {
           onRun={runPropagation}
         />
       )}
+
+      {refreshModal && (
+        <RefreshCompetitorsModal
+          state={refreshModal}
+          onClose={() => { setRefreshModal(null); load() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Three-button cluster for bulk competitor refresh: Missing /
+// Stale / All. Each fires the same endpoint with a different mode.
+// 'Missing' is the safest + most common default (right after a
+// sitemap generation, to bulk-import all the new slots' competitors).
+function RefreshCompetitorsMenu({ onChoose }) {
+  const [open, setOpen] = useState(false)
+  const [runAnalysis, setRunAnalysis] = useState(true)
+  return (
+    <div className="relative flex-shrink-0">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+        title="Bulk-scrape competitor pages for every slot in the sitemap that has a competitor URL set. Optionally run 5-dim gap analysis on each."
+      >🔄 Refresh competitors ▾</button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-40 bg-white border border-[#e5e5e5] rounded shadow-lg p-2 min-w-[280px] space-y-2">
+          <label className="flex items-center gap-2 text-[10px] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={runAnalysis}
+              onChange={e => setRunAnalysis(e.target.checked)}
+            />
+            <span>Also run gap analysis (slower, costs Claude tokens)</span>
+          </label>
+          <div className="border-t border-[#e5e5e5] pt-1 space-y-1">
+            <button
+              onClick={() => { setOpen(false); onChoose('missing', runAnalysis) }}
+              className="w-full text-left text-[10px] py-1 px-2 rounded hover:bg-[#f5f3ff] cursor-pointer"
+              title="Scrape only slots that have a competitor_url but no successful scraped data yet. Safe default after Generate Initial Sitemap."
+            >
+              <div className="font-medium">📥 Import missing</div>
+              <div className="text-[9px] text-muted">For slots with a URL but no scraped data yet</div>
+            </button>
+            <button
+              onClick={() => { setOpen(false); onChoose('stale', runAnalysis) }}
+              className="w-full text-left text-[10px] py-1 px-2 rounded hover:bg-[#f5f3ff] cursor-pointer"
+              title="Re-scrape slots whose last_fetched_at is older than 7 days. Periodic maintenance."
+            >
+              <div className="font-medium">⏰ Refresh stale (&gt;7 days)</div>
+              <div className="text-[9px] text-muted">Re-scrape pages that haven't been checked recently</div>
+            </button>
+            <button
+              onClick={() => { setOpen(false); onChoose('all', runAnalysis) }}
+              className="w-full text-left text-[10px] py-1 px-2 rounded hover:bg-[#fff7ed] cursor-pointer"
+              title="Re-scrape EVERY slot with a competitor_url regardless of staleness. Use after a competitor's known site-wide redesign."
+            >
+              <div className="font-medium">🔁 Refresh all</div>
+              <div className="text-[9px] text-muted">Re-scrape every slot with a competitor URL</div>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Modal showing progress + result of a bulk competitor refresh.
+// Two phases: 'running' (spinner + estimated time) and 'result' /
+// 'error' (summary + per-slot table). No preview phase — the user
+// already chose the mode in the menu.
+function RefreshCompetitorsModal({ state, onClose }) {
+  const { phase, mode, runAnalysis, result, error } = state
+  const modeLabel = mode === 'missing' ? 'Import missing'
+    : mode === 'stale' ? 'Refresh stale (>7 days)'
+    : 'Refresh all'
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded shadow-xl border border-[#e5e5e5] max-w-3xl w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#e5e5e5]">
+          <span className="text-[12px] font-semibold">🔄 {modeLabel}</span>
+          {phase === 'running' && <span className="text-[10px] text-muted">working…</span>}
+          {phase === 'result' && result && (
+            <span className="text-[10px] text-muted">
+              {result.scraped}/{result.total} scraped
+              {runAnalysis && result.analyzed > 0 && `, ${result.analyzed} analyzed`}
+              {' · '}{result.elapsed_seconds}s
+            </span>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            disabled={phase === 'running'}
+            className="text-[10px] text-muted bg-transparent border-none cursor-pointer disabled:opacity-30"
+          >✕ Close</button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-3">
+          {phase === 'running' && (
+            <div className="text-[11px] text-muted py-12 text-center space-y-2">
+              <div className="italic">Playwright is scraping competitor pages…</div>
+              {runAnalysis && (
+                <div className="text-[10px]">After scraping, Claude Haiku will run a 5-dim gap analysis on each one. This can take 2-5 minutes for a full sitemap.</div>
+              )}
+              <div className="text-[10px] text-muted">Don't close this tab — the request is in flight.</div>
+            </div>
+          )}
+
+          {phase === 'error' && (
+            <div className="text-[11px] text-[#c0392b] py-4">⚠ {error}</div>
+          )}
+
+          {phase === 'result' && result && (
+            <div className="space-y-2">
+              {result.message && (
+                <div className="text-[10px] text-muted italic">{result.message}</div>
+              )}
+              <div className="grid grid-cols-4 gap-2">
+                <ResultStat label="Scraped" value={result.scraped} tone="green" />
+                <ResultStat label="Scrape failed" value={result.scrape_failed} tone={result.scrape_failed > 0 ? 'red' : 'neutral'} />
+                {runAnalysis && <ResultStat label="Analyzed" value={result.analyzed} tone="green" />}
+                {runAnalysis && <ResultStat label="Analysis failed" value={result.analysis_failed} tone={result.analysis_failed > 0 ? 'red' : 'neutral'} />}
+              </div>
+              {Array.isArray(result.slots) && result.slots.length > 0 && (
+                <table className="w-full text-[10px] border-collapse">
+                  <thead className="text-[9px] text-muted uppercase tracking-wide">
+                    <tr className="border-b border-[#e5e5e5]">
+                      <th className="text-left py-1 pr-2 font-normal">Slot</th>
+                      <th className="text-left py-1 pr-2 font-normal">Scrape</th>
+                      {runAnalysis && <th className="text-left py-1 pr-2 font-normal">Analysis</th>}
+                      <th className="text-left py-1 pr-2 font-normal">Competitor URL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.slots.map(s => (
+                      <tr key={s.slot_id} className="border-b border-[#f0f0f0]">
+                        <td className="py-1 pr-2">
+                          <div className="font-medium truncate max-w-[180px]" title={s.label}>{s.label}</div>
+                          <div className="text-[8px] text-muted font-mono">{s.slot_key}</div>
+                        </td>
+                        <td className="py-1 pr-2">
+                          {s.scrape_status === 'ok'
+                            ? <span className="text-[#15803d]">✓</span>
+                            : <span className="text-[#c0392b]" title={s.scrape_error}>⚠ {s.scrape_error || 'failed'}</span>}
+                        </td>
+                        {runAnalysis && (
+                          <td className="py-1 pr-2">
+                            {s.analysis_status === 'ok'
+                              ? <span className="text-[#15803d]">✓</span>
+                              : s.analysis_status === 'failed'
+                                ? <span className="text-[#c0392b]" title={s.analysis_error}>⚠</span>
+                                : <span className="text-muted">—</span>}
+                          </td>
+                        )}
+                        <td className="py-1 pr-2">
+                          <a
+                            href={s.competitor_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#6C5CE7] underline truncate inline-block max-w-[240px]"
+                            title={s.competitor_url}
+                          >{(s.competitor_url || '').replace(/^https?:\/\//, '')}</a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 px-3 py-2 border-t border-[#e5e5e5]">
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            disabled={phase === 'running'}
+            className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-30"
+          >{phase === 'running' ? 'Working…' : 'Done'}</button>
+        </div>
+      </div>
     </div>
   )
 }
