@@ -1486,6 +1486,74 @@ export const updateSitemapTier = (tier, patch) =>
     return r.json()
   })
 
+// Get the slot's tracked competitor (competitor_pages row + last
+// audit findings if any). Returns { slot, competitor | null }.
+export const getSlotCompetitor = (slotId) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(slotId)}/competitor`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSlotCompetitor failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Scrape the competitor URL (Playwright) and store as a
+// competitor_pages row linked to this slot. Body { url? } sets +
+// scrapes in one call; otherwise uses the slot's saved
+// competitor_url. Returns { competitor }.
+export const importSlotCompetitor = (slotId, { url, competitor_label } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(slotId)}/import-competitor`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ url: url || undefined, competitor_label: competitor_label || undefined }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `importSlotCompetitor failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Run a 5-dim SEO/E-E-A-T/GEO/AEO/content gap analysis comparing
+// our page (live landing_page if linked, planned intent otherwise)
+// against the scraped competitor. Returns { findings, model_used }.
+// Findings shape: { summary, seo, eeat, geo, aeo, content,
+// top_recommendations }, each dim has { gaps_to_close, our_strengths,
+// recommendations }.
+export const runSlotGapAnalysis = (slotId) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(slotId)}/gap-analysis`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `runSlotGapAnalysis failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Merge the latest gap-analysis findings into the slot's
+// extra_strategy_hint (and the linked landing_page's strategy_hint
+// if one exists) as a "## Competitive gap analysis" block.
+// Idempotent — re-applying replaces the previous block.
+export const applyGapToHint = (slotId) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(slotId)}/apply-gap-to-hint`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `applyGapToHint failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Materialize a planned slot into a WP draft page + landing_page row
 // + initial imported version. Slot transitions planned → draft.
 export const createWpPageForSlot = (id, { slugOverride } = {}) =>

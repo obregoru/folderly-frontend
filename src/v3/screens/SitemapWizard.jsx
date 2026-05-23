@@ -779,6 +779,14 @@ function SlotEditor({ slot, tiers, onSaved, onCancel, onDeleted, onCreatedWp }) 
         <div className="text-[8px] text-muted mt-0.5">Used as the SEED — once a real landing_page row exists, that page's own strategy_hint takes over for ongoing edits.</div>
       </div>
 
+      {!isNew && slot?.id && (
+        <CompetitorBlock
+          slotId={slot.id}
+          initialUrl={slot.competitor_url || ''}
+          onHintMerged={(newHint) => setExtraHint(newHint)}
+        />
+      )}
+
       <details>
         <summary className="cursor-pointer text-muted">Template variables (JSON)</summary>
         <textarea
@@ -839,6 +847,271 @@ function SlotEditor({ slot, tiers, onSaved, onCancel, onDeleted, onCreatedWp }) 
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// Per-slot competitor tracking: paste competitor URL, click Import
+// to Playwright-scrape their page, click Run gap analysis for a
+// 5-dim SEO/E-E-A-T/GEO/AEO/content comparison via Claude Haiku,
+// then click Apply to hint to weave the findings into this slot's
+// page_hint so every future propose call factors in what the
+// competitor does better.
+//
+// Auto-loads the slot's existing competitor data on mount so the
+// operator sees state on slot switch without an extra click.
+function CompetitorBlock({ slotId, initialUrl, onHintMerged }) {
+  const [url, setUrl] = useState(initialUrl || '')
+  const [savedUrl, setSavedUrl] = useState(initialUrl || '')
+  const [competitor, setCompetitor] = useState(null) // { url, title, body_excerpt, headings_meta, last_fetched_at, audit_result, ... }
+  const [savingUrl, setSavingUrl] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [err, setErr] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  // Load existing competitor data on mount / slot change.
+  useEffect(() => {
+    let cancelled = false
+    api.getSlotCompetitor(slotId).then(r => {
+      if (cancelled) return
+      setCompetitor(r?.competitor || null)
+      const savedFromServer = r?.slot?.competitor_url || ''
+      setSavedUrl(savedFromServer)
+      setUrl(savedFromServer)
+    }).catch(() => { /* non-fatal; treat as no competitor */ })
+    return () => { cancelled = true }
+  }, [slotId])
+
+  const isDirty = url.trim() !== savedUrl.trim()
+
+  const flashMsg = (m) => { setMsg(m); setTimeout(() => setMsg(null), 3000) }
+
+  const saveUrl = async () => {
+    if (savingUrl) return
+    setSavingUrl(true); setErr(null)
+    try {
+      await api.updateSitemapSlot(slotId, { competitor_url: url.trim() || null })
+      setSavedUrl(url.trim())
+      flashMsg('URL saved')
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setSavingUrl(false)
+    }
+  }
+
+  const runImport = async () => {
+    if (importing) return
+    setImporting(true); setErr(null)
+    try {
+      const r = await api.importSlotCompetitor(slotId, { url: url.trim() })
+      setCompetitor(c => ({ ...c, ...r.competitor }))
+      setSavedUrl(url.trim()) // server saved it too if it differed
+      flashMsg('Imported')
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const runAnalysis = async () => {
+    if (analyzing) return
+    setAnalyzing(true); setErr(null)
+    try {
+      const r = await api.runSlotGapAnalysis(slotId)
+      setCompetitor(c => ({ ...(c || {}), audit_result: r.findings }))
+      flashMsg('Gap analysis complete')
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const applyToHint = async () => {
+    if (applying) return
+    if (!confirm('Merge the gap-analysis findings into this slot\'s page hint? Re-applying replaces any previous gap-analysis block.')) return
+    setApplying(true); setErr(null)
+    try {
+      const r = await api.applyGapToHint(slotId)
+      if (typeof onHintMerged === 'function' && r?.extra_strategy_hint) {
+        onHintMerged(r.extra_strategy_hint)
+      }
+      flashMsg(r?.also_updated_landing_page
+        ? 'Applied — slot hint + linked landing_page hint updated'
+        : 'Applied to slot hint')
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const findings = competitor?.audit_result || null
+  const lastFetched = competitor?.last_fetched_at
+    ? new Date(competitor.last_fetched_at).toLocaleString()
+    : null
+
+  return (
+    <div className="border border-[#e5e5e5] rounded bg-[#fafafa] p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium">⚔️ Competitor benchmark</span>
+        <span className="text-[9px] text-muted">Track ONE competitor page for this slot. Import it, gap-analyze, fold the findings into the page hint.</span>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <input
+          type="url"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="https://competitor.com/their-equivalent-page"
+          className="flex-1 min-w-0 text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white font-mono"
+        />
+        {savedUrl && (
+          <a
+            href={savedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded no-underline flex-shrink-0"
+            title="Open competitor page in a new tab"
+          >↗ Open</a>
+        )}
+        {isDirty && (
+          <button
+            onClick={saveUrl}
+            disabled={savingUrl}
+            className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 flex-shrink-0"
+          >{savingUrl ? 'Saving…' : 'Save URL'}</button>
+        )}
+        <button
+          onClick={runImport}
+          disabled={importing || !url.trim()}
+          className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50 flex-shrink-0"
+          title="Playwright-scrape the competitor page and store its content for gap analysis"
+        >{importing ? 'Importing…' : (competitor ? '🔄 Re-import' : '📥 Import')}</button>
+      </div>
+
+      {competitor && competitor.fetch_status === 'ok' && (
+        <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-1 text-[10px]">
+          <div className="flex items-center gap-2">
+            <span className="font-medium truncate flex-1 min-w-0" title={competitor.title || ''}>{competitor.title || '(no title)'}</span>
+            <span className="text-[8px] text-muted flex-shrink-0">{lastFetched}</span>
+          </div>
+          {competitor.meta_description && (
+            <div className="text-[9px] text-muted">{competitor.meta_description}</div>
+          )}
+          {Array.isArray(competitor.headings_meta) && competitor.headings_meta.length > 0 && (
+            <div className="text-[9px] text-muted">
+              {competitor.headings_meta.length} heading{competitor.headings_meta.length === 1 ? '' : 's'} extracted
+            </div>
+          )}
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={runAnalysis}
+              disabled={analyzing}
+              className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              title="Run a 5-dim SEO + E-E-A-T + GEO + AEO + content comparison via Claude Haiku"
+            >{analyzing ? 'Analyzing…' : (findings ? '🔁 Re-run gap analysis' : '🔍 Run gap analysis')}</button>
+            {findings && (
+              <button
+                onClick={applyToHint}
+                disabled={applying}
+                className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                title="Merge findings into the slot's page hint (idempotent — replaces any prior gap-analysis block)"
+              >{applying ? 'Applying…' : '✨ Apply to page hint'}</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {competitor && competitor.fetch_status === 'failed' && (
+        <div className="bg-[#fef2f2] border border-[#dc2626]/30 rounded p-2 text-[10px] text-[#991b1b]">
+          Last import failed: {competitor.fetch_error || 'unknown'}{competitor.http_status ? ` (HTTP ${competitor.http_status})` : ''}
+        </div>
+      )}
+
+      {findings && (
+        <GapFindings findings={findings} />
+      )}
+
+      {msg && <div className="text-[9px] text-[#16a34a]">✓ {msg}</div>}
+      {err && <div className="text-[10px] text-[#c0392b]">⚠ {err}</div>}
+    </div>
+  )
+}
+
+// Render the 5-dim gap analysis findings. Top recommendations are
+// always expanded; each dimension is a collapsible <details>.
+function GapFindings({ findings }) {
+  const dims = [
+    { key: 'seo', label: 'SEO' },
+    { key: 'eeat', label: 'E-E-A-T' },
+    { key: 'geo', label: 'GEO (generative engines)' },
+    { key: 'aeo', label: 'AEO (answer engines)' },
+    { key: 'content', label: 'Content quality' },
+  ]
+  return (
+    <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-2 text-[10px]">
+      {findings.summary && (
+        <div className="text-[10px] text-ink italic">{findings.summary}</div>
+      )}
+      {Array.isArray(findings.top_recommendations) && findings.top_recommendations.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[9px] uppercase tracking-wide text-muted font-medium">Highest-impact moves</div>
+          <ul className="space-y-0.5">
+            {findings.top_recommendations.map((r, i) => (
+              <li key={i} className="text-[10px] pl-2 border-l-2 border-[#6C5CE7]/40">{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {dims.map(d => {
+        const f = findings[d.key]
+        if (!f) return null
+        const gaps = (f.gaps_to_close || []).filter(Boolean)
+        const strengths = (f.our_strengths || []).filter(Boolean)
+        const recs = (f.recommendations || []).filter(Boolean)
+        if (gaps.length === 0 && strengths.length === 0 && recs.length === 0) return null
+        return (
+          <details key={d.key} className="border-t border-[#f0f0f0] pt-1">
+            <summary className="cursor-pointer text-[10px] font-medium">
+              {d.label}
+              <span className="text-[9px] text-muted ml-2">
+                {gaps.length} gap{gaps.length === 1 ? '' : 's'}, {recs.length} rec{recs.length === 1 ? '' : 's'}
+              </span>
+            </summary>
+            <div className="pl-2 pt-1 space-y-1.5">
+              {gaps.length > 0 && (
+                <div>
+                  <div className="text-[9px] uppercase tracking-wide text-[#c0392b]/80 font-medium mb-0.5">Gaps to close</div>
+                  <ul className="space-y-0.5">
+                    {gaps.map((g, i) => <li key={i} className="text-[10px]">• {g}</li>)}
+                  </ul>
+                </div>
+              )}
+              {strengths.length > 0 && (
+                <div>
+                  <div className="text-[9px] uppercase tracking-wide text-[#15803d] font-medium mb-0.5">Our strengths</div>
+                  <ul className="space-y-0.5">
+                    {strengths.map((s, i) => <li key={i} className="text-[10px]">• {s}</li>)}
+                  </ul>
+                </div>
+              )}
+              {recs.length > 0 && (
+                <div>
+                  <div className="text-[9px] uppercase tracking-wide text-[#6C5CE7] font-medium mb-0.5">Recommendations</div>
+                  <ul className="space-y-0.5">
+                    {recs.map((r, i) => <li key={i} className="text-[10px]">• {r}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </details>
+        )
+      })}
     </div>
   )
 }
