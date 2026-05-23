@@ -1077,6 +1077,36 @@ export const setEditorialPolicy = (text) =>
     return r.json()
   })
 
+// Tenant-wide sitemap strategy brief — the operator's overall plan
+// for the site portfolio (tiers, slot rationale, internal-linking
+// topology). Typically pasted from a claude.ai brainstorm where
+// the strategy was thought through. Auto-prepended to every audit
+// + propose call so each page generation knows how it fits the
+// larger plan.
+export const getSiteIndexHint = () =>
+  csrfFetch(`${apiBase()}/content/landing/site-index-hint`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSiteIndexHint failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const setSiteIndexHint = (text) =>
+  csrfFetch(`${apiBase()}/content/landing/site-index-hint`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ site_index_hint: text || null }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setSiteIndexHint failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Site Setup Wizard — fetch the full state needed to render the
 // wizard: plan + per-slot progress + tenant's WP pages list for
 // mapping. One round trip; cheap to call on every modal open.

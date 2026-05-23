@@ -107,6 +107,8 @@ export default function SitemapWizard() {
       {reseedMsg && <div className="text-[10px] text-[#16a34a]">✓ {reseedMsg}</div>}
       {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
 
+      <SiteIndexHintEditor />
+
       <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3">
         {/* Sitemap grid — tier-grouped */}
         <div className="space-y-3">
@@ -183,6 +185,116 @@ export default function SitemapWizard() {
         </div>
       </div>
     </div>
+  )
+}
+
+// Tenant-wide sitemap strategy brief. Free-form prose — typically
+// pasted from a claude.ai brainstorm where the operator thought
+// through tiers, slot rationale, internal-linking topology, and
+// topical-authority strategy. Auto-prepended to every audit +
+// propose call (alongside the per-page strategy_hint) so each page
+// generation knows how it fits the larger plan.
+//
+// Distinct from editorial_policy (hard rules) and per-page
+// strategy_hint (this-page intent). Sits between them in priority.
+function SiteIndexHintEditor() {
+  const [open, setOpen] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [text, setText] = useState('')
+  const [original, setOriginal] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+  const [saved, setSaved] = useState(false)
+
+  const load = async () => {
+    try {
+      const r = await api.getSiteIndexHint()
+      const v = r?.site_index_hint || ''
+      setText(v); setOriginal(v); setLoaded(true)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    }
+  }
+
+  const handleToggle = () => {
+    setOpen(o => {
+      if (!o && !loaded) load()
+      return !o
+    })
+  }
+
+  const save = async () => {
+    if (busy) return
+    setBusy(true); setErr(null); setSaved(false)
+    try {
+      await api.setSiteIndexHint(text)
+      setOriginal(text)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const isDirty = loaded && text !== original
+  const charCount = text.length
+
+  return (
+    <details open={open} className="border border-[#e5e5e5] rounded bg-white">
+      <summary
+        onClick={(e) => { e.preventDefault(); handleToggle() }}
+        className="cursor-pointer py-2 px-3 flex items-center gap-2"
+      >
+        <span className="text-[11px] font-medium">📋 Sitemap strategy brief</span>
+        <span className="text-[9px] text-muted">
+          Overall plan for the site — tiers, slot rationale, internal-linking topology. Paste your claude.ai brainstorm here. Injected into every audit + propose call.
+        </span>
+        <span className="flex-1" />
+        {loaded && (
+          <span className="text-[9px] text-muted">
+            {original ? `${original.length.toLocaleString()} chars saved` : 'empty'}
+          </span>
+        )}
+        <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
+      </summary>
+      {open && (
+        <div className="p-3 pt-0 space-y-2">
+          {!loaded && !err && (
+            <div className="text-[10px] text-muted italic">Loading…</div>
+          )}
+          {err && (
+            <div className="text-[10px] text-[#c0392b]">⚠ {err}</div>
+          )}
+          {loaded && (
+            <>
+              <div className="text-[10px] text-muted">
+                Free-form prose. Sits between <em>editorial_policy</em> (hard rules) and per-page <em>strategy_hint</em> in priority. Tells the rewrite how THIS page fits the wider plan — don't drift into territory owned by a sibling page, respect the planned topology.
+              </div>
+              <textarea
+                value={text}
+                onChange={e => setText(e.target.value)}
+                rows={14}
+                spellCheck={false}
+                className="w-full text-[11px] font-mono border border-[#e5e5e5] rounded p-2 outline-none focus:border-[#6C5CE7] resize-y"
+                placeholder="e.g. SITE STRATEGY: Tier 1 = top-of-funnel category hubs (one per service line). Tier 2 = case-study + service-depth pages, internally linking up to tier 1. Tier 3 = supporting blog posts that link laterally to tier 2 + up to tier 1. INTERNAL LINKING: every tier 3 must link to its parent tier 2 within the first 300 words. TOPICAL AUTHORITY: focus on Milwaukee + Wisconsin queries; deprioritize national..."
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-muted">{charCount.toLocaleString()} chars</span>
+                {saved && <span className="text-[9px] text-[#16a34a]">✓ Saved</span>}
+                <span className="flex-1" />
+                <button
+                  onClick={save}
+                  disabled={busy || !isDirty}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                >{busy ? 'Saving…' : 'Save brief'}</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </details>
   )
 }
 
