@@ -29,6 +29,10 @@ export default function SitemapWizard() {
   const [reseedMsg, setReseedMsg] = useState(null)
   // Adding a new slot state — inline panel below the grid.
   const [adding, setAdding] = useState(false)
+  // Initial-sitemap propagation flow state. propagateModal holds the
+  // parsed { tiers, pages } from parse-brief. Switches into result
+  // mode once propagation runs and we have per-slot statuses.
+  const [propagateModal, setPropagateModal] = useState(null) // null | { phase, parsed, propagating, result, error }
 
   const load = async () => {
     setLoading(true); setError(null)
@@ -63,6 +67,38 @@ export default function SitemapWizard() {
     }
   }
 
+  // Step 1 of the initial-sitemap flow: parse the saved brief into
+  // { tiers, pages } via Claude Haiku. No DB writes — opens the
+  // modal in 'preview' phase so the operator can review before
+  // committing the propagation.
+  const openPropagateModal = async () => {
+    setError(null)
+    setPropagateModal({ phase: 'parsing', parsed: null, propagating: false, result: null, error: null })
+    try {
+      const r = await api.parseSitemapBrief()
+      if (!r?.parsed) throw new Error('Parse returned no plan')
+      setPropagateModal({ phase: 'preview', parsed: r.parsed, propagating: false, result: null, error: null })
+    } catch (e) {
+      setPropagateModal({ phase: 'error', parsed: null, propagating: false, result: null, error: e?.message || String(e) })
+    }
+  }
+
+  // Step 2: confirmed parsed plan → run propagation. Backend
+  // upserts slots, checks WP + source-domain for each, imports or
+  // scrapes whatever exists. Modal swaps to 'result' phase to show
+  // per-slot outcomes.
+  const runPropagation = async () => {
+    if (!propagateModal?.parsed) return
+    setPropagateModal(m => ({ ...m, propagating: true, error: null }))
+    try {
+      const r = await api.propagateInitialSitemap(propagateModal.parsed)
+      setPropagateModal(m => ({ ...m, phase: 'result', propagating: false, result: r }))
+      await load() // refresh the wizard's slot grid
+    } catch (e) {
+      setPropagateModal(m => ({ ...m, propagating: false, error: e?.message || String(e) }))
+    }
+  }
+
   if (loading) {
     return <div className="text-[11px] text-muted italic py-8 text-center">Loading sitemap plan…</div>
   }
@@ -93,6 +129,11 @@ export default function SitemapWizard() {
             a real WordPress draft.
           </div>
         </div>
+        <button
+          onClick={openPropagateModal}
+          className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer flex-shrink-0"
+          title="Parse the 📋 Sitemap strategy brief into tiers + pages via Claude, then for each page: check if it exists on WP or your existing source domain, and import/scrape accordingly. Slots that don't exist anywhere stay 'planned'."
+        >🪄 Generate initial sitemap</button>
         <button
           onClick={reseed}
           disabled={reseeding}
@@ -212,6 +253,218 @@ export default function SitemapWizard() {
           )}
         </div>
       </div>
+
+      {propagateModal && (
+        <PropagateModal
+          state={propagateModal}
+          onClose={() => setPropagateModal(null)}
+          onRun={runPropagation}
+        />
+      )}
+    </div>
+  )
+}
+
+// Modal for the 🪄 Generate initial sitemap flow. Three phases:
+//   - 'parsing': Claude Haiku is parsing the saved brief.
+//   - 'preview': parsed { tiers, pages } shown read-only; operator
+//     either confirms ('Run') or cancels.
+//   - 'result': per-slot outcomes after propagation (imported_wp /
+//     scraped / planned / failed counts + table).
+//   - 'error': hard failure (no brief saved, parse threw, etc.).
+function PropagateModal({ state, onClose, onRun }) {
+  const { phase, parsed, propagating, result, error } = state
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded shadow-xl border border-[#e5e5e5] max-w-3xl w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#e5e5e5]">
+          <span className="text-[12px] font-semibold">🪄 Generate initial sitemap</span>
+          {phase === 'parsing' && <span className="text-[10px] text-muted">parsing brief…</span>}
+          {phase === 'preview' && parsed && (
+            <span className="text-[10px] text-muted">
+              parsed: {parsed.tiers?.length || 0} tier(s), {parsed.pages?.length || 0} page(s)
+            </span>
+          )}
+          {phase === 'result' && result?.summary && (
+            <span className="text-[10px] text-muted">
+              done — {result.summary.imported_wp} WP, {result.summary.scraped} scraped, {result.summary.planned} planned, {result.summary.failed} failed
+            </span>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
+          >✕ Close</button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-3">
+          {phase === 'parsing' && (
+            <div className="text-[11px] text-muted italic py-12 text-center">
+              Claude is reading your sitemap strategy brief and pulling out the structured tier + page plan…
+            </div>
+          )}
+
+          {phase === 'error' && (
+            <div className="text-[11px] text-[#c0392b] py-4">
+              ⚠ {error || 'Unknown error'}
+            </div>
+          )}
+
+          {phase === 'preview' && parsed && (
+            <div className="space-y-3">
+              <div className="text-[10px] text-muted">
+                Review what Claude pulled from your brief below. Click <b>Run propagation</b> to: upsert these as slots, check each page against your WordPress install + source domain (<code>tenants.target_url</code>), and import or scrape what already exists. Slots that don't exist anywhere stay 'planned' for future fan-out.
+              </div>
+
+              <div>
+                <div className="text-[10px] font-medium mb-1">Tiers ({parsed.tiers?.length || 0})</div>
+                <div className="space-y-1">
+                  {(parsed.tiers || []).map(t => (
+                    <div key={t.tier} className="text-[10px] bg-[#fafafa] border border-[#f0f0f0] rounded px-2 py-1">
+                      <span className="font-medium">Tier {t.tier}: {t.label}</span>
+                      {t.subtitle && <div className="text-[9px] text-muted">{t.subtitle}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[10px] font-medium mb-1">Pages ({parsed.pages?.length || 0})</div>
+                <table className="w-full text-[10px] border-collapse">
+                  <thead className="text-[9px] text-muted uppercase tracking-wide">
+                    <tr className="border-b border-[#e5e5e5]">
+                      <th className="text-left py-1 pr-2 font-normal">Slot</th>
+                      <th className="text-left py-1 pr-2 font-normal">URL slug</th>
+                      <th className="text-left py-1 pr-2 font-normal">Tier</th>
+                      <th className="text-left py-1 pr-2 font-normal">Brief says exists?</th>
+                      <th className="text-left py-1 pr-2 font-normal">Keywords</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(parsed.pages || []).map(p => (
+                      <tr key={p.slot_key} className="border-b border-[#f0f0f0]">
+                        <td className="py-1 pr-2">
+                          <div className="font-medium">{p.label}</div>
+                          <div className="text-[8px] text-muted font-mono">{p.slot_key}</div>
+                        </td>
+                        <td className="py-1 pr-2 font-mono text-[9px]">{p.url_slug || '—'}</td>
+                        <td className="py-1 pr-2">{p.tier}</td>
+                        <td className="py-1 pr-2">
+                          <ExistsPill v={p.exists_at_source} />
+                        </td>
+                        <td className="py-1 pr-2 text-[9px] text-muted">
+                          {(p.target_keywords || []).slice(0, 3).join(', ')}
+                          {(p.target_keywords || []).length > 3 && ` +${p.target_keywords.length - 3}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+            </div>
+          )}
+
+          {phase === 'result' && result && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-4 gap-2">
+                <ResultStat label="WP imported" value={result.summary.imported_wp} tone="green" />
+                <ResultStat label="Scraped" value={result.summary.scraped} tone="green" />
+                <ResultStat label="Planned" value={result.summary.planned} tone="neutral" />
+                <ResultStat label="Failed" value={result.summary.failed} tone={result.summary.failed > 0 ? 'red' : 'neutral'} />
+              </div>
+              <table className="w-full text-[10px] border-collapse">
+                <thead className="text-[9px] text-muted uppercase tracking-wide">
+                  <tr className="border-b border-[#e5e5e5]">
+                    <th className="text-left py-1 pr-2 font-normal">Slot</th>
+                    <th className="text-left py-1 pr-2 font-normal">Outcome</th>
+                    <th className="text-left py-1 pr-2 font-normal">Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.pages.map(p => (
+                    <tr key={p.slot_key} className="border-b border-[#f0f0f0]">
+                      <td className="py-1 pr-2">
+                        <div className="font-medium">{p.label}</div>
+                        <div className="text-[8px] text-muted font-mono">{p.url_slug}</div>
+                      </td>
+                      <td className="py-1 pr-2">
+                        <OutcomePill status={p.status} />
+                      </td>
+                      <td className="py-1 pr-2 text-[9px] text-muted">
+                        {p.status === 'imported_wp' && `→ landing_page #${p.landing_page_id}${p.keywords_added ? ` · +${p.keywords_added} keywords` : ''}`}
+                        {p.status === 'scraped' && `→ landing_page #${p.landing_page_id} (${(p.scrape_bytes / 1024).toFixed(1)}KB)${p.keywords_added ? ` · +${p.keywords_added} keywords` : ''}`}
+                        {p.status === 'planned' && 'Not found anywhere — click Create WP draft on the slot to materialize'}
+                        {p.status === 'already_linked' && `→ landing_page #${p.landing_page_id} (existing)`}
+                        {p.status === 'failed' && <span className="text-[#c0392b]">{p.error}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 px-3 py-2 border-t border-[#e5e5e5]">
+          <div className="flex-1" />
+          {phase === 'preview' && (
+            <>
+              <button
+                onClick={onClose}
+                disabled={propagating}
+                className="text-[10px] py-1 px-2 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
+              >Cancel</button>
+              <button
+                onClick={onRun}
+                disabled={propagating || !parsed?.pages?.length}
+                className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                title="Upsert slots + check WP/source + import/scrape per page"
+              >{propagating ? 'Propagating…' : `🚀 Run propagation (${parsed?.pages?.length || 0} pages)`}</button>
+            </>
+          )}
+          {(phase === 'result' || phase === 'error') && (
+            <button
+              onClick={onClose}
+              className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+            >Done</button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExistsPill({ v }) {
+  const tone = v === 'yes' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
+    : v === 'no' ? 'bg-[#f0f0f0] text-muted border-[#d4d4d8]'
+    : 'bg-[#fef9c3] text-[#854d0e] border-[#ca8a04]/40'
+  return (
+    <span className={`text-[9px] py-0.5 px-1.5 rounded border ${tone} font-mono`}>{v || 'unsure'}</span>
+  )
+}
+
+function OutcomePill({ status }) {
+  const map = {
+    imported_wp: { tone: 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40', label: '✓ WP imported' },
+    scraped: { tone: 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40', label: '✓ scraped' },
+    already_linked: { tone: 'bg-[#dbeafe] text-[#1e40af] border-[#3b82f6]/40', label: '↻ already linked' },
+    planned: { tone: 'bg-[#f0f0f0] text-muted border-[#d4d4d8]', label: '○ planned' },
+    failed: { tone: 'bg-[#fee2e2] text-[#991b1b] border-[#dc2626]/40', label: '⚠ failed' },
+  }
+  const m = map[status] || { tone: 'bg-[#f0f0f0] text-muted border-[#d4d4d8]', label: status }
+  return <span className={`text-[9px] py-0.5 px-1.5 rounded border ${m.tone} font-mono whitespace-nowrap`}>{m.label}</span>
+}
+
+function ResultStat({ label, value, tone }) {
+  const colors = tone === 'green' ? 'bg-[#f0fdf4] border-[#16a34a]/30 text-[#15803d]'
+    : tone === 'red' ? 'bg-[#fef2f2] border-[#dc2626]/30 text-[#991b1b]'
+    : 'bg-[#fafafa] border-[#e5e5e5] text-ink'
+  return (
+    <div className={`border rounded p-2 ${colors}`}>
+      <div className="text-[14px] font-semibold">{value}</div>
+      <div className="text-[9px] text-muted uppercase tracking-wide">{label}</div>
     </div>
   )
 }

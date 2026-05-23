@@ -1419,6 +1419,41 @@ export const deleteSitemapSlot = (id) =>
     return r.json()
   })
 
+// Parse the saved sitemap strategy brief (tenants.site_index_hint)
+// into a structured { tiers, pages } plan via Claude Haiku. No DB
+// writes — pure preview for the "🪄 Generate initial sitemap" flow.
+export const parseSitemapBrief = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/parse-brief`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `parseSitemapBrief failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Take a parsed { tiers, pages } plan and materialize it: upsert
+// slots, check WP + source-domain existence, import or scrape what
+// exists, leave the rest planned. Auto-populates tenant_keywords
+// for linked pages. Returns { tiers_upserted, pages, summary }.
+export const propagateInitialSitemap = (parsed) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/initial-propagation`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ parsed }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `propagateInitialSitemap failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Re-import the JS starter template — idempotent on slot_key.
 // Returns { added: N } for the count of newly added slots.
 export const reseedSitemapPlan = () =>
