@@ -1327,6 +1327,116 @@ export const applyLandingPageTargetedUpdate = (id, { hint } = {}) =>
     return r.json()
   })
 
+// ─────────────────────────────────────────────────────────────────
+// Sitemap Wizard — editable plan (slots + tiers) CRUD wrappers
+// ─────────────────────────────────────────────────────────────────
+
+// GET the full editable sitemap plan (slots + tier metadata). The
+// BE auto-seeds from the JS starter on first call, so this returns
+// useful data even for tenants who haven't touched the wizard yet.
+export const getSitemapPlan = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSitemapPlan failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Upsert a slot. slot_key + label required; other fields optional.
+export const upsertSitemapSlot = (slot) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(slot || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `upsertSitemapSlot failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Partial update on an existing slot row.
+export const updateSitemapSlot = (id, patch) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(patch || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateSitemapSlot failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Soft-delete a slot (audit trail preserved; re-create with same
+// slot_key un-soft-deletes).
+export const deleteSitemapSlot = (id) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: jsonHeaders(),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `deleteSitemapSlot failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Re-import the JS starter template — idempotent on slot_key.
+// Returns { added: N } for the count of newly added slots.
+export const reseedSitemapPlan = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/reseed`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `reseedSitemapPlan failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Update tier metadata (label + description). Upserts so works on
+// unseeded tenants too.
+export const updateSitemapTier = (tier, patch) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/tier/${encodeURIComponent(tier)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(patch || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateSitemapTier failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Materialize a planned slot into a WP draft page + landing_page row
+// + initial imported version. Slot transitions planned → draft.
+export const createWpPageForSlot = (id, { slugOverride } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(id)}/create-wp`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(slugOverride ? { slug_override: slugOverride } : {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `createWpPageForSlot failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Fetch a specific historical audit row's full findings.
 export const getLandingPageAudit = (id, auditId) =>
   csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/audits/${encodeURIComponent(auditId)}`, { credentials: 'include' })

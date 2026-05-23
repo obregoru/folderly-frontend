@@ -21,6 +21,7 @@ import TopicIdeation from './screens/TopicIdeation'
 import Drafts from './screens/Drafts'
 import Schedule from './screens/Schedule'
 import LandingPages from './screens/LandingPages'
+import SitemapWizard from './screens/SitemapWizard'
 
 export default function ContentStudioApp() {
   const [user, setUser] = useState(null)
@@ -79,6 +80,9 @@ export default function ContentStudioApp() {
           <NavButton active={screen === 'landing'} onClick={() => setScreen('landing')}>
             Pages
           </NavButton>
+          <NavButton active={screen === 'sitemap'} onClick={() => setScreen('sitemap')}>
+            🗺️ Sitemap
+          </NavButton>
           <NavButton active={screen === 'config'} onClick={() => setScreen('config')}>
             Config
           </NavButton>
@@ -95,6 +99,7 @@ export default function ContentStudioApp() {
         {screen === 'drafts' && <Drafts />}
         {screen === 'schedule' && <Schedule />}
         {screen === 'landing' && <LandingPages />}
+        {screen === 'sitemap' && <SitemapWizard />}
         {screen === 'config' && <ContentConfig />}
       </main>
     </div>
