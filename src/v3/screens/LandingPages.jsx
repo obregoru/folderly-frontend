@@ -1533,6 +1533,32 @@ function PageWorkspace({ data, requireBackupAck }) {
                 : `${selectedSuggestions.size} audit suggestion(s) flagged — ready to generate. ✏️ Update modifies existing content surgically; ✨ Scratch replaces it entirely.`}
           </div>
         )}
+        {/* Explicit save-state banner. Proposals auto-save on
+            generation (no draft / dirty state to commit) but
+            operators don't always realize that — they expect a
+            "Save" affordance after editing or running checks. This
+            banner removes the ambiguity: shows the saved version
+            id + a direct Deploy shortcut so the operator's mental
+            model of "I made changes → save → ship" maps to the
+            actual flow. */}
+        {proposal && (
+          <div className="bg-white border border-[#2D9A5E]/40 rounded p-2 flex items-center gap-2 text-[10px]">
+            <span className="text-[#15803d]">✓</span>
+            <span className="font-medium text-[#15803d]">Proposal saved</span>
+            <span className="text-muted">as version #{proposal.version_id}{proposal?.created_at ? ` · ${new Date(proposal.created_at).toLocaleString()}` : ''}</span>
+            <span className="text-muted">·</span>
+            <span className="text-muted">Any inline edits, AI-check rewrites (Humanize), or auto-regens land as new versions automatically. Nothing else to save manually.</span>
+            <span className="flex-1" />
+            <button
+              onClick={() => {
+                const el = document.querySelector('[data-deploy-anchor]') || document.querySelector('h2, h3, [class*="Deploy"]')
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }}
+              className="text-[10px] py-1 px-2 bg-[#c0392b] text-white border-none rounded cursor-pointer"
+              title="Scroll to the Deploy panel below. Deploy is the only thing that pushes the saved proposal to WordPress."
+            >🚀 Deploy →</button>
+          </div>
+        )}
         {proposal && (
           <ProposalDiff
             proposal={proposal}
@@ -5324,7 +5350,7 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
   return (
     <div data-workflow-anchor="deploy" className="border border-[#c0392b]/40 rounded p-3 bg-[#fef2f2] space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[11px] font-medium text-[#c0392b]">🚀 Deploy to WordPress</span>
+        <span data-deploy-anchor className="text-[11px] font-medium text-[#c0392b]">🚀 Deploy to WordPress</span>
         <span className="text-[9px] text-muted">Preview = push to sandbox to see rendered theme version (ephemeral). Deploy = replace the live page (snapshotted as backup first).</span>
         <div className="flex-1" />
         <button
