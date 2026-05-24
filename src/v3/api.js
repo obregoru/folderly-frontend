@@ -1554,6 +1554,23 @@ export const applyGapToHint = (slotId) =>
     return r.json()
   })
 
+// Per-slot optimization checklist. Returns 6-dim status (SEO /
+// AEO / GEO / E-E-A-T / Schema / FAQ) for every slot in the
+// sitemap, with relevance heuristics applied. Plus portfolio
+// totals for the wizard header summary.
+// Shape: { slots: [{ slot_id, slot_key, label, has_landing_page,
+//   dimensions: { seo: {relevant, status, score, last_checked}, ... } }],
+//   totals: { pass, warn, fail, unchecked, na } }
+export const getChecklist = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/checklist`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getChecklist failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Tenant voice-anchor pages — operator-curated existing URLs used
 // as background context (not a style cage) at content-generation
 // time. List / save (replace + scrape) / refresh.

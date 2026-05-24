@@ -36,15 +36,27 @@ export default function SitemapWizard() {
   // Bulk competitor-refresh modal state — separate from propagateModal
   // because the flow is different (no preview phase; just run + result).
   const [refreshModal, setRefreshModal] = useState(null) // null | { phase, mode, runAnalysis, result, error }
+  // Per-slot optimization checklist data. Keyed by slot_id so the
+  // grid + SlotEditor can both look up by id. Loaded alongside the
+  // main plan on every wizard refresh.
+  const [checklistBySlot, setChecklistBySlot] = useState({})
+  const [checklistTotals, setChecklistTotals] = useState(null)
 
   const load = async () => {
     setLoading(true); setError(null)
     try {
-      const r = await api.getSitemapPlan()
+      const [planR, checklistR] = await Promise.all([
+        api.getSitemapPlan(),
+        api.getChecklist().catch(() => ({ slots: [], totals: null })), // checklist failures non-fatal
+      ])
       setPlan({
-        slots: Array.isArray(r?.slots) ? r.slots : [],
-        tiers: Array.isArray(r?.tiers) ? r.tiers : [],
+        slots: Array.isArray(planR?.slots) ? planR.slots : [],
+        tiers: Array.isArray(planR?.tiers) ? planR.tiers : [],
       })
+      const cMap = {}
+      for (const c of (checklistR?.slots || [])) cMap[c.slot_id] = c
+      setChecklistBySlot(cMap)
+      setChecklistTotals(checklistR?.totals || null)
     } catch (e) {
       setError(e?.message || String(e))
     } finally {
@@ -162,6 +174,8 @@ export default function SitemapWizard() {
       {reseedMsg && <div className="text-[10px] text-[#16a34a]">✓ {reseedMsg}</div>}
       {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
 
+      {checklistTotals && <ChecklistTotalsStrip totals={checklistTotals} />}
+
       <SiteIndexHintEditor />
       <VoiceAnchorsEditor />
 
@@ -231,6 +245,7 @@ export default function SitemapWizard() {
                                 — no hint —
                               </div>
                             )}
+                            {checklistBySlot[s.id] && <ChecklistDotRow checklist={checklistBySlot[s.id]} />}
                           </button>
                         </li>
                       )
@@ -262,6 +277,7 @@ export default function SitemapWizard() {
               key={activeSlot.id}
               slot={activeSlot}
               tiers={tierList}
+              checklist={checklistBySlot[activeSlot.id] || null}
               onSaved={async () => { await load() }}
               onDeleted={async () => { await load(); setActiveSlotId(null) }}
               onCreatedWp={async () => { await load() }}
@@ -972,6 +988,157 @@ function AnchorStatusPill({ status }) {
   return <span className={`text-[8px] py-0.5 px-1 rounded border font-mono whitespace-nowrap ${m.tone}`}>{m.label}</span>
 }
 
+// Per-slot optimization checklist UI. Three components:
+//
+//   ChecklistDotRow      — tight inline row of 6 colored dots used
+//                          beneath each slot row in the wizard grid.
+//                          Compact; hover tooltip gives detail per
+//                          dimension. Doesn't block layout.
+//
+//   ChecklistTotalsStrip — portfolio-level summary at the top of
+//                          the wizard. Pass/warn/fail counts across
+//                          all dimensions of all slots.
+//
+//   ChecklistCard        — full per-slot panel inside the SlotEditor.
+//                          Shows each dimension with status, score
+//                          (if relevant), and finding count.
+
+const DIM_ORDER = ["seo", "aeo", "geo", "eeat", "schema", "faq"];
+const DIM_LABEL = { seo: "SEO", aeo: "AEO", geo: "GEO", eeat: "E-E-A-T", schema: "Schema", faq: "FAQ" };
+
+// Status → visual treatment. Aligned with audit panel color scheme
+// elsewhere in the app: green for pass, amber for warn, red for fail,
+// gray for unchecked, very faded gray for n/a (not relevant).
+const STATUS_STYLE = {
+  pass:      { dot: "bg-[#16a34a]",            text: "text-[#15803d]", label: "✓" },
+  warn:      { dot: "bg-[#d97706]",            text: "text-[#92400e]", label: "⚠" },
+  fail:      { dot: "bg-[#dc2626]",            text: "text-[#991b1b]", label: "✗" },
+  unchecked: { dot: "bg-[#d4d4d8]",            text: "text-muted",     label: "○" },
+  "n/a":     { dot: "bg-transparent border border-[#e5e5e5]", text: "text-muted/60", label: "—" },
+};
+
+function dimTooltip(dim, d) {
+  const dimLabel = DIM_LABEL[dim] || dim;
+  if (d.status === "n/a") return `${dimLabel}: not relevant for this slot`;
+  if (d.status === "unchecked") {
+    if (dim === "schema") return `${dimLabel}: no schema detected yet`;
+    if (dim === "faq") return `${dimLabel}: no FAQ detected yet`;
+    return `${dimLabel}: not audited yet — run audit on this page`;
+  }
+  const parts = [`${dimLabel}: ${d.status}`];
+  if (typeof d.score === "number") parts.push(`score ${d.score}/100`);
+  if (typeof d.finding_count === "number" && d.finding_count > 0) parts.push(`${d.finding_count} finding${d.finding_count === 1 ? "" : "s"}`);
+  if (dim === "schema" && typeof d.count === "number") parts.push(`${d.count} schema block${d.count === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+function ChecklistDotRow({ checklist }) {
+  if (!checklist?.dimensions) return null;
+  return (
+    <div className="flex items-center gap-1 pl-[2px]" title="Click to open slot for full optimization status">
+      {DIM_ORDER.map(dim => {
+        const d = checklist.dimensions[dim];
+        if (!d) return null;
+        const style = STATUS_STYLE[d.status] || STATUS_STYLE.unchecked;
+        return (
+          <span
+            key={dim}
+            title={dimTooltip(dim, d)}
+            className="flex items-center gap-0.5"
+          >
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${style.dot}`} />
+            <span className="text-[7px] text-muted uppercase tracking-wide">{DIM_LABEL[dim]}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function ChecklistTotalsStrip({ totals }) {
+  const total = (totals.pass || 0) + (totals.warn || 0) + (totals.fail || 0) + (totals.unchecked || 0);
+  if (total === 0) return null;
+  return (
+    <div className="flex items-center gap-3 text-[10px] bg-[#fafafa] border border-[#e5e5e5] rounded px-3 py-1.5">
+      <span className="text-[9px] uppercase tracking-wide text-muted font-medium">Portfolio optimization</span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-2 h-2 rounded-full bg-[#16a34a]" />
+        <span className="font-medium">{totals.pass || 0}</span>
+        <span className="text-muted">pass</span>
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-2 h-2 rounded-full bg-[#d97706]" />
+        <span className="font-medium">{totals.warn || 0}</span>
+        <span className="text-muted">warn</span>
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-2 h-2 rounded-full bg-[#dc2626]" />
+        <span className="font-medium">{totals.fail || 0}</span>
+        <span className="text-muted">fail</span>
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="inline-block w-2 h-2 rounded-full bg-[#d4d4d8]" />
+        <span className="font-medium">{totals.unchecked || 0}</span>
+        <span className="text-muted">unchecked</span>
+      </span>
+      {totals.na > 0 && (
+        <span className="flex items-center gap-1 text-muted/70">
+          <span className="font-medium">{totals.na}</span>
+          <span>n/a</span>
+        </span>
+      )}
+      <span className="flex-1" />
+      <span className="text-[9px] text-muted">across {DIM_ORDER.length} dimensions × all slots</span>
+    </div>
+  )
+}
+
+function ChecklistCard({ checklist }) {
+  if (!checklist?.dimensions) return null;
+  if (!checklist.has_landing_page) {
+    return (
+      <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2 text-[10px] text-muted italic">
+        Optimization checklist appears once this slot has a landing page (Create WP draft, or link an existing imported page).
+      </div>
+    );
+  }
+  return (
+    <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2 space-y-1">
+      <div className="text-[10px] font-medium">📋 Optimization checklist</div>
+      <div className="grid grid-cols-3 gap-1">
+        {DIM_ORDER.map(dim => {
+          const d = checklist.dimensions[dim];
+          if (!d) return null;
+          const style = STATUS_STYLE[d.status] || STATUS_STYLE.unchecked;
+          const isRelevant = d.relevant !== false;
+          return (
+            <div
+              key={dim}
+              className={`flex items-center gap-1.5 text-[10px] px-1.5 py-1 rounded border ${isRelevant ? 'bg-white border-[#e5e5e5]' : 'bg-transparent border-transparent'}`}
+              title={dimTooltip(dim, d)}
+            >
+              <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${style.dot}`} />
+              <span className={`font-medium ${!isRelevant ? 'text-muted/60' : ''}`}>{DIM_LABEL[dim]}</span>
+              {typeof d.score === "number" && (
+                <span className="text-[9px] text-muted ml-auto">{d.score}</span>
+              )}
+              {dim === "schema" && typeof d.count === "number" && d.count > 0 && (
+                <span className="text-[9px] text-muted ml-auto">{d.count}</span>
+              )}
+              {d.status === "n/a" && (
+                <span className="text-[8px] text-muted/60 ml-auto italic">n/a</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-[8px] text-muted">
+        SEO + Schema always shown · AEO/GEO/E-E-A-T/FAQ shown when relevance heuristics match (URL, label, page hint signals). Score from latest audit; run audit to refresh.
+      </div>
+    </div>
+  );
+}
+
 function StatusPill({ status }) {
   const tone = status === 'live' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
     : status === 'draft' ? 'bg-[#fef9c3] text-[#854d0e] border-[#ca8a04]/40'
@@ -986,7 +1153,7 @@ function StatusPill({ status }) {
   )
 }
 
-function SlotEditor({ slot, tiers, onSaved, onCancel, onDeleted, onCreatedWp }) {
+function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCreatedWp }) {
   const isNew = !slot
   const [label, setLabel] = useState(slot?.label || '')
   const [slotKey, setSlotKey] = useState(slot?.slot_key || '')
@@ -1094,6 +1261,8 @@ function SlotEditor({ slot, tiers, onSaved, onCancel, onDeleted, onCreatedWp }) 
           >↗ live page</a>
         )}
       </div>
+
+      {!isNew && checklist && <ChecklistCard checklist={checklist} />}
 
       <div>
         <label className="block text-muted mb-0.5">Slot key {isNew && <span className="text-[#c0392b]">*</span>}</label>
