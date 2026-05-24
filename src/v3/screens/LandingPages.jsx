@@ -948,6 +948,11 @@ function PageWorkspace({ data, requireBackupAck }) {
   const [proposalBusy, setProposalBusy] = useState(false)
   const [proposalError, setProposalError] = useState(null)
   const [proposalElapsed, setProposalElapsed] = useState(0)
+  // 'generating' (Claude proposal) → 'scoring' (ZeroGPT) →
+  // 'humanizing' (auto-regen with feedback) → 'scoring-regen' →
+  // null. Drives the in-flight status line under the spinner so
+  // the operator sees what stage the auto-pipeline is on.
+  const [proposalPhase, setProposalPhase] = useState(null)
   useEffect(() => {
     if (!proposalBusy) { setProposalElapsed(0); return }
     const start = Date.now()
@@ -983,7 +988,7 @@ function PageWorkspace({ data, requireBackupAck }) {
         }
       }
     }
-    setProposalBusy(true); setProposalError(null)
+    setProposalBusy(true); setProposalError(null); setProposalPhase('generating')
     try {
       // BE returns { version_id, status: 'running' } immediately;
       // the actual Claude work runs in the background. Poll the
@@ -1004,15 +1009,16 @@ function PageWorkspace({ data, requireBackupAck }) {
       const newVersionId = start?.version_id
       if (!newVersionId) throw new Error('Proposal kickoff returned no version_id')
 
-      // Poll up to 5 minutes; checks every 5s.
+      // Phase 1: poll the original version row until Claude finishes
+      // writing the proposal body. Up to 5 minutes, every 5s.
       const deadline = Date.now() + 5 * 60 * 1000
-      let finalVersion = null
+      let firstVersion = null
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 5000))
         try {
           const r = await api.getLandingPageVersion(landing_page_id, newVersionId)
           const v = r?.version
-          if (v?.proposal_status === 'done') { finalVersion = v; break }
+          if (v?.proposal_status === 'done') { firstVersion = v; break }
           if (v?.proposal_status === 'failed') {
             throw new Error(v.proposal_error || 'Proposal failed (see server logs).')
           }
@@ -1021,22 +1027,76 @@ function PageWorkspace({ data, requireBackupAck }) {
           // Transient poll error — keep trying.
         }
       }
-      if (!finalVersion) throw new Error('Proposal timed out after 5 minutes. Refresh in a moment to see if it completed.')
+      if (!firstVersion) throw new Error('Proposal timed out after 5 minutes. Refresh in a moment to see if it completed.')
+
+      // Phase 2: wait for the BE's auto-AI-check pipeline.
+      //
+      // After proposal_status='done', the BE setImmediate handler
+      // fires detect-ai on the new version. If the AI-likely score
+      // ≥ 50%, it spawns ONE regen with use_check_feedback=true
+      // (mode='update'), which creates a NEWER ai-suggested version
+      // and runs its own detect-ai. We poll the page's version list
+      // for the LATEST done+scored ai-suggested version since the
+      // kickoff, then re-fetch its full body. Cap at 3 minutes; if
+      // we time out, fall back to firstVersion so the UI doesn't
+      // hang. Skip Phase 2 entirely when this propose call IS the
+      // regen (useCheckFeedback=true) — the auto-pipeline doesn't
+      // re-fire on itself, so there's nothing to wait for.
+      setProposalPhase('scoring')
+      let pickedVersion = firstVersion
+      if (!useCheckFeedback) {
+        const phase2Deadline = Date.now() + 3 * 60 * 1000
+        let sawRegen = false
+        while (Date.now() < phase2Deadline) {
+          await new Promise(r => setTimeout(r, 5000))
+          try {
+            const lp = await api.getLandingPage(landing_page_id)
+            const allAi = (lp?.versions || []).filter(v => v.kind === 'ai-suggested')
+            // Newer (regen) ai-suggested version since kickoff?
+            const newer = allAi.filter(v => v.id > newVersionId)
+            if (newer.length > 0 && !sawRegen) {
+              sawRegen = true
+              setProposalPhase('humanizing')
+            }
+            // Pick: latest done + scored ai-suggested ≥ newVersionId.
+            const winner = allAi
+              .filter(v => v.id >= newVersionId)
+              .filter(v => !v.proposal_status || v.proposal_status === 'done')
+              .filter(v => v.ai_detection && typeof v.ai_detection.score === 'number')
+              .sort((a, b) => b.id - a.id)[0]
+            if (winner) {
+              // If the winner IS the first version + no regen ever
+              // appeared, score was under threshold → keep firstVersion.
+              // If it's a newer version, re-fetch to get full body_html.
+              if (winner.id === newVersionId) {
+                pickedVersion = { ...firstVersion, ai_detection: winner.ai_detection }
+              } else {
+                setProposalPhase('scoring-regen')
+                const full = await api.getLandingPageVersion(landing_page_id, winner.id)
+                if (full?.version) pickedVersion = full.version
+              }
+              break
+            }
+          } catch {
+            // Transient — keep polling.
+          }
+        }
+      }
 
       // Reshape into the {version_id, proposal, source_links} shape
       // that ProposalDiff renders against. Rich metadata (rationale,
       // summary, link ledger) comes from proposal_meta which the BG
       // handler populates after Claude returns.
-      const meta = finalVersion.proposal_meta || {}
-      const seoMeta = finalVersion.seo_meta || {}
+      const meta = pickedVersion.proposal_meta || {}
+      const seoMeta = pickedVersion.seo_meta || {}
       setProposal({
-        version_id: finalVersion.id,
-        created_at: finalVersion.created_at,
+        version_id: pickedVersion.id,
+        created_at: pickedVersion.created_at,
         proposal: {
-          title: finalVersion.title,
-          body_html: finalVersion.body_html,
-          meta_description: finalVersion.meta_description,
-          focus_keyword: finalVersion.focus_keyword,
+          title: pickedVersion.title,
+          body_html: pickedVersion.body_html,
+          meta_description: pickedVersion.meta_description,
+          focus_keyword: pickedVersion.focus_keyword,
           seo_title: seoMeta.seo_title || null,
           og_title: seoMeta.og_title || null,
           og_description: seoMeta.og_description || null,
@@ -1049,13 +1109,24 @@ function PageWorkspace({ data, requireBackupAck }) {
           summary_of_changes: meta.summary_of_changes || [],
           rationale: meta.rationale || '',
         },
-        proposed_links: finalVersion.links_meta || [],
+        proposed_links: pickedVersion.links_meta || [],
         source_links: start.source_links || [],
       })
+      // Surface the freshly-computed AI score into the in-session
+      // check results so the WorkflowWizard + AI-check panel both
+      // light up without making the operator click "Check AI score"
+      // manually.
+      if (pickedVersion.ai_detection) {
+        setLiveCheckResults(prev => ({
+          ...prev,
+          ai_detection: pickedVersion.ai_detection,
+        }))
+      }
     } catch (e) {
       setProposalError(e?.message || String(e))
     } finally {
       setProposalBusy(false)
+      setProposalPhase(null)
     }
   }
   const toggleSuggestion = (sid) => {
@@ -1535,7 +1606,11 @@ function PageWorkspace({ data, requireBackupAck }) {
         </details>
         {proposalBusy && (
           <div className="text-[10px] text-muted italic">
-            Claude is writing the body (longer than the audit because it has to produce 800-1500 words of polished copy). Don't refresh.
+            {proposalPhase === 'generating' && "Claude is writing the body (longer than the audit because it has to produce 800-1500 words of polished copy). Don't refresh."}
+            {proposalPhase === 'scoring' && "Body written. Scoring against ZeroGPT — if the score is too AI-likely, the system will auto-regenerate one more time with the flagged sentences as feedback."}
+            {proposalPhase === 'humanizing' && "ZeroGPT scored the first pass as too AI-likely. Claude is rewriting the flagged sentences with more human phrasing."}
+            {proposalPhase === 'scoring-regen' && "Re-scoring the humanized version. Almost done."}
+            {!proposalPhase && "Working…"}
           </div>
         )}
         {proposalError && <div className="text-[10px] text-[#c0392b]">⚠ {proposalError}</div>}
