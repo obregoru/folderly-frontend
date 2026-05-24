@@ -1923,3 +1923,22 @@ export const runLandingGapAnalysis = (id) =>
     }
     return r.json()
   })
+
+// Merge the latest page-level gap-analysis findings into this
+// page's strategy_hint as an idempotent "## Competitive gap
+// analysis" block. After this returns, all subsequent propose
+// calls automatically pick up the findings via strategyHint
+// injection. Returns { ok, strategy_hint } so the FE hint editor
+// can reflect the merged text immediately.
+export const applyLandingGapToHint = (id) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/apply-gap-to-hint`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `applyLandingGapToHint failed (${r.status})`)
+    }
+    return r.json()
+  })

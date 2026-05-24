@@ -1522,8 +1522,8 @@ function PageWorkspace({ data, requireBackupAck }) {
                 title={
                   audit?.audit_id && selectedSuggestions.size === 0 && includeAudit ? 'Tick the audit findings you want addressed (or uncheck audit input below).'
                   : proposal
-                    ? 'Iterate on the CURRENT PROPOSAL. Takes the latest generated body + applies enabled inputs (audit findings + AI Overview citations + check feedback) as targeted edits. Preserves what works; modifies only what needs changing. ~100-150s.'
-                    : 'Modify the EXISTING content surgically. Applies enabled inputs (audit findings + AI Overview citations + latest check feedback) as targeted edits to the current body. Preserves structure, links, and unchanged sentences. ~100-150s.'
+                    ? 'Iterate on the CURRENT PROPOSAL. Always uses the latest strategy hint (including any "## Competitive gap analysis" block you applied below), tenant editorial policy, and voice anchors. Optional inputs (per toggle): selected audit findings + AI Overview citations + check feedback. Preserves what works; modifies only what needs changing. ~100-150s.'
+                    : 'Modify the EXISTING content surgically. Always uses the latest strategy hint (including any "## Competitive gap analysis" block you applied below), tenant editorial policy, and voice anchors. Optional inputs (per toggle): selected audit findings + AI Overview citations + check feedback. Preserves structure, links, and unchanged sentences. ~100-150s.'
                 }
               >{proposalBusy
                   ? `Generating… ${proposalElapsed}s`
@@ -1532,7 +1532,7 @@ function PageWorkspace({ data, requireBackupAck }) {
                 onClick={() => runProposal({ mode: 'scratch' })}
                 disabled={proposalBusy}
                 className="text-[10px] py-1 px-2 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
-                title="REPLACE the existing body with a full AI-written rewrite from the strategy hint + template. Existing content becomes a backup version (rollback available). Use for blank scaffolds or fundamental redesigns. Confirms before proceeding."
+                title="REPLACE the existing body with a full AI-written rewrite from the strategy hint (including any '## Competitive gap analysis' block you applied below) + tenant editorial policy + voice anchors + template. Existing content becomes a backup version (rollback available). Use for blank scaffolds or fundamental redesigns. Confirms before proceeding."
               >{proposalBusy ? '...' : '✨ Generate from scratch'}</button>
             </>
           ) : (
@@ -1544,7 +1544,7 @@ function PageWorkspace({ data, requireBackupAck }) {
               onClick={() => runProposal({ mode: 'scratch', skipConfirm: true })}
               disabled={proposalBusy}
               className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
-              title="Generate the first version of this page using all the strategic inputs (slot hint, voice anchors, gap analysis, editorial policy). ~60-90s for a single-phase generate; ~2-3 min with two-phase self-review enabled."
+              title="Generate the first version of this page using all the strategic inputs: the page's strategy hint (which includes any '## Competitive gap analysis' block you applied via the ⚔️ panel below) + voice anchors + slot-level competitive context + tenant editorial policy. ~60-90s single-phase; ~2-3 min with two-phase self-review enabled."
             >{proposalBusy ? `Generating… ${proposalElapsed}s` : '🚀 Generate content'}</button>
           )}
           {/* Re-propose with check feedback. Available once a proposal
@@ -1560,7 +1560,7 @@ function PageWorkspace({ data, requireBackupAck }) {
               onClick={() => runProposal({ useCheckFeedback: true })}
               disabled={proposalBusy}
               className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
-              title="Re-propose using the most recent Check AI Score + Check Voice results. Claude reads the flagged sentences and voice drifts and rewrites the equivalent content specifically to address them. Falls back to plain regenerate if no checks have been run yet."
+              title="Re-propose using the most recent Check AI Score + Check Voice results as targeted remediation. Always uses the latest strategy hint (including any '## Competitive gap analysis' block applied below). Falls back to a plain regenerate if no AI/voice checks have been run yet."
             >🎯 Re-propose with feedback</button>
           )}
         </div>
@@ -1608,7 +1608,7 @@ function PageWorkspace({ data, requireBackupAck }) {
               </div>
             </label>
             <div className="text-muted italic pt-1 border-t border-[#e5e5e5]">
-              Tenant editorial policy + page strategy hint + (on 🎯 Re-propose) AI/voice check feedback are always included — those are baked in, not toggleable here.
+              Tenant editorial policy + page strategy hint (including any "## Competitive gap analysis" block applied from the ⚔️ panel below) + voice anchors + (on 🎯 Re-propose) AI/voice check feedback are always included — those are baked in, not toggleable here.
             </div>
           </div>
         </details>
@@ -1683,8 +1683,26 @@ function PageWorkspace({ data, requireBackupAck }) {
           here so the operator can see how the current draft stacks
           up against the tracked competitor without leaving the
           page workspace. The competitor URL itself is set on the
-          sitemap slot; this panel reverse-looks it up. */}
-      <PageGapAnalysisPanel landingPageId={landing_page_id} pageDetail={data} />
+          sitemap slot; this panel reverse-looks it up.
+
+          onHintApplied: when the operator clicks ✨ Apply to page
+          hint, the BE merges findings into strategy_hint. We push
+          the new hint back into the strategy-hint editor state so
+          the textarea reflects the change AND every subsequent
+          propose call picks it up automatically (propose always
+          reads landing_pages.strategy_hint server-side; this just
+          keeps the visible editor in sync). */}
+      <PageGapAnalysisPanel
+        landingPageId={landing_page_id}
+        pageDetail={data}
+        onHintApplied={(newHint) => {
+          if (typeof newHint === 'string') {
+            setHint(newHint)
+            setHintSaved(true)
+            setTimeout(() => setHintSaved(false), 2500)
+          }
+        }}
+      />
 
     </div>
   )
@@ -1948,7 +1966,7 @@ function QualityChecksPanel({ landingPageId, versionId, liveCheckResults, onChec
 // Result is cached on landing_pages.last_gap_analysis so reopening
 // the page re-renders findings without re-running the Claude call.
 // "Re-run" always fires a fresh call (~3-8s Haiku + persist).
-function PageGapAnalysisPanel({ landingPageId, pageDetail }) {
+function PageGapAnalysisPanel({ landingPageId, pageDetail, onHintApplied }) {
   const cachedFindings = pageDetail?.page?.last_gap_analysis || null
   const cachedAt = pageDetail?.page?.last_gap_analyzed_at || null
   const cachedCompetitorUrl = pageDetail?.page?.last_gap_competitor_url || null
@@ -1959,11 +1977,13 @@ function PageGapAnalysisPanel({ landingPageId, pageDetail }) {
   const [competitorUrl, setCompetitorUrl] = useState(cachedCompetitorUrl)
   const [versionId, setVersionId] = useState(cachedVersionId)
   const [busy, setBusy] = useState(false)
+  const [applying, setApplying] = useState(false)
   const [error, setError] = useState(null)
+  const [applied, setApplied] = useState(false)
 
   const run = async () => {
     if (busy) return
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setApplied(false)
     try {
       const r = await api.runLandingGapAnalysis(landingPageId)
       setFindings(r.findings)
@@ -1977,6 +1997,24 @@ function PageGapAnalysisPanel({ landingPageId, pageDetail }) {
     }
   }
 
+  const applyToHint = async () => {
+    if (applying || !findings) return
+    if (!confirm('Merge the gap-analysis findings into this page\'s strategy hint?\n\nThis adds (or replaces) a "## Competitive gap analysis" block at the bottom of the hint. After this lands, every subsequent ✏️ Apply suggestions / ✨ Generate from scratch / 🎯 Re-propose call will see the findings — Claude will treat the gaps as required improvements + the "highest-impact moves" as priority items.\n\nIdempotent — re-applying replaces the prior block rather than stacking.\n\nContinue?')) return
+    setApplying(true); setError(null); setApplied(false)
+    try {
+      const r = await api.applyLandingGapToHint(landingPageId)
+      if (typeof onHintApplied === 'function' && r?.strategy_hint) {
+        onHintApplied(r.strategy_hint)
+      }
+      setApplied(true)
+      setTimeout(() => setApplied(false), 4000)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setApplying(false)
+    }
+  }
+
   return (
     <div data-workflow-anchor="gap-analysis" className="border border-[#6C5CE7]/30 rounded p-3 space-y-2 bg-[#faf5ff]">
       <div className="flex items-center gap-2">
@@ -1986,11 +2024,25 @@ function PageGapAnalysisPanel({ landingPageId, pageDetail }) {
         </span>
         <button
           onClick={run}
-          disabled={busy}
+          disabled={busy || applying}
           className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 flex-shrink-0"
           title="Re-runs Claude Haiku — costs ~$0.005, takes ~3-8s. Overwrites the cached result for this page."
         >{busy ? 'Analyzing…' : (findings ? '🔁 Re-run gap analysis' : '🔍 Run gap analysis')}</button>
+        {findings && !busy && (
+          <button
+            onClick={applyToHint}
+            disabled={applying || busy}
+            className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50 flex-shrink-0"
+            title="Merge the findings into this page's strategy hint as a '## Competitive gap analysis' block. After applying, every subsequent ✏️ Apply suggestions / ✨ Generate from scratch / 🎯 Re-propose call automatically picks up the findings — no extra checkbox or toggle needed. Idempotent: re-applying replaces the prior block rather than stacking."
+          >{applying ? 'Applying…' : '✨ Apply to page hint'}</button>
+        )}
       </div>
+
+      {applied && (
+        <div className="text-[10px] text-[#15803d] bg-[#f0fdf4] border border-[#15803d]/30 rounded p-2">
+          ✓ Findings merged into the page strategy hint. The next ✏️ Apply suggestions / ✨ Generate / 🎯 Re-propose call will use them automatically.
+        </div>
+      )}
 
       {(competitorUrl || analyzedAt) && (
         <div className="text-[9px] text-muted">
@@ -2018,7 +2070,7 @@ function PageGapAnalysisPanel({ landingPageId, pageDetail }) {
 
       {!findings && !busy && !error && (
         <div className="text-[10px] text-muted italic">
-          No analysis yet. Click Run to compare this page's latest buffered draft against the competitor tracked on the linked sitemap slot. Use the findings to inform the next 🎯 Re-propose with feedback or to guide manual edits.
+          No analysis yet. Click Run to compare this page's latest buffered draft against the competitor tracked on the linked sitemap slot. After Run completes, click ✨ Apply to page hint to fold the findings into the strategy hint so the next propose call uses them automatically.
         </div>
       )}
 
