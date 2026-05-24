@@ -953,6 +953,14 @@ function PageWorkspace({ data, requireBackupAck }) {
       voice_check: recoveredProposal?.voice_check || null,
     })
   }, [landing_page_id, recoveredProposal])
+
+  // Associated images for this landing_page. Populated by
+  // LandingImagesPanel via its onImagesChanged callback so we
+  // don't double-fetch. Threaded into ProposalDiff so the rendered
+  // preview can show the featured image at the top + inline thumbs
+  // below the body. Reset on page-switch.
+  const [pageImages, setPageImages] = useState([])
+  useEffect(() => { setPageImages([]) }, [landing_page_id])
   const [proposalBusy, setProposalBusy] = useState(false)
   const [proposalError, setProposalError] = useState(null)
   const [proposalElapsed, setProposalElapsed] = useState(0)
@@ -1306,8 +1314,14 @@ function PageWorkspace({ data, requireBackupAck }) {
           Shows existing images for this page + tabbed picker
           (upload / Pexels / scrape from URL). Pre-wave images
           uploaded against the slot persist here since they're
-          keyed to landing_page_id. */}
-      <LandingImagesPanel landingPageId={landing_page_id} />
+          keyed to landing_page_id.
+          onImagesChanged: keeps the workspace's pageImages state
+          in sync so the rendered preview can show featured +
+          inline images without a separate fetch. */}
+      <LandingImagesPanel
+        landingPageId={landing_page_id}
+        onImagesChanged={setPageImages}
+      />
 
       {/* AI Overview citations — operator-pasted snippets where
           Google AI Overview / ChatGPT / Perplexity / etc. quote
@@ -1662,6 +1676,7 @@ function PageWorkspace({ data, requireBackupAck }) {
             proposal={proposal}
             sourcePage={page}
             landingPageId={landing_page_id}
+            pageImages={pageImages}
             requireBackupAck={requireBackupAck}
             onCheckResult={({ ai_detection, voice_check }) => {
               // Lift in-session check results up so the WorkflowWizard
@@ -2081,7 +2096,7 @@ function PageGapAnalysisPanel({ landingPageId, pageDetail, onHintApplied }) {
   )
 }
 
-function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireBackupAck, onCheckResult }) {
+function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onReplace, requireBackupAck, onCheckResult }) {
   // ZeroGPT + humanize state — lives here so re-generating the
   // proposal naturally resets both. `aiResult` tracks the latest
   // detect-ai call: { score, flagged_sentences, detected_at }.
@@ -2587,6 +2602,7 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
         landingPageId={landingPageId}
         currentVersionId={currentVersionId}
         isHumanized={currentVersionId !== proposal?.version_id}
+        pageImages={pageImages}
         onSaved={(newHtml) => setCurrentBodyHtml(newHtml)}
       />
 
@@ -3269,7 +3285,7 @@ function TargetedUpdateEditor({ landingPageId, currentBufferHtml, initialHint, o
             </div>
             <div>
               <div className="text-[9px] text-muted mb-1">After (new buffer — applied)</div>
-              <RenderedPreview html={afterHtml} tone="green" />
+              <RenderedPreview html={afterHtml} tone="green" images={pageImages} />
             </div>
           </div>
           <div className="text-[8px] text-muted italic px-2 pb-2">
@@ -4529,7 +4545,7 @@ function SiteStat({ label, value, tone }) {
 // the current saved body — so unsaved local edits are lost on
 // switch (warning surfaced in UI). Save commits to DB; both
 // schema regen + deploy read from the saved version.
-function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, onSaved }) {
+function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, pageImages, onSaved }) {
   const [mode, setMode] = useState('preview') // 'preview' | 'html'
   // Re-mount key forces the underlying editor to discard its local
   // state on mode switch — otherwise unsaved drafts in one mode
@@ -4570,6 +4586,7 @@ function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, curr
           landingPageId={landingPageId}
           currentVersionId={currentVersionId}
           isHumanized={isHumanized}
+          pageImages={pageImages}
           onSaved={onSaved}
         />
       ) : (
@@ -4587,7 +4604,7 @@ function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, curr
   )
 }
 
-function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, onSaved }) {
+function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, pageImages, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -4646,7 +4663,7 @@ function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, cu
               busy={saving}
             />
           ) : (
-            <RenderedPreview html={currentBodyHtml || ''} tone="green" />
+            <RenderedPreview html={currentBodyHtml || ''} tone="green" images={pageImages} />
           )}
           {error && <div className="text-[9px] text-[#c0392b] mt-1">⚠ {error}</div>}
         </div>
@@ -6452,16 +6469,84 @@ const RENDERED_PREVIEW_CSS = `
     .fldy-preview[contenteditable="true"]:focus { outline-color: #16a34a; }
 `
 
-function RenderedPreview({ html, tone = 'green' }) {
+// Escape user-provided strings before interpolating into iframe srcDoc.
+// alt_text + caption come from operator input + Pexels metadata — both
+// can contain quotes / brackets that would break the HTML attribute.
+function escapeHtmlAttr(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+function escapeHtmlText(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// Build the image blocks that bracket the body inside the iframe:
+//   - Featured image (one per page max) → large hero at the very top,
+//     with caption + alt text. Matches what most WP themes do when
+//     they read the featured image of a post.
+//   - Inline (non-featured) images → small thumbnail strip at the
+//     bottom of the preview labeled "Other associated images" so the
+//     operator can confirm what's attached to the page without
+//     needing to scroll up to the LandingImagesPanel.
+// Returns [topHtml, bottomHtml] strings.
+function buildImageBlocks(images) {
+  if (!Array.isArray(images) || images.length === 0) return ['', '']
+  const featured = images.find(i => i.role === 'featured') || null
+  const inline = images.filter(i => i.role !== 'featured' && i.public_url)
+  let top = ''
+  if (featured && featured.public_url) {
+    const alt = escapeHtmlAttr(featured.alt_text || '')
+    const cap = featured.caption ? `<figcaption>${escapeHtmlText(featured.caption)}</figcaption>` : ''
+    top = `<figure class="fldy-featured-image">
+      <img src="${escapeHtmlAttr(featured.public_url)}" alt="${alt}" />
+      ${cap}
+    </figure>`
+  }
+  let bottom = ''
+  if (inline.length > 0) {
+    const tiles = inline.map(i => {
+      const alt = escapeHtmlAttr(i.alt_text || i.filename || '')
+      const fname = escapeHtmlText(i.filename || '')
+      return `<div class="fldy-image-tile">
+        <img src="${escapeHtmlAttr(i.public_url)}" alt="${alt}" />
+        <div class="fldy-image-tile-name">${fname}</div>
+      </div>`
+    }).join('')
+    bottom = `<div class="fldy-image-strip-wrap">
+      <div class="fldy-image-strip-label">Other associated images (${inline.length})</div>
+      <div class="fldy-image-strip">${tiles}</div>
+    </div>`
+  }
+  return [top, bottom]
+}
+
+function RenderedPreview({ html, tone = 'green', images = null }) {
   const borderClass = tone === 'red' ? 'border-[#c0392b]/30'
     : tone === 'neutral' ? 'border-[#e5e5e5]'
     : 'border-[#2D9A5E]/30'
   // Iframe-flavored CSS (without the .fldy-preview class wrapper).
   const iframeCss = RENDERED_PREVIEW_CSS.replace(/\.fldy-preview\s*/g, "").replace(/\.fldy-preview\[contenteditable[^}]+\}/g, "")
+  // Featured + inline image presentation. Featured is a full-width
+  // hero so operators see it the way the deployed theme typically
+  // renders the post's featured image; inline thumbnails are small
+  // tiles so they don't dominate the preview.
+  const imageCss = `
+    .fldy-featured-image { margin: 0 0 16px 0; }
+    .fldy-featured-image img { width: 100%; height: auto; display: block; border-radius: 6px; max-height: 320px; object-fit: cover; }
+    .fldy-featured-image figcaption { text-align: center; font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .fldy-image-strip-wrap { margin-top: 24px; padding-top: 12px; border-top: 1px dashed #d1d5db; }
+    .fldy-image-strip-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .fldy-image-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+    .fldy-image-tile { border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden; background: #fafafa; }
+    .fldy-image-tile img { width: 100%; height: 72px; object-fit: cover; display: block; }
+    .fldy-image-tile-name { font-size: 9px; color: #6b7280; padding: 2px 4px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  `
   const fullCss = `html, body { margin:0; padding:0; }
     body { padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #1f2937; background: #fff; }
-    ${iframeCss}`
-  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${fullCss}</style></head><body>${html || '<p style="color:#9ca3af;font-style:italic;">(empty body)</p>'}</body></html>`
+    ${iframeCss}
+    ${imageCss}`
+  const [topImgHtml, bottomImgHtml] = buildImageBlocks(images)
+  const bodyHtml = html || '<p style="color:#9ca3af;font-style:italic;">(empty body)</p>'
+  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${fullCss}</style></head><body>${topImgHtml}${bodyHtml}${bottomImgHtml}</body></html>`
   return (
     <iframe
       title="rendered preview"

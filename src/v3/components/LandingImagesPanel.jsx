@@ -9,7 +9,12 @@
 import { useEffect, useState } from 'react'
 import * as api from '../api'
 
-export function LandingImagesPanel({ landingPageId }) {
+// onImagesChanged: optional callback invoked with the latest images
+// array after every successful reload. Lets a parent (e.g. the
+// LandingPages PageWorkspace) keep an in-sync copy for downstream
+// renderers — for example, injecting the featured image into the
+// rendered-preview iframe — without needing to refetch on its own.
+export function LandingImagesPanel({ landingPageId, onImagesChanged }) {
   const [images, setImages] = useState([])
   const [loading, setLoading] = useState(true)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -19,7 +24,9 @@ export function LandingImagesPanel({ landingPageId }) {
     setLoading(true); setErr(null)
     try {
       const r = await api.listLandingImages(landingPageId)
-      setImages(r?.images || [])
+      const next = r?.images || []
+      setImages(next)
+      if (typeof onImagesChanged === 'function') onImagesChanged(next)
     } catch (e) {
       setErr(e?.message || String(e))
     } finally {
