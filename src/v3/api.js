@@ -1703,6 +1703,24 @@ export const deleteLandingImage = (landingPageId, imageId) =>
     return r.json()
   })
 
+// DESTRUCTIVE — wipes all generated sitemap data for the current
+// tenant. Backend requires { confirm_slug } to match tenant slug
+// exactly. Optional flags also clear the brief itself and the
+// voice-anchor URL list. Returns per-table delete counts.
+export const resetSitemapData = ({ confirm_slug, also_clear_brief = false, also_clear_voice_anchors = false }) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/reset`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ confirm_slug, also_clear_brief, also_clear_voice_anchors }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `resetSitemapData failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Per-slot optimization checklist. Returns 6-dim status (SEO /
 // AEO / GEO / E-E-A-T / Schema / FAQ) for every slot in the
 // sitemap, with relevance heuristics applied. Plus portfolio

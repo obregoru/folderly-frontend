@@ -292,6 +292,8 @@ export default function SitemapWizard() {
         </div>
       </div>
 
+      <DangerZone tenantSlot={plan.slots} onReset={async () => { await load() }} />
+
       {propagateModal && (
         <PropagateModal
           state={propagateModal}
@@ -1184,6 +1186,107 @@ function ChecklistCard({ checklist }) {
       </div>
     </div>
   );
+}
+
+// Danger zone — irreversible reset of all sitemap data for the
+// current tenant. Hidden in a collapsed <details> at the bottom
+// of the wizard. Click expands, shows what'll be deleted, requires
+// typing the tenant slug to confirm.
+function DangerZone({ onReset }) {
+  const slug = api.tenantSlug ? api.tenantSlug() : ''
+  const [open, setOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [alsoClearBrief, setAlsoClearBrief] = useState(false)
+  const [alsoClearVoiceAnchors, setAlsoClearVoiceAnchors] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+  const [lastResult, setLastResult] = useState(null)
+
+  const canConfirm = typed.trim() === slug && !busy
+
+  const submit = async () => {
+    if (!canConfirm) return
+    if (!confirm(`This will permanently delete all sitemap data for "${slug}". Continue?`)) return
+    setBusy(true); setErr(null); setLastResult(null)
+    try {
+      const r = await api.resetSitemapData({
+        confirm_slug: slug,
+        also_clear_brief: alsoClearBrief,
+        also_clear_voice_anchors: alsoClearVoiceAnchors,
+      })
+      setLastResult(r)
+      setTyped('')
+      setAlsoClearBrief(false)
+      setAlsoClearVoiceAnchors(false)
+      if (typeof onReset === 'function') await onReset()
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <details open={open} onToggle={e => setOpen(e.currentTarget.open)} className="border border-[#dc2626]/30 rounded bg-[#fef2f2]">
+      <summary className="cursor-pointer py-2 px-3 flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-[#991b1b]">⚠ Danger zone</span>
+        <span className="text-[9px] text-[#c0392b]">Reset all sitemap data for this tenant — irreversible</span>
+        <span className="flex-1" />
+        <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
+      </summary>
+      {open && (
+        <div className="p-3 pt-0 space-y-2 text-[10px]">
+          <div className="text-[#991b1b]">
+            Clicking <b>Reset sitemap data</b> permanently deletes the following for tenant <code>{slug}</code>:
+          </div>
+          <ul className="list-disc pl-5 text-[10px] text-ink space-y-0.5">
+            <li>All sitemap slots (<code>landing_page_plan</code>) + tier metadata</li>
+            <li>All landing pages created via the wizard + their versions, audits, images, AI citations</li>
+            <li>All competitor page scrapes + gap analyses for this tenant</li>
+            <li>All auto-populated keywords (<code>tenant_keywords</code>)</li>
+          </ul>
+          <div className="text-[10px] text-muted">
+            <b>Preserved</b>: tenant credentials (wp_*, target_url, etc.), <code>editorial_policy</code>, <code>partner_domains</code>, manually-imported landing pages NOT linked to any slot.
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={alsoClearBrief} onChange={e => setAlsoClearBrief(e.target.checked)} />
+            <span>Also clear the saved 📋 Sitemap strategy brief (tenants.site_index_hint)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={alsoClearVoiceAnchors} onChange={e => setAlsoClearVoiceAnchors(e.target.checked)} />
+            <span>Also delete 🎙️ Voice anchor pages (operator-curated voice references)</span>
+          </label>
+          <div className="pt-1 border-t border-[#dc2626]/20 space-y-1.5">
+            <label className="block">
+              <span className="text-[10px]">Type the tenant slug <code>{slug}</code> to confirm:</span>
+              <input
+                type="text"
+                value={typed}
+                onChange={e => setTyped(e.target.value)}
+                placeholder={slug}
+                className="block w-full text-[10px] font-mono border border-[#dc2626]/40 rounded p-1.5 mt-1 bg-white"
+                autoComplete="off"
+              />
+            </label>
+            <button
+              onClick={submit}
+              disabled={!canConfirm}
+              className="text-[10px] py-1 px-2 bg-[#dc2626] text-white border-none rounded cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >{busy ? 'Deleting…' : '🗑 Reset sitemap data'}</button>
+          </div>
+          {err && <div className="text-[#c0392b]">⚠ {err}</div>}
+          {lastResult && (
+            <div className="bg-[#f0fdf4] border border-[#16a34a]/30 rounded p-2 text-[#15803d]">
+              <div className="font-medium">✓ Reset complete</div>
+              <div className="text-[9px] text-muted mt-1">
+                Deleted: {Object.entries(lastResult.deleted || {}).filter(([, v]) => v && v !== 0).map(([k, v]) => `${k}=${v}`).join(', ') || 'nothing (was already empty)'}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </details>
+  )
 }
 
 function StatusPill({ status }) {
