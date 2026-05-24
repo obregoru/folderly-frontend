@@ -1033,6 +1033,25 @@ export const getLandingPageSchemaTypes = (id) =>
       return r.json()
     })
 
+// Get a Claude Haiku-generated schema_types recommendation for
+// this landing page. Returns { suggestion: { suggested_types,
+// summary, per_type_reasoning, rejected_types }, model_used,
+// tokens_in, tokens_out }. Does NOT write — operator reviews +
+// calls setLandingPageSchemaTypes to commit.
+export const suggestLandingPageSchemaTypes = (id) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/schema-suggest`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `suggestLandingPageSchemaTypes failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 export const setLandingPageSchemaTypes = (id, schemaTypes) =>
   csrfFetch(`${apiBase()}/content/landing/${id}/schema-types`, {
     method: 'PATCH',

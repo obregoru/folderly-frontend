@@ -1696,6 +1696,10 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
       )}
 
       {!isNew && slot?.landing_page_id && (
+        <SchemaSuggesterPanel landingPageId={slot.landing_page_id} />
+      )}
+
+      {!isNew && slot?.landing_page_id && (
         <LandingImagesPanel landingPageId={slot.landing_page_id} />
       )}
 
@@ -2048,6 +2052,130 @@ function GapFindings({ findings }) {
 // All three converge on the same landing_page_images row + Supabase
 // storage. SEO filename defaults to a slug from alt-text/original
 // filename; operator can edit on each image's row.
+// Per-page schema_types suggester. Click → Claude Haiku analyzes
+// the page context (slot intent, label, URL, tier, current body,
+// competitor schemas) and recommends an allowlist. Operator
+// reviews per-type reasoning + clicks Apply to commit. Preserves
+// the editorial-judgment design of the schema_types field —
+// suggestions are NEVER auto-applied.
+function SchemaSuggesterPanel({ landingPageId }) {
+  const [current, setCurrent] = useState(null) // [] | null
+  const [suggestion, setSuggestion] = useState(null) // null | { suggested_types, summary, per_type_reasoning, rejected_types }
+  const [suggesting, setSuggesting] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [err, setErr] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  const flashMsg = (m) => { setMsg(m); setTimeout(() => setMsg(null), 3000) }
+
+  // Load existing schema_types on mount so operator sees what's set.
+  useEffect(() => {
+    let cancelled = false
+    api.getLandingPageSchemaTypes(landingPageId)
+      .then(r => { if (!cancelled) setCurrent(r?.schema_types || []) })
+      .catch(() => { if (!cancelled) setCurrent([]) })
+    return () => { cancelled = true }
+  }, [landingPageId])
+
+  const runSuggest = async () => {
+    if (suggesting) return
+    setSuggesting(true); setErr(null); setSuggestion(null)
+    try {
+      const r = await api.suggestLandingPageSchemaTypes(landingPageId)
+      setSuggestion(r?.suggestion || null)
+    } catch (e) { setErr(e?.message || String(e)) }
+    finally { setSuggesting(false) }
+  }
+
+  const applySuggested = async () => {
+    if (applying || !suggestion?.suggested_types) return
+    const types = suggestion.suggested_types
+    if (!confirm(`Set this page's schema_types allowlist to: ${types.join(', ')}?\n\nThis restricts the schema generator + deploy-time filter to ONLY emit these types. Any other schema blocks Claude generates will be stripped.\n\nYou can edit or clear this anytime from the per-page workspace.`)) return
+    setApplying(true); setErr(null)
+    try {
+      await api.setLandingPageSchemaTypes(landingPageId, types)
+      setCurrent(types)
+      flashMsg(`Applied — page will only emit: ${types.join(', ')}`)
+    } catch (e) { setErr(e?.message || String(e)) }
+    finally { setApplying(false) }
+  }
+
+  return (
+    <div className="border border-[#e5e5e5] rounded bg-[#fafafa] p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium">🎯 Schema types</span>
+        {Array.isArray(current) && current.length > 0 ? (
+          <span className="text-[9px] text-muted">Allowlisted: <code>{current.join(', ')}</code></span>
+        ) : (
+          <span className="text-[9px] text-muted">No allowlist set — Claude's judgment + template defaults apply</span>
+        )}
+        <span className="flex-1" />
+        <button
+          onClick={runSuggest}
+          disabled={suggesting}
+          className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          title="Claude Haiku analyzes the page (label, intent, body, competitor schemas) and recommends a focused schema_types allowlist. You review + apply."
+        >{suggesting ? 'Suggesting…' : (suggestion ? '🔁 Re-suggest' : '🎯 Suggest schemas')}</button>
+      </div>
+
+      {err && <div className="text-[10px] text-[#c0392b]">⚠ {err}</div>}
+      {msg && <div className="text-[10px] text-[#16a34a]">✓ {msg}</div>}
+
+      {suggestion && (
+        <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-2 text-[10px]">
+          {suggestion.summary && (
+            <div className="text-[10px] text-ink italic">{suggestion.summary}</div>
+          )}
+          <div>
+            <div className="text-[9px] uppercase tracking-wide text-muted font-medium mb-1">Recommended types ({suggestion.suggested_types?.length || 0})</div>
+            <div className="flex flex-wrap gap-1">
+              {(suggestion.suggested_types || []).map(t => (
+                <span key={t} className="text-[10px] py-0.5 px-1.5 rounded border bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40 font-mono">{t}</span>
+              ))}
+            </div>
+          </div>
+
+          {Array.isArray(suggestion.per_type_reasoning) && suggestion.per_type_reasoning.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-[9px] uppercase tracking-wide text-muted font-medium">Per-type reasoning</summary>
+              <ul className="space-y-1 pt-1">
+                {suggestion.per_type_reasoning.map((r, i) => (
+                  <li key={i} className="text-[10px]">
+                    <code className="text-[9px] bg-[#f0f0f0] px-1">{r.type}</code> — {r.why}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {Array.isArray(suggestion.rejected_types) && suggestion.rejected_types.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-[9px] uppercase tracking-wide text-muted font-medium">Considered but rejected ({suggestion.rejected_types.length})</summary>
+              <ul className="space-y-1 pt-1">
+                {suggestion.rejected_types.map((r, i) => (
+                  <li key={i} className="text-[10px] text-muted">
+                    <code className="text-[9px] bg-[#f0f0f0] px-1">{r.type}</code> — {r.why_not}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          <div className="flex items-center gap-2 pt-1 border-t border-[#f0f0f0]">
+            <span className="flex-1" />
+            <button
+              onClick={applySuggested}
+              disabled={applying || !suggestion.suggested_types?.length}
+              className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              title="Save these types as the page's schema_types allowlist. Editorial decision — review the per-type reasoning first."
+            >{applying ? 'Applying…' : '✓ Apply allowlist'}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function LandingImagesPanel({ landingPageId }) {
   const [images, setImages] = useState([])
   const [loading, setLoading] = useState(true)
