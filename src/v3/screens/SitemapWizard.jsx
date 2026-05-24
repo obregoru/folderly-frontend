@@ -1477,8 +1477,64 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
   const [createResult, setCreateResult] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
+  // Track whether the slot's landing_page has schema_types selected
+  // + at least one image. Used to nag the operator before they
+  // navigate away or commit a save without configuring these
+  // important inputs. We refetch fresh inside checkConfigGate()
+  // right before the prompt so a config change made via the
+  // SchemaSuggesterPanel or LandingImagesPanel below shows up
+  // immediately without needing to wire change callbacks back up.
+  // hasConfig() returns { hasSchema, hasImage, missing[] } where
+  // missing is the list shown in the confirm dialog.
+  const hasConfig = async () => {
+    if (!slot?.landing_page_id) {
+      // Pre-WP slots can't have schema/images yet — nothing to gate.
+      return { hasSchema: true, hasImage: true, missing: [] }
+    }
+    const [schemaResp, imagesResp] = await Promise.all([
+      api.getLandingPageSchemaTypes(slot.landing_page_id).catch(() => null),
+      api.listLandingImages(slot.landing_page_id).catch(() => null),
+    ])
+    const types = Array.isArray(schemaResp?.schema_types) ? schemaResp.schema_types : []
+    const images = Array.isArray(imagesResp?.images) ? imagesResp.images : []
+    const hasSchema = types.length > 0
+    const hasImage = images.length > 0
+    const missing = []
+    if (!hasSchema) missing.push('schema types (allowlist)')
+    if (!hasImage) missing.push('images (at least one)')
+    return { hasSchema, hasImage, missing }
+  }
+
+  // Returns true if the operator chose to proceed anyway (or
+  // there's nothing missing); false if they cancelled. The action
+  // label appears in the prompt so the operator knows what they're
+  // about to do.
+  const checkConfigGate = async (actionLabel) => {
+    const { missing } = await hasConfig()
+    if (missing.length === 0) return true
+    const lines = [
+      `Heads-up: this slot is missing important configuration before "${actionLabel}":`,
+      '',
+      ...missing.map(m => `  • ${m}`),
+      '',
+      'These inputs shape the schema generator + propose body + deploy output. Skipping them now means the next generation runs without that guidance and you may need to redo work later.',
+      '',
+      'Click OK to continue anyway, or Cancel to go back and configure these first.',
+    ]
+    return confirm(lines.join('\n'))
+  }
+
   const save = async () => {
     if (saving) return
+    // Gate Save on planned-or-better slots that have a landing_page
+    // attached but no schema / images configured yet. The prompt is
+    // dismissible — operator can still save and come back to set
+    // these later — but the friction stops "click Save and forget"
+    // from quietly skipping these inputs.
+    if (slot?.landing_page_id) {
+      const proceed = await checkConfigGate('save this slot')
+      if (!proceed) return
+    }
     setSaving(true); setErr(null); setSaved(false)
     try {
       let parsedVars = {}
@@ -1756,11 +1812,22 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
               </>
             )}
             {slot.landing_page_id && (
-              <a
-                href={`/content-studio?go=landing&id=${slot.landing_page_id}`}
-                className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer no-underline"
-                title="Jump to the per-page workspace for this slot's landing page"
-              >Open in Pages →</a>
+              <button
+                onClick={async () => {
+                  // Same gate as Save — schema + images on the linked
+                  // landing_page should be configured BEFORE jumping
+                  // into the per-page workspace where it's tempting to
+                  // start editing content without these inputs in
+                  // place. Operator can still proceed (the prompt is
+                  // not blocking) but the friction prevents quietly
+                  // skipping these.
+                  const proceed = await checkConfigGate('open this slot in the Pages workspace')
+                  if (!proceed) return
+                  window.location.href = `/content-studio?go=landing&id=${slot.landing_page_id}`
+                }}
+                className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                title="Jump to the per-page workspace for this slot's landing page. Prompts first if schema types or images aren't configured yet — these inputs shape every propose call."
+              >Open in Pages →</button>
             )}
             <div className="flex-1" />
             <button
