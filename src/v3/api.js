@@ -1591,18 +1591,6 @@ export const uploadLandingImage = (landingPageId, file, { alt_text, caption, rol
   })
 }
 
-// Free-photos search reused from blog flow — same Pexels API key,
-// same endpoint, same response shape.
-export const searchFreePhotos = (q, { page = 1, per_page = 12, provider = 'pexels' } = {}) =>
-  csrfFetch(`${apiBase()}/content/free-photos?q=${encodeURIComponent(q)}&page=${page}&per_page=${per_page}&provider=${provider}`, { credentials: 'include' })
-    .then(async r => {
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}))
-        throw new Error(e.error || `searchFreePhotos failed (${r.status})`)
-      }
-      return r.json()
-    })
-
 export const saveLandingImageFromPexels = (landingPageId, { pexels_photo_id, alt_text, caption, role, filename, size = 'large' }) =>
   csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images/from-pexels`, {
     method: 'POST',

@@ -1940,7 +1940,7 @@ function PexelsTab({ landingPageId, onSuccess }) {
     if (!query.trim() || searching) return
     setSearching(true); setErr(null)
     try {
-      const r = await api.searchFreePhotos(query)
+      const r = await api.searchFreePhotos({ query, perPage: 12 })
       setResults(r?.items || [])
     } catch (e) {
       setErr(e?.message || String(e))
