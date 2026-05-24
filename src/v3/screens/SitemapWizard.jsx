@@ -1161,6 +1161,14 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
   const [templateKind, setTemplateKind] = useState(slot?.template_kind || '')
   const [rationale, setRationale] = useState(slot?.rationale || '')
   const [extraHint, setExtraHint] = useState(slot?.extra_strategy_hint || '')
+  // URL slug — surfaced as a top-level field so operators can fix
+  // generic brief-generated slugs (e.g. /birthday-parties) into
+  // long-tail SEO-friendly ones (/kids-birthday-party-venues-menomonee-falls)
+  // without diving into the Template variables JSON pane.
+  // Persisted inside template_variables.url_slug — we merge on save.
+  const [urlSlug, setUrlSlug] = useState(
+    (slot?.template_variables?.url_slug || '').toString()
+  )
   const [varsRaw, setVarsRaw] = useState(
     slot?.template_variables ? JSON.stringify(slot.template_variables, null, 2) : '{}'
   )
@@ -1182,6 +1190,22 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
         parsedVars = JSON.parse(varsRaw || '{}')
       } catch {
         throw new Error('template_variables is not valid JSON')
+      }
+      // Slug normalization: strip leading slash, lowercase, strip
+      // trailing slash. Merge into parsedVars so the persisted JSON
+      // stays authoritative for the BE — but with the operator-edited
+      // top-level field winning when both are touched.
+      const cleanSlug = (urlSlug || '').toString().trim()
+        .replace(/^\/+/, '').replace(/\/+$/, '').toLowerCase()
+      if (cleanSlug) {
+        parsedVars.url_slug = cleanSlug
+        // Re-sync the visible JSON so the Template variables pane
+        // shows the latest url_slug even if the operator didn't open it.
+        setVarsRaw(JSON.stringify(parsedVars, null, 2))
+      } else if (parsedVars.url_slug) {
+        // Operator cleared the field — remove from JSON too.
+        delete parsedVars.url_slug
+        setVarsRaw(JSON.stringify(parsedVars, null, 2))
       }
       if (isNew) {
         if (!slotKey.trim()) throw new Error('slot_key required for new slot')
@@ -1286,6 +1310,20 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
           className="w-full text-[11px] border border-[#e5e5e5] rounded p-1.5 bg-white"
           placeholder="e.g. /services/ai/ or 'AI for Small Business'"
         />
+      </div>
+
+      <div>
+        <label className="block text-muted mb-0.5">URL slug</label>
+        <input
+          type="text"
+          value={urlSlug}
+          onChange={e => setUrlSlug(e.target.value)}
+          className="w-full text-[10px] font-mono border border-[#e5e5e5] rounded p-1.5 bg-white"
+          placeholder="kids-birthday-party-venues-menomonee-falls"
+        />
+        <div className="text-[8px] text-muted mt-0.5">
+          Long-tail beats generic. <code>/kids-birthday-party-venues-menomonee-falls</code> outranks <code>/birthday-parties</code>. Include buyer intent + service + geographic modifier when each word earns the click. No leading slash; lowercase-dashed.
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
