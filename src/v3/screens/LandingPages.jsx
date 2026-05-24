@@ -307,6 +307,7 @@ export default function LandingPages() {
           const v = vresp?.version
           if (v) {
             const meta = v.proposal_meta || {}
+            const seoMeta = v.seo_meta || {}
             recoveredProposal = {
               version_id: v.id,
               created_at: v.created_at,
@@ -316,6 +317,14 @@ export default function LandingPages() {
                 body_html: v.body_html,
                 meta_description: v.meta_description,
                 focus_keyword: v.focus_keyword,
+                // Social-card + SEO-title fields live in seo_meta JSONB.
+                // Surfacing here so the operator-edit UI can render +
+                // save them.
+                seo_title: seoMeta.seo_title || null,
+                og_title: seoMeta.og_title || null,
+                og_description: seoMeta.og_description || null,
+                twitter_title: seoMeta.twitter_title || null,
+                twitter_description: seoMeta.twitter_description || null,
                 links_kept: meta.links_kept || [],
                 links_refined: meta.links_refined || [],
                 links_added: meta.links_added || [],
@@ -1019,6 +1028,7 @@ function PageWorkspace({ data, requireBackupAck }) {
       // summary, link ledger) comes from proposal_meta which the BG
       // handler populates after Claude returns.
       const meta = finalVersion.proposal_meta || {}
+      const seoMeta = finalVersion.seo_meta || {}
       setProposal({
         version_id: finalVersion.id,
         created_at: finalVersion.created_at,
@@ -1027,6 +1037,11 @@ function PageWorkspace({ data, requireBackupAck }) {
           body_html: finalVersion.body_html,
           meta_description: finalVersion.meta_description,
           focus_keyword: finalVersion.focus_keyword,
+          seo_title: seoMeta.seo_title || null,
+          og_title: seoMeta.og_title || null,
+          og_description: seoMeta.og_description || null,
+          twitter_title: seoMeta.twitter_title || null,
+          twitter_description: seoMeta.twitter_description || null,
           links_kept: meta.links_kept || [],
           links_refined: meta.links_refined || [],
           links_added: meta.links_added || [],
@@ -1938,6 +1953,15 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
   const [editTitle, setEditTitle] = useState(p.title || '')
   const [editMeta, setEditMeta] = useState(p.meta_description || '')
   const [editFocus, setEditFocus] = useState(p.focus_keyword || '')
+  // SEO + social-card fields. Editable inline (save on blur) just
+  // like title/meta/focus. Persists into version.seo_meta JSONB
+  // via PATCH /versions/:id/meta — same endpoint, extended to
+  // accept these keys.
+  const [editSeoTitle, setEditSeoTitle] = useState(p.seo_title || '')
+  const [editOgTitle, setEditOgTitle] = useState(p.og_title || '')
+  const [editOgDesc, setEditOgDesc] = useState(p.og_description || '')
+  const [editTwTitle, setEditTwTitle] = useState(p.twitter_title || '')
+  const [editTwDesc, setEditTwDesc] = useState(p.twitter_description || '')
   const [metaSaving, setMetaSaving] = useState(false)
   const [metaSaved, setMetaSaved] = useState(null)
   const [metaError, setMetaError] = useState(null)
@@ -1946,6 +1970,11 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
     setEditTitle(p.title || '')
     setEditMeta(p.meta_description || '')
     setEditFocus(p.focus_keyword || '')
+    setEditSeoTitle(p.seo_title || '')
+    setEditOgTitle(p.og_title || '')
+    setEditOgDesc(p.og_description || '')
+    setEditTwTitle(p.twitter_title || '')
+    setEditTwDesc(p.twitter_description || '')
     setMetaSaved(null); setMetaError(null)
   }, [proposal?.version_id])
 
@@ -1954,7 +1983,17 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
     setMetaSaving(true); setMetaError(null); setMetaSaved(null)
     try {
       const r = await api.updateLandingVersionMeta(landingPageId, currentVersionId, { [field]: value })
-      setMetaSaved(`${field === 'title' ? 'Title' : field === 'meta_description' ? 'Meta description' : 'Focus keyword'} saved`)
+      const labels = {
+        title: 'Title',
+        meta_description: 'Meta description',
+        focus_keyword: 'Focus keyword',
+        seo_title: 'SEO title',
+        og_title: 'OG title',
+        og_description: 'OG description',
+        twitter_title: 'Twitter title',
+        twitter_description: 'Twitter description',
+      }
+      setMetaSaved(`${labels[field] || field} saved`)
       setTimeout(() => setMetaSaved(null), 2000)
       return r
     } catch (e) {
@@ -2070,6 +2109,89 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
             className="w-full bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] outline-none focus:border-[#2D9A5E]"
           />
         </div>
+
+        {/* SEO title + social-card meta. All editable, save on blur.
+            Persists into version.seo_meta JSONB via the same PATCH
+            endpoint as title/meta/focus (now extended). Deploy reads
+            these and writes them through to the right plugin keys
+            (Yoast Premium / Rank Math / AIOSEO). */}
+        <details className="border border-[#e5e5e5] rounded bg-[#fafafa]">
+          <summary className="cursor-pointer text-muted py-1 px-2 text-[10px]">
+            SEO title + social cards (5 fields)
+          </summary>
+          <div className="space-y-2 p-2 pt-1">
+            <div>
+              <div className="text-muted">SEO title (editable, distinct from H1):</div>
+              <div className="text-[9px] text-muted italic">Often differs from the page title — keyword-first placement, brand suffix, tightened to ≤60 chars. Yoast Premium / Rank Math read this for the SERP rendering.</div>
+              <input
+                type="text"
+                value={editSeoTitle}
+                onChange={e => setEditSeoTitle(e.target.value)}
+                onBlur={() => {
+                  if (editSeoTitle !== (p.seo_title || '')) saveMeta('seo_title', editSeoTitle)
+                }}
+                placeholder="e.g. Perfume Bar Milwaukee | Walk-In Sessions at Poppy & Thyme"
+                className="w-full bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] outline-none focus:border-[#2D9A5E]"
+              />
+            </div>
+
+            <div>
+              <div className="text-muted">OG title (Facebook / LinkedIn / Slack / Discord card):</div>
+              <input
+                type="text"
+                value={editOgTitle}
+                onChange={e => setEditOgTitle(e.target.value)}
+                onBlur={() => {
+                  if (editOgTitle !== (p.og_title || '')) saveMeta('og_title', editOgTitle)
+                }}
+                placeholder="More conversational than SEO title — link-share users scroll, not search."
+                className="w-full bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] outline-none focus:border-[#2D9A5E]"
+              />
+            </div>
+
+            <div>
+              <div className="text-muted">OG description (Facebook / LinkedIn / Slack / Discord card body):</div>
+              <textarea
+                value={editOgDesc}
+                onChange={e => setEditOgDesc(e.target.value)}
+                onBlur={() => {
+                  if (editOgDesc !== (p.og_description || '')) saveMeta('og_description', editOgDesc)
+                }}
+                rows={2}
+                placeholder="Hook-style copy — what would make someone click on a friend's share?"
+                className="w-full bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] outline-none focus:border-[#2D9A5E] resize-y font-sans"
+              />
+            </div>
+
+            <div>
+              <div className="text-muted">Twitter / X title:</div>
+              <input
+                type="text"
+                value={editTwTitle}
+                onChange={e => setEditTwTitle(e.target.value)}
+                onBlur={() => {
+                  if (editTwTitle !== (p.twitter_title || '')) saveMeta('twitter_title', editTwTitle)
+                }}
+                placeholder="Often the same as OG title; can be slightly punchier."
+                className="w-full bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] outline-none focus:border-[#2D9A5E]"
+              />
+            </div>
+
+            <div>
+              <div className="text-muted">Twitter / X description:</div>
+              <textarea
+                value={editTwDesc}
+                onChange={e => setEditTwDesc(e.target.value)}
+                onBlur={() => {
+                  if (editTwDesc !== (p.twitter_description || '')) saveMeta('twitter_description', editTwDesc)
+                }}
+                rows={2}
+                placeholder="Often the same as OG description; can be tuned for the X audience."
+                className="w-full bg-white border border-[#e5e5e5] rounded px-2 py-1 text-[10px] outline-none focus:border-[#2D9A5E] resize-y font-sans"
+              />
+            </div>
+          </div>
+        </details>
       </div>
 
       {/* Link ledger — kept / refined / added / removed / unaccounted */}
