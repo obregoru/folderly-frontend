@@ -961,6 +961,17 @@ function PageWorkspace({ data, requireBackupAck }) {
   // below the body. Reset on page-switch.
   const [pageImages, setPageImages] = useState([])
   useEffect(() => { setPageImages([]) }, [landing_page_id])
+
+  // Mirror of ProposalDiff's currentVersionId so DeployBlock can
+  // live at the BOTTOM of the workspace (irreversible action =
+  // last step). ProposalDiff still owns the source-of-truth state
+  // (which it needs locally for humanize / checks / body editor);
+  // it just calls back here whenever the version flips (humanize
+  // creates a new version row). Reset on proposal swap.
+  const [deployVersionId, setDeployVersionId] = useState(proposal?.version_id || null)
+  useEffect(() => {
+    setDeployVersionId(proposal?.version_id || null)
+  }, [proposal?.version_id])
   const [proposalBusy, setProposalBusy] = useState(false)
   const [proposalError, setProposalError] = useState(null)
   const [proposalElapsed, setProposalElapsed] = useState(0)
@@ -1678,6 +1689,7 @@ function PageWorkspace({ data, requireBackupAck }) {
             landingPageId={landing_page_id}
             pageImages={pageImages}
             requireBackupAck={requireBackupAck}
+            onVersionChange={setDeployVersionId}
             onCheckResult={({ ai_detection, voice_check }) => {
               // Lift in-session check results up so the WorkflowWizard
               // immediately reflects scores without waiting for a page
@@ -1718,6 +1730,27 @@ function PageWorkspace({ data, requireBackupAck }) {
           }
         }}
       />
+
+      {/* Deploy — Phase 5. Big red CTA. Pinned at the bottom of
+          the workspace so the irreversible publish-to-WordPress
+          action is the last thing the operator sees, after all
+          generation / editing / analysis panels above. Only
+          renders when a proposal exists + we have a target
+          version id from ProposalDiff (which mirrors humanized
+          versions too). */}
+      {proposal && deployVersionId && (
+        <>
+          <DeployBlock
+            landingPageId={landing_page_id}
+            versionId={deployVersionId}
+            requireBackupAck={requireBackupAck}
+            onDeployed={() => { /* deploy success surfaces inline */ }}
+          />
+          <div className="text-[9px] text-muted italic">
+            Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
+          </div>
+        </>
+      )}
 
     </div>
   )
@@ -2096,7 +2129,7 @@ function PageGapAnalysisPanel({ landingPageId, pageDetail, onHintApplied }) {
   )
 }
 
-function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onReplace, requireBackupAck, onCheckResult }) {
+function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onReplace, requireBackupAck, onCheckResult, onVersionChange }) {
   // ZeroGPT + humanize state — lives here so re-generating the
   // proposal naturally resets both. `aiResult` tracks the latest
   // detect-ai call: { score, flagged_sentences, detected_at }.
@@ -2126,6 +2159,14 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onRepla
     setCurrentVersionId(proposal?.version_id || null)
     setCurrentBodyHtml(proposal?.proposal?.body_html || '')
   }, [proposal?.version_id])
+  // Bubble currentVersionId up to PageWorkspace so DeployBlock
+  // (rendered at the bottom of the workspace, outside this
+  // component) can target the latest buffered version — including
+  // humanized versions, which only this component knows about.
+  useEffect(() => {
+    if (typeof onVersionChange === 'function') onVersionChange(currentVersionId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentVersionId])
   useEffect(() => {
     if (!humanBusy) { setHumanElapsed(0); return }
     const start = Date.now()
@@ -2290,16 +2331,28 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onRepla
 
       {/* Title / meta / focus keyword — editable. Operator can refine
           Claude's suggestion before deploy (saves on blur). Deploy
-          reads from the version row, so edits flow through. */}
-      <div className="bg-white border border-[#e5e5e5] rounded p-2 space-y-2">
-        <div className="flex items-center gap-2">
+          reads from the version row, so edits flow through.
+          Collapsed by default to keep the proposal panel compact;
+          operator expands when ready to tune meta. */}
+      <details className="bg-white border border-[#e5e5e5] rounded">
+        <summary className="cursor-pointer flex items-center gap-2 p-2">
           <span className="font-medium text-ink">Meta changes</span>
-          <span className="text-[9px] text-muted">Editable — save on blur</span>
+          <span className="text-[9px] text-muted">
+            ({[
+              (editTitle || '').trim() && (editTitle || '').trim() !== sourceTitle.trim() && 'title',
+              (editMeta || '').trim() && (editMeta || '').trim() !== sourceMeta.trim() && 'description',
+              (editFocus || '').trim() && 'focus keyword',
+              (editSeoTitle || '').trim() && 'SEO title',
+              ((editOgTitle || editOgDesc || editTwTitle || editTwDesc) || '').trim() && 'social cards',
+            ].filter(Boolean).join(', ') || 'click to expand'})
+          </span>
+          <span className="text-[9px] text-muted">— editable, saves on blur</span>
           <span className="flex-1" />
           {metaSaving && <span className="text-[9px] text-muted">Saving…</span>}
           {metaSaved && <span className="text-[9px] text-[#16a34a]">✓ {metaSaved}</span>}
           {metaError && <span className="text-[9px] text-[#c0392b]">⚠ {metaError}</span>}
-        </div>
+        </summary>
+        <div className="p-2 pt-0 space-y-2">
 
         {/* Title */}
         <div>
@@ -2442,7 +2495,8 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onRepla
             </div>
           </div>
         </details>
-      </div>
+        </div>
+      </details>
 
       {/* Link ledger — kept / refined / added / removed / unaccounted */}
       <div className="bg-white border border-[#e5e5e5] rounded p-2">
@@ -2616,20 +2670,12 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onRepla
         versionId={currentVersionId}
       />
 
-      {/* Deploy — Phase 5. Big red CTA so the operator can't miss
-          that this is the irreversible-without-rollback step. */}
-      <DeployBlock
-        landingPageId={landingPageId}
-        versionId={currentVersionId}
-        requireBackupAck={requireBackupAck}
-        onDeployed={(r) => {
-          if (typeof onReplace === 'function') onReplace({ deployed: r })
-        }}
-      />
-
-      <div className="text-[9px] text-muted italic">
-        Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
-      </div>
+      {/* DeployBlock used to live here. Now rendered at the very
+          BOTTOM of PageWorkspace (after gap analysis) so the
+          irreversible publish-to-WordPress action is the last
+          thing on screen, not buried in the middle of the
+          proposal panel. PageWorkspace tracks the target
+          version via onVersionChange callback above. */}
     </div>
   )
 }
@@ -3013,21 +3059,24 @@ function SchemaTypesAllowlist({ landingPageId }) {
       >
         <span className="text-[11px] font-medium text-[#6C5CE7]">🏷️ Page schema allowlist</span>
         <span className="text-[9px] text-muted">
-          Explicit per-page Schema.org @type allowlist. Stops Claude from guessing — schema-gen + deploy both enforce.
-        </span>
-        <span className="flex-1" />
-        <span className="text-[9px] text-muted">
           {(() => {
+            // Counter right after the label, in parens — same shape as
+            // the other expandable section summaries on this page
+            // (e.g. "Meta changes (title, focus keyword)").
             // Prefer post-expand state once loaded; fall back to the
             // lightweight count fetched on mount.
             const n = loaded
               ? (Array.isArray(original) ? original.length : 0)
               : allowedCount
-            if (n === null) return 'Loading…'
-            if (n === 0) return 'No restriction'
-            return `${n} type${n === 1 ? '' : 's'} allowed`
+            if (n === null) return '(loading…)'
+            if (n === 0) return '(no restriction)'
+            return `(${n})`
           })()}
         </span>
+        <span className="text-[9px] text-muted">
+          — explicit per-page Schema.org @type allowlist. Stops Claude from guessing; schema-gen + deploy both enforce.
+        </span>
+        <span className="flex-1" />
         <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
       </summary>
       {open && (
@@ -4286,18 +4335,26 @@ function SeasonalBanner({ upcoming, onDismiss, onOpenPage }) {
   const accent = soonest.days_ahead <= 14 ? 'border-[#d97706] bg-[#fff7ed]'
     : soonest.days_ahead <= 45 ? 'border-[#6C5CE7]/40 bg-[#f5f3ff]'
     : 'border-[#e5e5e5] bg-[#fafafa]'
+  // Banner itself is collapsed by default — operator expands to see
+  // matched pages + refresh angles. The soonest season's days_ahead
+  // chip stays visible in the summary so urgency is still readable
+  // at a glance without expanding.
   return (
-    <div className={`border rounded p-2.5 space-y-2 ${accent}`}>
-      <div className="flex items-center gap-2">
+    <details className={`border rounded ${accent}`}>
+      <summary className="cursor-pointer flex items-center gap-2 p-2.5">
         <span className="text-[11px] font-semibold">📅 Upcoming seasonal moments</span>
-        <span className="text-[9px] text-muted">Refresh pages ahead of the rush.</span>
+        <span className={`text-[9px] py-0.5 px-1.5 rounded font-mono ${soonest.days_ahead <= 14 ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#f0f0f0] text-muted'}`}>
+          ({upcoming.length}) · soonest {soonest.days_ahead === 0 ? 'TODAY' : `in ${soonest.days_ahead}d`}
+        </span>
+        <span className="text-[9px] text-muted">— refresh pages ahead of the rush.</span>
         <div className="flex-1" />
         <button
-          onClick={onDismiss}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); onDismiss() }}
           className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
           title="Hide for this session"
         >✕ Hide</button>
-      </div>
+      </summary>
+      <div className="p-2.5 pt-0 space-y-2">
       <div className="space-y-1.5">
         {upcoming.map(s => {
           const urgent = s.days_ahead <= 14
@@ -4341,7 +4398,8 @@ function SeasonalBanner({ upcoming, onDismiss, onOpenPage }) {
           )
         })}
       </div>
-    </div>
+      </div>
+    </details>
   )
 }
 
