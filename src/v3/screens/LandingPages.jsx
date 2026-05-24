@@ -593,9 +593,21 @@ export default function LandingPages() {
 
       {state.wp_configured && (
         <>
-          {/* Tenant default + ad-hoc import controls */}
-          <div className="bg-white border border-[#e5e5e5] rounded p-3 space-y-2">
-            <div className="text-[11px] font-medium">Default page</div>
+          {/* Tenant default + ad-hoc import controls. Collapsed by
+              default once the tenant has at least one managed page
+              AND a configured default — operators only revisit this
+              when wiring up a new tenant or switching the default.
+              Auto-opens for fresh tenants (no managed pages) or when
+              no default is set, so the configuration is obvious. */}
+          <details className="bg-white border border-[#e5e5e5] rounded" open={!state.default_post_id || (state.pages || []).length === 0}>
+            <summary className="cursor-pointer flex items-center gap-2 p-3">
+              <span className="text-[11px] font-medium">Default page</span>
+              <span className="text-[9px] text-muted">
+                {state.default_post_id ? `(post #${state.default_post_id})` : '(not configured)'}
+              </span>
+              <span className="text-[9px] text-muted">— default landing-page workspace + import controls</span>
+            </summary>
+            <div className="px-3 pb-3 pt-0 space-y-2">
             <div className="text-[10px] text-muted">
               The WP post ID for the page this workspace opens by default. Paste the integer (e.g. <code>144</code>) or the full <code>wp-admin/post.php?post=144</code> edit URL.
             </div>
@@ -644,15 +656,24 @@ export default function LandingPages() {
             {activeError && (
               <div className="text-[10px] text-[#c0392b] mt-1">⚠ {activeError}</div>
             )}
-          </div>
+            </div>
+          </details>
 
           {/* Preview / scratchpad page configuration. Designate one WP
               page as a live-rendered sandbox. Operator pushes
               in-progress proposals here to see the rendered theme
               version before committing to a real deploy. Hidden from
-              the Managed pages list + bulk-import. */}
-          <div className="bg-white border border-[#e5e5e5] rounded p-3 space-y-2">
-            <div className="text-[11px] font-medium">🪞 Preview / scratchpad page</div>
+              the Managed pages list + bulk-import. Same collapse
+              rule as the Default-page block above. */}
+          <details className="bg-white border border-[#e5e5e5] rounded" open={!state.preview_post_id || (state.pages || []).length === 0}>
+            <summary className="cursor-pointer flex items-center gap-2 p-3">
+              <span className="text-[11px] font-medium">🪞 Preview / scratchpad page</span>
+              <span className="text-[9px] text-muted">
+                {state.preview_post_id ? `(post #${state.preview_post_id})` : '(not configured)'}
+              </span>
+              <span className="text-[9px] text-muted">— sandbox page for in-progress proposals</span>
+            </summary>
+            <div className="px-3 pb-3 pt-0 space-y-2">
             <div className="text-[10px] text-muted">
               WP post ID of a designated sandbox page. The <b>Preview to sandbox</b> button (next to Deploy on each page) pushes the current proposal here so you can view the rendered theme output without committing a real deploy. Subsequent previews overwrite without version history. This page is hidden from the Managed pages list.
             </div>
@@ -675,7 +696,8 @@ export default function LandingPages() {
                 ✓ Preview configured (post #{state.preview_post_id}). Pushes from any page's workspace will overwrite this sandbox.
               </div>
             )}
-          </div>
+            </div>
+          </details>
 
           {/* Create new landing page — collapsed by default */}
           <CreateNewLandingPage
