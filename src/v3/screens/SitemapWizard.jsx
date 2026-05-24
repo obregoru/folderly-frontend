@@ -1308,7 +1308,7 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
             value={templateKind}
             onChange={e => setTemplateKind(e.target.value)}
             className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white font-mono"
-            placeholder="e.g. service_page (or empty = freeform)"
+            placeholder="e.g. service_page — or leave empty for freeform (placeholder body, propose fills it in)"
           />
         </div>
       </div>
@@ -1381,11 +1381,11 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
             {slot.status === 'planned' && (
               <button
                 onClick={createWp}
-                disabled={creatingWp || !templateKind.trim()}
+                disabled={creatingWp}
                 className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
                 title={templateKind.trim()
-                  ? 'Materialize this slot: create a WP draft + landing_page row + initial imported version. Slot moves to draft status.'
-                  : 'Set a template_kind first — required to scaffold the WP page.'}
+                  ? `Materialize this slot using the "${templateKind.trim()}" template: WP draft + landing_page row + initial imported version. Slot moves to draft status.`
+                  : 'Materialize this slot as a freeform WP draft (no template). A placeholder body goes up; click Propose on the page workspace to generate real content from the slot hint, voice anchors, and competitive gap analysis.'}
               >{creatingWp ? 'Creating WP draft…' : '🚀 Create WP draft'}</button>
             )}
             {slot.landing_page_id && (
