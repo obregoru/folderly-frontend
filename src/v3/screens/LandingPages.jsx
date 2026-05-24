@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../api'
+import { LandingImagesPanel } from '../components/LandingImagesPanel'
 
 export default function LandingPages() {
   const [state, setState] = useState({
@@ -168,6 +169,34 @@ export default function LandingPages() {
     }
   }
   useEffect(() => { reload() }, [])
+
+  // Deep-link handler: when LandingPages mounts from a URL like
+  // /content-studio?go=landing&id=N, auto-select page #N once the
+  // page list has loaded. Without this, the link from the Sitemap
+  // Wizard's "Open in Pages" button just lands on the empty default
+  // workspace state and the operator has to manually find their page
+  // in the sidebar.
+  useEffect(() => {
+    if (state.loading || !state.pages || state.pages.length === 0) return
+    if (typeof window === 'undefined') return
+    let targetId
+    try {
+      const params = new URLSearchParams(window.location.search)
+      targetId = Number(params.get('id'))
+    } catch { return }
+    if (!Number.isFinite(targetId)) return
+    const target = state.pages.find(p => p.id === targetId)
+    if (!target) return
+    openPage(target)
+    // Clear the query param so a manual reload doesn't re-fire the
+    // deep-link logic (preserves the operator's actual navigation).
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('id')
+      url.searchParams.delete('go')
+      window.history.replaceState({}, '', url.toString())
+    } catch {}
+  }, [state.loading, state.pages])
 
   const handleSetPreview = async () => {
     if (previewSaving) return
@@ -443,7 +472,7 @@ export default function LandingPages() {
         </div>
       )}
       {bulkImport && (
-        <details open className="bg-white border border-[#2D9A5E]/40 rounded p-3 space-y-2">
+        <details className="bg-white border border-[#2D9A5E]/40 rounded p-3 space-y-2">
           <summary className="cursor-pointer text-[11px] font-medium text-[#2D9A5E]">
             ✓ Bulk import complete — discovered {bulkImport.discovered}, imported {bulkImport.imported}, skipped {bulkImport.skipped_existing} already-managed{bulkImport.errors > 0 ? `, ${bulkImport.errors} errors` : ''}
           </summary>
@@ -729,6 +758,20 @@ export default function LandingPages() {
 
 function PageWorkspace({ data, requireBackupAck }) {
   const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit, recovered_proposal: recoveredProposal } = data
+  // Detect whether the page has real, audit-worthy content yet.
+  // Freshly-scaffolded pages (Create WP draft from a Sitemap Wizard
+  // slot) have only an imported placeholder version (~250 chars).
+  // Auditing that produces noise; proposal "Update" mode is also
+  // meaningless. We gate both surfaces on this heuristic:
+  //   - A proposal exists (recovered or fresh) → real content
+  //   - OR a non-imported version exists (ai-suggested / human-edited
+  //     / deployed) → real content
+  //   - OR multiple imported versions (operator re-imported) → real content
+  // Computed once, used by both the Audit gate (#4) and the Proposal
+  // UX simplification for fresh pages (#5).
+  // NOTE: `proposal` is set further down via useState; we recompute
+  // below where it's in scope. Stub here keeps the constant near
+  // its dependent heuristics.
   const links = page.links || []
   const internalLinks = links.filter(l => l.type === 'internal')
   const externalLinks = links.filter(l => l.type === 'external')
@@ -872,6 +915,13 @@ function PageWorkspace({ data, requireBackupAck }) {
   // Swap when operator changes pages — otherwise a recovered
   // proposal from page A would render on page B.
   useEffect(() => { setProposal(recoveredProposal || null) }, [landing_page_id, recoveredProposal])
+
+  // hasGeneratedContent: see big comment near top of PageWorkspace.
+  // Gates the Audit button (#4) and simplifies the Proposal UX for
+  // fresh pages (#5).
+  const hasGeneratedContent = !!proposal
+    || history.some(v => v.kind === 'ai-suggested' || v.kind === 'human-edited' || v.kind === 'deployed')
+    || history.filter(v => v.kind === 'imported').length > 1
   // In-session check results (lifted up from ProposalDiff via the
   // onCheckResult callback) so the WorkflowWizard sees fresh AI +
   // voice scores immediately after a check completes, without
@@ -906,7 +956,7 @@ function PageWorkspace({ data, requireBackupAck }) {
     setIncludeAudit(true); setIncludeCitations(true)
   }, [landing_page_id])
 
-  const runProposal = async ({ useCheckFeedback = false, mode = "update" } = {}) => {
+  const runProposal = async ({ useCheckFeedback = false, mode = "update", skipConfirm = false } = {}) => {
     if (proposalBusy || !landing_page_id) return
     if (audit?.audit_id && selectedSuggestions.size === 0 && !useCheckFeedback && includeAudit) {
       // Only enforce findings-selection check if audit-inputs are on
@@ -914,7 +964,9 @@ function PageWorkspace({ data, requireBackupAck }) {
     }
     // Scratch mode warning — replacing existing content is destructive
     // (current body becomes a backup but the proposed body is fresh).
-    if (mode === "scratch") {
+    // skipConfirm=true bypasses the warning for the fresh-page Generate
+    // path (#5) where there's no real content to overwrite anyway.
+    if (mode === "scratch" && !skipConfirm) {
       const sourceHasContent = (page?.body_html || "").trim().length > 100
       if (sourceHasContent) {
         if (!confirm("⚠ Generate from scratch will REPLACE the existing page content with a brand-new AI-written body.\n\nThe current content will be saved as a backup version (you can roll back), but the proposed version won't preserve it. Existing operator edits, links, and structure may be lost.\n\nUse this for blank scaffolds or when the existing content needs a fundamental rewrite. For targeted improvements, use ✏️ Update existing content instead.\n\nContinue with scratch generation?")) {
@@ -1156,6 +1208,13 @@ function PageWorkspace({ data, requireBackupAck }) {
           default; loads on first expand. */}
       <SchemaTypesAllowlist landingPageId={landing_page_id} />
 
+      {/* Image manager — same component used in the SlotEditor.
+          Shows existing images for this page + tabbed picker
+          (upload / Pexels / scrape from URL). Pre-wave images
+          uploaded against the slot persist here since they're
+          keyed to landing_page_id. */}
+      <LandingImagesPanel landingPageId={landing_page_id} />
+
       {/* AI Overview citations — operator-pasted snippets where
           Google AI Overview / ChatGPT / Perplexity / etc. quote
           this page. Threaded into every audit + propose run as
@@ -1223,7 +1282,7 @@ function PageWorkspace({ data, requireBackupAck }) {
       </details>
 
       {/* Links — visible by default since Phase 2 builds on these */}
-      <details open className="text-[10px] border border-[#e5e5e5] rounded">
+      <details className="text-[10px] border border-[#e5e5e5] rounded">
         <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] font-medium">Links ({links.length}) — preserved on rewrite</summary>
         <div className="p-2 space-y-0.5 max-h-[200px] overflow-y-auto">
           {links.length === 0 && <div className="text-muted italic">No links in body.</div>}
@@ -1279,11 +1338,16 @@ function PageWorkspace({ data, requireBackupAck }) {
               )}
             </span>
           )}
+          {/* Audit button. Disabled on freshly-scaffolded pages —
+              auditing the ~250-char placeholder body produces noise,
+              not findings. See hasGeneratedContent heuristic above. */}
           <button
             onClick={runAudit}
-            disabled={auditBusy}
+            disabled={auditBusy || !hasGeneratedContent}
             className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-            title="Send the parsed page to Claude with the brand context + site capabilities. Returns 5 dimensions of structured findings, each with severity + suggestion."
+            title={hasGeneratedContent
+              ? "Send the parsed page to Claude with the brand context + site capabilities. Returns 5 dimensions of structured findings, each with severity + suggestion."
+              : "No content to audit yet — this page only has the scaffold placeholder body. Click 🚀 Generate content in the Proposal panel first to generate real content, then run audit."}
           >{auditBusy
               ? `Auditing… ${auditElapsed}s`
               : audit ? '🔄 Re-run audit' : '🔍 Run audit'}</button>
@@ -1340,35 +1404,55 @@ function PageWorkspace({ data, requireBackupAck }) {
       <div data-workflow-anchor="proposal" data-workflow-anchor-secondary="ai-check voice-check refine" className="border border-[#2D9A5E]/30 rounded p-3 space-y-2 bg-[#f0fdf4]">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-medium text-[#2D9A5E]">💡 Proposal</span>
-          <span className="text-[9px] text-muted">✏️ Update — applies inputs surgically to the LATEST content (imported body OR current proposal if one exists). Iterates on whatever you're working on. ✨ Scratch — full rewrite, warns before replacing. Inputs: tenant editorial policy + strategy hint + AI citations + selected audit findings + (on 🎯 Re-propose) AI/voice check feedback.</span>
+          {/* For freshly-scaffolded pages with no real content, the
+              Update-vs-Scratch decision is meaningless — there's
+              nothing to update. Show just one Generate button. Once
+              the page has real content (a proposal or non-imported
+              version), surface both modes with the explainer. */}
+          {hasGeneratedContent ? (
+            <span className="text-[9px] text-muted">✏️ Update — applies inputs surgically to the LATEST content (imported body OR current proposal if one exists). Iterates on whatever you're working on. ✨ Scratch — full rewrite, warns before replacing. Inputs: tenant editorial policy + strategy hint + AI citations + selected audit findings + (on 🎯 Re-propose) AI/voice check feedback.</span>
+          ) : (
+            <span className="text-[9px] text-muted">No content yet. Click 🚀 Generate to produce the first version using the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy.</span>
+          )}
           <div className="flex-1" />
           {proposal?.created_at && (
             <span className="text-[9px] text-muted">Generated {new Date(proposal.created_at).toLocaleString()}</span>
           )}
-          {/* Two-mode buttons:
-              ✏️ Update existing (default for pages with content) —
-              applies surgical edits to existing body.
-              ✨ Generate from scratch (with warning) — full rewrite,
-              for blank scaffolds or fundamental redesigns. */}
-          <button
-            onClick={() => runProposal({ mode: 'update' })}
-            disabled={proposalBusy || (audit?.audit_id && selectedSuggestions.size === 0 && includeAudit)}
-            className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
-            title={
-              audit?.audit_id && selectedSuggestions.size === 0 && includeAudit ? 'Tick the audit findings you want addressed (or uncheck audit input below).'
-              : proposal
-                ? 'Iterate on the CURRENT PROPOSAL. Takes the latest generated body + applies enabled inputs (audit findings + AI Overview citations + check feedback) as targeted edits. Preserves what works; modifies only what needs changing. ~100-150s.'
-                : 'Modify the EXISTING content surgically. Applies enabled inputs (audit findings + AI Overview citations + latest check feedback) as targeted edits to the current body. Preserves structure, links, and unchanged sentences. ~100-150s.'
-            }
-          >{proposalBusy
-              ? `Generating… ${proposalElapsed}s`
-              : proposal ? '✏️ Apply suggestions to proposal' : '✏️ Update existing content'}</button>
-          <button
-            onClick={() => runProposal({ mode: 'scratch' })}
-            disabled={proposalBusy}
-            className="text-[10px] py-1 px-2 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
-            title="REPLACE the existing body with a full AI-written rewrite from the strategy hint + template. Existing content becomes a backup version (rollback available). Use for blank scaffolds or fundamental redesigns. Confirms before proceeding."
-          >{proposalBusy ? '...' : '✨ Generate from scratch'}</button>
+          {hasGeneratedContent ? (
+            <>
+              {/* Pages with real content get both modes. */}
+              <button
+                onClick={() => runProposal({ mode: 'update' })}
+                disabled={proposalBusy || (audit?.audit_id && selectedSuggestions.size === 0 && includeAudit)}
+                className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                title={
+                  audit?.audit_id && selectedSuggestions.size === 0 && includeAudit ? 'Tick the audit findings you want addressed (or uncheck audit input below).'
+                  : proposal
+                    ? 'Iterate on the CURRENT PROPOSAL. Takes the latest generated body + applies enabled inputs (audit findings + AI Overview citations + check feedback) as targeted edits. Preserves what works; modifies only what needs changing. ~100-150s.'
+                    : 'Modify the EXISTING content surgically. Applies enabled inputs (audit findings + AI Overview citations + latest check feedback) as targeted edits to the current body. Preserves structure, links, and unchanged sentences. ~100-150s.'
+                }
+              >{proposalBusy
+                  ? `Generating… ${proposalElapsed}s`
+                  : proposal ? '✏️ Apply suggestions to proposal' : '✏️ Update existing content'}</button>
+              <button
+                onClick={() => runProposal({ mode: 'scratch' })}
+                disabled={proposalBusy}
+                className="text-[10px] py-1 px-2 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
+                title="REPLACE the existing body with a full AI-written rewrite from the strategy hint + template. Existing content becomes a backup version (rollback available). Use for blank scaffolds or fundamental redesigns. Confirms before proceeding."
+              >{proposalBusy ? '...' : '✨ Generate from scratch'}</button>
+            </>
+          ) : (
+            // Fresh page (only scaffold placeholder) — single primary
+            // Generate button. Calls scratch mode but with no scary
+            // confirm (no real content to wipe). After this lands, the
+            // panel flips back to the full Update / Scratch dual-button.
+            <button
+              onClick={() => runProposal({ mode: 'scratch', skipConfirm: true })}
+              disabled={proposalBusy}
+              className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              title="Generate the first version of this page using all the strategic inputs (slot hint, voice anchors, gap analysis, editorial policy). ~60-90s for a single-phase generate; ~2-3 min with two-phase self-review enabled."
+            >{proposalBusy ? `Generating… ${proposalElapsed}s` : '🚀 Generate content'}</button>
+          )}
           {/* Re-propose with check feedback. Available once a proposal
               exists — the BE loads the latest ai-suggested version's
               ai_detection + voice_check (if either has been run) and
@@ -1879,12 +1963,14 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, onReplace, requireB
         </div>
       )}
       {summary.length > 0 && (
-        <div className="bg-white border border-[#e5e5e5] rounded p-2">
-          <div className="font-medium text-ink mb-1">Summary of changes ({summary.length})</div>
-          <ul className="list-disc pl-4 space-y-0.5 text-muted">
+        <details className="bg-white border border-[#e5e5e5] rounded">
+          <summary className="cursor-pointer py-1.5 px-2 font-medium text-ink">
+            Summary of changes ({summary.length})
+          </summary>
+          <ul className="list-disc pl-6 pr-2 pb-2 space-y-0.5 text-muted">
             {summary.map((s, i) => <li key={i}>{s}</li>)}
           </ul>
-        </div>
+        </details>
       )}
 
       {/* Title / meta / focus keyword — editable. Operator can refine
@@ -2411,6 +2497,12 @@ function SchemaTypesAllowlist({ landingPageId }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [saved, setSaved] = useState(false)
+  // Lightweight count of currently-allowed schemas — fetched on
+  // mount so the COLLAPSED summary can show "N type(s) allowed" /
+  // "No restriction" without forcing the operator to expand the
+  // section first. The full catalog still lazy-loads on first
+  // expand (catalog is bigger; keep workspace-open cheap).
+  const [allowedCount, setAllowedCount] = useState(null) // null = loading, 0 = no restriction, N = N types
 
   // Reset on page switch. PageWorkspace now has a key= prop that
   // forces full re-mount on landing_page_id change, so this useEffect
@@ -2424,6 +2516,20 @@ function SchemaTypesAllowlist({ landingPageId }) {
     setError(null)
     setSaved(false)
     setOpen(false)
+    setAllowedCount(null)
+  }, [landingPageId])
+
+  // Fetch just the count on mount so collapsed summary shows it.
+  useEffect(() => {
+    let cancelled = false
+    api.getLandingPageSchemaTypes(landingPageId)
+      .then(r => {
+        if (cancelled) return
+        const types = r?.schema_types
+        setAllowedCount(Array.isArray(types) ? types.length : 0)
+      })
+      .catch(() => { if (!cancelled) setAllowedCount(0) })
+    return () => { cancelled = true }
   }, [landingPageId])
 
   const load = async () => {
@@ -2511,13 +2617,18 @@ function SchemaTypesAllowlist({ landingPageId }) {
           Explicit per-page Schema.org @type allowlist. Stops Claude from guessing — schema-gen + deploy both enforce.
         </span>
         <span className="flex-1" />
-        {loaded && (
-          <span className="text-[9px] text-muted">
-            {Array.isArray(original) && original.length > 0
-              ? `${original.length} type(s) allowed`
-              : 'No restriction'}
-          </span>
-        )}
+        <span className="text-[9px] text-muted">
+          {(() => {
+            // Prefer post-expand state once loaded; fall back to the
+            // lightweight count fetched on mount.
+            const n = loaded
+              ? (Array.isArray(original) ? original.length : 0)
+              : allowedCount
+            if (n === null) return 'Loading…'
+            if (n === 0) return 'No restriction'
+            return `${n} type${n === 1 ? '' : 's'} allowed`
+          })()}
+        </span>
         <span className="text-[10px] text-muted">{open ? '▾' : '▸'}</span>
       </summary>
       {open && (
@@ -2763,7 +2874,7 @@ function TargetedUpdateEditor({ landingPageId, currentBufferHtml, initialHint, o
           edit without scrolling. Iframe-styled to match the diff
           section below so visual parity is exact. */}
       {beforeHtml !== null && afterHtml !== null && (
-        <details open className="bg-white border border-[#6366f1]/30 rounded">
+        <details className="bg-white border border-[#6366f1]/30 rounded">
           <summary className="cursor-pointer py-1.5 px-2 text-[10px] font-medium flex items-center gap-2">
             <span>🔍 Rendered before / after</span>
             <span className="text-[9px] text-muted">Visual diff of the surgical edit. Scroll down for the full proposal diff + deploy.</span>
@@ -5326,7 +5437,7 @@ function VersionHistory({ history, landingPageId, onRolledBack }) {
     : kind === 'deployed' ? 'bg-[#f0fdf4] text-[#16a34a]'
     : 'bg-[#f0f0f0] text-muted'
   return (
-    <details open className="text-[10px] border border-[#e5e5e5] rounded">
+    <details className="text-[10px] border border-[#e5e5e5] rounded">
       <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] font-medium">
         Version history ({history.length})
         {liveVersionId && <span className="ml-2 text-[9px] text-[#16a34a]">· current live: #{liveVersionId}</span>}
@@ -5867,7 +5978,7 @@ function VoiceResult({ result }) {
         <div className="text-ink">{result.summary}</div>
       )}
       {Array.isArray(result.drift_passages) && result.drift_passages.length > 0 && (
-        <details open>
+        <details>
           <summary className="cursor-pointer text-muted">
             {result.drift_passages.length} passage{result.drift_passages.length === 1 ? '' : 's'} drifting — expand to view
           </summary>

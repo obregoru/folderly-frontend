@@ -23,10 +23,31 @@ import Schedule from './screens/Schedule'
 import LandingPages from './screens/LandingPages'
 import SitemapWizard from './screens/SitemapWizard'
 
+// Map ?go= query param values → screen state. Used by deep-links
+// from elsewhere (e.g. the Sitemap Wizard's "Open in Pages" button
+// passes ?go=landing&id=N to route the operator into the right
+// screen + auto-select a specific landing page).
+function initialScreenFromQuery() {
+  if (typeof window === 'undefined') return 'dashboard'
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const go = (params.get('go') || '').toLowerCase()
+    if (go === 'landing' || go === 'pages') return 'landing'
+    if (go === 'sitemap') return 'sitemap'
+    if (go === 'ideation') return 'ideation'
+    if (go === 'drafts') return 'drafts'
+    if (go === 'schedule') return 'schedule'
+    if (go === 'config') return 'config'
+  } catch {}
+  return 'dashboard'
+}
+
 export default function ContentStudioApp() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [screen, setScreen] = useState('dashboard') // 'dashboard' | 'ideation' | 'drafts' | 'schedule' | 'config'
+  // Honor ?go= on first mount so deep-links from other screens
+  // (Sitemap Wizard's Open-in-Pages, for example) route correctly.
+  const [screen, setScreen] = useState(initialScreenFromQuery) // 'dashboard' | 'ideation' | 'drafts' | 'schedule' | 'config' | 'landing' | 'sitemap'
 
   // Mirror AppV2's auth bootstrap so V3 plays by the same rules.
   // Without setting api.tenantSlug from /me, every V3 endpoint call
@@ -77,11 +98,11 @@ export default function ContentStudioApp() {
           <NavButton active={screen === 'schedule'} onClick={() => setScreen('schedule')}>
             Schedule
           </NavButton>
-          <NavButton active={screen === 'landing'} onClick={() => setScreen('landing')}>
-            Pages
-          </NavButton>
           <NavButton active={screen === 'sitemap'} onClick={() => setScreen('sitemap')}>
             🗺️ Sitemap
+          </NavButton>
+          <NavButton active={screen === 'landing'} onClick={() => setScreen('landing')}>
+            Pages
           </NavButton>
           <NavButton active={screen === 'config'} onClick={() => setScreen('config')}>
             Config
