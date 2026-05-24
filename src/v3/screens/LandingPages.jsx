@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../api'
 import { LandingImagesPanel } from '../components/LandingImagesPanel'
+import GapFindings from '../components/GapFindings'
 
 export default function LandingPages() {
   const [state, setState] = useState({
@@ -366,6 +367,13 @@ export default function LandingPages() {
           // page so TargetedUpdateEditor hydrates with the saved
           // text on workspace open.
           targeted_update_hint: r.page?.targeted_update_hint || '',
+          // Cached gap-analysis from the most recent operator-run
+          // PageGapAnalysisPanel. Surfaced so the panel renders
+          // findings on open without re-running the Claude call.
+          last_gap_analysis: r.page?.last_gap_analysis || null,
+          last_gap_analyzed_at: r.page?.last_gap_analyzed_at || null,
+          last_gap_competitor_url: r.page?.last_gap_competitor_url || null,
+          last_gap_version_id: r.page?.last_gap_version_id || null,
         },
         capabilities: page.capabilities || {},
         history: r.versions || [],
@@ -1669,6 +1677,15 @@ function PageWorkspace({ data, requireBackupAck }) {
         )}
       </div>
 
+      {/* Competitive gap analysis — runs the same 5-dim comparison
+          as the slot editor but uses the latest BUFFERED version's
+          body (instead of just the slot's strategy hint). Lives
+          here so the operator can see how the current draft stacks
+          up against the tracked competitor without leaving the
+          page workspace. The competitor URL itself is set on the
+          sitemap slot; this panel reverse-looks it up. */}
+      <PageGapAnalysisPanel landingPageId={landing_page_id} pageDetail={data} />
+
     </div>
   )
 }
@@ -1916,6 +1933,97 @@ function QualityChecksPanel({ landingPageId, versionId, liveCheckResults, onChec
         <div className="text-[10px] text-muted italic">
           Run a check to score the current content. After both checks have results, generate a proposal — Claude will use the flagged sentences + voice drifts as targeted remediation guidance via 🎯 Re-propose with feedback.
         </div>
+      )}
+    </div>
+  )
+}
+
+// Per-page competitive gap analysis. Reverse-looks-up the slot
+// linked to this landing_page, finds the competitor URL stored
+// there, loads the latest BUFFERED version of this page (the body
+// the operator sees in the proposal panel), and runs the same
+// 5-dim SEO/E-E-A-T/GEO/AEO/content comparison the slot editor
+// uses — but against actual content rather than a strategy hint.
+//
+// Result is cached on landing_pages.last_gap_analysis so reopening
+// the page re-renders findings without re-running the Claude call.
+// "Re-run" always fires a fresh call (~3-8s Haiku + persist).
+function PageGapAnalysisPanel({ landingPageId, pageDetail }) {
+  const cachedFindings = pageDetail?.page?.last_gap_analysis || null
+  const cachedAt = pageDetail?.page?.last_gap_analyzed_at || null
+  const cachedCompetitorUrl = pageDetail?.page?.last_gap_competitor_url || null
+  const cachedVersionId = pageDetail?.page?.last_gap_version_id || null
+
+  const [findings, setFindings] = useState(cachedFindings)
+  const [analyzedAt, setAnalyzedAt] = useState(cachedAt)
+  const [competitorUrl, setCompetitorUrl] = useState(cachedCompetitorUrl)
+  const [versionId, setVersionId] = useState(cachedVersionId)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  const run = async () => {
+    if (busy) return
+    setBusy(true); setError(null)
+    try {
+      const r = await api.runLandingGapAnalysis(landingPageId)
+      setFindings(r.findings)
+      setAnalyzedAt(r.analyzed_at)
+      setCompetitorUrl(r.competitor_url)
+      setVersionId(r.version_id)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div data-workflow-anchor="gap-analysis" className="border border-[#6C5CE7]/30 rounded p-3 space-y-2 bg-[#faf5ff]">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium text-[#6C5CE7]">⚔️ Competitive gap analysis</span>
+        <span className="text-[9px] text-muted flex-1">
+          Compares the latest BUFFERED version of this page against the competitor URL set on the linked sitemap slot. Same 5-dim analysis the wizard uses, but against your real draft.
+        </span>
+        <button
+          onClick={run}
+          disabled={busy}
+          className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 flex-shrink-0"
+          title="Re-runs Claude Haiku — costs ~$0.005, takes ~3-8s. Overwrites the cached result for this page."
+        >{busy ? 'Analyzing…' : (findings ? '🔁 Re-run gap analysis' : '🔍 Run gap analysis')}</button>
+      </div>
+
+      {(competitorUrl || analyzedAt) && (
+        <div className="text-[9px] text-muted">
+          {competitorUrl && (
+            <>
+              vs{' '}
+              <a href={competitorUrl} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline break-all">{competitorUrl}</a>
+            </>
+          )}
+          {analyzedAt && (
+            <>
+              {competitorUrl ? ' · ' : ''}
+              analyzed {new Date(analyzedAt).toLocaleString()}
+              {versionId ? ` (version #${versionId})` : ''}
+            </>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">
+          ⚠ {error}
+        </div>
+      )}
+
+      {!findings && !busy && !error && (
+        <div className="text-[10px] text-muted italic">
+          No analysis yet. Click Run to compare this page's latest buffered draft against the competitor tracked on the linked sitemap slot. Use the findings to inform the next 🎯 Re-propose with feedback or to guide manual edits.
+        </div>
+      )}
+
+      {findings && !busy && (
+        <GapFindings findings={findings} />
       )}
     </div>
   )

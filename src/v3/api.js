@@ -1903,3 +1903,23 @@ export const getLandingPageVersion = (id, versionId) =>
       }
       return r.json()
     })
+
+// Page-workspace gap analysis. Runs a 5-dim SEO/E-E-A-T/GEO/AEO/
+// content comparison between this page's latest BUFFERED version
+// and the competitor URL stored on the linked sitemap slot.
+// Persists the result on landing_pages.last_gap_analysis so it
+// re-renders on page-switch without re-running the Claude call.
+// 400 errors describe operator-fixable issues (no competitor data,
+// no buffered content, no linked slot).
+export const runLandingGapAnalysis = (id) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(id)}/gap-analysis`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `runLandingGapAnalysis failed (${r.status})`)
+    }
+    return r.json()
+  })
