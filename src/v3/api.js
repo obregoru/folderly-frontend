@@ -1554,6 +1554,127 @@ export const applyGapToHint = (slotId) =>
     return r.json()
   })
 
+// Landing-page image management. Three image sources (upload /
+// Pexels / scrape from a tenant source URL) all converge on the
+// same landing_page_images table. List/update/delete + the three
+// "add" endpoints.
+
+export const listLandingImages = (landingPageId) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `listLandingImages failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+// Multipart upload — pass a File. Optional metadata: alt_text,
+// caption, role ('featured'|'inline'), filename (SEO slug).
+export const uploadLandingImage = (landingPageId, file, { alt_text, caption, role, filename } = {}) => {
+  const fd = new FormData()
+  fd.append('image', file)
+  if (alt_text) fd.append('alt_text', alt_text)
+  if (caption) fd.append('caption', caption)
+  if (role) fd.append('role', role)
+  if (filename) fd.append('filename', filename)
+  return csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images`, {
+    method: 'POST',
+    credentials: 'include',
+    body: fd,
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `uploadLandingImage failed (${r.status})`)
+    }
+    return r.json()
+  })
+}
+
+// Free-photos search reused from blog flow — same Pexels API key,
+// same endpoint, same response shape.
+export const searchFreePhotos = (q, { page = 1, per_page = 12, provider = 'pexels' } = {}) =>
+  csrfFetch(`${apiBase()}/content/free-photos?q=${encodeURIComponent(q)}&page=${page}&per_page=${per_page}&provider=${provider}`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `searchFreePhotos failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const saveLandingImageFromPexels = (landingPageId, { pexels_photo_id, alt_text, caption, role, filename, size = 'large' }) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images/from-pexels`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ pexels_photo_id, alt_text, caption, role, filename, size }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `saveLandingImageFromPexels failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Step 1 of source-domain import: Playwright-scrape the URL, get
+// the image list. FE shows a picker; operator picks one or more
+// to save via saveLandingImageFromSource.
+export const discoverImagesAtUrl = (landingPageId, url) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images/from-source-discover`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ url }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `discoverImagesAtUrl failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const saveLandingImageFromSource = (landingPageId, { source_url, image_src, alt_text, caption, role, filename }) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images/from-source-pick`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ source_url, image_src, alt_text, caption, role, filename }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `saveLandingImageFromSource failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const updateLandingImage = (landingPageId, imageId, patch) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images/${encodeURIComponent(imageId)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(patch || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateLandingImage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const deleteLandingImage = (landingPageId, imageId) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/images/${encodeURIComponent(imageId)}`, {
+    method: 'DELETE',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `deleteLandingImage failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Per-slot optimization checklist. Returns 6-dim status (SEO /
 // AEO / GEO / E-E-A-T / Schema / FAQ) for every slot in the
 // sitemap, with relevance heuristics applied. Plus portfolio
