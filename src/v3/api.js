@@ -1420,21 +1420,57 @@ export const deleteSitemapSlot = (id) =>
   })
 
 // Parse the saved sitemap strategy brief (tenants.site_index_hint)
-// into a structured { tiers, pages } plan via Claude Haiku. No DB
-// writes — pure preview for the "🪄 Generate initial sitemap" flow.
-export const parseSitemapBrief = () =>
-  csrfFetch(`${apiBase()}/content/landing/plan/parse-brief`, {
+// into a structured { tiers, pages } plan via Claude Haiku. ASYNC
+// flow: backend kicks off Haiku in setImmediate (otherwise 30-page
+// briefs would exceed Cloudflare's 100s edge timeout), returns
+// immediately with status='running'. We poll the status endpoint
+// every 2.5s until status='done' or 'failed'.
+//
+// Returns the same { parsed, model_used, tokens_in, tokens_out }
+// shape the old synchronous version returned, so the caller code
+// stays unchanged. Throws on parse failure.
+export const parseSitemapBrief = async () => {
+  // 1. Kick off the job.
+  const startResp = await csrfFetch(`${apiBase()}/content/landing/plan/parse-brief`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
     body: '{}',
-  }).then(async r => {
-    if (!r.ok) {
-      const e = await r.json().catch(() => ({}))
-      throw new Error(e.error || `parseSitemapBrief failed (${r.status})`)
-    }
-    return r.json()
   })
+  if (!startResp.ok) {
+    const e = await startResp.json().catch(() => ({}))
+    throw new Error(e.error || `parseSitemapBrief start failed (${startResp.status})`)
+  }
+  // Possible immediate states: running (just started) or running
+  // (already in flight from a prior request). Either way: poll.
+
+  // 2. Poll the status endpoint until done. Cap at 5 minutes so a
+  //    truly stuck server doesn't hang the UI forever.
+  const pollDeadline = Date.now() + 5 * 60 * 1000
+  while (Date.now() < pollDeadline) {
+    await new Promise(r => setTimeout(r, 2500))
+    const statusResp = await csrfFetch(`${apiBase()}/content/landing/plan/parse-brief/status`, {
+      credentials: 'include',
+    })
+    if (!statusResp.ok) {
+      const e = await statusResp.json().catch(() => ({}))
+      throw new Error(e.error || `parseSitemapBrief poll failed (${statusResp.status})`)
+    }
+    const job = await statusResp.json()
+    if (job.status === 'done') {
+      return job.result // { parsed, model_used, tokens_in, tokens_out }
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'parse-brief failed')
+    }
+    if (job.status === 'idle') {
+      // Server restarted mid-job. Re-kick from the top.
+      throw new Error('parse-brief job state was lost (server may have restarted) — retry the request')
+    }
+    // 'running' → keep polling
+  }
+  throw new Error('parseSitemapBrief timed out after 5 minutes')
+}
 
 // Take a parsed { tiers, pages } plan and materialize it: upsert
 // slots, check WP + source-domain existence, import or scrape what
