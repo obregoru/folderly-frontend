@@ -1472,16 +1472,20 @@ export const parseSitemapBrief = async () => {
   throw new Error('parseSitemapBrief timed out after 5 minutes')
 }
 
-// Take a parsed { tiers, pages } plan and materialize it: upsert
-// slots, check WP + source-domain existence, import or scrape what
-// exists, leave the rest planned. Auto-populates tenant_keywords
-// for linked pages. Returns { tiers_upserted, pages, summary }.
-export const propagateInitialSitemap = (parsed) =>
+// Take a parsed { tiers, pages } plan and materialize it. Two modes:
+//   - 'add-only' (default, safer): only INSERT new slot_keys; leave
+//     existing slots completely untouched. Preserves operator manual
+//     edits, applied gap-analysis, images, custom hints, etc. Right
+//     choice for progressive sitemap expansion.
+//   - 'refresh-existing': full UPSERT — refresh existing slots'
+//     metadata from the brief. Will overwrite manual edits.
+// Returns { tiers_upserted, pages, summary, mode }.
+export const propagateInitialSitemap = (parsed, { mode = 'add-only' } = {}) =>
   csrfFetch(`${apiBase()}/content/landing/plan/initial-propagation`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
-    body: JSON.stringify({ parsed }),
+    body: JSON.stringify({ parsed, mode }),
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))

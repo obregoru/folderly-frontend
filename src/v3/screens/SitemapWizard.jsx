@@ -98,15 +98,17 @@ export default function SitemapWizard() {
     }
   }
 
-  // Step 2: confirmed parsed plan → run propagation. Backend
-  // upserts slots, checks WP + source-domain for each, imports or
-  // scrapes whatever exists. Modal swaps to 'result' phase to show
-  // per-slot outcomes.
-  const runPropagation = async () => {
+  // Step 2: confirmed parsed plan → run propagation. Two modes:
+  //   - 'add-only' (default): only INSERT new slot_keys; existing
+  //     slots stay untouched (preserves manual edits, gap analysis,
+  //     hint customizations). Right for progressive sitemap expansion.
+  //   - 'refresh-existing': full UPSERT — refresh existing slots'
+  //     metadata from the brief.
+  const runPropagation = async (mode = 'add-only') => {
     if (!propagateModal?.parsed) return
     setPropagateModal(m => ({ ...m, propagating: true, error: null }))
     try {
-      const r = await api.propagateInitialSitemap(propagateModal.parsed)
+      const r = await api.propagateInitialSitemap(propagateModal.parsed, { mode })
       setPropagateModal(m => ({ ...m, phase: 'result', propagating: false, result: r }))
       await load() // refresh the wizard's slot grid
     } catch (e) {
@@ -293,6 +295,7 @@ export default function SitemapWizard() {
       {propagateModal && (
         <PropagateModal
           state={propagateModal}
+          existingSlotKeys={new Set(plan.slots.map(s => s.slot_key))}
           onClose={() => setPropagateModal(null)}
           onRun={runPropagation}
         />
@@ -489,8 +492,18 @@ function RefreshCompetitorsModal({ state, onClose }) {
 //   - 'result': per-slot outcomes after propagation (imported_wp /
 //     scraped / planned / failed counts + table).
 //   - 'error': hard failure (no brief saved, parse threw, etc.).
-function PropagateModal({ state, onClose, onRun }) {
+function PropagateModal({ state, existingSlotKeys, onClose, onRun }) {
   const { phase, parsed, propagating, result, error } = state
+  // 'add-only' default — safer for progressive sitemap expansion.
+  // 'refresh-existing' overwrites existing slot metadata with the
+  // brief's values (may clobber manual edits + applied gap analysis).
+  const [refreshExisting, setRefreshExisting] = useState(false)
+
+  // Bucket parsed pages into 'new' (slot_key not in DB) vs 'existing'
+  // so the operator sees the impact before clicking Run.
+  const existingSet = existingSlotKeys instanceof Set ? existingSlotKeys : new Set()
+  const newPages = Array.isArray(parsed?.pages) ? parsed.pages.filter(p => !existingSet.has(p.slot_key)) : []
+  const existingPages = Array.isArray(parsed?.pages) ? parsed.pages.filter(p => existingSet.has(p.slot_key)) : []
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-white rounded shadow-xl border border-[#e5e5e5] max-w-3xl w-full max-h-[90vh] flex flex-col">
@@ -530,8 +543,33 @@ function PropagateModal({ state, onClose, onRun }) {
           {phase === 'preview' && parsed && (
             <div className="space-y-3">
               <div className="text-[10px] text-muted">
-                Review what Claude pulled from your brief below. Click <b>Run propagation</b> to: upsert these as slots, check each page against your WordPress install + source domain (<code>tenants.target_url</code>), and import or scrape what already exists. Slots that don't exist anywhere stay 'planned' for future fan-out.
+                Review what Claude pulled from your brief below. Click <b>Run propagation</b> to process the new pages — check each against your WordPress install + source domain, import/scrape what exists, leave the rest planned.
               </div>
+
+              {/* Progressive-add banner: show new-vs-existing breakdown
+                  so the operator knows EXACTLY what's about to happen.
+                  Most useful on the 2nd+ run when they've added pages
+                  to an existing brief. */}
+              {existingSlotKeys && existingSlotKeys.size > 0 && (
+                <div className="bg-[#f5f3ff] border border-[#6C5CE7]/30 rounded p-2 text-[10px] space-y-1">
+                  <div className="font-medium">
+                    📊 Plan: <span className="text-[#16a34a]">{newPages.length} new</span>
+                    {' · '}
+                    <span className="text-muted">{existingPages.length} already in your sitemap</span>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={refreshExisting}
+                      onChange={e => setRefreshExisting(e.target.checked)}
+                    />
+                    <span>
+                      Also refresh existing slots from this brief
+                      <span className="text-muted"> — overwrites manual hint edits, applied gap analysis, and other operator changes. Off = safer (add-only mode).</span>
+                    </span>
+                  </label>
+                </div>
+              )}
 
               <div>
                 <div className="text-[10px] font-medium mb-1">Tiers ({parsed.tiers?.length || 0})</div>
@@ -603,10 +641,11 @@ function PropagateModal({ state, onClose, onRun }) {
 
           {phase === 'result' && result && (
             <div className="space-y-2">
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-5 gap-2">
                 <ResultStat label="WP imported" value={result.summary.imported_wp} tone="green" />
                 <ResultStat label="Scraped" value={result.summary.scraped} tone="green" />
                 <ResultStat label="Planned" value={result.summary.planned} tone="neutral" />
+                <ResultStat label="Skipped (existing)" value={result.summary.skipped_existing || 0} tone="neutral" />
                 <ResultStat label="Failed" value={result.summary.failed} tone={result.summary.failed > 0 ? 'red' : 'neutral'} />
               </div>
               <table className="w-full text-[10px] border-collapse">
@@ -632,6 +671,7 @@ function PropagateModal({ state, onClose, onRun }) {
                         {p.status === 'scraped' && `→ landing_page #${p.landing_page_id} (${(p.scrape_bytes / 1024).toFixed(1)}KB)${p.keywords_added ? ` · +${p.keywords_added} keywords` : ''}`}
                         {p.status === 'planned' && 'Not found anywhere — click Create WP draft on the slot to materialize'}
                         {p.status === 'already_linked' && `→ landing_page #${p.landing_page_id} (existing)`}
+                        {p.status === 'skipped_existing' && `Already in your sitemap — left untouched (add-only mode preserves operator edits)`}
                         {p.status === 'failed' && <span className="text-[#c0392b]">{p.error}</span>}
                       </td>
                     </tr>
@@ -652,11 +692,17 @@ function PropagateModal({ state, onClose, onRun }) {
                 className="text-[10px] py-1 px-2 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
               >Cancel</button>
               <button
-                onClick={onRun}
+                onClick={() => onRun(refreshExisting ? 'refresh-existing' : 'add-only')}
                 disabled={propagating || !parsed?.pages?.length}
                 className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer disabled:opacity-50"
-                title="Upsert slots + check WP/source + import/scrape per page"
-              >{propagating ? 'Propagating…' : `🚀 Run propagation (${parsed?.pages?.length || 0} pages)`}</button>
+                title={refreshExisting
+                  ? 'Refresh ALL slots (existing + new) from this brief — overwrites operator edits on existing ones'
+                  : 'Process only NEW slot_keys; existing slots stay untouched. Preserves operator edits.'}
+              >{propagating
+                ? 'Propagating…'
+                : refreshExisting
+                  ? `🚀 Run (refresh all ${parsed?.pages?.length || 0} pages)`
+                  : `🚀 Run (${newPages.length} new${existingPages.length > 0 ? `, ${existingPages.length} skipped` : ''})`}</button>
             </>
           )}
           {(phase === 'result' || phase === 'error') && (
@@ -685,6 +731,7 @@ function OutcomePill({ status }) {
     imported_wp: { tone: 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40', label: '✓ WP imported' },
     scraped: { tone: 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40', label: '✓ scraped' },
     already_linked: { tone: 'bg-[#dbeafe] text-[#1e40af] border-[#3b82f6]/40', label: '↻ already linked' },
+    skipped_existing: { tone: 'bg-[#f5f3ff] text-[#5b21b6] border-[#6C5CE7]/40', label: '⏭ skipped (existing)' },
     planned: { tone: 'bg-[#f0f0f0] text-muted border-[#d4d4d8]', label: '○ planned' },
     failed: { tone: 'bg-[#fee2e2] text-[#991b1b] border-[#dc2626]/40', label: '⚠ failed' },
   }
