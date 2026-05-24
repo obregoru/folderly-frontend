@@ -36,6 +36,9 @@ export default function SitemapWizard() {
   // Bulk competitor-refresh modal state — separate from propagateModal
   // because the flow is different (no preview phase; just run + result).
   const [refreshModal, setRefreshModal] = useState(null) // null | { phase, mode, runAnalysis, result, error }
+  // Bulk fan-out + propose modal state. Long-running (~25-30 min for
+  // 18 slots), polls /status every 4s. Phase: 'running' | 'done' | 'error'.
+  const [fanOutModal, setFanOutModal] = useState(null) // null | { phase, total, processed, results, started_at, error }
   // Per-slot optimization checklist data. Keyed by slot_id so the
   // grid + SlotEditor can both look up by id. Loaded alongside the
   // main plan on every wizard refresh.
@@ -126,6 +129,45 @@ export default function SitemapWizard() {
       .catch(e => setRefreshModal(m => ({ ...m, phase: 'error', error: e?.message || String(e) })))
   }
 
+  // Bulk fan-out + propose: walks every planned slot, scaffolds WP
+  // draft, kicks off propose for each. ~25-30 minutes for 18 slots
+  // sequentially. Polls /status every 4s for live progress.
+  const openFanOutModal = async () => {
+    const plannedCount = plan.slots.filter(s => s.status === 'planned').length
+    if (plannedCount === 0) {
+      alert("No planned slots to fan out — every slot already has a landing page.")
+      return
+    }
+    if (!confirm(`This will scaffold WP drafts + generate content for ${plannedCount} planned slot(s).\n\nEach slot:\n  1. Creates a WP draft + landing_page row\n  2. Kicks off Propose (two-phase generation)\n  3. Uses the slot's strategy hint + voice anchors + competitive gap analysis\n\nProcessed sequentially. Expect ~${Math.ceil(plannedCount * 1.5)} minutes total. You can leave this tab open or close it — the work runs server-side and the wizard reloads with results.\n\nContinue?`)) return
+    setFanOutModal({ phase: 'running', total: plannedCount, processed: 0, results: [], started_at: null, error: null })
+    try {
+      const r = await api.fanOutAndProposeAllPlanned()
+      setFanOutModal(m => ({ ...m, total: r.total || plannedCount, started_at: r.started_at }))
+      // Poll loop
+      const poll = async () => {
+        try {
+          const s = await api.getFanOutProposeStatus()
+          if (s.status === 'idle') {
+            setFanOutModal(m => ({ ...m, phase: 'error', error: 'Job state lost (server may have restarted). Re-trigger to continue.' }))
+            return
+          }
+          setFanOutModal(m => ({ ...m, total: s.total, processed: s.processed, results: s.results || [] }))
+          if (s.status === 'done') {
+            setFanOutModal(m => ({ ...m, phase: 'done' }))
+            await load()
+            return
+          }
+          setTimeout(poll, 4000)
+        } catch (e) {
+          setFanOutModal(m => ({ ...m, phase: 'error', error: e?.message || String(e) }))
+        }
+      }
+      setTimeout(poll, 2000)
+    } catch (e) {
+      setFanOutModal(m => ({ ...m, phase: 'error', error: e?.message || String(e) }))
+    }
+  }
+
   if (loading) {
     return <div className="text-[11px] text-muted italic py-8 text-center">Loading sitemap plan…</div>
   }
@@ -161,6 +203,11 @@ export default function SitemapWizard() {
           className="text-[10px] py-1 px-2 bg-[#16a34a] text-white border-none rounded cursor-pointer flex-shrink-0"
           title="Parse the 📋 Sitemap strategy brief into tiers + pages via Claude, then for each page: check if it exists on WP or your existing source domain, and import/scrape accordingly. Slots that don't exist anywhere stay 'planned'."
         >🪄 Generate initial sitemap</button>
+        <button
+          onClick={openFanOutModal}
+          className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer flex-shrink-0"
+          title="BULK: scaffold WP drafts + generate content for EVERY planned slot. Sequential (~1.5 min per slot). Use after 🪄 Generate initial sitemap when you want to ship the whole wave at once."
+        >✨ Generate all content</button>
         <RefreshCompetitorsMenu onChoose={openRefreshModal} />
         <button
           onClick={reseed}
@@ -309,6 +356,13 @@ export default function SitemapWizard() {
           onClose={() => { setRefreshModal(null); load() }}
         />
       )}
+
+      {fanOutModal && (
+        <FanOutAndProposeModal
+          state={fanOutModal}
+          onClose={() => { setFanOutModal(null); load() }}
+        />
+      )}
     </div>
   )
 }
@@ -373,6 +427,96 @@ function RefreshCompetitorsMenu({ onChoose }) {
 // Two phases: 'running' (spinner + estimated time) and 'result' /
 // 'error' (summary + per-slot table). No preview phase — the user
 // already chose the mode in the menu.
+// Bulk fan-out + propose progress modal. Long-running (~25-30 min
+// for 18 slots); polls the BE every 4s for live progress + per-slot
+// status. Close button is disabled while running so operator doesn't
+// accidentally lose visibility — but they CAN close (server work
+// continues; wizard reload picks up results regardless).
+function FanOutAndProposeModal({ state, onClose }) {
+  const { phase, total, processed, results, error } = state
+  const pct = total > 0 ? Math.round((processed / total) * 100) : 0
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded shadow-xl border border-[#e5e5e5] max-w-3xl w-full max-h-[90vh] flex flex-col">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#e5e5e5]">
+          <span className="text-[12px] font-semibold">✨ Generate content for all planned slots</span>
+          {phase === 'running' && <span className="text-[10px] text-muted">{processed}/{total} done ({pct}%)</span>}
+          {phase === 'done' && <span className="text-[10px] text-[#15803d]">✓ {total} slot{total === 1 ? '' : 's'} processed</span>}
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
+          >{phase === 'running' ? '— Hide (server continues)' : '✕ Close'}</button>
+        </div>
+
+        <div className="flex-1 overflow-auto p-3 space-y-3">
+          {phase === 'running' && (
+            <>
+              <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2 space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-2 bg-[#e5e5e5] rounded overflow-hidden">
+                    <div className="h-full bg-[#6C5CE7] transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-[10px] text-muted">{pct}%</span>
+                </div>
+                <div className="text-[10px] text-muted">
+                  Processing {total} slot{total === 1 ? '' : 's'} sequentially. Each: WP draft + Propose (two-phase generation). ~60-90s per slot. Total estimated: ~{Math.ceil(total * 1.5)} minutes.
+                </div>
+              </div>
+            </>
+          )}
+
+          {phase === 'error' && (
+            <div className="text-[11px] text-[#c0392b] py-4">⚠ {error}</div>
+          )}
+
+          {Array.isArray(results) && results.length > 0 && (
+            <table className="w-full text-[10px] border-collapse">
+              <thead className="text-[9px] text-muted uppercase tracking-wide">
+                <tr className="border-b border-[#e5e5e5]">
+                  <th className="text-left py-1 pr-2 font-normal">Slot</th>
+                  <th className="text-left py-1 pr-2 font-normal">Outcome</th>
+                  <th className="text-left py-1 pr-2 font-normal">Detail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map(s => (
+                  <tr key={s.slot_id} className="border-b border-[#f0f0f0]">
+                    <td className="py-1 pr-2">
+                      <div className="font-medium truncate max-w-[180px]" title={s.label}>{s.label}</div>
+                      <div className="text-[8px] text-muted font-mono">{s.slot_key}</div>
+                    </td>
+                    <td className="py-1 pr-2">
+                      {s.status === 'scaffolded_and_proposed' && <span className="text-[#15803d]">✓ scaffolded + proposed</span>}
+                      {s.status === 'scaffolded_propose_failed' && <span className="text-[#d97706]">⚠ scaffolded, propose failed</span>}
+                      {s.status === 'failed' && <span className="text-[#c0392b]">✗ failed</span>}
+                    </td>
+                    <td className="py-1 pr-2 text-[9px] text-muted">
+                      {s.landing_page_id && `lp #${s.landing_page_id}`}
+                      {s.version_id && ` · version #${s.version_id}`}
+                      {s.propose_error && <span className="text-[#c0392b]"> · propose: {s.propose_error}</span>}
+                      {s.error && <span className="text-[#c0392b]"> · {s.error}</span>}
+                      {s.elapsed_ms && ` · ${(s.elapsed_ms/1000).toFixed(0)}s`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 px-3 py-2 border-t border-[#e5e5e5]">
+          <div className="flex-1" />
+          <button
+            onClick={onClose}
+            className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+          >{phase === 'done' ? 'Done' : phase === 'running' ? 'Hide (server continues)' : 'Close'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RefreshCompetitorsModal({ state, onClose }) {
   const { phase, mode, runAnalysis, result, error } = state
   const modeLabel = mode === 'missing' ? 'Import missing'
@@ -1404,6 +1548,25 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
     }
   }
 
+  // Combo: scaffold the WP draft AND kick off Propose in one click.
+  // Returns immediately with the new landing_page_id; the propose
+  // call runs in the background (~60-90s). Operator can then jump
+  // to the Pages workspace to watch it complete.
+  const createWpAndPropose = async () => {
+    if (creatingWp || isNew) return
+    if (!confirm(`Create WP draft AND generate content for "${label}" in one click?\n\nThis scaffolds the WP draft + immediately kicks off Propose (two-phase generation: initial draft → AI self-review → revise). The page will go from 'planned' to 'draft' with real content in ~60-90s. You can switch to the Pages workspace to watch it complete.\n\nUses the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy.`)) return
+    setCreatingWp(true); setErr(null); setCreateResult(null)
+    try {
+      const r = await api.createAndProposeForSlot(slot.id)
+      setCreateResult({ ...r, combo: true })
+      if (typeof onCreatedWp === 'function') await onCreatedWp()
+    } catch (e) {
+      setErr(e?.message || String(e))
+    } finally {
+      setCreatingWp(false)
+    }
+  }
+
   const remove = async () => {
     if (deleting || isNew) return
     if (!confirm(`Soft-delete slot "${slot.label}"?\n\nThe row stays in the database (audit trail) but disappears from the wizard. Re-creating a slot with the same slot_key will restore it.`)) return
@@ -1571,14 +1734,20 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
         ) : (
           <>
             {slot.status === 'planned' && (
-              <button
-                onClick={createWp}
-                disabled={creatingWp}
-                className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
-                title={templateKind.trim()
-                  ? `Materialize this slot using the "${templateKind.trim()}" template: WP draft + landing_page row + initial imported version. Slot moves to draft status.`
-                  : 'Materialize this slot as a freeform WP draft (no template). A placeholder body goes up; click Propose on the page workspace to generate real content from the slot hint, voice anchors, and competitive gap analysis.'}
-              >{creatingWp ? 'Creating WP draft…' : '🚀 Create WP draft'}</button>
+              <>
+                <button
+                  onClick={createWpAndPropose}
+                  disabled={creatingWp}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                  title="One-click: scaffold WP draft + immediately generate real content via Propose (two-phase: initial → AI self-review → revise). Uses the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy. Ready in ~60-90s."
+                >{creatingWp ? 'Working…' : '✨ Create + Generate content'}</button>
+                <button
+                  onClick={createWp}
+                  disabled={creatingWp}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
+                  title="Scaffold only — WP draft with placeholder body, no content generation. Use when you want to manually run Propose on the Pages workspace later (e.g. after editing the hint or images first)."
+                >{creatingWp ? '…' : '🚀 Create WP draft only'}</button>
+              </>
             )}
             {slot.landing_page_id && (
               <a

@@ -1800,6 +1800,52 @@ export const refreshCompetitors = ({ mode = 'missing', run_gap_analysis = true, 
     return r.json()
   })
 
+// Combo: create WP draft + auto-trigger propose for a single slot
+// in one call. Returns { landing_page_id, wp_post_id, wp_link,
+// propose: { version_id, status, ... } }. The propose call kicks
+// off in the background (status='running'); poll the version row
+// to see when content is ready.
+export const createAndProposeForSlot = (slotId, { slugOverride } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/slot/${encodeURIComponent(slotId)}/create-and-propose`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(slugOverride ? { slug_override: slugOverride } : {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `createAndProposeForSlot failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Bulk: fan out + propose every planned slot in the sitemap.
+// Returns immediately with { status: 'running', total, started_at }.
+// FE polls /status until status='done'.
+export const fanOutAndProposeAllPlanned = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/fan-out-and-propose`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `fanOutAndProposeAllPlanned failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const getFanOutProposeStatus = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/fan-out-and-propose/status`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getFanOutProposeStatus failed (${r.status})`)
+      }
+      return r.json()
+    })
+
 // Materialize a planned slot into a WP draft page + landing_page row
 // + initial imported version. Slot transitions planned → draft.
 export const createWpPageForSlot = (id, { slugOverride } = {}) =>
