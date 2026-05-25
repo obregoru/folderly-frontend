@@ -1984,3 +1984,39 @@ export const applyInternalLinkPlan = (selectedKeys) =>
     }
     return r.json()
   })
+
+// Bulk deploy: deploy every landing_page whose latest done
+// proposal version hasn't been pushed to WP yet. Sequential on
+// the backend — operator polls via getBulkDeployStatus.
+export const getBulkDeployPreview = () =>
+  csrfFetch(`${apiBase()}/content/landing/bulk-deploy/preview`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getBulkDeployPreview failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const startBulkDeploy = () =>
+  csrfFetch(`${apiBase()}/content/landing/bulk-deploy`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `startBulkDeploy failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const getBulkDeployStatus = () =>
+  csrfFetch(`${apiBase()}/content/landing/bulk-deploy/status`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getBulkDeployStatus failed (${r.status})`)
+      }
+      return r.json()
+    })

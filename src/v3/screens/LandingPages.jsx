@@ -109,6 +109,78 @@ export default function LandingPages() {
       setSiteAuditBusy(false)
     }
   }
+
+  // ── Bulk deploy state ────────────────────────────────────────
+  // Three-stage workflow:
+  //   1. operator clicks "🚀 Deploy all ready" → preview loads
+  //   2. modal shows preview list + Confirm button
+  //   3. Confirm → BE starts background job → FE polls every 3s
+  //      until status='done', then surfaces per-page results.
+  const [bulkDeployOpen, setBulkDeployOpen] = useState(false)
+  const [bulkDeployPreview, setBulkDeployPreview] = useState(null)
+  const [bulkDeployPreviewError, setBulkDeployPreviewError] = useState(null)
+  const [bulkDeployJob, setBulkDeployJob] = useState(null) // { status, total, processed, results }
+  const [bulkDeployJobError, setBulkDeployJobError] = useState(null)
+  const [bulkDeployElapsed, setBulkDeployElapsed] = useState(0)
+  useEffect(() => {
+    if (bulkDeployJob?.status !== 'running') { setBulkDeployElapsed(0); return }
+    const start = bulkDeployJob.started_at ? new Date(bulkDeployJob.started_at).getTime() : Date.now()
+    const tick = setInterval(() => setBulkDeployElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [bulkDeployJob?.status, bulkDeployJob?.started_at])
+
+  const openBulkDeploy = async () => {
+    setBulkDeployOpen(true)
+    setBulkDeployPreview(null); setBulkDeployPreviewError(null)
+    setBulkDeployJob(null); setBulkDeployJobError(null)
+    try {
+      const r = await api.getBulkDeployPreview()
+      setBulkDeployPreview(r)
+    } catch (e) {
+      setBulkDeployPreviewError(e?.message || String(e))
+    }
+    // Also check for any already-running job (operator closed the
+    // modal mid-deploy — we should pick up the in-flight state on
+    // re-open instead of acting like it never started).
+    try {
+      const s = await api.getBulkDeployStatus()
+      if (s && s.status !== 'idle') setBulkDeployJob(s)
+    } catch { /* fine */ }
+  }
+
+  const triggerBulkDeploy = async () => {
+    if (bulkDeployJob?.status === 'running') return
+    if (!confirm(
+      `Deploy ${bulkDeployPreview?.count || 0} page(s) to WordPress?\n\n` +
+      `Each page's latest done proposal will be pushed to its WP post. Sequential — runs one page at a time to avoid hammering the WP REST API. ` +
+      `Each deploy backs up the live page FIRST so rollback is always available.\n\n` +
+      `Estimated time: ~${Math.max(1, Math.ceil((bulkDeployPreview?.count || 1) * 8 / 60))} minute(s) (~5-15s per page depending on schema generation + WP response).\n\n` +
+      `Don't close the tab — refreshing loses the in-flight progress (the server keeps running, but the FE has to re-poll on reload).\n\n` +
+      `Continue?`
+    )) return
+    setBulkDeployJobError(null)
+    try {
+      const initial = await api.startBulkDeploy()
+      setBulkDeployJob(initial)
+      // Poll every 3s until status flips off 'running'. Reasonable
+      // floor — each deploy takes ~10s, no point hammering at 1s.
+      const poll = setInterval(async () => {
+        try {
+          const r = await api.getBulkDeployStatus()
+          setBulkDeployJob(r)
+          if (r.status !== 'running') {
+            clearInterval(poll)
+            // Refresh the page list so deployed badges update.
+            await reload()
+          }
+        } catch (e) {
+          // Transient — keep polling.
+        }
+      }, 3000)
+    } catch (e) {
+      setBulkDeployJobError(e?.message || String(e))
+    }
+  }
   // Fan-out plan — tenant-specific canonical page set (Make & Take
   // only today). Fetched on mount; null = hide the button entirely.
   // No big-bang creation — operator picks which entries to run via
@@ -445,6 +517,19 @@ export default function LandingPages() {
           className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
           title="Re-runs the per-page audit on EVERY managed page sequentially. Use after changing a strategy hint that affects all pages, or after a major site change."
         >{bulkAuditBusy ? `Re-auditing… ${bulkAuditElapsed}s` : '🔁 Re-audit all pages'}</button>
+        {/* Bulk deploy — pushes every page whose latest done proposal
+            hasn't been deployed yet. Sequential on the BE; FE polls
+            for per-page progress. Use after fan-out + proposal
+            iteration is complete and you're ready to ship a whole
+            wave of pages at once. */}
+        {state.wp_configured && (
+          <button
+            onClick={openBulkDeploy}
+            disabled={bulkDeployJob?.status === 'running'}
+            className="text-[10px] py-1 px-2 bg-[#c0392b] text-white border-none rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+            title="Deploy every page whose latest done proposal hasn't been pushed to WP yet. Sequential — one page at a time. Each deploy backs up the live page first so rollback stays available. Opens a preview list first; you confirm before anything ships."
+          >{bulkDeployJob?.status === 'running' ? `Deploying… ${bulkDeployJob.processed}/${bulkDeployJob.total}` : '🚀 Deploy all ready'}</button>
+        )}
         {/* Always-available manual access to the backup guide
             (regardless of acknowledgment). Useful for re-reading
             instructions or sending the link to a teammate. */}
@@ -554,6 +639,25 @@ export default function LandingPages() {
           onOpenPage={(pageId) => {
             const p = state.pages.find(pp => pp.id === pageId)
             if (p) { openPage(p); setBulkAuditOpen(false) }
+          }}
+        />
+      )}
+
+      {/* Bulk deploy preview + progress panel. Three states:
+          (1) loading preview, (2) preview ready w/ Confirm,
+          (3) running w/ per-page progress, (4) done w/ results. */}
+      {bulkDeployOpen && (
+        <BulkDeployPanel
+          preview={bulkDeployPreview}
+          previewError={bulkDeployPreviewError}
+          job={bulkDeployJob}
+          jobError={bulkDeployJobError}
+          elapsed={bulkDeployElapsed}
+          onConfirm={triggerBulkDeploy}
+          onClose={() => setBulkDeployOpen(false)}
+          onOpenPage={(pageId) => {
+            const p = state.pages.find(pp => pp.id === pageId)
+            if (p) { openPage(p); setBulkDeployOpen(false) }
           }}
         />
       )}
@@ -4615,6 +4719,147 @@ function SiteStat({ label, value, tone }) {
     <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">
       <div className="text-muted">{label}</div>
       <div className={`text-[14px] font-semibold ${numCls}`}>{value ?? '—'}</div>
+    </div>
+  )
+}
+
+// Bulk deploy preview + per-page progress. Walks the operator
+// through (1) preview list → confirm, (2) running progress,
+// (3) final results with deploy status + link to each page.
+//
+// Doesn't own the polling — parent (LandingPages) manages the
+// in-flight job state and passes it down. This component is
+// pure render + emits onConfirm to start the deploy.
+function BulkDeployPanel({ preview, previewError, job, jobError, elapsed, onConfirm, onClose, onOpenPage }) {
+  const isRunning = job?.status === 'running'
+  const isDone = job?.status === 'done'
+  const hasJob = !!job && job.status !== 'idle'
+  // When the job is in flight or finished, the per-page progress
+  // table is the source of truth. Before kickoff, render the
+  // preview (the "what's about to happen" list).
+  return (
+    <div className="bg-white border border-[#c0392b]/30 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] font-semibold">🚀 Bulk deploy</span>
+        {isRunning && (
+          <span className="text-[9px] text-muted">
+            Deploying… {job.processed}/{job.total} · {elapsed}s elapsed
+          </span>
+        )}
+        {isDone && job?.results && (
+          <span className="text-[9px] text-muted">
+            {job.results.filter(r => r.status === 'deployed').length}/{job.total} deployed
+            {job.results.filter(r => r.status === 'failed').length > 0 && (
+              <span className="ml-1 text-[#c0392b]">· {job.results.filter(r => r.status === 'failed').length} failed</span>
+            )}
+            {job.elapsed_ms && <span className="ml-1">· {(job.elapsed_ms / 1000).toFixed(1)}s</span>}
+          </span>
+        )}
+        <div className="flex-1" />
+        <button onClick={onClose} className="text-[10px] text-muted bg-transparent border-none cursor-pointer">✕ Close</button>
+      </div>
+
+      {previewError && <div className="text-[10px] text-[#c0392b]">⚠ {previewError}</div>}
+      {jobError && <div className="text-[10px] text-[#c0392b]">⚠ {jobError}</div>}
+
+      {/* Preview state — pre-kickoff */}
+      {!hasJob && !previewError && (
+        <>
+          {preview === null && <div className="text-[10px] text-muted italic">Loading preview…</div>}
+          {preview && preview.count === 0 && (
+            <div className="text-[10px] text-muted italic">
+              Nothing to deploy. Every managed page either has no proposal yet OR its latest proposal already matches what's live on WordPress. Generate / iterate on proposals first.
+            </div>
+          )}
+          {preview && preview.count > 0 && (
+            <>
+              <div className="text-[10px] text-muted">
+                <b>{preview.count}</b> page{preview.count === 1 ? ' has' : 's have'} a proposal newer than what's currently live. Review the list, then click Confirm to start the sequential deploy.
+              </div>
+              <div className="bg-[#fafafa] border border-[#e5e5e5] rounded max-h-[280px] overflow-auto">
+                <div className="grid grid-cols-[1fr_auto_auto] gap-2 px-2 py-1 border-b border-[#e5e5e5] text-[9px] font-medium uppercase text-muted">
+                  <div>Page</div>
+                  <div>Last deployed</div>
+                  <div className="text-right">Candidate</div>
+                </div>
+                {preview.pages.map(p => (
+                  <div key={p.id} className="grid grid-cols-[1fr_auto_auto] gap-2 px-2 py-1 border-b border-[#f0f0f0] last:border-0 text-[10px] items-center">
+                    <div className="truncate">
+                      <span className="font-medium">{p.label || `Page #${p.id}`}</span>
+                      {p.url && <div className="text-[8px] text-muted truncate">{p.url}</div>}
+                    </div>
+                    <div className="text-[9px] text-muted">
+                      {p.last_deployed_at ? new Date(p.last_deployed_at).toLocaleString() : <span className="text-[#d97706]">never deployed</span>}
+                    </div>
+                    <div className="text-[9px] font-mono text-right text-muted">v#{p.candidate_version_id}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={onConfirm}
+                  className="text-[10px] py-1 px-3 bg-[#c0392b] text-white border-none rounded cursor-pointer"
+                  title={`Start the sequential deploy. ~${Math.max(1, Math.ceil(preview.count * 8 / 60))} min total. Each page is backed up first; rollback stays available.`}
+                >🚀 Confirm + deploy {preview.count} page{preview.count === 1 ? '' : 's'}</button>
+                <span className="text-[9px] text-muted italic">
+                  Sequential — one page at a time. Don't close the tab; the server keeps running but the FE has to re-poll on reload.
+                </span>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* In-flight / done state — per-page progress table */}
+      {hasJob && (
+        <>
+          <div className="text-[9px] text-muted">
+            {isRunning && <>Deploying sequentially. The table updates as each page completes — failures don't stop the run.</>}
+            {isDone && <>Run complete. Click "Open →" on any row to jump to its workspace.</>}
+          </div>
+          <div className="bg-[#fafafa] border border-[#e5e5e5] rounded max-h-[400px] overflow-auto">
+            <div className="grid grid-cols-[24px_1fr_90px_70px] gap-2 px-2 py-1 border-b border-[#e5e5e5] text-[9px] font-medium uppercase text-muted">
+              <div></div>
+              <div>Page</div>
+              <div>Status</div>
+              <div className="text-right">Action</div>
+            </div>
+            {(job.results || []).map(r => {
+              const tone = r.status === 'deployed' ? 'text-[#15803d]'
+                : r.status === 'failed' ? 'text-[#c0392b]'
+                : 'text-muted'
+              const icon = r.status === 'deployed' ? '✓'
+                : r.status === 'failed' ? '✗'
+                : '…'
+              return (
+                <div key={r.landing_page_id} className="grid grid-cols-[24px_1fr_90px_70px] gap-2 px-2 py-1 border-b border-[#f0f0f0] last:border-0 text-[10px] items-center">
+                  <span className={`font-mono text-[12px] ${tone}`}>{icon}</span>
+                  <div className="truncate">
+                    <span className="font-medium">{r.label || `Page #${r.landing_page_id}`}</span>
+                    {r.error && <div className="text-[8px] text-[#c0392b] truncate" title={r.error}>{r.error}</div>}
+                    {r.live_url && r.status === 'deployed' && (
+                      <div className="text-[8px] text-muted truncate">
+                        <a href={r.live_url} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">↗ live page</a>
+                        {r.elapsed_ms && <span className="ml-1">· {(r.elapsed_ms / 1000).toFixed(1)}s</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div className={`text-[9px] ${tone}`}>{r.status}</div>
+                  <div className="text-right">
+                    <button
+                      onClick={() => onOpenPage(r.landing_page_id)}
+                      className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                    >Open →</button>
+                  </div>
+                </div>
+              )
+            })}
+            {(!job.results || job.results.length === 0) && (
+              <div className="text-[9px] text-muted italic p-2">Waiting for the first page to finish…</div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
