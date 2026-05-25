@@ -148,6 +148,46 @@ export default function LandingPages() {
     } catch { /* fine */ }
   }
 
+  // ── Sitewide voice-drift report state ───────────────────────
+  // Sequential per-page voice-check pass; FE polls every 5s
+  // (per-page Claude call is ~10-20s — no point checking faster).
+  const [voiceDriftOpen, setVoiceDriftOpen] = useState(false)
+  const [voiceDriftJob, setVoiceDriftJob] = useState(null)
+  const [voiceDriftError, setVoiceDriftError] = useState(null)
+  const [voiceDriftElapsed, setVoiceDriftElapsed] = useState(0)
+  useEffect(() => {
+    if (voiceDriftJob?.status !== 'running') { setVoiceDriftElapsed(0); return }
+    const start = voiceDriftJob.started_at ? new Date(voiceDriftJob.started_at).getTime() : Date.now()
+    const tick = setInterval(() => setVoiceDriftElapsed(Math.floor((Date.now() - start) / 1000)), 500)
+    return () => clearInterval(tick)
+  }, [voiceDriftJob?.status, voiceDriftJob?.started_at])
+  const openVoiceDriftReport = async () => {
+    setVoiceDriftOpen(true); setVoiceDriftError(null)
+    // Pick up any in-flight job on open (operator closed mid-run).
+    try {
+      const s = await api.getVoiceDriftReportStatus()
+      if (s && s.status !== 'idle') setVoiceDriftJob(s)
+    } catch { /* fine */ }
+  }
+  const runVoiceDriftReport = async () => {
+    if (voiceDriftJob?.status === 'running') return
+    if (!confirm('Run the voice-drift report? This runs Claude Sonnet on every managed page sequentially (~15-20s each) to score how on-voice each page reads against the tenant baseline. Total runtime scales with page count — expect ~5-10 min for a full sitemap.\n\nResults persist on each version row, so the per-page voice-check panel reflects the score after this completes. Continue?')) return
+    setVoiceDriftError(null)
+    try {
+      const initial = await api.startVoiceDriftReport()
+      setVoiceDriftJob(initial)
+      const poll = setInterval(async () => {
+        try {
+          const r = await api.getVoiceDriftReportStatus()
+          setVoiceDriftJob(r)
+          if (r.status !== 'running') clearInterval(poll)
+        } catch { /* keep polling */ }
+      }, 5000)
+    } catch (e) {
+      setVoiceDriftError(e?.message || String(e))
+    }
+  }
+
   const triggerBulkDeploy = async () => {
     if (bulkDeployJob?.status === 'running') return
     if (!confirm(
@@ -531,6 +571,15 @@ export default function LandingPages() {
           className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
           title="Re-runs the per-page audit on EVERY managed page sequentially. Use after changing a strategy hint that affects all pages, or after a major site change."
         >{bulkAuditBusy ? `Re-auditing… ${bulkAuditElapsed}s` : '🔁 Re-audit all pages'}</button>
+        {/* Sitewide voice-drift report — scores every managed
+            page against the tenant's voice baseline. Surfaces
+            consistency outliers across the sitemap. */}
+        <button
+          onClick={openVoiceDriftReport}
+          disabled={voiceDriftJob?.status === 'running'}
+          className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+          title="Run the brand-voice check on every managed page. Surfaces pages that drift from the tenant's voice baseline so you can re-propose them with the drift findings as feedback. ~15-20s per page. Results also persist on each version row so the per-page voice-check panel updates."
+        >{voiceDriftJob?.status === 'running' ? `Checking… ${voiceDriftJob.processed}/${voiceDriftJob.total}` : '🎭 Voice drift report'}</button>
         {/* Bulk deploy — pushes every page whose latest done proposal
             hasn't been deployed yet. Sequential on the BE; FE polls
             for per-page progress. Use after fan-out + proposal
@@ -653,6 +702,23 @@ export default function LandingPages() {
           onOpenPage={(pageId) => {
             const p = state.pages.find(pp => pp.id === pageId)
             if (p) { openPage(p); setBulkAuditOpen(false) }
+          }}
+        />
+      )}
+
+      {/* Sitewide voice-drift report. Pre-kickoff shows a one-click
+          start button + scope estimate; running/done shows per-page
+          scores ranked worst-first so drift outliers surface fast. */}
+      {voiceDriftOpen && (
+        <VoiceDriftPanel
+          job={voiceDriftJob}
+          error={voiceDriftError}
+          elapsed={voiceDriftElapsed}
+          onStart={runVoiceDriftReport}
+          onClose={() => setVoiceDriftOpen(false)}
+          onOpenPage={(pageId) => {
+            const p = state.pages.find(pp => pp.id === pageId)
+            if (p) { openPage(p); setVoiceDriftOpen(false) }
           }}
         />
       )}
@@ -4825,6 +4891,109 @@ function SiteStat({ label, value, tone }) {
     <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">
       <div className="text-muted">{label}</div>
       <div className={`text-[14px] font-semibold ${numCls}`}>{value ?? '—'}</div>
+    </div>
+  )
+}
+
+// Sitewide voice-drift report panel. Mirrors BulkDeployPanel
+// pattern: parent owns the polling, component is pure-render +
+// emits onStart. Ranks per-page scores worst-first so the
+// operator sees the biggest outliers without scrolling.
+function VoiceDriftPanel({ job, error, elapsed, onStart, onClose, onOpenPage }) {
+  const isRunning = job?.status === 'running'
+  const isDone = job?.status === 'done'
+  const hasJob = !!job && job.status !== 'idle'
+  // Sort done-job results worst-first (off-brand → neutral → on-voice)
+  // so the operator's eye lands on the pages that need attention.
+  const sorted = (job?.results || []).slice().sort((a, b) => {
+    const sa = typeof a.score === 'number' ? a.score : 999
+    const sb = typeof b.score === 'number' ? b.score : 999
+    return sa - sb
+  })
+  const verdictColor = (v) => v === 'on-voice' ? 'text-[#15803d]'
+    : v === 'neutral-generic' ? 'text-[#d97706]'
+    : v === 'off-brand' ? 'text-[#c0392b]'
+    : 'text-muted'
+  const scoreColor = (s) => typeof s !== 'number' ? 'text-muted'
+    : s >= 75 ? 'text-[#15803d]'
+    : s >= 50 ? 'text-[#d97706]'
+    : 'text-[#c0392b]'
+  return (
+    <div className="bg-white border border-[#6C5CE7]/30 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] font-semibold">🎭 Voice drift report</span>
+        {isRunning && (
+          <span className="text-[9px] text-muted">
+            Checking… {job.processed}/{job.total} · {elapsed}s elapsed
+          </span>
+        )}
+        {isDone && (
+          <span className="text-[9px] text-muted">
+            {job.results.filter(r => r.status === 'ok').length}/{job.total} scored
+            {job.results.filter(r => r.status === 'failed').length > 0 && (
+              <span className="ml-1 text-[#c0392b]">· {job.results.filter(r => r.status === 'failed').length} failed</span>
+            )}
+            {job.elapsed_ms && <span className="ml-1">· {(job.elapsed_ms / 1000).toFixed(1)}s</span>}
+          </span>
+        )}
+        <div className="flex-1" />
+        <button onClick={onClose} className="text-[10px] text-muted bg-transparent border-none cursor-pointer">✕ Close</button>
+      </div>
+      {error && <div className="text-[10px] text-[#c0392b]">⚠ {error}</div>}
+      {!hasJob && (
+        <>
+          <div className="text-[10px] text-muted">
+            Runs the brand-voice check on every managed page sequentially. ~15-20s per page · ~5-10 min for a full sitemap. The voice baseline is the tenant's voice anchors + editorial policy + up to 2 already-deployed pages used as on-voice samples.
+          </div>
+          <div className="text-[10px] text-muted italic">
+            Results persist on each version row so the per-page voice-check panel reflects them after this completes. Use the scores to identify which pages need a re-propose with voice feedback.
+          </div>
+          <button
+            onClick={onStart}
+            className="text-[10px] py-1 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+          >🎭 Start voice drift report</button>
+        </>
+      )}
+      {hasJob && (
+        <>
+          <div className="text-[9px] text-muted">
+            {isRunning && <>Running. Worst-first ranking lands as each page finishes — failures don't stop the run.</>}
+            {isDone && <>Sorted worst-first. Open any page to re-propose with voice feedback ("🎯 Re-propose with feedback" on the page workspace).</>}
+          </div>
+          <div className="bg-[#fafafa] border border-[#e5e5e5] rounded max-h-[400px] overflow-auto">
+            <div className="grid grid-cols-[60px_1fr_90px_60px_60px] gap-2 px-2 py-1 border-b border-[#e5e5e5] text-[9px] font-medium uppercase text-muted">
+              <div>Score</div>
+              <div>Page</div>
+              <div>Verdict</div>
+              <div className="text-right">Drifts</div>
+              <div className="text-right">Action</div>
+            </div>
+            {sorted.map(r => (
+              <div key={r.landing_page_id} className="grid grid-cols-[60px_1fr_90px_60px_60px] gap-2 px-2 py-1 border-b border-[#f0f0f0] last:border-0 text-[10px] items-center">
+                <div className={`text-center font-mono font-medium ${scoreColor(r.score)}`}>
+                  {r.status === 'failed' ? '✗' : typeof r.score === 'number' ? r.score : '…'}
+                </div>
+                <div className="truncate min-w-0">
+                  <div className="font-medium truncate">{r.label || `Page #${r.landing_page_id}`}</div>
+                  {r.summary && <div className="text-[8px] text-muted truncate" title={r.summary}>{r.summary}</div>}
+                  {r.error && <div className="text-[8px] text-[#c0392b] truncate" title={r.error}>{r.error}</div>}
+                </div>
+                <div className={`text-[9px] ${verdictColor(r.verdict)}`}>{r.verdict || (r.status === 'running' ? 'running' : '—')}</div>
+                <div className="text-right text-[9px] text-muted">{r.actionable_drift_count ?? '—'}</div>
+                <div className="text-right">
+                  <button
+                    onClick={() => onOpenPage(r.landing_page_id)}
+                    className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                  >Open →</button>
+                </div>
+              </div>
+            ))}
+            {sorted.length === 0 && (
+              <div className="text-[9px] text-muted italic p-2">Waiting for the first page to finish…</div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }

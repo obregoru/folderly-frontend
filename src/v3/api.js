@@ -2033,3 +2033,28 @@ export const getLandingRecency = () =>
       }
       return r.json()
     })
+
+// Sitewide voice-drift report — runs the per-page voice check on
+// every managed page sequentially. Background job; FE polls.
+export const startVoiceDriftReport = () =>
+  csrfFetch(`${apiBase()}/content/landing/voice-drift-report`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `startVoiceDriftReport failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const getVoiceDriftReportStatus = () =>
+  csrfFetch(`${apiBase()}/content/landing/voice-drift-report/status`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getVoiceDriftReportStatus failed (${r.status})`)
+      }
+      return r.json()
+    })
