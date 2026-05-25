@@ -17,7 +17,7 @@
 // URLs + audit, gap analysis. The data model exists in the DB
 // already; this just doesn't wire those panels in yet.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import * as api from '../api'
 import { LandingImagesPanel } from '../components/LandingImagesPanel'
 import GapFindings from '../components/GapFindings'
@@ -229,6 +229,7 @@ export default function SitemapWizard() {
 
       <SiteIndexHintEditor />
       <VoiceAnchorsEditor />
+      <InternalLinkPlanPanel slots={plan.slots} />
 
       <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 min-w-0">
         {/* Sitemap grid — tier-grouped */}
@@ -1169,6 +1170,278 @@ function VoiceAnchorsEditor() {
           )}
         </div>
       )}
+    </details>
+  )
+}
+
+// Cross-page internal-link orchestration panel. Single Claude
+// Haiku call across all managed landing pages produces a hub/spoke
+// link plan; operator picks which edges to merge into each source
+// page's strategy_hint. Result is cached on tenants.last_internal_
+// link_plan so reopening the wizard shows the matrix without
+// re-running Claude. Collapsed by default — bulk feature, not
+// per-edit workflow.
+function InternalLinkPlanPanel({ slots }) {
+  const [plan, setPlan] = useState(null)
+  const [generatedAt, setGeneratedAt] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(null)
+  const [selected, setSelected] = useState(() => new Set())
+  const [filterMode, setFilterMode] = useState('all') // all | not-applied | type-topical | type-authority | type-support
+  const [filterTarget, setFilterTarget] = useState('') // landing_page_id (as string) or ''
+
+  useEffect(() => {
+    let cancelled = false
+    api.getInternalLinkPlan().then(r => {
+      if (cancelled) return
+      setPlan(r?.plan || null)
+      setGeneratedAt(r?.generated_at || null)
+      // Seed selected with not-yet-applied edges so the operator's
+      // most common action ("apply everything I haven't applied
+      // yet") is one click away.
+      const seedKeys = (r?.plan?.edges || [])
+        .filter(e => !e.applied)
+        .map(e => `${e.from_page_id}->${e.to_page_id}`)
+      setSelected(new Set(seedKeys))
+    }).catch(() => { /* 404 fine — never run yet */ })
+    return () => { cancelled = true }
+  }, [])
+
+  // Page id → label/url lookup from the wizard's slot list. Some
+  // pages may not be in the slot list (rare — manually imported
+  // without a slot) so we fall back to "page #N" in the UI.
+  const pageLookup = useMemo(() => {
+    const m = new Map()
+    for (const s of (slots || [])) {
+      if (s.landing_page_id) {
+        m.set(s.landing_page_id, { label: s.label, url: s.landing_page_url || null })
+      }
+    }
+    return m
+  }, [slots])
+
+  const generate = async () => {
+    if (busy) return
+    setBusy(true); setError(null); setSuccess(null)
+    try {
+      const r = await api.generateInternalLinkPlan()
+      setPlan(r?.plan || null)
+      setGeneratedAt(r?.generated_at || null)
+      const seedKeys = (r?.plan?.edges || [])
+        .filter(e => !e.applied)
+        .map(e => `${e.from_page_id}->${e.to_page_id}`)
+      setSelected(new Set(seedKeys))
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggle = (key) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  const visibleEdges = useMemo(() => {
+    if (!plan) return []
+    let edges = plan.edges || []
+    if (filterMode === 'not-applied') edges = edges.filter(e => !e.applied)
+    if (filterMode === 'type-topical') edges = edges.filter(e => e.link_type === 'topical')
+    if (filterMode === 'type-authority') edges = edges.filter(e => e.link_type === 'authority')
+    if (filterMode === 'type-support') edges = edges.filter(e => e.link_type === 'support')
+    if (filterTarget) {
+      const tid = Number(filterTarget)
+      edges = edges.filter(e => e.to_page_id === tid || e.from_page_id === tid)
+    }
+    return edges
+  }, [plan, filterMode, filterTarget])
+
+  const selectAllVisible = () => {
+    setSelected(new Set(visibleEdges.map(e => `${e.from_page_id}->${e.to_page_id}`)))
+  }
+  const selectNone = () => setSelected(new Set())
+
+  const apply = async () => {
+    if (applying) return
+    if (selected.size === 0) { setError('Select at least one edge to apply.'); return }
+    if (!confirm(
+      `Apply ${selected.size} link edge(s) to the source pages' strategy hints?\n\n` +
+      `For each affected SOURCE page, the selected links get merged into landing_pages.strategy_hint as an idempotent "## Suggested internal links" block. ` +
+      `Every subsequent ✏️ Apply suggestions / ✨ Generate from scratch / 🎯 Re-propose call for that source page will see the link directives and weave them into the body.\n\n` +
+      `Idempotent — re-applying replaces the prior block rather than stacking.\n\n` +
+      `Continue?`
+    )) return
+    setApplying(true); setError(null); setSuccess(null)
+    try {
+      const r = await api.applyInternalLinkPlan(Array.from(selected))
+      setSuccess(`Applied ${r.applied_edges} link(s) across ${r.updated_source_pages} source page(s). Re-generate a proposal on those pages to weave the links in.`)
+      // Refresh plan so the "applied" flag reflects.
+      const fresh = await api.getInternalLinkPlan().catch(() => null)
+      if (fresh?.plan) {
+        setPlan(fresh.plan)
+        setGeneratedAt(fresh.generated_at)
+      }
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const totalEdges = (plan?.edges || []).length
+  const appliedCount = (plan?.edges || []).filter(e => e.applied).length
+  const linkTypeCounts = useMemo(() => {
+    const c = { topical: 0, authority: 0, support: 0 }
+    for (const e of plan?.edges || []) c[e.link_type] = (c[e.link_type] || 0) + 1
+    return c
+  }, [plan])
+
+  return (
+    <details className="border border-[#6C5CE7]/40 rounded bg-[#fafbff]">
+      <summary className="cursor-pointer py-2 px-3 flex items-center gap-2">
+        <span className="text-[11px] font-medium text-[#6C5CE7]">🔗 Internal-link plan</span>
+        <span className="text-[9px] text-muted">
+          ({plan ? `${totalEdges} edges, ${appliedCount} applied` : 'not generated yet'})
+        </span>
+        <span className="text-[9px] text-muted">
+          — cross-page hub/spoke link orchestration. Single Claude call decides which managed page should link to which, with what anchor.
+        </span>
+        <span className="flex-1" />
+      </summary>
+      <div className="p-3 pt-0 space-y-2 text-[10px]">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={generate}
+            disabled={busy || applying}
+            className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            title="One Claude Haiku call across ALL managed landing pages. Returns recommended incoming/outgoing links per page with anchor text + reason + link type (topical / authority / support). ~10-30s. Overwrites prior plan."
+          >{busy ? 'Generating…' : (plan ? '🔁 Re-generate plan' : '🔍 Generate plan')}</button>
+          {generatedAt && (
+            <span className="text-[9px] text-muted">
+              Last generated {new Date(generatedAt).toLocaleString()}
+              {plan?.page_count ? ` over ${plan.page_count} pages` : ''}
+            </span>
+          )}
+        </div>
+
+        {error && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {error}</div>}
+        {success && <div className="text-[10px] text-[#15803d] bg-[#f0fdf4] border border-[#15803d]/30 rounded p-2">✓ {success}</div>}
+
+        {!plan && !busy && !error && (
+          <div className="text-[10px] text-muted italic">
+            No plan yet. Click 🔍 Generate to have Claude propose a coherent hub/spoke link graph across the {(slots || []).filter(s => s.landing_page_id).length} managed page(s) in this sitemap. Then check the edges you want to apply — each one gets merged into the source page's strategy hint, and the next propose call for that page will weave the link in.
+          </div>
+        )}
+
+        {plan && (
+          <>
+            <div className="text-[10px] bg-white border border-[#e5e5e5] rounded p-2 italic">{plan.summary}</div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[9px] text-muted">Filter:</span>
+              <select
+                value={filterMode}
+                onChange={e => setFilterMode(e.target.value)}
+                className="text-[9px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+              >
+                <option value="all">All edges ({totalEdges})</option>
+                <option value="not-applied">Not applied yet ({totalEdges - appliedCount})</option>
+                <option value="type-topical">Topical ({linkTypeCounts.topical})</option>
+                <option value="type-authority">Authority ({linkTypeCounts.authority})</option>
+                <option value="type-support">Support ({linkTypeCounts.support})</option>
+              </select>
+              <select
+                value={filterTarget}
+                onChange={e => setFilterTarget(e.target.value)}
+                className="text-[9px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white max-w-[260px]"
+              >
+                <option value="">— filter by page —</option>
+                {Array.from(pageLookup.entries()).map(([id, p]) => (
+                  <option key={id} value={id}>{p.label || `page #${id}`}</option>
+                ))}
+              </select>
+              <span className="flex-1" />
+              <button
+                onClick={selectAllVisible}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer"
+              >Select all visible</button>
+              <button
+                onClick={selectNone}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer"
+              >Clear</button>
+              <span className="text-[9px] text-muted">{selected.size} selected</span>
+              <button
+                onClick={apply}
+                disabled={applying || selected.size === 0}
+                className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                title="Merge each selected edge into the SOURCE page's strategy_hint as a '## Suggested internal links' block. Idempotent — replaces any prior block. The next propose call on those source pages will weave the links in."
+              >{applying ? 'Applying…' : `✨ Apply ${selected.size > 0 ? selected.size + ' ' : ''}to hints`}</button>
+            </div>
+
+            <div className="bg-white border border-[#e5e5e5] rounded overflow-hidden">
+              <div className="grid grid-cols-[24px_1fr_1fr_1fr_70px] gap-1 px-2 py-1 bg-[#fafafa] border-b border-[#e5e5e5] text-[9px] font-medium uppercase tracking-wide text-muted">
+                <span></span>
+                <span>From (source — gets the link)</span>
+                <span>→ To (target — destination)</span>
+                <span>Anchor + reason</span>
+                <span className="text-right">Type</span>
+              </div>
+              {visibleEdges.length === 0 && (
+                <div className="text-[9px] text-muted italic p-2">No edges match the current filter.</div>
+              )}
+              {visibleEdges.map(e => {
+                const key = `${e.from_page_id}->${e.to_page_id}`
+                const isSel = selected.has(key)
+                const fromP = pageLookup.get(e.from_page_id) || { label: `page #${e.from_page_id}` }
+                const toP = pageLookup.get(e.to_page_id) || { label: `page #${e.to_page_id}` }
+                const typeColor = e.link_type === 'authority' ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40'
+                  : e.link_type === 'support' ? 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
+                  : 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
+                return (
+                  <div
+                    key={key}
+                    className={`grid grid-cols-[24px_1fr_1fr_1fr_70px] gap-1 px-2 py-1.5 border-b border-[#f0f0f0] last:border-0 ${e.applied ? 'bg-[#f0fdf4]' : ''}`}
+                  >
+                    <label className="cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isSel}
+                        onChange={() => toggle(key)}
+                      />
+                    </label>
+                    <div className="text-[10px] min-w-0">
+                      <div className="font-medium truncate">{fromP.label}</div>
+                      <div className="text-[8px] text-muted truncate">#{e.from_page_id}{fromP.url ? ` · ${fromP.url}` : ''}</div>
+                    </div>
+                    <div className="text-[10px] min-w-0">
+                      <div className="font-medium truncate">{toP.label}</div>
+                      <div className="text-[8px] text-muted truncate">#{e.to_page_id}{toP.url ? ` · ${toP.url}` : ''}</div>
+                    </div>
+                    <div className="text-[10px] min-w-0">
+                      <div className="font-mono bg-[#fafafa] border border-[#e5e5e5] rounded px-1 py-0.5 inline-block max-w-full truncate">{e.anchor}</div>
+                      <div className="text-[9px] text-muted mt-0.5">{e.reason}</div>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-[8px] py-0.5 px-1 rounded border font-mono ${typeColor}`}>{e.link_type}</span>
+                      {e.applied && <div className="text-[8px] text-[#15803d] mt-0.5">✓ applied</div>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="text-[9px] text-muted italic">
+              "Apply to hints" only updates strategy_hint on the SOURCE page. The link itself shows up in the body the NEXT time you run ✏️ Apply suggestions / ✨ Generate from scratch / 🎯 Re-propose on that page. For bulk re-propose, use the per-slot or fan-out actions.
+            </div>
+          </>
+        )}
+      </div>
     </details>
   )
 }

@@ -1942,3 +1942,45 @@ export const applyLandingGapToHint = (id) =>
     }
     return r.json()
   })
+
+// Cross-page internal-link orchestration. One Claude call across
+// the tenant's full managed-pages set produces a hub/spoke link
+// graph; the operator picks which edges to apply and they're
+// merged into each source page's strategy_hint.
+
+export const getInternalLinkPlan = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/internal-link-plan`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getInternalLinkPlan failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const generateInternalLinkPlan = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/internal-link-plan`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `generateInternalLinkPlan failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const applyInternalLinkPlan = (selectedKeys) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/internal-link-plan/apply`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ selected_keys: selectedKeys }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `applyInternalLinkPlan failed (${r.status})`)
+    }
+    return r.json()
+  })
