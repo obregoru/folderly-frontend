@@ -2058,3 +2058,21 @@ export const getVoiceDriftReportStatus = () =>
       }
       return r.json()
     })
+
+// Sitewide GSC rank report. ONE call returns position + delta +
+// impressions for every (page, query) pair across the tenant's
+// connected property. Tracks rank trajectory without needing a
+// third-party SERP API.
+export const getKeywordRankReport = (rowLimit) =>
+  csrfFetch(`${apiBase()}/content/landing/keyword-rank-report`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(rowLimit ? { row_limit: rowLimit } : {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `getKeywordRankReport failed (${r.status})`)
+    }
+    return r.json()
+  })

@@ -148,6 +148,26 @@ export default function LandingPages() {
     } catch { /* fine */ }
   }
 
+  // ── Sitewide keyword-rank report state ──────────────────────
+  // Cheap (one GSC call) so no background-job pattern needed —
+  // a single async request fills the panel.
+  const [rankReportOpen, setRankReportOpen] = useState(false)
+  const [rankReportBusy, setRankReportBusy] = useState(false)
+  const [rankReport, setRankReport] = useState(null)
+  const [rankReportError, setRankReportError] = useState(null)
+  const runKeywordRankReport = async () => {
+    if (rankReportBusy) return
+    setRankReportOpen(true); setRankReportBusy(true); setRankReportError(null)
+    try {
+      const r = await api.getKeywordRankReport()
+      setRankReport(r)
+    } catch (e) {
+      setRankReportError(e?.message || String(e))
+    } finally {
+      setRankReportBusy(false)
+    }
+  }
+
   // ── Sitewide voice-drift report state ───────────────────────
   // Sequential per-page voice-check pass; FE polls every 5s
   // (per-page Claude call is ~10-20s — no point checking faster).
@@ -580,6 +600,16 @@ export default function LandingPages() {
           className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
           title="Run the brand-voice check on every managed page. Surfaces pages that drift from the tenant's voice baseline so you can re-propose them with the drift findings as feedback. ~15-20s per page. Results also persist on each version row so the per-page voice-check panel updates."
         >{voiceDriftJob?.status === 'running' ? `Checking… ${voiceDriftJob.processed}/${voiceDriftJob.total}` : '🎭 Voice drift report'}</button>
+        {/* Sitewide keyword-rank report — pulls GSC current vs
+            prior 28d for every (page, query) pair across the
+            connected property. Tracks rank trajectory without
+            needing a third-party SERP API. */}
+        <button
+          onClick={runKeywordRankReport}
+          disabled={rankReportBusy}
+          className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
+          title="Pull GSC current 28d vs prior 28d for every (page, query) on the connected property. Surfaces position trajectory + new/lost queries + which managed page each query lives on. ~3-8s — single GSC call."
+        >{rankReportBusy ? 'Loading…' : '📈 Keyword ranks'}</button>
         {/* Bulk deploy — pushes every page whose latest done proposal
             hasn't been deployed yet. Sequential on the BE; FE polls
             for per-page progress. Use after fan-out + proposal
@@ -702,6 +732,21 @@ export default function LandingPages() {
           onOpenPage={(pageId) => {
             const p = state.pages.find(pp => pp.id === pageId)
             if (p) { openPage(p); setBulkAuditOpen(false) }
+          }}
+        />
+      )}
+
+      {/* Sitewide keyword-rank report — pulls GSC current vs prior
+          28d for every (page, query). Live fetch, no caching. */}
+      {rankReportOpen && (
+        <KeywordRankReportPanel
+          busy={rankReportBusy}
+          report={rankReport}
+          error={rankReportError}
+          onClose={() => setRankReportOpen(false)}
+          onOpenPage={(pageId) => {
+            const p = state.pages.find(pp => pp.id === pageId)
+            if (p) { openPage(p); setRankReportOpen(false) }
           }}
         />
       )}
@@ -4891,6 +4936,146 @@ function SiteStat({ label, value, tone }) {
     <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">
       <div className="text-muted">{label}</div>
       <div className={`text-[14px] font-semibold ${numCls}`}>{value ?? '—'}</div>
+    </div>
+  )
+}
+
+// Sitewide GSC keyword-rank report. Single GSC call returns
+// (page, query) rows with current + prior position. We render a
+// table with filter (managed-only / all), sort modes (by
+// impressions / by position change / new only), and a per-row
+// Open button to jump to the matching page workspace.
+function KeywordRankReportPanel({ busy, report, error, onClose, onOpenPage }) {
+  const [filter, setFilter] = useState('managed') // managed | all
+  const [sortBy, setSortBy] = useState('impressions') // impressions | improving | declining | new
+  const [query, setQuery] = useState('')
+  const rows = useMemo(() => {
+    if (!report?.rows) return []
+    let r = report.rows
+    if (filter === 'managed') r = r.filter(x => x.landing_page_id)
+    if (query.trim()) {
+      const q = query.trim().toLowerCase()
+      r = r.filter(x => (x.query || '').toLowerCase().includes(q) || (x.page_label || '').toLowerCase().includes(q))
+    }
+    if (sortBy === 'impressions') r = r.slice().sort((a, b) => (b.impressions || 0) - (a.impressions || 0))
+    if (sortBy === 'improving') r = r.slice().sort((a, b) => (a.position_delta ?? 999) - (b.position_delta ?? 999))
+    if (sortBy === 'declining') r = r.slice().sort((a, b) => (b.position_delta ?? -999) - (a.position_delta ?? -999))
+    if (sortBy === 'new') r = r.slice().filter(x => x.new_this_period).sort((a, b) => (b.impressions || 0) - (a.impressions || 0))
+    return r.slice(0, 200) // cap render — most operators won't scroll past this
+  }, [report, filter, sortBy, query])
+  const positionColor = (pos) => typeof pos !== 'number' ? 'text-muted'
+    : pos <= 3 ? 'text-[#15803d] font-semibold'
+    : pos <= 10 ? 'text-[#16a34a]'
+    : pos <= 20 ? 'text-[#d97706]'
+    : 'text-muted'
+  const deltaColor = (d) => typeof d !== 'number' ? 'text-muted'
+    : d < -0.5 ? 'text-[#15803d]'    // improved (lower position = better)
+    : d > 0.5 ? 'text-[#c0392b]'     // declined
+    : 'text-muted'
+  const deltaStr = (d) => typeof d !== 'number' ? '—'
+    : d === 0 ? '·'
+    : (d < 0 ? `↑${Math.abs(d).toFixed(1)}` : `↓${d.toFixed(1)}`)
+  return (
+    <div className="bg-white border border-[#6C5CE7]/30 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[12px] font-semibold">📈 Keyword rank report</span>
+        {report && (
+          <span className="text-[9px] text-muted">
+            {report.total_rows} (page, query) pairs · {report.windows.current.start} → {report.windows.current.end} vs {report.windows.prior.start} → {report.windows.prior.end}
+          </span>
+        )}
+        <div className="flex-1" />
+        <button onClick={onClose} className="text-[10px] text-muted bg-transparent border-none cursor-pointer">✕ Close</button>
+      </div>
+      {busy && <div className="text-[10px] text-muted italic">Pulling GSC current vs prior 28d (one call covers the whole property)…</div>}
+      {error && (
+        <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">
+          ⚠ {error}
+          {/not connected|No GSC site|gsc_refresh_token/i.test(error) && (
+            <div className="mt-1 text-[9px]">Connect GSC in the per-page GSC block (or on the GSC settings panel) before running this report.</div>
+          )}
+        </div>
+      )}
+      {report && (
+        <>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Filter by query or page label…"
+              className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1.5 bg-white min-w-[200px]"
+            />
+            <select
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              className="text-[9px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            >
+              <option value="managed">Managed pages only ({(report.rows || []).filter(x => x.landing_page_id).length})</option>
+              <option value="all">All pages ({report.total_rows})</option>
+            </select>
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="text-[9px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+            >
+              <option value="impressions">Sort: most-visible first</option>
+              <option value="improving">Sort: biggest gains</option>
+              <option value="declining">Sort: biggest declines</option>
+              <option value="new">New this period only</option>
+            </select>
+            <span className="text-[9px] text-muted">Showing {rows.length}</span>
+          </div>
+          <div className="bg-[#fafafa] border border-[#e5e5e5] rounded max-h-[500px] overflow-auto">
+            <div className="grid grid-cols-[1fr_140px_50px_50px_50px_60px] gap-2 px-2 py-1 border-b border-[#e5e5e5] text-[9px] font-medium uppercase text-muted sticky top-0 bg-[#fafafa]">
+              <div>Query</div>
+              <div>Page</div>
+              <div className="text-right">Pos</div>
+              <div className="text-right">Δ</div>
+              <div className="text-right">Impr</div>
+              <div className="text-right">Action</div>
+            </div>
+            {rows.map((r, i) => (
+              <div key={`${r.page}|${r.query}|${i}`} className="grid grid-cols-[1fr_140px_50px_50px_50px_60px] gap-2 px-2 py-1 border-b border-[#f0f0f0] last:border-0 text-[10px] items-center">
+                <div className="truncate min-w-0">
+                  <div className="font-medium truncate">{r.query}</div>
+                  <div className="text-[8px] text-muted truncate">{r.page}</div>
+                </div>
+                <div className="truncate min-w-0">
+                  {r.page_label ? (
+                    <span className="text-[9px]">{r.page_label}</span>
+                  ) : (
+                    <span className="text-[9px] text-muted italic">(unmanaged)</span>
+                  )}
+                </div>
+                <div className={`text-right font-mono text-[10px] ${positionColor(r.position)}`}>
+                  {typeof r.position === 'number' ? r.position.toFixed(1) : '—'}
+                </div>
+                <div className={`text-right font-mono text-[9px] ${deltaColor(r.position_delta)}`} title={typeof r.position_delta === 'number' ? `Position changed ${r.position_delta > 0 ? '+' : ''}${r.position_delta.toFixed(2)} (negative = improved)` : ''}>
+                  {r.new_this_period ? <span className="text-[#6C5CE7]">new</span> : deltaStr(r.position_delta)}
+                </div>
+                <div className="text-right text-[9px] text-muted font-mono">{r.impressions || 0}</div>
+                <div className="text-right">
+                  {r.landing_page_id ? (
+                    <button
+                      onClick={() => onOpenPage(r.landing_page_id)}
+                      className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                    >Open →</button>
+                  ) : (
+                    <span className="text-[8px] text-muted">—</span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {rows.length === 0 && (
+              <div className="text-[9px] text-muted italic p-2">No rows match the current filter.</div>
+            )}
+          </div>
+          <div className="text-[9px] text-muted italic">
+            Position is GSC's average position over the 28-day window. ↑ = improved (lower number is better). New = query didn't appear in the prior window. Click a row to jump to the matching managed page workspace.
+          </div>
+        </>
+      )}
     </div>
   )
 }
