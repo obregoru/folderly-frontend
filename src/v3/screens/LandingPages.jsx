@@ -1753,6 +1753,23 @@ function PageWorkspace({ data, requireBackupAck }) {
         }}
       />
 
+      {/* Pre-deploy checklist — a final gate above DeployBlock
+          showing the state of every input that matters at publish
+          time (schema, images + alt text, AI score, voice check,
+          meta description, gap analysis). Informational only —
+          doesn't block deploy. Operator can deploy with reds, but
+          the friction stops "deploy and discover later" mistakes. */}
+      {proposal && deployVersionId && (
+        <PreDeployChecklist
+          landingPageId={landing_page_id}
+          versionId={deployVersionId}
+          proposal={proposal}
+          pageImages={pageImages}
+          liveCheckResults={liveCheckResults}
+          pageDetail={data}
+        />
+      )}
+
       {/* Deploy — Phase 5. Big red CTA. Pinned at the bottom of
           the workspace so the irreversible publish-to-WordPress
           action is the last thing the operator sees, after all
@@ -5705,6 +5722,203 @@ function SchemaBlock({ landingPageId, versionId }) {
         </div>
       )}
     </div>
+  )
+}
+
+// Final-gate checklist rendered above DeployBlock. Synthesizes
+// every input that matters at publish time (schema allowlist,
+// images + alt text + featured, AI detection score, voice check,
+// meta description, gap analysis applied) into a single
+// at-a-glance status panel. Informational — operator can still
+// click Deploy with reds visible; this just makes the gaps
+// obvious instead of hidden behind scrolled-past panels.
+//
+// Each row has:
+//   - status icon (✓ ok | ⚠ warn | ✗ fail | — n/a)
+//   - label + short status reason
+//   - "Fix →" jump link to the relevant workspace anchor
+//
+// Score color in the header summarizes ready vs not.
+function PreDeployChecklist({ landingPageId, versionId, proposal, pageImages, liveCheckResults, pageDetail }) {
+  // Schema_types live on landing_pages.schema_types — separate
+  // fetch since neither proposal nor pageDetail carry it. Cheap
+  // single-int query; refresh on landing_page_id change.
+  const [schemaTypes, setSchemaTypes] = useState(null) // null = loading, [] = no restriction, [...] = N types
+  useEffect(() => {
+    let cancelled = false
+    api.getLandingPageSchemaTypes(landingPageId)
+      .then(r => { if (!cancelled) setSchemaTypes(Array.isArray(r?.schema_types) ? r.schema_types : []) })
+      .catch(() => { if (!cancelled) setSchemaTypes([]) })
+    return () => { cancelled = true }
+  }, [landingPageId])
+
+  // Build the check rows. Order matters — schema + images first
+  // (most often missed), then content checks, then optional ones.
+  const ai = liveCheckResults?.ai_detection || null
+  const voice = liveCheckResults?.voice_check || null
+  const p = proposal?.proposal || {}
+  const imagesWithAlt = (pageImages || []).filter(i => (i.alt_text || '').trim().length > 0)
+  const featuredImage = (pageImages || []).find(i => i.role === 'featured')
+  const gapApplied = !!(pageDetail?.page?.last_gap_analyzed_at) // any gap analysis run counts
+
+  const checks = [
+    {
+      key: 'schema',
+      label: 'Schema types allowlist',
+      status: schemaTypes === null ? 'loading'
+        : schemaTypes.length === 0 ? 'warn'
+        : 'ok',
+      detail: schemaTypes === null ? 'loading…'
+        : schemaTypes.length === 0 ? 'no explicit allowlist — Claude will guess types per page'
+        : `${schemaTypes.length} type(s) — ${schemaTypes.join(', ')}`,
+      fixHint: 'scroll up to 🏷️ Page schema allowlist',
+    },
+    {
+      key: 'images',
+      label: 'At least one image attached',
+      status: (pageImages || []).length === 0 ? 'fail' : 'ok',
+      detail: (pageImages || []).length === 0
+        ? 'no images on this page'
+        : `${pageImages.length} image(s) attached`,
+      fixHint: 'scroll up to 🖼️ Images panel',
+    },
+    {
+      key: 'featured',
+      label: 'Featured / hero image set',
+      status: (pageImages || []).length === 0 ? 'skip'
+        : featuredImage ? 'ok'
+        : 'warn',
+      detail: (pageImages || []).length === 0 ? 'n/a — no images yet'
+        : featuredImage ? `★ ${featuredImage.filename}`
+        : 'no image marked featured — WP theme may not have a hero image',
+      fixHint: 'click ★ Feature on the image you want as hero in 🖼️ Images',
+    },
+    {
+      key: 'alt-text',
+      label: 'All images have alt text',
+      status: (pageImages || []).length === 0 ? 'skip'
+        : imagesWithAlt.length === pageImages.length ? 'ok'
+        : 'warn',
+      detail: (pageImages || []).length === 0 ? 'n/a — no images yet'
+        : `${imagesWithAlt.length} / ${pageImages.length} have alt text`,
+      fixHint: 'click the italic alt-text line under each image in 🖼️ Images',
+    },
+    {
+      key: 'meta-desc',
+      label: 'Meta description',
+      status: !p.meta_description ? 'fail'
+        : (p.meta_description.length < 50 || p.meta_description.length > 160) ? 'warn'
+        : 'ok',
+      detail: !p.meta_description ? 'missing — Google will synthesize from body'
+        : p.meta_description.length < 50 ? `${p.meta_description.length} chars — too short`
+        : p.meta_description.length > 160 ? `${p.meta_description.length} chars — may truncate in SERP`
+        : `${p.meta_description.length} chars — good`,
+      fixHint: 'expand "Meta changes" in the proposal panel above',
+    },
+    {
+      key: 'focus-kw',
+      label: 'Focus keyword',
+      status: !p.focus_keyword ? 'warn' : 'ok',
+      detail: !p.focus_keyword ? 'missing — Yoast/Rank Math grading uses this'
+        : `"${p.focus_keyword}"`,
+      fixHint: 'expand "Meta changes" in the proposal panel above',
+    },
+    {
+      key: 'ai-score',
+      label: 'AI-detection score',
+      status: !ai ? 'warn'
+        : typeof ai.score !== 'number' ? 'warn'
+        : ai.score < 30 ? 'ok'
+        : ai.score < 50 ? 'warn'
+        : 'fail',
+      detail: !ai ? 'not run yet — click "Check AI score" in the proposal panel'
+        : typeof ai.score !== 'number' ? 'no score available'
+        : ai.score < 30 ? `${ai.score}% — looks human`
+        : ai.score < 50 ? `${ai.score}% — borderline, consider humanize`
+        : `${ai.score}% — Claude-like, run Humanize or Re-propose`,
+      fixHint: 'use the 🔵 AI check panel in the proposal section',
+    },
+    {
+      key: 'voice',
+      label: 'Voice check',
+      status: !voice ? 'warn'
+        : typeof voice.score !== 'number' ? 'warn'
+        : voice.score >= 70 ? 'ok'
+        : voice.score >= 50 ? 'warn'
+        : 'fail',
+      detail: !voice ? 'not run yet — click "Check brand voice" in the proposal panel'
+        : typeof voice.score !== 'number' ? 'no score available'
+        : voice.score >= 70 ? `${voice.score}/100 — on-brand`
+        : voice.score >= 50 ? `${voice.score}/100 — some drift`
+        : `${voice.score}/100 — significant drift, re-propose with feedback`,
+      fixHint: 'use the voice-check panel in the proposal section',
+    },
+    {
+      key: 'gap',
+      label: 'Competitive gap analysis',
+      status: gapApplied ? 'ok' : 'warn',
+      detail: gapApplied
+        ? `analyzed ${new Date(pageDetail.page.last_gap_analyzed_at).toLocaleDateString()}`
+        : 'not run yet — recommended to confirm parity with the competitor',
+      fixHint: 'scroll to ⚔️ Competitive gap analysis below the proposal',
+    },
+  ]
+
+  // Roll-up: ok counts toward ready, fail/warn don't. Skip is neutral.
+  const counted = checks.filter(c => c.status !== 'skip' && c.status !== 'loading')
+  const okCount = counted.filter(c => c.status === 'ok').length
+  const failCount = checks.filter(c => c.status === 'fail').length
+  const warnCount = checks.filter(c => c.status === 'warn').length
+  const allGreen = failCount === 0 && warnCount === 0 && counted.length > 0
+  const headerColor = failCount > 0 ? 'border-[#c0392b]/40 bg-[#fef2f2]'
+    : warnCount > 0 ? 'border-[#d97706]/40 bg-[#fff7ed]'
+    : 'border-[#16a34a]/40 bg-[#f0fdf4]'
+  const headerLabel = failCount > 0 ? `${failCount} blocker${failCount === 1 ? '' : 's'}`
+    : warnCount > 0 ? `${warnCount} warning${warnCount === 1 ? '' : 's'}`
+    : 'all checks green'
+
+  return (
+    <details className={`border rounded ${headerColor}`} open={!allGreen}>
+      <summary className="cursor-pointer flex items-center gap-2 p-3">
+        <span className="text-[11px] font-medium">✅ Pre-deploy checklist</span>
+        <span className="text-[9px] font-mono py-0.5 px-1.5 rounded bg-white border border-[#e5e5e5]">
+          {okCount} / {counted.length} ready
+        </span>
+        <span className="text-[9px]">
+          {failCount > 0 && <span className="text-[#c0392b] font-medium">⚠ {headerLabel}</span>}
+          {failCount === 0 && warnCount > 0 && <span className="text-[#d97706] font-medium">⚠ {headerLabel}</span>}
+          {allGreen && <span className="text-[#15803d] font-medium">✓ {headerLabel}</span>}
+        </span>
+        <span className="text-[9px] text-muted">— informational, doesn't block deploy</span>
+        <span className="flex-1" />
+      </summary>
+      <div className="p-3 pt-0 space-y-1">
+        {checks.map(c => {
+          const icon = c.status === 'ok' ? '✓'
+            : c.status === 'warn' ? '⚠'
+            : c.status === 'fail' ? '✗'
+            : c.status === 'loading' ? '…'
+            : '—'
+          const color = c.status === 'ok' ? 'text-[#15803d]'
+            : c.status === 'warn' ? 'text-[#d97706]'
+            : c.status === 'fail' ? 'text-[#c0392b]'
+            : 'text-muted'
+          const showFix = c.status === 'fail' || c.status === 'warn'
+          return (
+            <div key={c.key} className="flex items-start gap-2 text-[10px] bg-white border border-[#e5e5e5] rounded p-1.5">
+              <span className={`font-mono text-[12px] w-4 ${color}`} aria-hidden>{icon}</span>
+              <div className="flex-1 min-w-0">
+                <div className={`font-medium ${color}`}>{c.label}</div>
+                <div className="text-[9px] text-muted">{c.detail}</div>
+              </div>
+              {showFix && (
+                <div className="text-[9px] text-[#6C5CE7] italic flex-shrink-0">→ {c.fixHint}</div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </details>
   )
 }
 
