@@ -218,6 +218,20 @@ export default function LandingPages() {
     return () => { alive = false }
   }, [])
 
+  // Content recency — pages bucketed by days-since-last-deploy.
+  // Surfaced in a RecencyBanner that nudges the operator to refresh
+  // stale pages before rankings decay. Cheap query — no Claude
+  // call. Loaded once on mount.
+  const [recency, setRecency] = useState(null)
+  const [recencyDismissed, setRecencyDismissed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    api.getLandingRecency()
+      .then(r => { if (alive) setRecency(r) })
+      .catch(() => { /* non-fatal — banner just won't show */ })
+    return () => { alive = false }
+  }, [])
+
   // Active workspace state — when an operator picks a page or imports
   // one fresh, the parsed page lives here so the right pane renders.
   const [active, setActive] = useState(null)
@@ -680,6 +694,22 @@ export default function LandingPages() {
         <div className="bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 text-[10px] text-[#c0392b]">
           Seasonal suggestions unavailable: {seasonalError}
         </div>
+      )}
+
+      {/* Recency banner — nags the operator about pages that haven't
+          shipped in a long time. Only renders when there's at least
+          one stale (>90d) page. Dismiss is session-only (no server
+          ack) — operator sees it again next visit so decaying pages
+          stay top-of-mind. */}
+      {!recencyDismissed && recency && (recency.summary.stale + recency.summary.very_stale + recency.summary.ancient) > 0 && (
+        <RecencyBanner
+          recency={recency}
+          onDismiss={() => setRecencyDismissed(true)}
+          onOpenPage={(pageId) => {
+            const p = state.pages.find(pp => pp.id === pageId)
+            if (p) openPage(p)
+          }}
+        />
       )}
 
       {/* WP-not-configured banner — short-circuits everything else.
@@ -4550,6 +4580,82 @@ function SeasonalBanner({ upcoming, onDismiss, onOpenPage }) {
 // findings (graph / content / deploy / strategy) plus a summary
 // strip. Per-finding "Open page" buttons let the operator jump
 // straight into the workspace for the affected page.
+// Per-tenant content-recency nudge. Buckets pages by
+// days-since-last-deploy: fresh (≤90), stale (91-180), very stale
+// (181-365), ancient (>365), never deployed. Renders collapsed
+// banner with the worst bucket's count in the summary; expand to
+// see per-page rows with last-deploy date + Open button. Dismiss
+// is session-only so decaying pages re-surface every visit.
+function RecencyBanner({ recency, onDismiss, onOpenPage }) {
+  const total = recency.summary.stale + recency.summary.very_stale + recency.summary.ancient
+  // Banner accent picks the worst bucket present — operators
+  // working through Ancient pages should see the urgent tone, not
+  // a generic warm one.
+  const accent = recency.summary.ancient > 0
+    ? 'border-[#c0392b]/40 bg-[#fef2f2]'
+    : recency.summary.very_stale > 0
+      ? 'border-[#d97706]/40 bg-[#fff7ed]'
+      : 'border-[#6C5CE7]/30 bg-[#f5f3ff]'
+
+  // Buckets rendered in worst-first order so the operator sees the
+  // most-decayed pages first when they expand.
+  const sections = [
+    { key: 'ancient', label: 'Ancient (>1 year)', tone: 'text-[#c0392b]', items: recency.buckets.ancient },
+    { key: 'very_stale', label: 'Very stale (6-12 months)', tone: 'text-[#d97706]', items: recency.buckets.very_stale },
+    { key: 'stale', label: 'Stale (3-6 months)', tone: 'text-[#6C5CE7]', items: recency.buckets.stale },
+  ].filter(s => s.items.length > 0)
+
+  return (
+    <details className={`border rounded ${accent}`}>
+      <summary className="cursor-pointer flex items-center gap-2 p-2.5">
+        <span className="text-[11px] font-semibold">🕐 Content recency</span>
+        <span className={`text-[9px] py-0.5 px-1.5 rounded font-mono ${recency.summary.ancient > 0 ? 'bg-[#fee2e2] text-[#991b1b]' : recency.summary.very_stale > 0 ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-[#e0e7ff] text-[#3730a3]'}`}>
+          {total} need{total === 1 ? 's' : ''} refresh
+        </span>
+        <span className="text-[9px] text-muted">— pages whose rankings will decay if not updated soon</span>
+        <div className="flex-1" />
+        <button
+          onClick={e => { e.preventDefault(); e.stopPropagation(); onDismiss() }}
+          className="text-[10px] text-muted bg-transparent border-none cursor-pointer"
+          title="Hide for this session"
+        >✕ Hide</button>
+      </summary>
+      <div className="p-2.5 pt-0 space-y-2">
+        {sections.map(s => (
+          <div key={s.key} className="space-y-1">
+            <div className={`text-[10px] font-medium ${s.tone}`}>
+              {s.label} <span className="text-[9px] text-muted font-mono">({s.items.length})</span>
+            </div>
+            <div className="space-y-0.5">
+              {s.items.map(p => (
+                <div key={p.id} className="flex items-center gap-2 text-[10px] bg-white border border-[#e5e5e5] rounded px-2 py-1">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{p.label || `Page #${p.id}`}</div>
+                    {p.url && <div className="text-[8px] text-muted truncate">{p.url}</div>}
+                  </div>
+                  <div className="text-[9px] text-muted whitespace-nowrap">
+                    {p.days_since_deploy} days · {new Date(p.last_deployed_at).toLocaleDateString()}
+                  </div>
+                  <button
+                    onClick={() => onOpenPage(p.id)}
+                    className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer flex-shrink-0"
+                    title="Open in workspace — run audit + propose to refresh this page"
+                  >Open →</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {recency.buckets.never_deployed.length > 0 && (
+          <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">
+            ℹ {recency.buckets.never_deployed.length} page(s) imported but never deployed — they're not in the "stale" buckets because there's no baseline to age from. Generate + ship them to start the clock.
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
 function SiteAuditPanel({ busy, error, audit, pages, onClose, onOpenPage }) {
   const buckets = [
     { key: 'graph',    label: 'Graph & links',     hint: 'Orphan pages, broken internal links' },

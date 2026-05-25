@@ -2020,3 +2020,16 @@ export const getBulkDeployStatus = () =>
       }
       return r.json()
     })
+
+// Content-recency buckets — pages grouped by days-since-last-
+// deploy. Drives the RecencyBanner that nags the operator to
+// refresh stale pages before their rankings decay.
+export const getLandingRecency = () =>
+  csrfFetch(`${apiBase()}/content/landing/recency`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getLandingRecency failed (${r.status})`)
+      }
+      return r.json()
+    })
