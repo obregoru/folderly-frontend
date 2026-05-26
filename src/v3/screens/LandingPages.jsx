@@ -6965,6 +6965,47 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
                   This post wasn't in the first batch — Yoast's indexer queues by ID. The editor sidebar may take an extra page load to populate.
                 </div>
               )}
+              {/* Bridge plugin CTA. Shown when the AJAX meta write
+                  failed (the host blocks Basic auth to wp-admin, or
+                  the nonce fetch hit another wall), OR the AJAX
+                  fallback path was used (operator could upgrade to
+                  bridge for a cleaner future deploy). Hides when
+                  bridge already succeeded. */}
+              {success.seo_status.ajax_meta_write && success.seo_status.ajax_meta_write.via !== 'bridge-plugin' && (
+                <div className="mt-2 bg-white border border-current/30 rounded p-2 space-y-1.5">
+                  <div className="font-medium text-[10px]">📦 Fix: install PostyPosty Yoast Bridge plugin</div>
+                  <div className="text-[9px]">
+                    One-time install (single PHP file, ~110 lines). After activation, every PostyPosty deploy writes Yoast meta directly via REST — no wp-admin, no nonces, works on every host including Cloudways / WP Engine.
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <a
+                      href="https://github.com/obregoru/postyposty/raw/main/wp-plugin/postyposty-yoast-bridge.php"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded no-underline"
+                      title="Download postyposty-yoast-bridge.php from the postyposty repo on GitHub"
+                    >📥 Download plugin file</a>
+                    <a
+                      href="https://github.com/obregoru/postyposty/blob/main/wp-plugin/postyposty-yoast-bridge.php"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded no-underline"
+                      title="View the plugin source code on GitHub before installing"
+                    >👀 View source on GitHub</a>
+                  </div>
+                  <details className="text-[9px] mt-1">
+                    <summary className="cursor-pointer underline">Install steps</summary>
+                    <ol className="list-decimal pl-4 mt-1 space-y-0.5">
+                      <li>Download the file from the link above (right-click → Save As if it renders inline)</li>
+                      <li>On the WordPress site: connect via SFTP / SSH / file manager and navigate to <code className="font-mono bg-white/60 px-1">wp-content/plugins/</code></li>
+                      <li>Create a folder named <code className="font-mono bg-white/60 px-1">postyposty-yoast-bridge</code></li>
+                      <li>Upload <code className="font-mono bg-white/60 px-1">postyposty-yoast-bridge.php</code> into that folder</li>
+                      <li>In WordPress admin: <b>Plugins</b> → activate <b>"PostyPosty Yoast Bridge"</b></li>
+                      <li>Redeploy this page from PostyPosty — the next deploy will auto-detect the endpoint and write Yoast meta directly</li>
+                    </ol>
+                  </details>
+                </div>
+              )}
               {/* Diagnostic detail when AJAX path failed at the
                   nonce-fetch step. Surfaces per-candidate HTTP
                   status, signal counts (how many "yoast"/"wpseo"/
