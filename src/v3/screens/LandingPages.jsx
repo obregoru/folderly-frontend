@@ -6945,6 +6945,28 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
               </a>
             </div>
           )}
+          {/* SEO plugin status — surfaces fresh per-deploy detection
+              + Yoast indexable-rebuild outcome. Replaces the stale
+              "No SEO plugin detected" warning. Green tone when
+              everything worked; amber tone when rebuild failed or
+              wasn't applicable. */}
+          {success.seo_status && (
+            <div
+              className={`rounded p-1.5 mt-1 ${
+                success.seo_status.ok === false
+                  ? 'bg-[#fff7ed] border border-[#d97706]/40 text-[#92400e]'
+                  : 'bg-[#eef2ff] border border-[#6366f1]/30 text-[#4338ca]'
+              }`}
+            >
+              <div className="font-medium">🔌 SEO plugin status</div>
+              <div className="text-[10px] mt-0.5">{success.seo_status.message}</div>
+              {success.seo_status.indexable_rebuild?.status === 'rebuilt' && success.seo_status.indexable_rebuild?.included_target === false && (
+                <div className="text-[9px] mt-1 italic">
+                  This post wasn't in the first batch — Yoast's indexer queues by ID. The editor sidebar may take an extra page load to populate.
+                </div>
+              )}
+            </div>
+          )}
           {Array.isArray(success.warnings) && success.warnings.length > 0 && (
             <div className="bg-[#fff7ed] border border-[#d97706]/40 rounded p-1.5 mt-1">
               {success.warnings.map((w, i) => <div key={i} className="text-[#d97706]">⚠ {w}</div>)}
