@@ -6965,6 +6965,45 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
                   This post wasn't in the first batch — Yoast's indexer queues by ID. The editor sidebar may take an extra page load to populate.
                 </div>
               )}
+              {/* Diagnostic detail when AJAX path failed at the
+                  nonce-fetch step. Surfaces per-candidate HTTP
+                  status, signal counts (how many "yoast"/"wpseo"/
+                  "nonce" strings appeared in the HTML), variable
+                  names detected, and sample lines mentioning
+                  yoast/wpseo/nonce — so the operator can see
+                  exactly what's in the HTML without console
+                  access. Pastes well into a bug report. */}
+              {success.seo_status.ajax_meta_write?.attempts && Array.isArray(success.seo_status.ajax_meta_write.attempts) && (
+                <details className="mt-2 text-[9px]">
+                  <summary className="cursor-pointer underline">🔧 Show nonce-fetch diagnostics ({success.seo_status.ajax_meta_write.attempts.length} URL{success.seo_status.ajax_meta_write.attempts.length === 1 ? '' : 's'} tried)</summary>
+                  <div className="mt-1 space-y-2 font-mono">
+                    {success.seo_status.ajax_meta_write.attempts.map((a, i) => (
+                      <div key={i} className="bg-white/60 border border-current/20 rounded p-1.5">
+                        <div className="break-all"><b>URL:</b> {a.url}</div>
+                        <div><b>HTTP:</b> {a.status ?? 'no response'}{a.error ? ` · error: ${a.error}` : ''}{a.note ? ` · ${a.note}` : ''}</div>
+                        {a.html_length !== undefined && <div><b>HTML length:</b> {a.html_length} bytes</div>}
+                        {a.signals && (
+                          <div>
+                            <b>Signal counts:</b>{' '}
+                            yoast={a.signals.yoast_mentions} · wpseo={a.signals.wpseo_mentions} · nonce={a.signals.nonce_mentions} · apiFetch={a.signals.wp_dot_apifetch} · scripts={a.signals.script_tag_count} · block_editor={a.signals.block_editor ? 'yes' : 'no'}
+                          </div>
+                        )}
+                        {Array.isArray(a.found_vars) && a.found_vars.length > 0 && (
+                          <div><b>Vars detected:</b> [{a.found_vars.join(', ')}]</div>
+                        )}
+                        {Array.isArray(a.sample_lines) && a.sample_lines.length > 0 && (
+                          <div className="mt-1">
+                            <b>Sample lines mentioning yoast/wpseo/nonce:</b>
+                            <ul className="list-disc pl-4 mt-0.5">
+                              {a.sample_lines.map((line, j) => <li key={j} className="break-all">{line}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
           )}
           {Array.isArray(success.warnings) && success.warnings.length > 0 && (
