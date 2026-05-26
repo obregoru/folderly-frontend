@@ -6965,13 +6965,13 @@ function DeployBlock({ landingPageId, versionId, onDeployed, requireBackupAck })
                   This post wasn't in the first batch — Yoast's indexer queues by ID. The editor sidebar may take an extra page load to populate.
                 </div>
               )}
-              {/* Bridge plugin CTA. Shown when the AJAX meta write
-                  failed (the host blocks Basic auth to wp-admin, or
-                  the nonce fetch hit another wall), OR the AJAX
-                  fallback path was used (operator could upgrade to
-                  bridge for a cleaner future deploy). Hides when
-                  bridge already succeeded. */}
-              {success.seo_status.ajax_meta_write && success.seo_status.ajax_meta_write.via !== 'bridge-plugin' && (
+              {/* Bridge plugin CTA. Shown for any Yoast failure
+                  state AND when the AJAX path succeeded but didn't
+                  go through the bridge (admin-ajax fallback). Hides
+                  only when bridge plugin succeeded. Independent of
+                  the exact ajax_meta_write shape — guards against
+                  edge cases where the field isn't populated. */}
+              {(success.seo_status.plugin === 'yoast' || success.seo_status.plugin === 'yoast-premium') && success.seo_status.ajax_meta_write?.via !== 'bridge-plugin' && (
                 <div className="mt-2 bg-white border border-current/30 rounded p-2 space-y-1.5">
                   <div className="font-medium text-[10px]">📦 Fix: install PostyPosty Yoast Bridge plugin</div>
                   <div className="text-[9px]">
