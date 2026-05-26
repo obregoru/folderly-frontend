@@ -2015,7 +2015,50 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
           className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y"
           placeholder="Per-slot strategy hint applied at scaffold time. Becomes the seed for landing_pages.strategy_hint when the WP page is created. Examples: 'rank for AI consulting Milwaukee', 'voice: senior, plain-language, no jargon', 'must mention 5 case studies'."
         />
-        <div className="text-[8px] text-muted mt-0.5">Used as the SEED — once a real landing_page row exists, that page's own strategy_hint takes over for ongoing edits.</div>
+        <div className="text-[8px] text-muted mt-0.5">
+          Stored in <code>landing_page_plan.extra_strategy_hint</code> (separate from the Pages workspace's <code>landing_pages.strategy_hint</code>). They CAN diverge — AI-revision blocks (gap analysis, link plan) typically append on the page side. Use the divergence panel below to merge if needed.
+        </div>
+
+        {/* Divergence card — only renders when the linked page's
+            strategy_hint differs from this slot's. Operator can
+            explicitly load the page hint here OR merge both. */}
+        {!isNew && slot?.landing_page_id && (slot.landing_page_strategy_hint || '').trim() !== (extraHint || '').trim() && (slot.landing_page_strategy_hint || '').trim().length > 0 && (
+          <details className="mt-2 bg-white border border-[#6C5CE7]/40 rounded">
+            <summary className="cursor-pointer py-1.5 px-2 text-[10px] flex items-center gap-2">
+              <span className="font-medium text-[#6C5CE7]">📋 Linked page hint differs</span>
+              <span className="text-[8px] text-muted">
+                ({(slot.landing_page_strategy_hint || '').length} chars on page · {(extraHint || '').length} chars here)
+              </span>
+              <span className="flex-1" />
+              <span className="text-[8px] text-[#6C5CE7]">click to compare + copy →</span>
+            </summary>
+            <div className="p-2 space-y-1.5 border-t border-[#6C5CE7]/20">
+              <div className="text-[8px] text-muted italic">
+                The linked landing_page has a different page hint than this slot. AI-revision blocks (gap analysis, link plan applies) get appended on the PAGE side. Use one of the buttons below if you want to bring page content over.
+              </div>
+              <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5 max-h-[180px] overflow-auto">
+                <div className="text-[8px] uppercase font-medium text-muted mb-1">Page hint (read-only):</div>
+                <pre className="whitespace-pre-wrap text-[10px] font-sans">{slot.landing_page_strategy_hint || '(empty)'}</pre>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    if (!confirm('Replace the slot hint textarea with the page\'s hint? Unsaved edits will be lost. Click Save afterwards to commit.')) return
+                    setExtraHint(slot.landing_page_strategy_hint || '')
+                  }}
+                  className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer"
+                >📥 Load page hint here</button>
+                <button
+                  onClick={() => {
+                    const merged = `${(slot.landing_page_strategy_hint || '').trim()}\n\n${(extraHint || '').trim()}`.trim()
+                    setExtraHint(merged)
+                  }}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                >⇄ Merge page + slot</button>
+              </div>
+            </div>
+          </details>
+        )}
       </div>
 
       {!isNew && slot?.id && (

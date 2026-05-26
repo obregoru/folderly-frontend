@@ -495,6 +495,12 @@ export default function LandingPages() {
         landing_page_id: page.id,
         version_id: mostRecent?.id || null,
         strategy_hint: r.page?.strategy_hint || page.strategy_hint || '',
+        // Linked sitemap slot's hint, if any. Surfaced so the
+        // Pages workspace can show divergence + offer a "📥 Copy
+        // from slot" button when the slot has more content (e.g.
+        // operator typed extensively into the slot editor; the
+        // page wasn't synced because we removed the auto-cascade).
+        linked_slot: r.linked_slot || null,
         ai_citations: Array.isArray(r.page?.ai_citations) ? r.page.ai_citations : [],
         recovered_audit: recoveredAudit,
         recovered_proposal: recoveredProposal,
@@ -1041,7 +1047,7 @@ export default function LandingPages() {
 }
 
 function PageWorkspace({ data, requireBackupAck }) {
-  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit, recovered_proposal: recoveredProposal } = data
+  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit, recovered_proposal: recoveredProposal, linked_slot: linkedSlot } = data
   // Detect whether the page has real, audit-worthy content yet.
   // Freshly-scaffolded pages (Create WP draft from a Sitemap Wizard
   // slot) have only an imported placeholder version (~250 chars).
@@ -1513,12 +1519,14 @@ function PageWorkspace({ data, requireBackupAck }) {
 
       {/* Page hint — free-form intent the operator writes for
           Claude to use on every audit / proposal / schema run. Same
-          field the SitemapWizard calls "Page hint (strategy)" — once
-          the WP draft scaffolds, the slot's hint becomes the seed,
-          and this is the authoritative editable version going
-          forward. Sits near the top so it's high-visibility;
-          saving is explicit (no auto-save) so paste-tweaks don't
-          churn DB writes. */}
+          field the SitemapWizard calls "Page hint (strategy)", BUT
+          stored in a separate column (landing_pages.strategy_hint
+          vs landing_page_plan.extra_strategy_hint). The slot's
+          hint seeds this at WP-creation time, but they can drift
+          afterwards — e.g. AI revisions (gap analysis, link plan)
+          append blocks here on the page side. We surface the slot's
+          version side-by-side when they diverge so the operator
+          can explicitly choose which one to use. */}
       <div className="bg-[#fef9c3] border border-[#ca8a04]/40 rounded p-2 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-medium text-[#854d0e]">🎯 Page hint</span>
@@ -1538,8 +1546,57 @@ function PageWorkspace({ data, requireBackupAck }) {
           className="w-full text-[11px] border border-[#ca8a04]/30 rounded p-2 bg-white outline-none focus:border-[#ca8a04] resize-y font-sans"
         />
         {hintError && <div className="text-[10px] text-[#c0392b]">⚠ {hintError}</div>}
+
+        {/* Linked-slot divergence card. Renders when the slot's
+            extra_strategy_hint differs from this page's
+            strategy_hint — typical case: operator typed extensive
+            content into the slot editor before WP creation, or
+            kept editing slot after WP creation, and the page's
+            hint is shorter / lagging. Read-only view of the slot
+            hint + a "📥 Copy from slot" button. Operator decides
+            whether to overwrite — we never auto-cascade. */}
+        {linkedSlot && (linkedSlot.extra_strategy_hint || '').trim() !== (hint || '').trim() && (
+          <details className="bg-white border border-[#ca8a04]/40 rounded">
+            <summary className="cursor-pointer py-1.5 px-2 text-[10px] flex items-center gap-2">
+              <span className="font-medium text-[#854d0e]">📋 Linked slot hint differs</span>
+              <span className="text-[9px] text-muted">
+                ({(linkedSlot.extra_strategy_hint || '').length} chars on slot · {(hint || '').length} chars here)
+              </span>
+              <span className="flex-1" />
+              <span className="text-[9px] text-[#ca8a04]">click to compare + copy →</span>
+            </summary>
+            <div className="p-2 space-y-2 border-t border-[#ca8a04]/20">
+              <div className="text-[9px] text-muted italic">
+                Slot "<b>{linkedSlot.label || linkedSlot.slot_key}</b>" in the Sitemap Wizard has a different hint than this page. AI-revision blocks (gap analysis, link plan) get appended on the PAGE side, so this side may grow over time independently. The slot side is usually your original prose. Copying from slot → page REPLACES the page hint — back up your appended blocks first if you want to keep them.
+              </div>
+              <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2 max-h-[200px] overflow-auto">
+                <div className="text-[9px] uppercase font-medium text-muted mb-1">Slot hint (read-only):</div>
+                <pre className="whitespace-pre-wrap text-[10px] font-sans">{linkedSlot.extra_strategy_hint || '(empty)'}</pre>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (!confirm('Replace the page hint textarea above with the slot\'s hint?\n\n⚠ Any unsaved edits to the page hint will be lost. Any AI-revision blocks (gap analysis, link plan) currently appended to the PAGE hint will also be replaced — copy them out first if you want to keep them.\n\nThis just loads the slot text into the textarea; click Save afterwards to commit.')) return
+                    setHint(linkedSlot.extra_strategy_hint || '')
+                  }}
+                  className="text-[10px] py-1 px-2 bg-[#ca8a04] text-white border-none rounded cursor-pointer"
+                  title="Load the slot's hint into the textarea above (does not save yet — review then click Save)"
+                >📥 Load slot hint into textarea</button>
+                <button
+                  onClick={() => {
+                    const merged = `${(linkedSlot.extra_strategy_hint || '').trim()}\n\n${(hint || '').trim()}`.trim()
+                    setHint(merged)
+                  }}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#ca8a04] text-[#854d0e] rounded cursor-pointer"
+                  title="Concatenate slot hint + current page hint (slot first). Useful when the slot has the original prose and the page has appended AI-revision blocks."
+                >⇄ Merge slot + page</button>
+              </div>
+            </div>
+          </details>
+        )}
+
         <div className="text-[9px] text-muted italic">
-          Same field the SitemapWizard calls "Page hint (strategy)" — once a slot creates its WP page, the slot's hint seeds this and edits live here from then on. Describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff. (Gap analysis + internal-link plan applies merge into this hint as their own block — don't be surprised when you see them appended.)
+          Stored in landing_pages.strategy_hint (separate from the SitemapWizard's landing_page_plan.extra_strategy_hint — they can diverge as AI revisions append on this side). Describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff. Gap analysis + internal-link plan applies merge into this hint as their own "## ..." blocks.
         </div>
       </div>
 
