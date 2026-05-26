@@ -2016,7 +2016,7 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
           placeholder="Per-slot strategy hint applied at scaffold time. Becomes the seed for landing_pages.strategy_hint when the WP page is created. Examples: 'rank for AI consulting Milwaukee', 'voice: senior, plain-language, no jargon', 'must mention 5 case studies'."
         />
         <div className="text-[8px] text-muted mt-0.5">
-          Stored in <code>landing_page_plan.extra_strategy_hint</code> (separate from the Pages workspace's <code>landing_pages.strategy_hint</code>). They CAN diverge — AI-revision blocks (gap analysis, link plan) typically append on the page side. Use the divergence panel below to merge if needed.
+          Same canonical field as the Pages workspace's "🎯 Page hint" — edits here are mirrored to the linked page (and vice versa). AI-revision blocks (gap analysis, link plan) append to this same hint. Pre-WP slots store this on the slot row as a seed; once the WP page exists, edits flow through to <code>landing_pages.strategy_hint</code>.
         </div>
 
         {/* Divergence card — only renders when the linked page's

@@ -1596,7 +1596,7 @@ function PageWorkspace({ data, requireBackupAck }) {
         )}
 
         <div className="text-[9px] text-muted italic">
-          Stored in landing_pages.strategy_hint (separate from the SitemapWizard's landing_page_plan.extra_strategy_hint — they can diverge as AI revisions append on this side). Describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff. Gap analysis + internal-link plan applies merge into this hint as their own "## ..." blocks.
+          Same canonical field as the SitemapWizard's "Page hint (strategy)" — edits here mirror to the linked slot (and vice versa). Describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff. Gap analysis + internal-link plan applies merge into this hint as their own "## ..." blocks; never replace the operator-typed portion above them.
         </div>
       </div>
 
