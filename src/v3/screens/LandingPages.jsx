@@ -1511,14 +1511,18 @@ function PageWorkspace({ data, requireBackupAck }) {
         )}
       </div>
 
-      {/* Strategy hint — free-form intent the operator writes for
-          Claude to use on every audit / proposal / schema run. Sits
-          near the top so it's high-visibility; saving is explicit
-          (no auto-save) so paste-tweaks don't churn DB writes. */}
+      {/* Page hint — free-form intent the operator writes for
+          Claude to use on every audit / proposal / schema run. Same
+          field the SitemapWizard calls "Page hint (strategy)" — once
+          the WP draft scaffolds, the slot's hint becomes the seed,
+          and this is the authoritative editable version going
+          forward. Sits near the top so it's high-visibility;
+          saving is explicit (no auto-save) so paste-tweaks don't
+          churn DB writes. */}
       <div className="bg-[#fef9c3] border border-[#ca8a04]/40 rounded p-2 space-y-1">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-medium text-[#854d0e]">🎯 Strategy hint for AI revisions</span>
-          <span className="text-[9px] text-muted">Used by audit + proposal + schema for THIS page only. Other pages have their own.</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-medium text-[#854d0e]">🎯 Page hint</span>
+          <span className="text-[9px] text-muted">— strategy hint for AI revisions. Used by audit + propose + schema for THIS page only.</span>
           <div className="flex-1" />
           <button
             onClick={saveHint}
@@ -1535,7 +1539,7 @@ function PageWorkspace({ data, requireBackupAck }) {
         />
         {hintError && <div className="text-[10px] text-[#c0392b]">⚠ {hintError}</div>}
         <div className="text-[9px] text-muted italic">
-          Tip: describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff.
+          Same field the SitemapWizard calls "Page hint (strategy)" — once a slot creates its WP page, the slot's hint seeds this and edits live here from then on. Describe the page's intent + tone + target searches + brand voice. Claude weights this above generic SEO best-practices when there's a tradeoff. (Gap analysis + internal-link plan applies merge into this hint as their own block — don't be surprised when you see them appended.)
         </div>
       </div>
 
@@ -3645,6 +3649,11 @@ function AiCitationsCard({ landingPageId, initial }) {
   const [draftSnippet, setDraftSnippet] = useState('')
   const [draftSource, setDraftSource] = useState('google-ai-overview')
   const [draftNotes, setDraftNotes] = useState('')
+  // Edit-mode state — keyed by citation id so only one row is
+  // editable at a time without a separate "which row is open"
+  // selector. editingDraft holds the in-progress edits.
+  const [editingId, setEditingId] = useState(null)
+  const [editDraft, setEditDraft] = useState(null) // { query, snippet, source, notes }
 
   // Re-sync local state when the operator switches pages — initial
   // value is per-page, not session-wide.
@@ -3652,7 +3661,35 @@ function AiCitationsCard({ landingPageId, initial }) {
     setCitations(Array.isArray(initial) ? initial : [])
     setAddOpen(false)
     setDraftQuery(''); setDraftSnippet(''); setDraftSource('google-ai-overview'); setDraftNotes('')
+    setEditingId(null); setEditDraft(null)
   }, [landingPageId, initial])
+
+  const startEdit = (c) => {
+    setEditingId(c.id)
+    setEditDraft({
+      query: c.query || '',
+      snippet: c.snippet || '',
+      source: c.source || 'google-ai-overview',
+      notes: c.notes || '',
+    })
+  }
+  const cancelEdit = () => { setEditingId(null); setEditDraft(null) }
+  const saveEdit = async () => {
+    if (!editingId || !editDraft) return
+    if (!editDraft.snippet.trim()) {
+      setError('Snippet is required.')
+      return
+    }
+    const next = citations.map(c => c.id === editingId ? {
+      ...c,
+      query: editDraft.query.trim(),
+      snippet: editDraft.snippet.trim(),
+      source: editDraft.source,
+      notes: editDraft.notes.trim() || undefined,
+    } : c)
+    await persist(next)
+    setEditingId(null); setEditDraft(null)
+  }
 
   const persist = async (next) => {
     setSaving(true); setError(null); setSaved(false)
@@ -3777,32 +3814,105 @@ function AiCitationsCard({ landingPageId, initial }) {
 
       {citations.length > 0 && (
         <div className="space-y-1">
-          {citations.map(c => (
-            <details key={c.id} className="bg-white border border-[#e5e5e5] rounded">
-              <summary className="cursor-pointer py-1.5 px-2 text-[10px] flex items-center gap-2">
-                <span className="text-[9px] py-0.5 px-1.5 rounded bg-[#eef2ff] text-[#4338ca] font-medium">
-                  {sourceLabel(c.source)}
-                </span>
-                <span className="font-medium truncate flex-1">"{c.query}"</span>
-                <span className="text-[9px] text-muted flex-shrink-0">
-                  {c.captured_at ? new Date(c.captured_at).toLocaleDateString() : ''}
-                </span>
-              </summary>
-              <div className="p-2 border-t border-[#f0f0f0] space-y-1.5">
-                <div className="text-[10px] whitespace-pre-wrap bg-[#fafafa] border-l-2 border-[#6366f1] px-2 py-1.5 italic">
-                  {c.snippet}
+          {citations.map(c => {
+            const isEditing = editingId === c.id
+            return (
+              <details key={c.id} open={isEditing} className="bg-white border border-[#e5e5e5] rounded">
+                <summary className="cursor-pointer py-1.5 px-2 text-[10px] flex items-center gap-2">
+                  <span className="text-[9px] py-0.5 px-1.5 rounded bg-[#eef2ff] text-[#4338ca] font-medium">
+                    {sourceLabel(c.source)}
+                  </span>
+                  <span className="font-medium truncate flex-1">"{c.query || '(no query)'}"</span>
+                  <span className="text-[9px] text-muted flex-shrink-0">
+                    {c.captured_at ? new Date(c.captured_at).toLocaleDateString() : ''}
+                  </span>
+                </summary>
+                <div className="p-2 border-t border-[#f0f0f0] space-y-1.5">
+                  {/* Read-only view */}
+                  {!isEditing && (
+                    <>
+                      <div className="text-[10px] whitespace-pre-wrap bg-[#fafafa] border-l-2 border-[#6366f1] px-2 py-1.5 italic">
+                        {c.snippet}
+                      </div>
+                      {c.notes && <div className="text-[9px] text-muted"><b>Notes:</b> {c.notes}</div>}
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => startEdit(c)}
+                          disabled={saving}
+                          className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6366f1] text-[#4338ca] rounded cursor-pointer disabled:opacity-50"
+                          title="Edit this citation — change source / query / snippet / notes. Same fields as the Add form."
+                        >✏️ Edit</button>
+                        <button
+                          onClick={() => removeOne(c.id)}
+                          disabled={saving}
+                          className="text-[9px] py-0.5 px-1.5 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
+                        >Remove</button>
+                      </div>
+                    </>
+                  )}
+                  {/* Edit mode — same fields as the add form, save-on-button */}
+                  {isEditing && editDraft && (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-[9px] text-muted w-14">Source</label>
+                        <select
+                          value={editDraft.source}
+                          onChange={e => setEditDraft(d => ({ ...d, source: e.target.value }))}
+                          className="text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+                        >
+                          {CITATION_SOURCES.map(s => (
+                            <option key={s.value} value={s.value}>{s.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-[9px] text-muted w-14">Query <span className="opacity-60">(optional)</span></label>
+                        <input
+                          type="text"
+                          value={editDraft.query}
+                          onChange={e => setEditDraft(d => ({ ...d, query: e.target.value }))}
+                          placeholder='e.g. "what is a perfume bar"'
+                          className="flex-1 text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] text-muted mb-0.5">Snippet (the content to protect)</label>
+                        <textarea
+                          value={editDraft.snippet}
+                          onChange={e => setEditDraft(d => ({ ...d, snippet: e.target.value }))}
+                          rows={4}
+                          placeholder='Paste the AI Overview / ChatGPT / Perplexity answer that quotes this page'
+                          className="w-full text-[10px] border border-[#e5e5e5] rounded p-1 bg-white resize-y font-sans"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] text-muted mb-0.5">Notes <span className="opacity-60">(optional)</span></label>
+                        <input
+                          type="text"
+                          value={editDraft.notes}
+                          onChange={e => setEditDraft(d => ({ ...d, notes: e.target.value }))}
+                          placeholder='e.g. "Captured 2026-05-16, position #1 in AI Overview"'
+                          className="w-full text-[10px] border border-[#e5e5e5] rounded py-0.5 px-1 bg-white"
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-1.5 pt-1 border-t border-[#f0f0f0]">
+                        <button
+                          onClick={cancelEdit}
+                          disabled={saving}
+                          className="text-[9px] py-0.5 px-2 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer disabled:opacity-50"
+                        >Cancel</button>
+                        <button
+                          onClick={saveEdit}
+                          disabled={saving}
+                          className="text-[9px] py-0.5 px-2 bg-[#4338ca] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                        >{saving ? 'Saving…' : 'Save changes'}</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {c.notes && <div className="text-[9px] text-muted"><b>Notes:</b> {c.notes}</div>}
-                <div className="flex items-center justify-end">
-                  <button
-                    onClick={() => removeOne(c.id)}
-                    disabled={saving}
-                    className="text-[9px] py-0.5 px-1.5 bg-white border border-[#c0392b] text-[#c0392b] rounded cursor-pointer disabled:opacity-50"
-                  >Remove</button>
-                </div>
-              </div>
-            </details>
-          ))}
+              </details>
+            )
+          })}
         </div>
       )}
 
