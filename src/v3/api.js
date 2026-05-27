@@ -941,6 +941,25 @@ export const updateLandingVersionBody = (landingPageId, versionId, bodyHtml) =>
     return r.json()
   })
 
+// Idempotently prepend an <h1> matching version.title to body_html.
+// Strips any existing leading H1 (raw or WP block-wrapped) first, so
+// calling twice still produces exactly one H1 at the top. Pass
+// { h1: '...' } in fields to override the H1 text (defaults to
+// version title / page title).
+export const prependLandingVersionH1 = (landingPageId, versionId, fields = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/prepend-h1`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(fields || {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `prependLandingVersionH1 failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Edit a proposal's title / meta description / focus keyword
 // before deploy. Pass any subset of the three; null clears the
 // field. Deploy reads from these columns so edits flow straight

@@ -5592,12 +5592,29 @@ function BulkDeployPanel({ preview, previewError, job, jobError, elapsed, onConf
 // schema regen + deploy read from the saved version.
 function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, pageImages, onSaved }) {
   const [mode, setMode] = useState('preview') // 'preview' | 'html'
+  const [prepH1Busy, setPrepH1Busy] = useState(false)
+  const [prepH1Msg, setPrepH1Msg] = useState(null)
   // Re-mount key forces the underlying editor to discard its local
   // state on mode switch — otherwise unsaved drafts in one mode
   // could leak visually into the other. The actual save target is
   // always the DB so cross-mode leakage would also confuse the
   // operator about what's persisted.
   const editorKey = `${mode}-${currentVersionId}`
+
+  const handlePrependH1 = async () => {
+    if (!landingPageId || !currentVersionId || prepH1Busy) return
+    setPrepH1Busy(true); setPrepH1Msg(null)
+    try {
+      const r = await api.prependLandingVersionH1(landingPageId, currentVersionId)
+      if (typeof onSaved === 'function') onSaved(r.body_html)
+      setPrepH1Msg({ tone: 'ok', text: `✓ H1 set: "${r.h1_text}"` })
+    } catch (e) {
+      setPrepH1Msg({ tone: 'err', text: e?.message || String(e) })
+    } finally {
+      setPrepH1Busy(false)
+    }
+  }
+
   return (
     <div className="border border-[#e5e5e5] rounded">
       <div className="flex items-center gap-2 p-2 bg-[#fafafa] border-b border-[#e5e5e5]">
@@ -5606,6 +5623,17 @@ function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, curr
           Switching modes reloads from the saved version — save your edits first or they'll be discarded.
         </span>
         <span className="flex-1" />
+        <button
+          onClick={handlePrependH1}
+          disabled={prepH1Busy}
+          className="text-[9px] py-1 px-2 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer disabled:opacity-50"
+          title="Idempotently prepend an <h1> matching the page title to the top of body_html. Strips any existing leading <h1> first, so it's safe to click multiple times. Use this on pages generated under the old 'no H1 in body' rule."
+        >{prepH1Busy ? 'Working…' : '📐 Prepend <h1> from title'}</button>
+        {prepH1Msg && (
+          <span className={`text-[9px] ${prepH1Msg.tone === 'ok' ? 'text-[#16a34a]' : 'text-[#dc2626]'}`}>
+            {prepH1Msg.text}
+          </span>
+        )}
         <div className="flex items-center border border-[#e5e5e5] rounded overflow-hidden">
           <button
             onClick={() => setMode('preview')}
