@@ -26,6 +26,20 @@ export default function LandingPages() {
     // to. 'wordpress' (default) keeps existing behavior; 'ecommerce'
     // starts being usable in Phase 4 (Square packets).
     site_platform: 'wordpress',
+    // Phase 3: capability map from the BE renderer dispatcher.
+    // Drives which action surfaces are enabled / disabled
+    // (e.g. 🚀 Deploy hidden on ecommerce tenants until Phase 4).
+    platform_capabilities: {
+      can_deploy: true,
+      can_preview: true,
+      can_import: true,
+      can_bulk_deploy: true,
+      can_validate_live_schema: true,
+      can_write_seo_meta: true,
+      output_shape: 'rest-api',
+      display_name: 'WordPress',
+      emoji: '📝',
+    },
     pages: [],
   })
   // Auto-shows the BackupGuideModal once before the first deploy
@@ -642,13 +656,24 @@ export default function LandingPages() {
             for per-page progress. Use after fan-out + proposal
             iteration is complete and you're ready to ship a whole
             wave of pages at once. */}
-        {state.wp_configured && (
+        {state.wp_configured && state.platform_capabilities?.can_bulk_deploy && (
           <button
             onClick={openBulkDeploy}
             disabled={bulkDeployJob?.status === 'running'}
             className="text-[10px] py-1 px-2 bg-[#c0392b] text-white border-none rounded cursor-pointer flex-shrink-0 whitespace-nowrap disabled:opacity-50"
             title="Deploy every page whose latest done proposal hasn't been pushed to WP yet. Sequential — one page at a time. Each deploy backs up the live page first so rollback stays available. Opens a preview list first; you confirm before anything ships."
           >{bulkDeployJob?.status === 'running' ? `Deploying… ${bulkDeployJob.processed}/${bulkDeployJob.total}` : '🚀 Deploy all ready'}</button>
+        )}
+        {/* Phase 3: when bulk deploy isn't supported (ecommerce
+            tenants), surface a "📦 Generate packets" CTA in its
+            place. Phase 4 wires the actual packet-generation
+            modal; for now it just informs the operator. */}
+        {state.wp_configured && state.platform_capabilities?.output_shape === 'copy-paste-packet' && (
+          <button
+            disabled
+            className="text-[10px] py-1 px-2 bg-[#fef3c7] text-[#92400e] border border-[#d97706]/40 rounded flex-shrink-0 whitespace-nowrap cursor-not-allowed opacity-80"
+            title="Ecommerce tenants use copy-paste packets rather than automated publishing — Phase 4 of the multi-platform rollout ships those packet flows."
+          >📦 Packets (Phase 4)</button>
         )}
         {/* Always-available manual access to the backup guide
             (regardless of acknowledgment). Useful for re-reading
@@ -1020,6 +1045,7 @@ export default function LandingPages() {
               // that's the right tradeoff for cross-page correctness.
               key={active.landing_page_id}
               data={active}
+              platformCapabilities={state.platform_capabilities}
               requireBackupAck={requireBackupAck}
             />
           )}
@@ -1067,7 +1093,7 @@ export default function LandingPages() {
   )
 }
 
-function PageWorkspace({ data, requireBackupAck }) {
+function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
   const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit, recovered_proposal: recoveredProposal, linked_slot: linkedSlot } = data
   // Detect whether the page has real, audit-worthy content yet.
   // Freshly-scaffolded pages (Create WP draft from a Sitemap Wizard
@@ -2104,7 +2130,7 @@ function PageWorkspace({ data, requireBackupAck }) {
           renders when a proposal exists + we have a target
           version id from ProposalDiff (which mirrors humanized
           versions too). */}
-      {proposal && deployVersionId && (
+      {proposal && deployVersionId && platformCapabilities?.can_deploy && (
         <>
           <DeployBlock
             landingPageId={landing_page_id}
@@ -2116,6 +2142,20 @@ function PageWorkspace({ data, requireBackupAck }) {
             Deploy publishes the proposed version to WordPress. The live page is snapshotted as a backup FIRST so rollback is always available.
           </div>
         </>
+      )}
+      {/* Phase 3: ecommerce tenants see a packet-generation
+          placeholder where Deploy would be. Phase 4 fills this in
+          with the actual Square packet UI. */}
+      {proposal && deployVersionId && platformCapabilities?.output_shape === 'copy-paste-packet' && (
+        <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-3 space-y-2">
+          <div className="font-medium text-[11px] text-[#92400e]">📦 Generate {platformCapabilities.display_name || 'Square'} packet</div>
+          <div className="text-[10px] text-[#92400e]">
+            This tenant publishes via copy-paste packets, not automated WP. Phase 4 of the multi-platform rollout adds the packet-generation surface here — a 9-section copy/paste-ready dump (page settings, SEO meta, Open Graph, body content, embed code block with schema, internal links, validation checklist, etc.).
+          </div>
+          <div className="text-[9px] text-[#92400e] italic">
+            For now: PostyPosty's body content for this page is generated and saved. To publish it on {platformCapabilities.display_name || 'Square'}, manually copy the proposal body and meta values into the platform's editor.
+          </div>
+        </div>
       )}
 
     </div>
