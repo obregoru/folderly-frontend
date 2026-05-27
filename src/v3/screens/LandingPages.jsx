@@ -22,6 +22,10 @@ export default function LandingPages() {
     default_post_id: null,
     preview_post_id: null,
     acknowledgments: {},
+    // Phase 1: site_platform is the renderer the tenant dispatches
+    // to. 'wordpress' (default) keeps existing behavior; 'ecommerce'
+    // starts being usable in Phase 4 (Square packets).
+    site_platform: 'wordpress',
     pages: [],
   })
   // Auto-shows the BackupGuideModal once before the first deploy
@@ -578,7 +582,24 @@ export default function LandingPages() {
     <div className="space-y-3">
       <div className="flex items-start gap-3">
         <div className="flex-1">
-          <h2 className="text-[13px] font-semibold">Pages</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-[13px] font-semibold">Pages</h2>
+            {/* Phase 1: platform pill. Read-only for now — Phase 5
+                will add the change-platform UI. Once the tenant
+                switches to ecommerce mode the deploy buttons swap
+                to Square-packet-generation surfaces. */}
+            {state.site_platform === 'ecommerce' ? (
+              <span
+                className="text-[9px] py-0.5 px-1.5 rounded bg-[#fef3c7] text-[#92400e] border border-[#d97706]/40 font-mono"
+                title="This tenant publishes via the Ecommerce renderer (e.g. Square Online). Deploy actions produce copy/paste packets instead of automated WP publishing."
+              >🛒 Ecommerce</span>
+            ) : (
+              <span
+                className="text-[9px] py-0.5 px-1.5 rounded bg-[#e0e7ff] text-[#3730a3] border border-[#6366f1]/40 font-mono"
+                title="This tenant publishes via the WordPress renderer (automated REST + Yoast pipeline)."
+              >📝 WordPress</span>
+            )}
+          </div>
           <div className="text-[10px] text-muted">SEO/marketing manager for your home page and other key pages. Imports from WordPress, audits SEO + AEO + GEO + E-E-A-T + AI-naturalness, proposes improvements with internal-link suggestions, and lets you back up + deploy approved changes.</div>
         </div>
         {/* Cross-page site audit — surfaces orphans, broken links,

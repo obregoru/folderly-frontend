@@ -1985,6 +1985,74 @@ export const applyInternalLinkPlan = (selectedKeys) =>
     return r.json()
   })
 
+// ─── Phase 2 (multi-platform): site audit + strategic sitemap ───
+// Platform-agnostic — works for WordPress + Square + any platform
+// that exposes sitemap.xml. Audit fetches the sitemap and extracts
+// per-URL signals; strategic-sitemap classifies each intent
+// against the audit (enhance / fix / create).
+
+export const runSiteAudit = ({ siteUrl, sitemapUrl } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/site-audit`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ site_url: siteUrl, sitemap_url: sitemapUrl }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `runSiteAudit failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const getSiteAudit = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/site-audit`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getSiteAudit failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const generateStrategicSitemap = ({ brief } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/strategic-sitemap`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ brief }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `generateStrategicSitemap failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+export const getStrategicSitemap = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/strategic-sitemap`, { credentials: 'include' })
+    .then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}))
+        throw new Error(e.error || `getStrategicSitemap failed (${r.status})`)
+      }
+      return r.json()
+    })
+
+export const applyStrategicSitemap = (slots) =>
+  csrfFetch(`${apiBase()}/content/landing/plan/apply-strategic-sitemap`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ slots }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `applyStrategicSitemap failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Bulk deploy: deploy every landing_page whose latest done
 // proposal version hasn't been pushed to WP yet. Sequential on
 // the backend — operator polls via getBulkDeployStatus.

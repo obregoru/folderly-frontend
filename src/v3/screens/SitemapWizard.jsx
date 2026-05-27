@@ -230,6 +230,7 @@ export default function SitemapWizard() {
       <SiteIndexHintEditor />
       <VoiceAnchorsEditor />
       <InternalLinkPlanPanel slots={plan.slots} />
+      <StrategicSitemapPanel onApplied={async () => { await load() }} />
 
       <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 min-w-0">
         {/* Sitemap grid — tier-grouped */}
@@ -280,6 +281,22 @@ export default function SitemapWizard() {
                           >
                             <div className="flex items-center gap-2 w-full min-w-0">
                               <StatusPill status={s.status} />
+                              {/* Phase 2: audit_class badge — only renders
+                                  when the strategic-sitemap generator
+                                  has been run AND classified this slot.
+                                  Legacy slots default to 'create' which
+                                  matches their semantic state. */}
+                              {s.audit_class && s.audit_class !== 'create' && (
+                                <span
+                                  className={`text-[8px] py-0.5 px-1 rounded border font-mono flex-shrink-0 ${
+                                    s.audit_class === 'enhance' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
+                                    : 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40'
+                                  }`}
+                                  title={s.audit_class === 'enhance'
+                                    ? 'Existing page matches this intent — needs SEO upgrades. Click to see audit finding.'
+                                    : 'Existing page matches but has broken/missing meta. Click to see audit finding.'}
+                                >{s.audit_class}</span>
+                              )}
                               <span className="flex-1 min-w-0 truncate font-medium">{s.label}</span>
                               {s.template_kind && (
                                 <span className="text-[8px] text-muted font-mono flex-shrink-0">{s.template_kind}</span>
@@ -1176,6 +1193,267 @@ function VoiceAnchorsEditor() {
 
 // Cross-page internal-link orchestration panel. Single Claude
 // Haiku call across all managed landing pages produces a hub/spoke
+// Phase 2 (multi-platform): site audit + strategic sitemap panel.
+// Three-step workflow:
+//   1. 🔍 Audit site → fetches sitemap.xml + extracts per-page
+//      signals. Works for ANY platform (WordPress, Square Online,
+//      Squarespace, Wix). Result cached on tenants.last_site_audit.
+//   2. 🎯 Generate strategic sitemap → Claude Haiku classifies
+//      each intent in the brief against the audit (enhance / fix /
+//      create). Cached on tenants.last_strategic_sitemap.
+//   3. 📥 Apply to plan → upserts slots into landing_page_plan
+//      with their audit_class + audit_finding. Existing slots get
+//      reclassified; new ones inserted.
+function StrategicSitemapPanel({ onApplied }) {
+  const [audit, setAudit] = useState(null)
+  const [auditGeneratedAt, setAuditGeneratedAt] = useState(null)
+  const [auditBusy, setAuditBusy] = useState(false)
+  const [auditError, setAuditError] = useState(null)
+
+  const [sitemap, setSitemap] = useState(null)
+  const [sitemapGeneratedAt, setSitemapGeneratedAt] = useState(null)
+  const [sitemapBusy, setSitemapBusy] = useState(false)
+  const [sitemapError, setSitemapError] = useState(null)
+
+  const [brief, setBrief] = useState('')
+  const [applying, setApplying] = useState(false)
+  const [applyResult, setApplyResult] = useState(null)
+  const [applyError, setApplyError] = useState(null)
+
+  // Load cached audit + sitemap on mount.
+  useEffect(() => {
+    let cancelled = false
+    api.getSiteAudit().then(r => {
+      if (cancelled) return
+      setAudit(r?.audit || null)
+      setAuditGeneratedAt(r?.generated_at || null)
+    }).catch(() => {})
+    api.getStrategicSitemap().then(r => {
+      if (cancelled) return
+      setSitemap(r?.sitemap || null)
+      setSitemapGeneratedAt(r?.generated_at || null)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const runAudit = async () => {
+    if (auditBusy) return
+    setAuditBusy(true); setAuditError(null)
+    try {
+      const r = await api.runSiteAudit({})
+      setAudit(r?.audit || null)
+      setAuditGeneratedAt(r?.generated_at || null)
+    } catch (e) {
+      setAuditError(e?.message || String(e))
+    } finally {
+      setAuditBusy(false)
+    }
+  }
+
+  const runSitemap = async () => {
+    if (sitemapBusy) return
+    if (!brief.trim()) { setSitemapError('Paste the strategic brief into the textarea first.'); return }
+    setSitemapBusy(true); setSitemapError(null); setApplyResult(null); setApplyError(null)
+    try {
+      const r = await api.generateStrategicSitemap({ brief })
+      setSitemap(r?.sitemap || null)
+      setSitemapGeneratedAt(r?.generated_at || null)
+    } catch (e) {
+      setSitemapError(e?.message || String(e))
+    } finally {
+      setSitemapBusy(false)
+    }
+  }
+
+  const applyToPlan = async () => {
+    if (applying || !sitemap?.slots?.length) return
+    if (!confirm(`Apply ${sitemap.slots.length} slot(s) to the sitemap plan?\n\nUpsert by slot_key — existing slots get reclassified (audit_class + matched_url + priority updated); new slots inserted. Enhance/Fix slots auto-link to imported landing_pages by URL match.\n\nContinue?`)) return
+    setApplying(true); setApplyError(null); setApplyResult(null)
+    try {
+      const r = await api.applyStrategicSitemap(sitemap.slots)
+      setApplyResult(r)
+      if (typeof onApplied === 'function') await onApplied()
+    } catch (e) {
+      setApplyError(e?.message || String(e))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  const auditCounts = (() => {
+    if (!audit) return null
+    const pages = audit.pages || []
+    return {
+      total: pages.length,
+      with_title: pages.filter(p => p.title).length,
+      with_meta: pages.filter(p => p.meta_description).length,
+      with_h1: pages.filter(p => p.h1).length,
+      with_jsonld: pages.filter(p => Array.isArray(p.jsonld) && p.jsonld.length > 0).length,
+      in_nav: pages.filter(p => p.in_main_nav).length,
+      errored: pages.filter(p => p.error).length,
+    }
+  })()
+
+  const slotCounts = (() => {
+    if (!sitemap?.slots) return null
+    return {
+      total: sitemap.slots.length,
+      enhance: sitemap.slots.filter(s => s.audit_class === 'enhance').length,
+      fix: sitemap.slots.filter(s => s.audit_class === 'fix').length,
+      create: sitemap.slots.filter(s => s.audit_class === 'create').length,
+    }
+  })()
+
+  return (
+    <details className="border border-[#2D9A5E]/40 rounded bg-[#f0fdf4]">
+      <summary className="cursor-pointer py-2 px-3 flex items-center gap-2">
+        <span className="text-[11px] font-medium text-[#15803d]">🎯 Strategic sitemap (audit + generate + apply)</span>
+        <span className="text-[9px] text-muted">
+          ({slotCounts ? `${slotCounts.total} slots: ${slotCounts.enhance}E/${slotCounts.fix}F/${slotCounts.create}C` : audit ? `${audit.total_urls} pages audited, no sitemap yet` : 'not run yet'})
+        </span>
+        <span className="text-[9px] text-muted">— platform-agnostic site audit + Claude-driven A/B/C classification</span>
+        <span className="flex-1" />
+      </summary>
+      <div className="p-3 pt-0 space-y-2 text-[10px]">
+        {/* Step 1 — audit */}
+        <div className="bg-white border border-[#2D9A5E]/30 rounded p-2 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-[10px]">Step 1 · 🔍 Site audit</span>
+            <span className="text-[9px] text-muted">Fetches sitemap.xml + per-URL title/meta/H1/H2/JSON-LD. Works on WordPress, Square Online, Squarespace, Wix.</span>
+            <span className="flex-1" />
+            <button
+              onClick={runAudit}
+              disabled={auditBusy}
+              className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            >{auditBusy ? 'Auditing…' : (audit ? '🔁 Re-run audit' : '🔍 Run audit')}</button>
+          </div>
+          {auditError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {auditError}</div>}
+          {audit && auditCounts && (
+            <div className="text-[9px] text-muted">
+              {audit.error
+                ? <span className="text-[#c0392b]">⚠ {audit.error}</span>
+                : <>
+                    Sitemap: <a href={audit.sitemap_url} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline">{audit.sitemap_url}</a>
+                    {' · '}
+                    {auditCounts.total} pages
+                    {auditCounts.errored > 0 && <span className="text-[#c0392b]"> · {auditCounts.errored} errored</span>}
+                    {' · '}
+                    {auditCounts.with_meta}/{auditCounts.total} have meta
+                    {' · '}
+                    {auditCounts.with_h1}/{auditCounts.total} have H1
+                    {' · '}
+                    {auditCounts.with_jsonld}/{auditCounts.total} have JSON-LD
+                    {' · '}
+                    {auditCounts.in_nav} in nav
+                    {auditGeneratedAt && <> · last run {new Date(auditGeneratedAt).toLocaleString()}</>}
+                  </>
+              }
+            </div>
+          )}
+        </div>
+
+        {/* Step 2 — strategic sitemap */}
+        <div className="bg-white border border-[#2D9A5E]/30 rounded p-2 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-[10px]">Step 2 · 🎯 Generate strategic sitemap</span>
+            <span className="text-[9px] text-muted">Claude Haiku classifies each intent in the brief against the audit (enhance / fix / create).</span>
+          </div>
+          <textarea
+            value={brief}
+            onChange={e => setBrief(e.target.value)}
+            placeholder="Paste your strategic brief here (audience, goals, target keywords, locations served, intents). The brief can come from claude.ai's research output or be written manually."
+            rows={6}
+            className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y font-sans"
+          />
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-muted">Brief: {brief.length} chars</span>
+            <span className="flex-1" />
+            <button
+              onClick={runSitemap}
+              disabled={sitemapBusy || !brief.trim()}
+              className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              title={!audit ? 'Recommended to run Site Audit first so existing-page matches are detected. (Will still work without an audit — all slots become "create".)' : 'Generate the strategic sitemap from the brief + audit. Each intent gets classified enhance/fix/create. ~15-30s.'}
+            >{sitemapBusy ? 'Generating…' : (sitemap ? '🔁 Re-generate' : '🎯 Generate strategic sitemap')}</button>
+          </div>
+          {sitemapError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {sitemapError}</div>}
+          {sitemap && (
+            <div className="space-y-1">
+              <div className="text-[9px] text-muted">
+                {slotCounts.total} slots: <span className="text-[#16a34a] font-medium">{slotCounts.enhance} enhance</span> · <span className="text-[#d97706] font-medium">{slotCounts.fix} fix</span> · <span className="text-[#6C5CE7] font-medium">{slotCounts.create} create</span>
+                {sitemapGeneratedAt && <> · generated {new Date(sitemapGeneratedAt).toLocaleString()}</>}
+              </div>
+              {sitemap.summary && <div className="text-[10px] italic text-ink bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">{sitemap.summary}</div>}
+            </div>
+          )}
+        </div>
+
+        {/* Step 3 — apply */}
+        {sitemap?.slots?.length > 0 && (
+          <div className="bg-white border border-[#2D9A5E]/30 rounded p-2 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-[10px]">Step 3 · 📥 Apply to plan</span>
+              <span className="text-[9px] text-muted">Upsert slots into landing_page_plan. Enhance/Fix slots auto-link to imported landing_pages by URL match.</span>
+              <span className="flex-1" />
+              <button
+                onClick={applyToPlan}
+                disabled={applying}
+                className="text-[10px] py-1 px-2 bg-[#15803d] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              >{applying ? 'Applying…' : `📥 Apply ${slotCounts.total} slot${slotCounts.total === 1 ? '' : 's'}`}</button>
+            </div>
+            {applyError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {applyError}</div>}
+            {applyResult && (
+              <div className="text-[10px] text-[#15803d] bg-[#f0fdf4] border border-[#15803d]/30 rounded p-2">
+                ✓ Applied. Inserted {applyResult.inserted} new slot{applyResult.inserted === 1 ? '' : 's'}, updated {applyResult.updated}, linked {applyResult.linked_landing_pages} to existing landing_pages.
+              </div>
+            )}
+
+            {/* Slot preview table */}
+            <div className="bg-[#fafafa] border border-[#e5e5e5] rounded max-h-[400px] overflow-auto">
+              <div className="grid grid-cols-[24px_1fr_120px_60px_60px] gap-1 px-2 py-1 bg-[#fafafa] border-b border-[#e5e5e5] text-[9px] font-medium uppercase tracking-wide text-muted sticky top-0">
+                <span>Tier</span>
+                <span>Label</span>
+                <span>Class</span>
+                <span className="text-right">Pri</span>
+                <span className="text-right">Conf</span>
+              </div>
+              {sitemap.slots.map((s, i) => {
+                const classColor = s.audit_class === 'enhance' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
+                  : s.audit_class === 'fix' ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40'
+                  : 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
+                return (
+                  <details key={i} className="border-b border-[#f0f0f0] last:border-0">
+                    <summary className="grid grid-cols-[24px_1fr_120px_60px_60px] gap-1 px-2 py-1 text-[10px] items-center cursor-pointer hover:bg-[#fafafa]">
+                      <span className="font-mono">T{s.tier}</span>
+                      <span className="truncate">
+                        <span className="font-medium">{s.label}</span>
+                        <div className="text-[8px] text-muted truncate">{s.slot_key} · /{s.target_url_slug}</div>
+                      </span>
+                      <span className={`text-[8px] py-0.5 px-1 rounded border font-mono justify-self-start ${classColor}`}>{s.audit_class}</span>
+                      <span className="text-right text-[9px] font-mono">{s.priority?.toUpperCase()}</span>
+                      <span className="text-right text-[9px] text-muted">{s.match_confidence || '—'}</span>
+                    </summary>
+                    <div className="p-2 space-y-1 bg-white text-[10px]">
+                      <div><b className="text-muted">Why classified:</b> {s.why_classified}</div>
+                      {s.matched_url && <div><b className="text-muted">Matched URL:</b> <a href={s.matched_url} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline break-all">{s.matched_url}</a></div>}
+                      <div><b className="text-muted">Target keywords:</b> {(s.target_keywords || []).join(', ')}</div>
+                      <div><b className="text-muted">Rationale:</b> {s.rationale}</div>
+                      <div><b className="text-muted">Suggested action:</b> {s.suggested_action}</div>
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-muted text-[9px]">Strategy hint ({(s.strategy_hint || '').length} chars)</summary>
+                        <pre className="whitespace-pre-wrap text-[9px] mt-1 p-1.5 bg-[#fafafa] border border-[#e5e5e5] rounded font-sans">{s.strategy_hint}</pre>
+                      </details>
+                    </div>
+                  </details>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </details>
+  )
+}
+
 // link plan; operator picks which edges to merge into each source
 // page's strategy_hint. Result is cached on tenants.last_internal_
 // link_plan so reopening the wizard shows the matrix without
