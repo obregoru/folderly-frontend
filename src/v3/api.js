@@ -941,13 +941,15 @@ export const updateLandingVersionBody = (landingPageId, versionId, bodyHtml) =>
     return r.json()
   })
 
-// Idempotently prepend an <h1> matching version.title to body_html.
-// Strips any existing leading H1 (raw or WP block-wrapped) first, so
-// calling twice still produces exactly one H1 at the top. Pass
-// { h1: '...' } in fields to override the H1 text (defaults to
-// version title / page title).
-export const prependLandingVersionH1 = (landingPageId, versionId, fields = {}) =>
-  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/versions/${versionId}/prepend-h1`, {
+// Idempotently prepend an <h1> matching the page's most-recent
+// version.title to body_html. Page-scoped (not version-scoped) —
+// always targets versions[0] so a reload immediately reflects the
+// edit. Strips any existing leading H1 (raw or WP block-wrapped)
+// first, so calling twice still produces exactly one H1 at the top.
+// Pass { h1: '...' } to override the H1 text (defaults to the
+// most-recent version's title).
+export const prependLandingPageH1 = (landingPageId, fields = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/prepend-h1`, {
     method: 'POST',
     headers: jsonHeaders(),
     credentials: 'include',
@@ -955,7 +957,7 @@ export const prependLandingVersionH1 = (landingPageId, versionId, fields = {}) =
   }).then(async r => {
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))
-      throw new Error(e.error || `prependLandingVersionH1 failed (${r.status})`)
+      throw new Error(e.error || `prependLandingPageH1 failed (${r.status})`)
     }
     return r.json()
   })

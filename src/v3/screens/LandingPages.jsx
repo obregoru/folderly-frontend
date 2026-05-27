@@ -5620,10 +5620,13 @@ function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, curr
   const editorKey = `${mode}-${currentVersionId}`
 
   const handlePrependH1 = async () => {
-    if (!landingPageId || !currentVersionId || prepH1Busy) return
+    if (!landingPageId || prepH1Busy) return
     setPrepH1Busy(true); setPrepH1Msg(null)
     try {
-      const r = await api.prependLandingVersionH1(landingPageId, currentVersionId)
+      // Page-scoped: BE always targets the most-recent version, so
+      // a reload reflects the edit regardless of which version the
+      // editor was pointed at.
+      const r = await api.prependLandingPageH1(landingPageId)
       if (typeof onSaved === 'function') onSaved(r.body_html)
       // Refresh the source-page panels (Heading structure +
       // Body HTML preview). The BE re-parsed headings server-side
