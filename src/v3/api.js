@@ -2072,6 +2072,29 @@ export const classifyExistingSlots = () =>
     return r.json()
   })
 
+// Phase 5 (multi-platform): switch the tenant's site_platform.
+// Body: { site_platform: 'wordpress' | 'ecommerce',
+//         ecommerce_provider?: 'square' (default 'square'),
+//         re_audit?: boolean }
+// Returns the new platform + capabilities + optional re-audit result.
+export const switchTenantPlatform = ({ sitePlatform, ecommerceProvider, reAudit } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/tenant/platform`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({
+      site_platform: sitePlatform,
+      ...(ecommerceProvider ? { ecommerce_provider: ecommerceProvider } : {}),
+      ...(reAudit ? { re_audit: true } : {}),
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `switchTenantPlatform failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Phase 4 (multi-platform): Square packet generator. Computes the
 // 9-section copy-paste packet for a landing page. No persistence —
 // each call re-generates from the latest version + slot.

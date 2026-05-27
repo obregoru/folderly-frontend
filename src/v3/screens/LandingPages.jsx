@@ -47,6 +47,7 @@ export default function LandingPages() {
   // acknowledgments.backup_guide. Manual "📚 Backup guide" button
   // re-opens it any time after acknowledgment.
   const [backupGuideOpen, setBackupGuideOpen] = useState(false)
+  const [platformSwitchOpen, setPlatformSwitchOpen] = useState(false)
   // Set when an operator clicks Deploy without having acknowledged
   // the backup guide. The modal opens, and on dismiss/acknowledge
   // we fire pendingDeployRef.current() to proceed with the deploy.
@@ -598,21 +599,20 @@ export default function LandingPages() {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h2 className="text-[13px] font-semibold">Pages</h2>
-            {/* Phase 1: platform pill. Read-only for now — Phase 5
-                will add the change-platform UI. Once the tenant
-                switches to ecommerce mode the deploy buttons swap
-                to Square-packet-generation surfaces. */}
-            {state.site_platform === 'ecommerce' ? (
-              <span
-                className="text-[9px] py-0.5 px-1.5 rounded bg-[#fef3c7] text-[#92400e] border border-[#d97706]/40 font-mono"
-                title="This tenant publishes via the Ecommerce renderer (e.g. Square Online). Deploy actions produce copy/paste packets instead of automated WP publishing."
-              >🛒 Ecommerce</span>
-            ) : (
-              <span
-                className="text-[9px] py-0.5 px-1.5 rounded bg-[#e0e7ff] text-[#3730a3] border border-[#6366f1]/40 font-mono"
-                title="This tenant publishes via the WordPress renderer (automated REST + Yoast pipeline)."
-              >📝 WordPress</span>
-            )}
+            {/* Phase 5: platform pill is now clickable — opens
+                the change-platform modal. */}
+            <button
+              onClick={() => setPlatformSwitchOpen(true)}
+              className={
+                state.site_platform === 'ecommerce'
+                  ? 'text-[9px] py-0.5 px-1.5 rounded bg-[#fef3c7] text-[#92400e] border border-[#d97706]/40 font-mono cursor-pointer hover:bg-[#fde68a]'
+                  : 'text-[9px] py-0.5 px-1.5 rounded bg-[#e0e7ff] text-[#3730a3] border border-[#6366f1]/40 font-mono cursor-pointer hover:bg-[#c7d2fe]'
+              }
+              title="Click to change publishing platform. Content + sitemap are preserved; the renderer (WordPress automated publish vs Square copy/paste packets) changes. Switch is reversible — pages already published stay live where they were published."
+            >
+              {state.site_platform === 'ecommerce' ? '🛒 Ecommerce' : '📝 WordPress'}
+              <span className="ml-1 opacity-60">⚙</span>
+            </button>
           </div>
           <div className="text-[10px] text-muted">SEO/marketing manager for your home page and other key pages. Imports from WordPress, audits SEO + AEO + GEO + E-E-A-T + AI-naturalness, proposes improvements with internal-link suggestions, and lets you back up + deploy approved changes.</div>
         </div>
@@ -1065,6 +1065,25 @@ export default function LandingPages() {
           isPreDeployGate={!!pendingDeployRef.current}
           onAcknowledge={handleBackupAcknowledge}
           onClose={handleBackupClose}
+        />
+      )}
+
+      {/* Phase 5: platform switch modal. Triggered by clicking
+          the platform pill in the header. Calls the BE endpoint
+          + refreshes the page list so all action surfaces re-render
+          with the new platform's capabilities. */}
+      {platformSwitchOpen && (
+        <PlatformSwitchModal
+          currentPlatform={state.site_platform}
+          targetUrl={state.wp_site_url}
+          onClose={() => setPlatformSwitchOpen(false)}
+          onSwitched={async (result) => {
+            // Re-fetch the full state so platform_capabilities +
+            // every dependent UI element (deploy button, etc.)
+            // re-renders.
+            await reload()
+            setPlatformSwitchOpen(false)
+          }}
         />
       )}
 
@@ -6367,6 +6386,173 @@ function FanOutModal({ data, onClose, onCreated }) {
           {results && (
             <button onClick={onCreated} className="text-[10px] py-1.5 px-3 bg-[#6C5CE7] text-white border-none rounded cursor-pointer">Done</button>
           )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Phase 5: platform-switch modal. Lets the operator change the
+// tenant's site_platform between 'wordpress' and 'ecommerce'.
+// Modal explains what changes (renderer swap, automated WP →
+// copy-paste packets) and what stays (content + sitemap + all
+// WP credentials preserved so switching back is instant).
+// Optional re-audit checkbox runs the site audit + non-destructive
+// slot classifier after the switch (recommended when switching
+// TO ecommerce).
+function PlatformSwitchModal({ currentPlatform, targetUrl, onClose, onSwitched }) {
+  const [target, setTarget] = useState(currentPlatform === 'ecommerce' ? 'wordpress' : 'ecommerce')
+  const [reAudit, setReAudit] = useState(currentPlatform !== 'ecommerce') // default ON when switching to ecommerce
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [result, setResult] = useState(null)
+
+  const switchPlatform = async () => {
+    if (busy) return
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const r = await api.switchTenantPlatform({
+        sitePlatform: target,
+        ecommerceProvider: target === 'ecommerce' ? 'square' : undefined,
+        reAudit,
+      })
+      setResult(r)
+      // Small delay so the operator sees the success state before
+      // the parent reload kicks in.
+      setTimeout(() => onSwitched && onSwitched(r), 800)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const isSamePlatform = target === currentPlatform
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded shadow-lg max-w-lg w-full max-h-[90vh] overflow-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-[#e5e5e5] flex items-center gap-2">
+          <span className="text-[14px] font-semibold">Change publishing platform</span>
+          <span className="flex-1" />
+          <button onClick={onClose} className="text-[12px] text-muted bg-transparent border-none cursor-pointer">✕</button>
+        </div>
+
+        <div className="p-4 space-y-3 text-[11px]">
+          {/* Current state */}
+          <div className="bg-[#fafafa] border border-[#e5e5e5] rounded p-2">
+            <div className="text-[9px] uppercase text-muted font-medium">Current</div>
+            <div className="text-[11px] mt-0.5">
+              {currentPlatform === 'ecommerce'
+                ? <>🛒 <b>Ecommerce</b> — packet output (copy/paste into Square's editor)</>
+                : <>📝 <b>WordPress</b> — automated REST publishing via Yoast/Rank Math/AIOSEO</>
+              }
+            </div>
+          </div>
+
+          {/* Target picker */}
+          <div className="space-y-1.5">
+            <div className="text-[9px] uppercase text-muted font-medium">Switch to</div>
+            <label className={`flex items-start gap-2 border rounded p-2 cursor-pointer ${target === 'wordpress' ? 'border-[#6366f1] bg-[#eef2ff]' : 'border-[#e5e5e5] bg-white'}`}>
+              <input
+                type="radio"
+                checked={target === 'wordpress'}
+                onChange={() => setTarget('wordpress')}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <div className="font-medium">📝 WordPress</div>
+                <div className="text-[10px] text-muted">Automated publish via WP REST + Yoast / Rank Math / AIOSEO meta. The current default for all PostyPosty tenants.</div>
+              </div>
+            </label>
+            <label className={`flex items-start gap-2 border rounded p-2 cursor-pointer ${target === 'ecommerce' ? 'border-[#d97706] bg-[#fff7ed]' : 'border-[#e5e5e5] bg-white'}`}>
+              <input
+                type="radio"
+                checked={target === 'ecommerce'}
+                onChange={() => setTarget('ecommerce')}
+                className="mt-0.5"
+              />
+              <div className="flex-1">
+                <div className="font-medium">🛒 Ecommerce (Square Online)</div>
+                <div className="text-[10px] text-muted">Generates 9-section copy/paste packets — page settings, SEO meta, OG/Twitter, body blocks, embed code (CSS + FAQ HTML + JSON-LD), internal links, validation checklist. Operator pastes into Square's page editor.</div>
+              </div>
+            </label>
+          </div>
+
+          {/* What happens explanation */}
+          <div className="bg-[#eef2ff] border border-[#6366f1]/30 rounded p-2 text-[10px] space-y-1">
+            <div className="font-medium text-[#3730a3]">What changes vs. what stays:</div>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li><b>Stays:</b> all slot data + landing page content + version history + audit history + WordPress credentials (preserved so switching back is instant).</li>
+              <li><b>Changes:</b> the renderer dispatched on deploy. {target === 'ecommerce' ? 'Deploy buttons become 📦 Generate packet surfaces. No automated publish — operator pastes the packet into Square.' : 'Packet surfaces go away — Deploy publishes to WordPress automatically again.'}</li>
+              <li><b>Reversible:</b> click the platform pill again anytime. Pages already published on the prior platform stay live where they were published — switching the renderer doesn't unpublish anything.</li>
+            </ul>
+          </div>
+
+          {/* Re-audit checkbox */}
+          <label className="flex items-start gap-2 cursor-pointer p-2 border border-[#e5e5e5] rounded bg-white">
+            <input
+              type="checkbox"
+              checked={reAudit}
+              onChange={e => setReAudit(e.target.checked)}
+              className="mt-0.5"
+              disabled={!targetUrl}
+            />
+            <div className="flex-1 text-[10px]">
+              <div className="font-medium">🔍 Re-audit my site after switching</div>
+              <div className="text-muted">
+                {targetUrl
+                  ? <>Runs the site audit + classifies existing slots against the live state ({targetUrl}). Recommended {target === 'ecommerce' ? 'when switching TO ecommerce — surfaces what\'s on the Square site.' : 'when switching TO WordPress — refreshes the audit against the live WP state.'}</>
+                  : <>Disabled — set tenant.target_url first.</>
+                }
+              </div>
+            </div>
+          </label>
+
+          {/* Result / error */}
+          {error && (
+            <div className="bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2 text-[10px] text-[#c0392b]">⚠ {error}</div>
+          )}
+          {result && (
+            <div className="bg-[#f0fdf4] border border-[#15803d]/30 rounded p-2 text-[10px] text-[#15803d]">
+              ✓ Switched: {result.previous_platform} → {result.site_platform}.
+              {result.re_audit && !result.re_audit.error && (
+                <> Re-audit found {result.re_audit.audit_url_count || 0} pages
+                {result.re_audit.classified_summary && <>; classified {result.re_audit.classified_summary.enhance + result.re_audit.classified_summary.fix} slot(s) ({result.re_audit.classified_summary.enhance}E / {result.re_audit.classified_summary.fix}F).</>}
+                </>
+              )}
+              {result.re_audit?.error && <span className="text-[#92400e]"> — re-audit issue: {result.re_audit.error}</span>}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-[#e5e5e5] flex items-center gap-2">
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="text-[11px] py-1.5 px-3 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
+          >Cancel</button>
+          <span className="flex-1" />
+          <button
+            onClick={switchPlatform}
+            disabled={busy || isSamePlatform || !!result}
+            className={`text-[11px] py-1.5 px-3 border-none rounded cursor-pointer disabled:opacity-50 ${
+              target === 'ecommerce' ? 'bg-[#d97706] text-white' : 'bg-[#6C5CE7] text-white'
+            }`}
+          >
+            {busy ? 'Switching…'
+              : result ? '✓ Switched'
+              : isSamePlatform ? 'Already on this platform'
+              : `Switch to ${target === 'ecommerce' ? '🛒 Ecommerce' : '📝 WordPress'}`}
+          </button>
         </div>
       </div>
     </div>
