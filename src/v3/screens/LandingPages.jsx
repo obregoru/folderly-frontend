@@ -7261,20 +7261,41 @@ function SquarePacketPanel({ landingPageId, versionId, platformCapabilities }) {
                 const layoutColor = b.heading_level === 'h1'
                   ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/50'
                   : 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
+                // Heading blocks copy as plain text (no formatting
+                // to preserve). Body blocks have two paste modes:
+                // 📝 text (for Square's native Text blocks — Square
+                // doesn't accept HTML in native blocks; pasted <p>
+                // renders as literal text), 🔧 HTML (for Square
+                // Embed Code blocks).
+                const isHeading = b.heading_level === 'h1' || b.heading_level === 'h2' && !b.content_html
+                const textPayload = b.heading_level === 'h1'
+                  ? b.heading
+                  : (b.content_text_rich || b.content_text || '')
+                const htmlPayload = b.heading_level === 'h1'
+                  ? b.content_html
+                  : (b.content_html || '')
                 return (
                   <div key={i} className="border border-[#e5e5e5] bg-white rounded p-1.5 space-y-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-[9px] py-0.5 px-1 rounded border font-mono ${layoutColor}`}>{b.square_layout}</span>
                       {b.heading && <span className="font-medium text-[10px]">{b.heading_level}: {b.heading}</span>}
                       <div className="flex-1" />
                       <button
-                        onClick={() => copyText(b.heading_level === 'h1' ? b.heading : (b.content_html || b.content_text || ''), `${s.id}.block.${i}`)}
-                        className="text-[9px] py-0.5 px-1.5 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer"
-                      >{copiedFlash === `${s.id}.block.${i}` ? '✓' : '📋'}</button>
+                        onClick={() => copyText(textPayload, `${s.id}.block.${i}.text`)}
+                        className="text-[9px] py-0.5 px-1.5 bg-[#d97706] text-white border-none rounded cursor-pointer"
+                        title={b.heading_level === 'h1' ? "Copy heading text → paste into Square's Title 1 block" : "Copy as plain text with formatting cues (**bold**, *italic*, • bullets, 'anchor (url)' for links). Paste into Square's native Text block, then re-apply formatting via the editor toolbar."}
+                      >{copiedFlash === `${s.id}.block.${i}.text` ? '✓ Text' : '📝 Copy text'}</button>
+                      {b.content_html && (
+                        <button
+                          onClick={() => copyText(htmlPayload, `${s.id}.block.${i}.html`)}
+                          className="text-[9px] py-0.5 px-1.5 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer"
+                          title="Copy as raw HTML — paste into a Square Embed Code block (not a native Text block)."
+                        >{copiedFlash === `${s.id}.block.${i}.html` ? '✓ HTML' : '🔧 Copy HTML'}</button>
+                      )}
                     </div>
                     {b.hint && <div className="text-[9px] text-muted italic">{b.hint}</div>}
-                    <pre className="text-[9px] font-sans whitespace-pre-wrap bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-1 max-h-[200px] overflow-auto">
-                      {b.content_text || '(empty)'}
+                    <pre className="text-[9px] font-sans whitespace-pre-wrap bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-1 max-h-[240px] overflow-auto">
+                      {textPayload || '(empty)'}
                     </pre>
                     {b.image_suggestion && <div className="text-[9px] text-muted italic">🖼 {b.image_suggestion}</div>}
                   </div>
