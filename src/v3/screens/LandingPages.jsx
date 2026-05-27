@@ -1113,7 +1113,23 @@ export default function LandingPages() {
 }
 
 function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
-  const { page, capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit, recovered_proposal: recoveredProposal, linked_slot: linkedSlot } = data
+  const { capabilities = {}, history = [], landing_page_id, strategy_hint: initialHint, ai_citations: initialCitations, recovered_audit: recoveredAudit, recovered_proposal: recoveredProposal, linked_slot: linkedSlot } = data
+  // page is mirrored to local state so children that mutate the
+  // version body (prepend-h1, future surgical edits) can refresh
+  // the source-page panels (Heading structure, Body HTML preview,
+  // links / images stats) without a full page refetch. Re-syncs
+  // whenever the parent passes a new data.page (page switch or
+  // explicit reload).
+  const [page, setPage] = useState(data.page || {})
+  useEffect(() => { setPage(data.page || {}) }, [data.page, landing_page_id])
+  // Patch callback handed down through ProposalDiff → BodyEditor.
+  // Accepts a partial like { body_html, headings, links, images } and
+  // merges into local page state. Children call this after a body
+  // mutation succeeds + the BE returns the re-parsed meta.
+  const patchSourcePage = (patch) => {
+    if (!patch || typeof patch !== 'object') return
+    setPage(prev => ({ ...prev, ...patch }))
+  }
   // Detect whether the page has real, audit-worthy content yet.
   // Freshly-scaffolded pages (Create WP draft from a Sitemap Wizard
   // slot) have only an imported placeholder version (~250 chars).
@@ -2084,6 +2100,7 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
             pageImages={pageImages}
             requireBackupAck={requireBackupAck}
             onVersionChange={setDeployVersionId}
+            onSourcePatch={patchSourcePage}
             onCheckResult={({ ai_detection, voice_check }) => {
               // Lift in-session check results up so the WorkflowWizard
               // immediately reflects scores without waiting for a page
@@ -2550,7 +2567,7 @@ function PageGapAnalysisPanel({ landingPageId, pageDetail, onHintApplied }) {
   )
 }
 
-function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onReplace, requireBackupAck, onCheckResult, onVersionChange }) {
+function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onReplace, requireBackupAck, onCheckResult, onVersionChange, onSourcePatch }) {
   // ZeroGPT + humanize state — lives here so re-generating the
   // proposal naturally resets both. `aiResult` tracks the latest
   // detect-ai call: { score, flagged_sentences, detected_at }.
@@ -3079,6 +3096,7 @@ function ProposalDiff({ proposal, sourcePage, landingPageId, pageImages, onRepla
         isHumanized={currentVersionId !== proposal?.version_id}
         pageImages={pageImages}
         onSaved={(newHtml) => setCurrentBodyHtml(newHtml)}
+        onSourcePatch={onSourcePatch}
       />
 
       {/* Schema.org — Phase 6. Generates JSON-LD blocks tailored
@@ -5590,7 +5608,7 @@ function BulkDeployPanel({ preview, previewError, job, jobError, elapsed, onConf
 // the current saved body — so unsaved local edits are lost on
 // switch (warning surfaced in UI). Save commits to DB; both
 // schema regen + deploy read from the saved version.
-function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, pageImages, onSaved }) {
+function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, pageImages, onSaved, onSourcePatch }) {
   const [mode, setMode] = useState('preview') // 'preview' | 'html'
   const [prepH1Busy, setPrepH1Busy] = useState(false)
   const [prepH1Msg, setPrepH1Msg] = useState(null)
@@ -5607,6 +5625,17 @@ function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, curr
     try {
       const r = await api.prependLandingVersionH1(landingPageId, currentVersionId)
       if (typeof onSaved === 'function') onSaved(r.body_html)
+      // Refresh the source-page panels (Heading structure +
+      // Body HTML preview). The BE re-parsed headings server-side
+      // and returned them on the response; merge into PageWorkspace
+      // page state so the new H1 shows up immediately without a
+      // full page reload.
+      if (typeof onSourcePatch === 'function') {
+        onSourcePatch({
+          body_html: r.body_html,
+          headings: Array.isArray(r.headings) ? r.headings : undefined,
+        })
+      }
       setPrepH1Msg({ tone: 'ok', text: `✓ H1 set: "${r.h1_text}"` })
     } catch (e) {
       setPrepH1Msg({ tone: 'err', text: e?.message || String(e) })
