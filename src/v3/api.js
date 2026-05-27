@@ -2053,6 +2053,25 @@ export const applyStrategicSitemap = (slots) =>
     return r.json()
   })
 
+// Non-destructive: classifies EXISTING slots against the cached
+// audit (URL match + meta-broken heuristic). Only updates audit_*
+// columns — slot content (label, hint, etc.) untouched. No Claude
+// involved. Use this when you already have a working sitemap and
+// just want audit awareness layered on.
+export const classifyExistingSlots = () =>
+  csrfFetch(`${apiBase()}/content/landing/plan/classify-existing-slots`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `classifyExistingSlots failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Bulk deploy: deploy every landing_page whose latest done
 // proposal version hasn't been pushed to WP yet. Sequential on
 // the backend — operator polls via getBulkDeployStatus.

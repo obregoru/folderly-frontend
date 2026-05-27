@@ -1210,6 +1210,12 @@ function StrategicSitemapPanel({ onApplied }) {
   const [auditBusy, setAuditBusy] = useState(false)
   const [auditError, setAuditError] = useState(null)
 
+  // Non-destructive "classify existing slots" state. This is the
+  // primary path for tenants who already have a working sitemap.
+  const [classifyBusy, setClassifyBusy] = useState(false)
+  const [classifyError, setClassifyError] = useState(null)
+  const [classifyResult, setClassifyResult] = useState(null)
+
   const [sitemap, setSitemap] = useState(null)
   const [sitemapGeneratedAt, setSitemapGeneratedAt] = useState(null)
   const [sitemapBusy, setSitemapBusy] = useState(false)
@@ -1235,6 +1241,27 @@ function StrategicSitemapPanel({ onApplied }) {
     }).catch(() => {})
     return () => { cancelled = true }
   }, [])
+
+  // Non-destructive classification of existing slots against the
+  // cached audit. Only updates audit_class / matched_url /
+  // audit_priority / audit_finding — slot content untouched.
+  const runClassifyExisting = async () => {
+    if (classifyBusy) return
+    if (!audit || audit.total_urls === 0) {
+      setClassifyError('Run the site audit first — classification needs the cached audit to match URLs against.')
+      return
+    }
+    setClassifyBusy(true); setClassifyError(null); setClassifyResult(null)
+    try {
+      const r = await api.classifyExistingSlots()
+      setClassifyResult(r)
+      if (typeof onApplied === 'function') await onApplied()
+    } catch (e) {
+      setClassifyError(e?.message || String(e))
+    } finally {
+      setClassifyBusy(false)
+    }
+  }
 
   const runAudit = async () => {
     if (auditBusy) return
@@ -1352,77 +1379,139 @@ function StrategicSitemapPanel({ onApplied }) {
           )}
         </div>
 
-        {/* Step 2 — strategic sitemap */}
+        {/* Step 2 — primary, non-destructive: classify existing slots */}
         <div className="bg-white border border-[#2D9A5E]/30 rounded p-2 space-y-1.5">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-[10px]">Step 2 · 🎯 Generate strategic sitemap</span>
-            <span className="text-[9px] text-muted">Claude Haiku classifies each intent in the brief against the audit (enhance / fix / create).</span>
-          </div>
-          <textarea
-            value={brief}
-            onChange={e => setBrief(e.target.value)}
-            placeholder="Paste your strategic brief here (audience, goals, target keywords, locations served, intents). The brief can come from claude.ai's research output or be written manually."
-            rows={6}
-            className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y font-sans"
-          />
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] text-muted">Brief: {brief.length} chars</span>
+            <span className="font-medium text-[10px]">Step 2 · 🎯 Classify existing slots</span>
+            <span className="text-[9px] text-muted">Match every existing slot to its audited URL + set audit_class (enhance / fix / create). Non-destructive — no slot content overwrites, no Claude.</span>
             <span className="flex-1" />
             <button
-              onClick={runSitemap}
-              disabled={sitemapBusy || !brief.trim()}
+              onClick={runClassifyExisting}
+              disabled={classifyBusy || !audit}
               className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
-              title={!audit ? 'Recommended to run Site Audit first so existing-page matches are detected. (Will still work without an audit — all slots become "create".)' : 'Generate the strategic sitemap from the brief + audit. Each intent gets classified enhance/fix/create. ~15-30s.'}
-            >{sitemapBusy ? 'Generating…' : (sitemap ? '🔁 Re-generate' : '🎯 Generate strategic sitemap')}</button>
+              title={!audit ? 'Run the audit first so we have URLs to match against.' : 'Match each existing slot (by its linked landing_page URL) to the audited page. Classify as enhance (page exists + meta OK), fix (page exists + meta broken), or create (no match). Updates only audit_class + matched_url + audit_priority + audit_finding — slot content stays as-is.'}
+            >{classifyBusy ? 'Classifying…' : '🎯 Classify existing slots'}</button>
           </div>
-          {sitemapError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {sitemapError}</div>}
-          {sitemap && (
+          {classifyError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {classifyError}</div>}
+          {classifyResult && (
             <div className="space-y-1">
-              <div className="text-[9px] text-muted">
-                {slotCounts.total} slots: <span className="text-[#16a34a] font-medium">{slotCounts.enhance} enhance</span> · <span className="text-[#d97706] font-medium">{slotCounts.fix} fix</span> · <span className="text-[#6C5CE7] font-medium">{slotCounts.create} create</span>
-                {sitemapGeneratedAt && <> · generated {new Date(sitemapGeneratedAt).toLocaleString()}</>}
+              <div className="text-[10px] text-[#15803d] bg-[#f0fdf4] border border-[#15803d]/30 rounded p-2">
+                ✓ Classified {classifyResult.summary.total} slot{classifyResult.summary.total === 1 ? '' : 's'}: <span className="text-[#16a34a] font-medium">{classifyResult.summary.enhance} enhance</span> · <span className="text-[#d97706] font-medium">{classifyResult.summary.fix} fix</span> · <span className="text-[#6C5CE7] font-medium">{classifyResult.summary.create} create</span>
+                {classifyResult.summary.linked_but_unmatched > 0 && (
+                  <> · <span className="text-muted">{classifyResult.summary.linked_but_unmatched} linked but unmatched (page in DB, not in sitemap.xml)</span></>
+                )}
+                {classifyResult.touched > 0 && <> · updated {classifyResult.touched}, {classifyResult.unchanged} already-current</>}
               </div>
-              {sitemap.summary && <div className="text-[10px] italic text-ink bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">{sitemap.summary}</div>}
+              {/* Per-slot finding preview, collapsed */}
+              <details>
+                <summary className="cursor-pointer text-[10px] text-muted underline">Show per-slot details ({classifyResult.classifications.length})</summary>
+                <div className="bg-[#fafafa] border border-[#e5e5e5] rounded mt-1 max-h-[300px] overflow-auto">
+                  {classifyResult.classifications.map((c, i) => {
+                    const classColor = c.audit_class === 'enhance' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
+                      : c.audit_class === 'fix' ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40'
+                      : 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
+                    return (
+                      <div key={i} className="px-2 py-1.5 border-b border-[#f0f0f0] last:border-0 text-[10px]">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[8px] py-0.5 px-1 rounded border font-mono ${classColor}`}>{c.audit_class}</span>
+                          <span className="font-mono text-[9px] text-muted">{c.slot_key}</span>
+                          {c.matched_url && (
+                            <a href={c.matched_url} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline truncate">{c.matched_url}</a>
+                          )}
+                          {c.audit_priority && <span className="text-[9px] font-mono">{c.audit_priority.toUpperCase()}</span>}
+                          {!c.changed && <span className="text-[9px] text-muted">(no change)</span>}
+                        </div>
+                        {c.audit_finding?.broken_reasons?.length > 0 && (
+                          <div className="text-[9px] text-[#92400e] mt-0.5">Broken: {c.audit_finding.broken_reasons.join('; ')}</div>
+                        )}
+                        {c.audit_finding?.skipped_reason && (
+                          <div className="text-[9px] text-muted italic mt-0.5">{c.audit_finding.skipped_reason}</div>
+                        )}
+                        {c.audit_finding?.suggested_action && c.changed && (
+                          <div className="text-[9px] text-muted mt-0.5">→ {c.audit_finding.suggested_action}</div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </details>
             </div>
           )}
         </div>
 
-        {/* Step 3 — apply */}
-        {sitemap?.slots?.length > 0 && (
-          <div className="bg-white border border-[#2D9A5E]/30 rounded p-2 space-y-1.5">
+        {/* Step 3 — advanced/optional: generate full sitemap from brief.
+            For new tenants (no existing slots) OR when an operator
+            wants to regenerate from scratch. Hidden by default since
+            it can overwrite operator-edited slot content. */}
+        <details className="bg-white border border-[#e5e5e5] rounded">
+          <summary className="cursor-pointer py-1.5 px-2 text-[10px] flex items-center gap-2">
+            <span className="font-medium">🆕 Advanced · Generate full sitemap from a brief (Claude)</span>
+            <span className="text-[9px] text-muted">For NEW tenants or full re-generation. Overwrites slot content for matching slot_keys — use with caution.</span>
+          </summary>
+          <div className="p-2 space-y-1.5">
+            <textarea
+              value={brief}
+              onChange={e => setBrief(e.target.value)}
+              placeholder="Paste your strategic brief here (audience, goals, target keywords, locations served, intents). The brief can come from claude.ai's research output or be written manually."
+              rows={6}
+              className="w-full text-[10px] border border-[#e5e5e5] rounded p-1.5 bg-white resize-y font-sans"
+            />
             <div className="flex items-center gap-2">
-              <span className="font-medium text-[10px]">Step 3 · 📥 Apply to plan</span>
-              <span className="text-[9px] text-muted">Upsert slots into landing_page_plan. Enhance/Fix slots auto-link to imported landing_pages by URL match.</span>
+              <span className="text-[9px] text-muted">Brief: {brief.length} chars</span>
               <span className="flex-1" />
               <button
-                onClick={applyToPlan}
-                disabled={applying}
-                className="text-[10px] py-1 px-2 bg-[#15803d] text-white border-none rounded cursor-pointer disabled:opacity-50"
-              >{applying ? 'Applying…' : `📥 Apply ${slotCounts.total} slot${slotCounts.total === 1 ? '' : 's'}`}</button>
+                onClick={runSitemap}
+                disabled={sitemapBusy || !brief.trim()}
+                className="text-[10px] py-1 px-2 bg-[#2D9A5E] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                title={!audit ? 'Recommended to run Site Audit first so existing-page matches are detected.' : 'Generate full strategic sitemap from the brief + audit. Each intent gets classified enhance/fix/create. ~15-30s.'}
+              >{sitemapBusy ? 'Generating…' : (sitemap ? '🔁 Re-generate' : '🆕 Generate from brief')}</button>
             </div>
-            {applyError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {applyError}</div>}
-            {applyResult && (
-              <div className="text-[10px] text-[#15803d] bg-[#f0fdf4] border border-[#15803d]/30 rounded p-2">
-                ✓ Applied. Inserted {applyResult.inserted} new slot{applyResult.inserted === 1 ? '' : 's'}, updated {applyResult.updated}, linked {applyResult.linked_landing_pages} to existing landing_pages.
+            {sitemapError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {sitemapError}</div>}
+            {sitemap && (
+              <div className="space-y-1">
+                <div className="text-[9px] text-muted">
+                  {slotCounts.total} slots: <span className="text-[#16a34a] font-medium">{slotCounts.enhance} enhance</span> · <span className="text-[#d97706] font-medium">{slotCounts.fix} fix</span> · <span className="text-[#6C5CE7] font-medium">{slotCounts.create} create</span>
+                  {sitemapGeneratedAt && <> · generated {new Date(sitemapGeneratedAt).toLocaleString()}</>}
+                </div>
+                {sitemap.summary && <div className="text-[10px] italic text-ink bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5">{sitemap.summary}</div>}
               </div>
             )}
 
-            {/* Slot preview table */}
-            <div className="bg-[#fafafa] border border-[#e5e5e5] rounded max-h-[400px] overflow-auto">
-              <div className="grid grid-cols-[24px_1fr_120px_60px_60px] gap-1 px-2 py-1 bg-[#fafafa] border-b border-[#e5e5e5] text-[9px] font-medium uppercase tracking-wide text-muted sticky top-0">
-                <span>Tier</span>
-                <span>Label</span>
-                <span>Class</span>
-                <span className="text-right">Pri</span>
-                <span className="text-right">Conf</span>
+            {sitemap?.slots?.length > 0 && (
+              <div className="space-y-1 pt-1 border-t border-[#e5e5e5]">
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-muted font-medium">⚠ Applies generated content over existing slots with the same slot_key (label, hint, tier, keywords all get replaced).</span>
+                  <span className="flex-1" />
+                  <button
+                    onClick={applyToPlan}
+                    disabled={applying}
+                    className="text-[10px] py-1 px-2 bg-[#c0392b] text-white border-none rounded cursor-pointer disabled:opacity-50"
+                  >{applying ? 'Applying…' : `📥 Apply ${slotCounts.total} (overwrites)`}</button>
+                </div>
+                {applyError && <div className="text-[10px] text-[#c0392b] bg-[#fef2f2] border border-[#c0392b]/30 rounded p-2">⚠ {applyError}</div>}
+                {applyResult && (
+                  <div className="text-[10px] text-[#15803d] bg-[#f0fdf4] border border-[#15803d]/30 rounded p-2">
+                    ✓ Applied. Inserted {applyResult.inserted} new slot{applyResult.inserted === 1 ? '' : 's'}, updated {applyResult.updated}, linked {applyResult.linked_landing_pages} to existing landing_pages.
+                  </div>
+                )}
               </div>
-              {sitemap.slots.map((s, i) => {
-                const classColor = s.audit_class === 'enhance' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
-                  : s.audit_class === 'fix' ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40'
-                  : 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
-                return (
-                  <details key={i} className="border-b border-[#f0f0f0] last:border-0">
-                    <summary className="grid grid-cols-[24px_1fr_120px_60px_60px] gap-1 px-2 py-1 text-[10px] items-center cursor-pointer hover:bg-[#fafafa]">
+            )}
+
+            {sitemap?.slots?.length > 0 && (
+              <div className="bg-[#fafafa] border border-[#e5e5e5] rounded max-h-[300px] overflow-auto">
+                <div className="grid grid-cols-[24px_1fr_120px_60px_60px] gap-1 px-2 py-1 bg-[#fafafa] border-b border-[#e5e5e5] text-[9px] font-medium uppercase tracking-wide text-muted sticky top-0">
+                  <span>Tier</span>
+                  <span>Label</span>
+                  <span>Class</span>
+                  <span className="text-right">Pri</span>
+                  <span className="text-right">Conf</span>
+                </div>
+                {sitemap.slots.map((s, i) => {
+                  const classColor = s.audit_class === 'enhance' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
+                    : s.audit_class === 'fix' ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40'
+                    : 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
+                  return (
+                    <div key={i} className="grid grid-cols-[24px_1fr_120px_60px_60px] gap-1 px-2 py-1 border-b border-[#f0f0f0] last:border-0 text-[10px] items-center">
                       <span className="font-mono">T{s.tier}</span>
                       <span className="truncate">
                         <span className="font-medium">{s.label}</span>
@@ -1431,24 +1520,14 @@ function StrategicSitemapPanel({ onApplied }) {
                       <span className={`text-[8px] py-0.5 px-1 rounded border font-mono justify-self-start ${classColor}`}>{s.audit_class}</span>
                       <span className="text-right text-[9px] font-mono">{s.priority?.toUpperCase()}</span>
                       <span className="text-right text-[9px] text-muted">{s.match_confidence || '—'}</span>
-                    </summary>
-                    <div className="p-2 space-y-1 bg-white text-[10px]">
-                      <div><b className="text-muted">Why classified:</b> {s.why_classified}</div>
-                      {s.matched_url && <div><b className="text-muted">Matched URL:</b> <a href={s.matched_url} target="_blank" rel="noopener noreferrer" className="text-[#6C5CE7] underline break-all">{s.matched_url}</a></div>}
-                      <div><b className="text-muted">Target keywords:</b> {(s.target_keywords || []).join(', ')}</div>
-                      <div><b className="text-muted">Rationale:</b> {s.rationale}</div>
-                      <div><b className="text-muted">Suggested action:</b> {s.suggested_action}</div>
-                      <details className="mt-1">
-                        <summary className="cursor-pointer text-muted text-[9px]">Strategy hint ({(s.strategy_hint || '').length} chars)</summary>
-                        <pre className="whitespace-pre-wrap text-[9px] mt-1 p-1.5 bg-[#fafafa] border border-[#e5e5e5] rounded font-sans">{s.strategy_hint}</pre>
-                      </details>
                     </div>
-                  </details>
-                )
-              })}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
+        </details>
+
       </div>
     </details>
   )
