@@ -2072,6 +2072,28 @@ export const classifyExistingSlots = () =>
     return r.json()
   })
 
+// Phase 4 (multi-platform): Square packet generator. Computes the
+// 9-section copy-paste packet for a landing page. No persistence —
+// each call re-generates from the latest version + slot.
+//
+// Body params (optional): version_id, audit_class.
+export const generateSquarePacket = (landingPageId, { versionId, auditClass } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/${encodeURIComponent(landingPageId)}/square-packet`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({
+      ...(versionId ? { version_id: versionId } : {}),
+      ...(auditClass ? { audit_class: auditClass } : {}),
+    }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `generateSquarePacket failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Bulk deploy: deploy every landing_page whose latest done
 // proposal version hasn't been pushed to WP yet. Sequential on
 // the backend — operator polls via getBulkDeployStatus.

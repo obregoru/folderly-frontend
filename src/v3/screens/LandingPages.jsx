@@ -2143,19 +2143,15 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
           </div>
         </>
       )}
-      {/* Phase 3: ecommerce tenants see a packet-generation
-          placeholder where Deploy would be. Phase 4 fills this in
-          with the actual Square packet UI. */}
+      {/* Phase 4: ecommerce tenants see the Square packet
+          generator + copy-paste UI in place of the WP Deploy
+          panel. */}
       {proposal && deployVersionId && platformCapabilities?.output_shape === 'copy-paste-packet' && (
-        <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-3 space-y-2">
-          <div className="font-medium text-[11px] text-[#92400e]">📦 Generate {platformCapabilities.display_name || 'Square'} packet</div>
-          <div className="text-[10px] text-[#92400e]">
-            This tenant publishes via copy-paste packets, not automated WP. Phase 4 of the multi-platform rollout adds the packet-generation surface here — a 9-section copy/paste-ready dump (page settings, SEO meta, Open Graph, body content, embed code block with schema, internal links, validation checklist, etc.).
-          </div>
-          <div className="text-[9px] text-[#92400e] italic">
-            For now: PostyPosty's body content for this page is generated and saved. To publish it on {platformCapabilities.display_name || 'Square'}, manually copy the proposal body and meta values into the platform's editor.
-          </div>
-        </div>
+        <SquarePacketPanel
+          landingPageId={landing_page_id}
+          versionId={deployVersionId}
+          platformCapabilities={platformCapabilities}
+        />
       )}
 
     </div>
@@ -6852,6 +6848,310 @@ function PreDeployChecklist({ landingPageId, versionId, proposal, pageImages, li
         })}
       </div>
     </details>
+  )
+}
+
+// Phase 4 (multi-platform): Square packet panel. Replaces the
+// WordPress Deploy block on ecommerce tenants. Generates the
+// 9-section copy/paste packet via the BE, renders each section
+// as a collapsible card with per-field + per-section + whole-
+// packet copy buttons, character-count badges with traffic-light
+// tone, schema-type badges, and an interactive validation
+// checklist with session-local state.
+function SquarePacketPanel({ landingPageId, versionId, platformCapabilities }) {
+  const [packet, setPacket] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [generatedAt, setGeneratedAt] = useState(null)
+  // Per-check completion state for the validation checklist.
+  // Session-local — no server-side persistence (packets are
+  // ephemeral; operator typically works through the checklist in
+  // one sitting).
+  const [validationDone, setValidationDone] = useState({})
+  const [copiedFlash, setCopiedFlash] = useState(null) // key of last-copied element
+
+  const generate = async () => {
+    if (busy) return
+    setBusy(true); setError(null)
+    try {
+      const r = await api.generateSquarePacket(landingPageId, { versionId })
+      setPacket(r?.packet || null)
+      setGeneratedAt(r?.generated_at || null)
+      setValidationDone({})
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const flashCopied = (key) => {
+    setCopiedFlash(key)
+    setTimeout(() => setCopiedFlash(prev => prev === key ? null : prev), 1500)
+  }
+  const copyText = async (text, key) => {
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      flashCopied(key)
+    } catch (e) {
+      // Clipboard API can fail on insecure contexts; fall back to
+      // the legacy textarea trick so the operator isn't blocked.
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy'); flashCopied(key) } catch { /* swallow */ }
+      document.body.removeChild(ta)
+    }
+  }
+
+  // Copy the whole packet as one big formatted text dump. Useful
+  // for archiving alongside the project record.
+  const copyEntirePacket = async () => {
+    if (!packet) return
+    const lines = []
+    lines.push(`# PostyPosty Square Packet`)
+    lines.push(`Generated: ${packet.meta.generated_at}`)
+    lines.push(`Page: ${packet.meta.page_label} (${packet.meta.page_url || '—'})`)
+    lines.push(`Version: v#${packet.meta.version_id} (${packet.meta.version_kind})`)
+    lines.push(`Audit class: ${packet.meta.audit_class}`)
+    lines.push('')
+    for (const key of packet.section_keys) {
+      const s = packet.sections[key]
+      if (!s) continue
+      lines.push(`## ${s.title}`)
+      lines.push(s.description || '')
+      lines.push('')
+      if (s.fields) {
+        for (const f of s.fields) {
+          lines.push(`### ${f.label}${f.internal ? ' (internal)' : ''}`)
+          lines.push(f.value || '(empty)')
+          if (f.char_count) lines.push(`  [${f.char_count.count} chars · ${f.char_count.hint}]`)
+          lines.push('')
+        }
+      }
+      if (s.blocks) {
+        s.blocks.forEach((b, i) => {
+          lines.push(`### Block ${i + 1} — ${b.square_layout}${b.heading ? `: ${b.heading}` : ''}`)
+          lines.push(b.content_text || b.content_html || '(empty)')
+          if (b.image_suggestion) lines.push(`[img] ${b.image_suggestion}`)
+          lines.push('')
+        })
+      }
+      if (s.code) {
+        lines.push('```html')
+        lines.push(s.code)
+        lines.push('```')
+        lines.push('')
+      }
+      if (s.links) {
+        for (const l of s.links) {
+          lines.push(`- "${l.anchor}" → ${l.target}${l.placement ? ` (${l.placement})` : ''}`)
+        }
+        if (s.note) lines.push(`Note: ${s.note}`)
+        lines.push('')
+      }
+      if (s.checks) {
+        for (const c of s.checks) {
+          lines.push(`- [ ] ${c.label}`)
+          if (c.hint) lines.push(`    ${c.hint}`)
+        }
+        lines.push('')
+      }
+    }
+    await copyText(lines.join('\n'), 'entire-packet')
+  }
+
+  if (!packet) {
+    return (
+      <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-3 space-y-2">
+        <div className="font-medium text-[11px] text-[#92400e]">📦 Generate {platformCapabilities?.display_name || 'Square'} packet</div>
+        <div className="text-[10px] text-[#92400e]">
+          This tenant publishes via copy-paste packets, not automated WP. Click below to generate the 9-section packet — operator pastes each section into Square Online's page editor.
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={generate}
+            disabled={busy}
+            className="text-[10px] py-1 px-3 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          >{busy ? 'Generating…' : '📦 Generate packet'}</button>
+          {error && <span className="text-[10px] text-[#c0392b]">⚠ {error}</span>}
+        </div>
+      </div>
+    )
+  }
+
+  const variantLabel = packet.variant === 'enhance' ? '✨ Enhance (existing page improvements)'
+    : packet.variant === 'fix' ? '🔧 Fix (surgical meta repair)'
+    : '🆕 Create (new page)'
+  const variantTone = packet.variant === 'enhance' ? 'bg-[#dcfce7] text-[#15803d] border-[#16a34a]/40'
+    : packet.variant === 'fix' ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40'
+    : 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
+
+  return (
+    <div className="bg-white border border-[#d97706]/40 rounded p-3 space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-medium text-[11px] text-[#92400e]">📦 Square packet</span>
+        <span className={`text-[9px] py-0.5 px-1.5 rounded border font-mono ${variantTone}`}>{variantLabel}</span>
+        <span className="text-[9px] text-muted">{Object.keys(packet.sections).length} sections · generated {generatedAt ? new Date(generatedAt).toLocaleString() : 'just now'}</span>
+        <div className="flex-1" />
+        <button
+          onClick={copyEntirePacket}
+          className="text-[10px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer"
+          title="Copy the entire packet as a single formatted text dump (good for archiving)"
+        >{copiedFlash === 'entire-packet' ? '✓ Copied' : '📋 Copy entire packet'}</button>
+        <button
+          onClick={generate}
+          disabled={busy}
+          className="text-[10px] py-1 px-2 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer disabled:opacity-50"
+        >{busy ? '…' : '🔁 Re-generate'}</button>
+      </div>
+
+      {packet.section_keys.map(key => {
+        const s = packet.sections[key]
+        if (!s) return null
+        return (
+          <details key={key} className="bg-[#fafafa] border border-[#e5e5e5] rounded" open={key === 'seo' || key === 'embed_code'}>
+            <summary className="cursor-pointer py-1.5 px-2 text-[11px] font-medium flex items-center gap-2">
+              <span>{s.title}</span>
+              {s.has_visible_faq && <span className="text-[8px] py-0.5 px-1 rounded bg-[#dcfce7] text-[#15803d] border border-[#16a34a]/40 font-mono">+ visible FAQ</span>}
+              {Array.isArray(s.schema_types_included) && s.schema_types_included.length > 0 && (
+                <span className="text-[8px] py-0.5 px-1 rounded bg-[#eef2ff] text-[#4338ca] border border-[#6366f1]/40 font-mono">
+                  {s.schema_types_included.join(', ')}
+                </span>
+              )}
+              {s.fields && <span className="text-[9px] text-muted">({s.fields.length} field{s.fields.length === 1 ? '' : 's'})</span>}
+              {s.blocks && <span className="text-[9px] text-muted">({s.blocks.length} block{s.blocks.length === 1 ? '' : 's'})</span>}
+              {s.links && <span className="text-[9px] text-muted">({s.links.length} link{s.links.length === 1 ? '' : 's'})</span>}
+              {s.checks && <span className="text-[9px] text-muted">({Object.values(validationDone).filter(Boolean).length}/{s.checks.length} done)</span>}
+            </summary>
+            <div className="p-2 space-y-2 text-[10px]">
+              {s.description && <div className="text-[9px] text-muted">{s.description}</div>}
+
+              {/* Fields rendering (Sections 1, 2, 3, 9) */}
+              {s.fields && s.fields.map(f => {
+                const toneCls = f.char_count?.tone === 'green' ? 'border-[#16a34a]/50 bg-[#f0fdf4]'
+                  : f.char_count?.tone === 'yellow' ? 'border-[#d97706]/50 bg-[#fff7ed]'
+                  : f.char_count?.tone === 'red' ? 'border-[#c0392b]/50 bg-[#fef2f2]'
+                  : 'border-[#e5e5e5] bg-white'
+                const fieldKey = `${s.id}.${f.key}`
+                return (
+                  <div key={f.key} className={`border ${toneCls} rounded p-1.5`}>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-medium text-[10px]">{f.label}</span>
+                      {f.internal && <span className="text-[8px] py-0 px-1 rounded bg-[#e5e7eb] text-muted">internal</span>}
+                      {f.char_count && (
+                        <span className={`text-[9px] font-mono ${
+                          f.char_count.tone === 'green' ? 'text-[#15803d]'
+                          : f.char_count.tone === 'yellow' ? 'text-[#92400e]'
+                          : 'text-[#c0392b]'
+                        }`}>{f.char_count.count} chars · {f.char_count.hint}</span>
+                      )}
+                      <div className="flex-1" />
+                      <button
+                        onClick={() => copyText(f.value, fieldKey)}
+                        disabled={!f.value}
+                        className="text-[9px] py-0.5 px-1.5 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer disabled:opacity-50"
+                      >{copiedFlash === fieldKey ? '✓' : '📋'}</button>
+                    </div>
+                    <div className="text-[10px] font-mono break-all whitespace-pre-wrap select-all bg-white border border-[#e5e5e5] rounded px-1.5 py-1">
+                      {f.value || <span className="text-muted italic">(empty)</span>}
+                    </div>
+                    {f.hint && <div className="text-[9px] text-muted italic mt-0.5">{f.hint}</div>}
+                  </div>
+                )
+              })}
+
+              {/* Body content blocks (Section 4) */}
+              {s.blocks && s.blocks.map((b, i) => (
+                <div key={i} className="border border-[#e5e5e5] bg-white rounded p-1.5 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] py-0.5 px-1 rounded bg-[#e0e7ff] text-[#3730a3] border border-[#6366f1]/40 font-mono">{b.square_layout}</span>
+                    {b.heading && <span className="font-medium text-[10px]">{b.heading_level}: {b.heading}</span>}
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => copyText(b.content_html || b.content_text || '', `${s.id}.block.${i}`)}
+                      className="text-[9px] py-0.5 px-1.5 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer"
+                    >{copiedFlash === `${s.id}.block.${i}` ? '✓' : '📋'}</button>
+                  </div>
+                  <pre className="text-[9px] font-sans whitespace-pre-wrap bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-1 max-h-[200px] overflow-auto">
+                    {b.content_text || '(empty)'}
+                  </pre>
+                  {b.image_suggestion && <div className="text-[9px] text-muted italic">🖼 {b.image_suggestion}</div>}
+                </div>
+              ))}
+
+              {/* Embed code block (Section 5) — one big textarea
+                  with the full CSS + FAQ HTML + JSON-LD bundle */}
+              {s.code && (
+                <div className="border border-[#e5e5e5] bg-white rounded p-1.5 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] text-muted">Paste into a Square "Embed Code" / "Custom HTML" block at the END of the page body.</span>
+                    <div className="flex-1" />
+                    <button
+                      onClick={() => copyText(s.code, `${s.id}.code`)}
+                      className="text-[10px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer"
+                    >{copiedFlash === `${s.id}.code` ? '✓ Copied' : '📋 Copy embed code'}</button>
+                  </div>
+                  <pre className="text-[9px] font-mono whitespace-pre-wrap bg-[#fafafa] border border-[#e5e5e5] rounded p-2 max-h-[300px] overflow-auto select-all">
+                    {s.code}
+                  </pre>
+                </div>
+              )}
+
+              {/* Internal links (Sections 6, 7) */}
+              {s.links && (
+                <div className="space-y-1">
+                  {s.links.length === 0 && (
+                    <div className="text-[9px] text-muted italic">(none{s.note ? ' — ' + s.note : ''})</div>
+                  )}
+                  {s.links.map((l, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded px-1.5 py-1">
+                      <span className="font-medium text-[10px]">"{l.anchor}"</span>
+                      <span className="text-[9px] text-muted">→</span>
+                      <a href={l.target} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline break-all flex-1 min-w-0 truncate">{l.target}</a>
+                      {l.placement && <span className="text-[8px] text-muted italic">{l.placement}</span>}
+                      <button
+                        onClick={() => copyText(`<a href="${l.target}">${l.anchor}</a>`, `${s.id}.link.${i}`)}
+                        className="text-[9px] py-0.5 px-1.5 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer"
+                      >{copiedFlash === `${s.id}.link.${i}` ? '✓' : '📋'}</button>
+                    </div>
+                  ))}
+                  {s.links.length > 0 && s.note && <div className="text-[9px] text-muted italic mt-1">ℹ {s.note}</div>}
+                </div>
+              )}
+
+              {/* Validation checklist (Section 8) */}
+              {s.checks && (
+                <div className="space-y-1">
+                  {s.checks.map(c => (
+                    <label key={c.id} className="flex items-start gap-2 bg-white border border-[#e5e5e5] rounded px-1.5 py-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!validationDone[c.id]}
+                        onChange={e => setValidationDone(prev => ({ ...prev, [c.id]: e.target.checked }))}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1 text-[10px]">
+                        <div className={validationDone[c.id] ? 'line-through text-muted' : 'font-medium'}>{c.label}</div>
+                        {c.hint && <div className="text-[9px] text-muted">{c.hint}</div>}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
+        )
+      })}
+
+      <div className="text-[9px] text-muted italic">
+        Packet is computed on-demand from the latest version + slot. No persistence — re-generate after editing the proposal or changing the slot's audit_class.
+      </div>
+    </div>
   )
 }
 
