@@ -7251,24 +7251,60 @@ function SquarePacketPanel({ landingPageId, versionId, platformCapabilities }) {
                 )
               })}
 
-              {/* Body content blocks (Section 4) */}
-              {s.blocks && s.blocks.map((b, i) => (
-                <div key={i} className="border border-[#e5e5e5] bg-white rounded p-1.5 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] py-0.5 px-1 rounded bg-[#e0e7ff] text-[#3730a3] border border-[#6366f1]/40 font-mono">{b.square_layout}</span>
-                    {b.heading && <span className="font-medium text-[10px]">{b.heading_level}: {b.heading}</span>}
-                    <div className="flex-1" />
-                    <button
-                      onClick={() => copyText(b.content_html || b.content_text || '', `${s.id}.block.${i}`)}
-                      className="text-[9px] py-0.5 px-1.5 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer"
-                    >{copiedFlash === `${s.id}.block.${i}` ? '✓' : '📋'}</button>
-                  </div>
-                  <pre className="text-[9px] font-sans whitespace-pre-wrap bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-1 max-h-[200px] overflow-auto">
-                    {b.content_text || '(empty)'}
-                  </pre>
-                  {b.image_suggestion && <div className="text-[9px] text-muted italic">🖼 {b.image_suggestion}</div>}
+              {/* Body content blocks (Section 4) — SEO note + per-block + full-body fallback */}
+              {s.seo_note && (
+                <div className="bg-[#eef2ff] border border-[#6366f1]/30 rounded p-1.5 text-[9px] text-[#3730a3]">
+                  <b>SEO note:</b> {s.seo_note}
                 </div>
-              ))}
+              )}
+              {s.blocks && s.blocks.map((b, i) => {
+                const layoutColor = b.heading_level === 'h1'
+                  ? 'bg-[#fef3c7] text-[#92400e] border-[#d97706]/50'
+                  : 'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40'
+                return (
+                  <div key={i} className="border border-[#e5e5e5] bg-white rounded p-1.5 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[9px] py-0.5 px-1 rounded border font-mono ${layoutColor}`}>{b.square_layout}</span>
+                      {b.heading && <span className="font-medium text-[10px]">{b.heading_level}: {b.heading}</span>}
+                      <div className="flex-1" />
+                      <button
+                        onClick={() => copyText(b.heading_level === 'h1' ? b.heading : (b.content_html || b.content_text || ''), `${s.id}.block.${i}`)}
+                        className="text-[9px] py-0.5 px-1.5 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer"
+                      >{copiedFlash === `${s.id}.block.${i}` ? '✓' : '📋'}</button>
+                    </div>
+                    {b.hint && <div className="text-[9px] text-muted italic">{b.hint}</div>}
+                    <pre className="text-[9px] font-sans whitespace-pre-wrap bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-1 max-h-[200px] overflow-auto">
+                      {b.content_text || '(empty)'}
+                    </pre>
+                    {b.image_suggestion && <div className="text-[9px] text-muted italic">🖼 {b.image_suggestion}</div>}
+                  </div>
+                )
+              })}
+              {/* Fallback: copy entire body as one HTML block */}
+              {s.full_body_html && (
+                <details className="border border-[#d97706]/40 bg-[#fff7ed] rounded">
+                  <summary className="cursor-pointer py-1 px-2 text-[10px] font-medium text-[#92400e] flex items-center gap-2">
+                    📋 Copy entire body as one HTML block (alternative)
+                    <span className="text-[9px] text-muted font-normal">— for pasting into a single Square "Embed Code" block instead of per-block native blocks</span>
+                  </summary>
+                  <div className="p-2 space-y-1">
+                    <div className="text-[9px] text-[#92400e] bg-white border border-[#d97706]/30 rounded p-1.5">
+                      <b>⚠ SEO tradeoff:</b> using one big HTML block is more convenient but loses the H1/H2 semantic-structure weighting Google + Bing apply when those headings live in native Square block types. Schema in Section 5 still works. Use this only when convenience matters more than per-page ranking margins.
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-muted">{s.full_body_html.length} chars</span>
+                      <div className="flex-1" />
+                      <button
+                        onClick={() => copyText(s.full_body_html, `${s.id}.full_body_html`)}
+                        className="text-[10px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer"
+                      >{copiedFlash === `${s.id}.full_body_html` ? '✓ Copied' : '📋 Copy full body HTML'}</button>
+                    </div>
+                    <pre className="text-[9px] font-mono whitespace-pre-wrap bg-white border border-[#e5e5e5] rounded p-2 max-h-[250px] overflow-auto select-all">
+                      {s.full_body_html}
+                    </pre>
+                  </div>
+                </details>
+              )}
 
               {/* Embed code block (Section 5) — one big textarea
                   with the full CSS + FAQ HTML + JSON-LD bundle */}
