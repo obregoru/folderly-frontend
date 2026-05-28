@@ -6042,6 +6042,7 @@ function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, curr
           isHumanized={isHumanized}
           pageImages={pageImages}
           onSaved={onSaved}
+          onSourcePatch={onSourcePatch}
         />
       ) : (
         <EditableBodyDiff
@@ -6058,7 +6059,7 @@ function BodyEditorWithToggle({ sourcePage, currentBodyHtml, landingPageId, curr
   )
 }
 
-function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, pageImages, onSaved }) {
+function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, currentVersionId, isHumanized, pageImages, onSaved, onSourcePatch }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -6067,6 +6068,36 @@ function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, cu
   // or 'diff' (unified inline diff with green/red highlights).
   // Diff view is read-only — operator switches back to side for edits.
   const [viewMode, setViewMode] = useState('side')
+  // Hover-to-edit link state. Modal opens when an iframe-side click
+  // posts a 'fldy-edit-link' message; PATCH the version's body via
+  // the existing per-link endpoint on confirm.
+  const [linkEdit, setLinkEdit] = useState(null) // null | { fromHref, anchor, toHref, busy, error }
+  useEffect(() => {
+    const handler = (ev) => {
+      const d = ev?.data
+      if (!d || d.type !== 'fldy-edit-link') return
+      setLinkEdit({ fromHref: d.href || '', anchor: d.anchor || '', toHref: d.href || '', busy: false, error: null })
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [])
+  const saveLinkEdit = async () => {
+    if (!linkEdit || linkEdit.busy) return
+    const trimmed = (linkEdit.toHref || '').trim()
+    if (!trimmed) { setLinkEdit(le => ({ ...le, error: 'Replacement href is required.' })); return }
+    if (trimmed === linkEdit.fromHref) { setLinkEdit(null); return }
+    setLinkEdit(le => ({ ...le, busy: true, error: null }))
+    try {
+      const r = await api.updateLandingPageLink(landingPageId, { from_href: linkEdit.fromHref, to_href: trimmed })
+      if (typeof onSourcePatch === 'function') {
+        onSourcePatch({ body_html: r.body_html, links: r.links || [], headings: r.headings })
+      }
+      if (typeof onSaved === 'function') onSaved(r.body_html)
+      setLinkEdit(null)
+    } catch (e) {
+      setLinkEdit(le => ({ ...le, busy: false, error: e?.message || String(e) }))
+    }
+  }
 
   // Word-level diff stats. Memoized so the LCS only runs when the
   // bodies actually change. For large bodies this can be ~50ms;
@@ -6166,15 +6197,55 @@ function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, cu
                   busy={saving}
                 />
               ) : (
-                <RenderedPreview html={currentBodyHtml || ''} tone="green" images={pageImages} />
+                <RenderedPreview html={currentBodyHtml || ''} tone="green" images={pageImages} interactive={true} />
               )}
               {error && <div className="text-[9px] text-[#c0392b] mt-1">⚠ {error}</div>}
+              <div className="text-[8px] text-muted italic mt-1">
+                💡 Hover any link to see its URL · click a link to edit the href.
+              </div>
             </div>
           </div>
           <div className="text-[8px] text-muted italic px-2 pb-2">
-            Approximate styling — actual rendering will use the live theme on deploy. Scripts and forms are disabled in this preview. Inline edits save to the version row; you can also edit raw HTML below.
+            Approximate styling — actual rendering will use the live theme on deploy. Body scripts are stripped; only our hover-to-edit overlay runs. Inline edits save to the version row; you can also edit raw HTML below.
           </div>
         </>
+      )}
+      {linkEdit && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => !linkEdit.busy && setLinkEdit(null)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded p-3 max-w-[520px] w-full space-y-2 border border-[#e5e5e5]">
+            <div className="text-[12px] font-medium">Edit link</div>
+            <div className="text-[10px] text-muted">Anchor: <span className="font-medium text-ink">"{linkEdit.anchor || '(no anchor text)'}"</span></div>
+            <div>
+              <label className="text-[9px] text-muted block">Current href</label>
+              <code className="block w-full text-[10px] font-mono bg-[#fafafa] border border-[#e5e5e5] rounded p-1.5 break-all">{linkEdit.fromHref || '(empty)'}</code>
+            </div>
+            <div>
+              <label className="text-[9px] text-muted block">Replace with</label>
+              <input
+                value={linkEdit.toHref}
+                onChange={e => setLinkEdit(le => ({ ...le, toHref: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') saveLinkEdit(); if (e.key === 'Escape') !linkEdit.busy && setLinkEdit(null) }}
+                autoFocus
+                placeholder="https://poppyandthyme.com/page-slug/"
+                className="w-full text-[10px] font-mono border border-[#6C5CE7]/40 rounded p-1.5 outline-none focus:border-[#6C5CE7]"
+              />
+              <div className="text-[9px] text-muted italic mt-0.5">Replaces this exact href in body_html (won't collide with similar URLs). Destination doesn't have to exist yet.</div>
+            </div>
+            {linkEdit.error && <div className="text-[9px] text-[#c0392b]">⚠ {linkEdit.error}</div>}
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                onClick={() => setLinkEdit(null)}
+                disabled={linkEdit.busy}
+                className="text-[10px] py-1 px-2 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
+              >Cancel</button>
+              <button
+                onClick={saveLinkEdit}
+                disabled={linkEdit.busy || !linkEdit.toHref.trim() || linkEdit.toHref.trim() === linkEdit.fromHref}
+                className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              >{linkEdit.busy ? 'Saving…' : 'Replace link'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </details>
   )
@@ -9113,7 +9184,7 @@ function buildImageBlocks(images) {
   return [top, bottom]
 }
 
-function RenderedPreview({ html, tone = 'green', images = null }) {
+function RenderedPreview({ html, tone = 'green', images = null, interactive = false }) {
   const borderClass = tone === 'red' ? 'border-[#c0392b]/30'
     : tone === 'neutral' ? 'border-[#e5e5e5]'
     : 'border-[#2D9A5E]/30'
@@ -9139,12 +9210,71 @@ function RenderedPreview({ html, tone = 'green', images = null }) {
     ${iframeCss}
     ${imageCss}`
   const [topImgHtml, bottomImgHtml] = buildImageBlocks(images)
-  const bodyHtml = html || '<p style="color:#9ca3af;font-style:italic;">(empty body)</p>'
-  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${fullCss}</style></head><body>${topImgHtml}${bodyHtml}${bottomImgHtml}</body></html>`
+  // Strip any <script> tags from the body BEFORE injection. We
+  // only enable allow-scripts for our own injected helper script
+  // (interactive mode); body-supplied scripts must never run.
+  const safeBodyHtml = (html || '<p style="color:#9ca3af;font-style:italic;">(empty body)</p>')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+
+  // Interactive overlay — only injected when interactive=true. Adds
+  // hover affordance to every <a> tag inside the body (NOT inside the
+  // image blocks) + posts an 'editLink' message to the parent on
+  // click. Parent's RenderedPreviewSection wires this into an edit
+  // modal that PATCHes the version's body_html.
+  //
+  // Why allow-scripts is acceptable here: srcDoc is built entirely
+  // by us, body's own <script> tags are stripped above, and we
+  // never include allow-same-origin so the iframe can't reach
+  // cookies / storage / parent DOM.
+  const interactiveCss = interactive ? `
+    body[data-pp-interactive] a { position: relative; }
+    body[data-pp-interactive] a:hover { background: #fef3c7 !important; outline: 2px solid #d97706; outline-offset: 1px; cursor: pointer; }
+    body[data-pp-interactive] .pp-link-tip {
+      position: fixed; bottom: 12px; left: 12px; right: 12px;
+      background: rgba(31,41,55,0.95); color: #fff; padding: 8px 12px;
+      border-radius: 6px; font-family: ui-monospace, monospace;
+      font-size: 11px; pointer-events: none; z-index: 9999;
+      display: none; max-width: 720px;
+    }
+    body[data-pp-interactive] .pp-link-tip strong { color: #fbbf24; margin-right: 6px; }
+  ` : ''
+  const interactiveScript = interactive ? `
+    <script>
+    (function() {
+      try {
+        document.body.setAttribute('data-pp-interactive', '1');
+        var tip = document.createElement('div');
+        tip.className = 'pp-link-tip';
+        tip.innerHTML = '<strong>Click to edit:</strong> <span class="u"></span>';
+        document.body.appendChild(tip);
+        var u = tip.querySelector('.u');
+        document.querySelectorAll('a').forEach(function(a) {
+          a.setAttribute('title', a.getAttribute('href') || '(no href)');
+          a.addEventListener('mouseenter', function() {
+            u.textContent = a.getAttribute('href') || '(no href)';
+            tip.style.display = 'block';
+          });
+          a.addEventListener('mouseleave', function() { tip.style.display = 'none'; });
+          a.addEventListener('click', function(e) {
+            e.preventDefault(); e.stopPropagation();
+            try {
+              window.parent.postMessage({
+                type: 'fldy-edit-link',
+                href: a.getAttribute('href') || '',
+                anchor: (a.textContent || '').trim().slice(0, 200)
+              }, '*');
+            } catch (err) {}
+          }, true);
+        });
+      } catch (err) {}
+    })();
+    </script>
+  ` : ''
+  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${fullCss}${interactiveCss}</style></head><body>${topImgHtml}${safeBodyHtml}${bottomImgHtml}${interactiveScript}</body></html>`
   return (
     <iframe
       title="rendered preview"
-      sandbox=""
+      sandbox={interactive ? 'allow-scripts' : ''}
       srcDoc={srcDoc}
       className={`w-full rounded border bg-white ${borderClass}`}
       style={{ height: '500px' }}
