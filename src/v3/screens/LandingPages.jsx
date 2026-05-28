@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../api'
 import { LandingImagesPanel } from '../components/LandingImagesPanel'
 import GapFindings from '../components/GapFindings'
+import { diffHtml, diffStats } from '../utils/textDiff'
 
 export default function LandingPages() {
   const [state, setState] = useState({
@@ -6050,6 +6051,18 @@ function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, cu
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [savedAt, setSavedAt] = useState(null)
+  // View mode: 'side' (current default, two iframes side-by-side)
+  // or 'diff' (unified inline diff with green/red highlights).
+  // Diff view is read-only — operator switches back to side for edits.
+  const [viewMode, setViewMode] = useState('side')
+
+  // Word-level diff stats. Memoized so the LCS only runs when the
+  // bodies actually change. For large bodies this can be ~50ms;
+  // memo prevents re-running on unrelated re-renders.
+  const stats = useMemo(
+    () => diffStats(sourcePage?.body_html || '', currentBodyHtml || ''),
+    [sourcePage?.body_html, currentBodyHtml]
+  )
 
   const save = async (newHtml) => {
     if (!landingPageId || !currentVersionId) return
@@ -6068,51 +6081,143 @@ function RenderedPreviewSection({ sourcePage, currentBodyHtml, landingPageId, cu
 
   return (
     <details className="border border-[#e5e5e5] rounded" open>
-      <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium flex items-center gap-2">
+      <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] text-[10px] font-medium flex items-center gap-2 flex-wrap">
         <span>Rendered preview (current vs {isHumanized ? 'humanized' : 'proposed'})</span>
         {editing && <span className="text-[#16a34a]">· editing</span>}
         {savedAt && !editing && <span className="text-[9px] text-[#16a34a]">· ✓ saved</span>}
+        <span className="flex-1" />
+        {(stats.added > 0 || stats.removed > 0) && (
+          <span className="text-[9px] font-mono">
+            <span className="text-[#16a34a]">+{stats.added}</span>
+            <span className="text-muted"> / </span>
+            <span className="text-[#c0392b]">−{stats.removed}</span>
+            <span className="text-muted"> words{stats.approx ? ' (approx)' : ''}</span>
+          </span>
+        )}
+        {/* Stop summary's click-to-toggle when interacting with the
+            view switch (otherwise toggling closes the panel). */}
+        <span
+          onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+          className="flex items-center border border-[#e5e5e5] rounded overflow-hidden"
+        >
+          <button
+            onClick={() => setViewMode('side')}
+            className={`text-[9px] py-1 px-2 cursor-pointer border-none ${viewMode === 'side' ? 'bg-[#6C5CE7] text-white' : 'bg-white text-ink hover:bg-[#fafafa]'}`}
+            title="Side-by-side: current (red border) vs proposed (green border), as two separate previews. Lets you edit the proposed pane inline."
+          >👥 Side-by-side</button>
+          <button
+            onClick={() => { setEditing(false); setViewMode('diff') }}
+            className={`text-[9px] py-1 px-2 cursor-pointer border-none ${viewMode === 'diff' ? 'bg-[#6C5CE7] text-white' : 'bg-white text-ink hover:bg-[#fafafa]'}`}
+            title="Unified diff: one pane with green-highlighted additions and red-strikethrough removals. Read-only — switch back to side-by-side to edit."
+          >📝 Diff view</button>
+        </span>
       </summary>
-      <div className="grid grid-cols-2 gap-2 p-2">
-        <div>
-          <div className="text-[9px] text-muted mb-1">Current (live)</div>
-          <RenderedPreview html={sourcePage?.body_html || ''} tone="red" />
-        </div>
-        <div>
-          <div className="text-[9px] text-muted mb-1 flex items-center gap-2">
-            <span>{isHumanized ? 'Humanized' : 'Proposed'} — {editing ? 'editing in place' : 'click ✏️ Edit to modify'}</span>
-            <span className="flex-1" />
-            {!editing && (
-              <button
-                onClick={() => { setEditing(true); setError(null); setSavedAt(null) }}
-                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer"
-                title="Edit the proposed content inline in the preview. Save commits changes to the version row; deploy reads from there."
-              >✏️ Edit preview</button>
-            )}
-            {editing && (
-              <button
-                onClick={() => { setEditing(false); setError(null) }}
-                disabled={saving}
-                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
-              >Cancel</button>
-            )}
+      {viewMode === 'diff' ? (
+        <div className="p-2">
+          <DiffPreview currentHtml={sourcePage?.body_html || ''} proposedHtml={currentBodyHtml || ''} />
+          <div className="text-[8px] text-muted italic mt-1">
+            Word-level diff. <ins className="diff-add" style={{ background: '#dcfce7' }}>Green</ins> = added in proposed.{' '}
+            <del className="diff-del" style={{ background: '#fee2e2', textDecoration: 'line-through' }}>Red strikethrough</del> = removed from current.
+            Switch to Side-by-side to edit.
           </div>
-          {editing ? (
-            <EditableRenderedPreview
-              html={currentBodyHtml || ''}
-              onSave={save}
-              busy={saving}
-            />
-          ) : (
-            <RenderedPreview html={currentBodyHtml || ''} tone="green" images={pageImages} />
-          )}
-          {error && <div className="text-[9px] text-[#c0392b] mt-1">⚠ {error}</div>}
         </div>
-      </div>
-      <div className="text-[8px] text-muted italic px-2 pb-2">
-        Approximate styling — actual rendering will use the live theme on deploy. Scripts and forms are disabled in this preview. Inline edits save to the version row; you can also edit raw HTML below.
-      </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2 p-2">
+            <div>
+              <div className="text-[9px] text-muted mb-1">Current (live)</div>
+              <RenderedPreview html={sourcePage?.body_html || ''} tone="red" />
+            </div>
+            <div>
+              <div className="text-[9px] text-muted mb-1 flex items-center gap-2">
+                <span>{isHumanized ? 'Humanized' : 'Proposed'} — {editing ? 'editing in place' : 'click ✏️ Edit to modify'}</span>
+                <span className="flex-1" />
+                {!editing && (
+                  <button
+                    onClick={() => { setEditing(true); setError(null); setSavedAt(null) }}
+                    className="text-[9px] py-0.5 px-1.5 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer"
+                    title="Edit the proposed content inline in the preview. Save commits changes to the version row; deploy reads from there."
+                  >✏️ Edit preview</button>
+                )}
+                {editing && (
+                  <button
+                    onClick={() => { setEditing(false); setError(null) }}
+                    disabled={saving}
+                    className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-ink rounded cursor-pointer disabled:opacity-50"
+                  >Cancel</button>
+                )}
+              </div>
+              {editing ? (
+                <EditableRenderedPreview
+                  html={currentBodyHtml || ''}
+                  onSave={save}
+                  busy={saving}
+                />
+              ) : (
+                <RenderedPreview html={currentBodyHtml || ''} tone="green" images={pageImages} />
+              )}
+              {error && <div className="text-[9px] text-[#c0392b] mt-1">⚠ {error}</div>}
+            </div>
+          </div>
+          <div className="text-[8px] text-muted italic px-2 pb-2">
+            Approximate styling — actual rendering will use the live theme on deploy. Scripts and forms are disabled in this preview. Inline edits save to the version row; you can also edit raw HTML below.
+          </div>
+        </>
+      )}
     </details>
+  )
+}
+
+// Iframe-rendered unified diff. Runs the word-level diff via
+// utils/textDiff, drops the result into a sandboxed iframe with
+// minimal CSS so the highlights stand out + paragraph breaks
+// survive. Reuses the same iframe pattern as RenderedPreview so
+// the visual feel matches the side-by-side view.
+function DiffPreview({ currentHtml, proposedHtml }) {
+  const diffBody = useMemo(
+    () => diffHtml(currentHtml || '', proposedHtml || ''),
+    [currentHtml, proposedHtml]
+  )
+  const css = `
+    html, body { margin: 0; padding: 0; }
+    body {
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #1f2937;
+      background: #fff;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    ins.diff-add {
+      background: #dcfce7;
+      color: #065f46;
+      text-decoration: none;
+      padding: 1px 2px;
+      border-radius: 2px;
+    }
+    del.diff-del {
+      background: #fee2e2;
+      color: #991b1b;
+      text-decoration: line-through;
+      padding: 1px 2px;
+      border-radius: 2px;
+      opacity: 0.85;
+    }
+    /* Restore some visual structure for paragraph-mode fallback. */
+    p, hr { margin: 0.5em 0; }
+    hr { border: 0; border-top: 1px dashed #d1d5db; }
+  `
+  const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"><style>${css}</style></head><body>${diffBody}</body></html>`
+  return (
+    <iframe
+      title="diff preview"
+      sandbox=""
+      srcDoc={srcDoc}
+      className="w-full rounded border border-[#6C5CE7]/40 bg-white"
+      style={{ height: '500px' }}
+    />
   )
 }
 
