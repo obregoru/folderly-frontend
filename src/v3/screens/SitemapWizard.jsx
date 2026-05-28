@@ -23,7 +23,7 @@ import { LandingImagesPanel } from '../components/LandingImagesPanel'
 import GapFindings from '../components/GapFindings'
 
 export default function SitemapWizard() {
-  const [plan, setPlan] = useState({ slots: [], tiers: [] })
+  const [plan, setPlan] = useState({ slots: [], tiers: [], platform: 'wordpress', tenant_target_url: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeSlotId, setActiveSlotId] = useState(null)
@@ -57,6 +57,8 @@ export default function SitemapWizard() {
       setPlan({
         slots: Array.isArray(planR?.slots) ? planR.slots : [],
         tiers: Array.isArray(planR?.tiers) ? planR.tiers : [],
+        platform: planR?.platform || 'wordpress',
+        tenant_target_url: planR?.tenant_target_url || null,
       })
       const cMap = {}
       for (const c of (checklistR?.slots || [])) cMap[c.slot_id] = c
@@ -338,6 +340,8 @@ export default function SitemapWizard() {
               key="new"
               slot={null}
               tiers={tierList}
+              platform={plan.platform}
+              tenantTargetUrl={plan.tenant_target_url}
               onSaved={async () => { await load(); setAdding(false) }}
               onCancel={() => setAdding(false)}
             />
@@ -347,6 +351,8 @@ export default function SitemapWizard() {
               slot={activeSlot}
               tiers={tierList}
               checklist={checklistBySlot[activeSlot.id] || null}
+              platform={plan.platform}
+              tenantTargetUrl={plan.tenant_target_url}
               onSaved={async () => { await load() }}
               onDeleted={async () => { await load(); setActiveSlotId(null) }}
               onCreatedWp={async () => { await load() }}
@@ -2079,7 +2085,8 @@ function StatusPill({ status }) {
   )
 }
 
-function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCreatedWp }) {
+function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCreatedWp, platform = 'wordpress', tenantTargetUrl = null }) {
+  const isEcommerce = platform === 'ecommerce'
   const isNew = !slot
   const [label, setLabel] = useState(slot?.label || '')
   const [slotKey, setSlotKey] = useState(slot?.slot_key || '')
@@ -2104,6 +2111,9 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
 
   // Per-action busy / message state for create-wp + delete actions.
   const [creatingWp, setCreatingWp] = useState(false)
+  // Generate Schema action (page-level, runs on the latest version).
+  const [genSchemaBusy, setGenSchemaBusy] = useState(false)
+  const [genSchemaMsg, setGenSchemaMsg] = useState(null)
   const [createResult, setCreateResult] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -2242,7 +2252,10 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
   // to the Pages workspace to watch it complete.
   const createWpAndPropose = async () => {
     if (creatingWp || isNew) return
-    if (!confirm(`Create WP draft AND generate content for "${label}" in one click?\n\nThis scaffolds the WP draft + immediately kicks off Propose (two-phase generation: initial draft → AI self-review → revise). The page will go from 'planned' to 'draft' with real content in ~60-90s. You can switch to the Pages workspace to watch it complete.\n\nUses the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy.`)) return
+    const intro = isEcommerce
+      ? `Create page record AND generate content for "${label}" in one click?\n\nEcommerce mode — NO WordPress draft is created. Instead:\n  1. A landing_page row is created with canonical URL = ${tenantTargetUrl || '(tenant.target_url)'} + slug.\n  2. Propose runs (two-phase: initial → AI self-review → revise).\n  3. Open the Pages workspace + use the Square packet to copy content into your live site.\n\nReady in ~60-90s. Uses the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy.`
+      : `Create WP draft AND generate content for "${label}" in one click?\n\nThis scaffolds the WP draft + immediately kicks off Propose (two-phase generation: initial draft → AI self-review → revise). The page will go from 'planned' to 'draft' with real content in ~60-90s. You can switch to the Pages workspace to watch it complete.\n\nUses the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy.`
+    if (!confirm(intro)) return
     setCreatingWp(true); setErr(null); setCreateResult(null)
     try {
       const r = await api.createAndProposeForSlot(slot.id)
@@ -2474,33 +2487,59 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
                   onClick={createWpAndPropose}
                   disabled={creatingWp}
                   className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-                  title="One-click: scaffold WP draft + immediately generate real content via Propose (two-phase: initial → AI self-review → revise). Uses the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy. Ready in ~60-90s."
-                >{creatingWp ? 'Working…' : '✨ Create + Generate content'}</button>
+                  title={isEcommerce
+                    ? `Ecommerce mode — creates a landing_page row (URL = ${tenantTargetUrl || 'tenant.target_url'} + slug) + runs Propose. NO WordPress draft is created. Use the Square packet to copy content into your live site.`
+                    : "One-click: scaffold WP draft + immediately generate real content via Propose (two-phase: initial → AI self-review → revise). Uses the slot's strategy hint + voice anchors + competitive gap analysis + editorial policy. Ready in ~60-90s."
+                  }
+                >{creatingWp ? 'Working…' : (isEcommerce ? '✨ Create page + Generate content' : '✨ Create + Generate content')}</button>
                 <button
                   onClick={createWp}
                   disabled={creatingWp}
                   className="text-[10px] py-1 px-2 bg-white border border-[#2D9A5E] text-[#2D9A5E] rounded cursor-pointer disabled:opacity-50"
-                  title="Scaffold only — WP draft with placeholder body, no content generation. Use when you want to manually run Propose on the Pages workspace later (e.g. after editing the hint or images first)."
-                >{creatingWp ? '…' : '🚀 Create WP draft only'}</button>
+                  title={isEcommerce
+                    ? "Ecommerce mode — creates the landing_page row with a placeholder body (no WP draft). Run Propose later from the Pages workspace."
+                    : "Scaffold only — WP draft with placeholder body, no content generation. Use when you want to manually run Propose on the Pages workspace later (e.g. after editing the hint or images first)."
+                  }
+                >{creatingWp ? '…' : (isEcommerce ? '🚀 Create page only' : '🚀 Create WP draft only')}</button>
               </>
             )}
             {slot.landing_page_id && (
-              <button
-                onClick={async () => {
-                  // Same gate as Save — schema + images on the linked
-                  // landing_page should be configured BEFORE jumping
-                  // into the per-page workspace where it's tempting to
-                  // start editing content without these inputs in
-                  // place. Operator can still proceed (the prompt is
-                  // not blocking) but the friction prevents quietly
-                  // skipping these.
-                  const proceed = await checkConfigGate('open this slot in the Pages workspace')
-                  if (!proceed) return
-                  window.location.href = `/content-studio?go=landing&id=${slot.landing_page_id}`
-                }}
-                className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
-                title="Jump to the per-page workspace for this slot's landing page. Prompts first if schema types or images aren't configured yet — these inputs shape every propose call."
-              >Open in Pages →</button>
+              <>
+                <button
+                  onClick={async () => {
+                    if (genSchemaBusy) return
+                    setGenSchemaBusy(true); setGenSchemaMsg(null)
+                    try {
+                      const r = await api.generateLandingPageSchemaLatest(slot.landing_page_id)
+                      const n = Array.isArray(r?.blocks) ? r.blocks.length : 0
+                      setGenSchemaMsg({ tone: 'ok', text: `✓ ${n} schema block${n === 1 ? '' : 's'} generated` })
+                    } catch (e) {
+                      setGenSchemaMsg({ tone: 'err', text: e?.message || String(e) })
+                    } finally {
+                      setGenSchemaBusy(false)
+                    }
+                  }}
+                  disabled={genSchemaBusy}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#9333ea] text-[#9333ea] rounded cursor-pointer disabled:opacity-50"
+                  title="Runs the Schema.org JSON-LD generator on the latest version. Saves blocks to the version row; the Square packet (ecommerce) or Yoast/deploy path (WP) reads from there. Includes vocab validation + bidirectional-relationship normalization."
+                >{genSchemaBusy ? 'Generating…' : '🏷️ Generate schema'}</button>
+                <button
+                  onClick={async () => {
+                    // Same gate as Save — schema + images on the linked
+                    // landing_page should be configured BEFORE jumping
+                    // into the per-page workspace where it's tempting to
+                    // start editing content without these inputs in
+                    // place. Operator can still proceed (the prompt is
+                    // not blocking) but the friction prevents quietly
+                    // skipping these.
+                    const proceed = await checkConfigGate('open this slot in the Pages workspace')
+                    if (!proceed) return
+                    window.location.href = `/content-studio?go=landing&id=${slot.landing_page_id}`
+                  }}
+                  className="text-[10px] py-1 px-2 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+                  title="Jump to the per-page workspace for this slot's landing page. Prompts first if schema types or images aren't configured yet — these inputs shape every propose call."
+                >Open in Pages →</button>
+              </>
             )}
             <div className="flex-1" />
             <button
@@ -2511,6 +2550,11 @@ function SlotEditor({ slot, tiers, checklist, onSaved, onCancel, onDeleted, onCr
           </>
         )}
       </div>
+      {genSchemaMsg && (
+        <div className={`text-[10px] mt-1 ${genSchemaMsg.tone === 'ok' ? 'text-[#16a34a]' : 'text-[#c0392b]'}`}>
+          {genSchemaMsg.text}
+        </div>
+      )}
     </div>
   )
 }

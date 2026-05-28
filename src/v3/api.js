@@ -959,6 +959,26 @@ export const updateLandingPageMeta = (landingPageId, fields = {}) =>
     return r.json()
   })
 
+// Page-scoped schema generation — runs against the page's most-
+// recent version. Wraps the BE's /content/landing/:id/generate-schema
+// endpoint which looks up the version internally. Companion to the
+// version-scoped generateLandingPageSchema above; this one is used
+// where the caller has a page id but not a version id (Sitemap
+// Wizard slot's Generate Schema button).
+export const generateLandingPageSchemaLatest = (landingPageId) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/generate-schema`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: '{}',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `generateLandingPageSchemaLatest failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // List every landing page + sitemap-plan slot for this tenant with
 // its canonical ecommerce URL. Used by the per-link edit combobox
 // to suggest existing destinations when fixing stale links.
