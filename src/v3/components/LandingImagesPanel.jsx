@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react'
 import * as api from '../api'
+import { compressImageForUpload } from '../utils/imageCompress'
 
 // onImagesChanged: optional callback invoked with the latest images
 // array after every successful reload. Lets a parent (e.g. the
@@ -236,11 +237,21 @@ function UploadTab({ landingPageId, onSuccess }) {
     }
   }, [file])
 
+  const [compressInfo, setCompressInfo] = useState(null) // { skipped, originalSize, compressedSize, reason } | null
+  const [stage, setStage] = useState(null) // null | 'compressing' | 'uploading'
+
   const submit = async () => {
     if (!file || busy) return
-    setBusy(true); setErr(null)
+    setBusy(true); setErr(null); setCompressInfo(null)
     try {
-      await api.uploadLandingImage(landingPageId, file, {
+      // Browser-side compression first — phone photos are typically
+      // 3-12 MB; compressing to ~500 KB cuts the upload payload
+      // (and the Railway→Supabase re-upload) by 10-20×.
+      setStage('compressing')
+      const result = await compressImageForUpload(file)
+      setCompressInfo(result)
+      setStage('uploading')
+      await api.uploadLandingImage(landingPageId, result.file, {
         alt_text: altText, filename: seoFilename, role,
       })
       onSuccess()
@@ -248,6 +259,7 @@ function UploadTab({ landingPageId, onSuccess }) {
       setErr(e?.message || String(e))
     } finally {
       setBusy(false)
+      setStage(null)
     }
   }
 
@@ -375,12 +387,23 @@ function UploadTab({ landingPageId, onSuccess }) {
         </>
       )}
       {err && <div className="text-[10px] text-[#c0392b]">⚠ {err}</div>}
-      <div className="flex justify-end">
+      {compressInfo && !compressInfo.skipped && (
+        <div className="text-[9px] text-[#16a34a]">
+          ✓ Compressed {(compressInfo.originalSize/1024).toFixed(0)} KB → {(compressInfo.compressedSize/1024).toFixed(0)} KB
+          {' '}({Math.round((1 - compressInfo.compressedSize / compressInfo.originalSize) * 100)}% smaller)
+          · upload should finish fast.
+        </div>
+      )}
+      <div className="flex justify-end items-center gap-2">
+        {stage === 'compressing' && <span className="text-[9px] text-muted">Compressing image…</span>}
+        {stage === 'uploading' && <span className="text-[9px] text-muted">Uploading to Supabase…</span>}
         <button
           onClick={submit}
           disabled={busy || !file}
           className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-        >{busy ? 'Uploading…' : 'Upload'}</button>
+        >{busy
+          ? (stage === 'compressing' ? 'Compressing…' : stage === 'uploading' ? 'Uploading…' : 'Working…')
+          : 'Upload'}</button>
       </div>
     </div>
   )
