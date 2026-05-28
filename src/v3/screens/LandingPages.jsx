@@ -7663,10 +7663,16 @@ function SquarePacketPanel({ landingPageId, versionId, platformCapabilities }) {
                     <div className="text-[9px] text-muted italic">(none{s.note ? ' — ' + s.note : ''})</div>
                   )}
                   {s.links.map((l, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded px-1.5 py-1">
+                    <div key={i} className="flex items-center gap-2 bg-white border border-[#e5e5e5] rounded px-1.5 py-1 flex-wrap">
                       <span className="font-medium text-[10px]">"{l.anchor}"</span>
                       <span className="text-[9px] text-muted">→</span>
                       <a href={l.target} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline break-all flex-1 min-w-0 truncate">{l.target}</a>
+                      {l.original_href && (
+                        <span
+                          className="text-[8px] py-0.5 px-1 rounded bg-[#fef3c7] text-[#92400e] border border-[#d97706]/40"
+                          title={`Renderer rewrote the host so this link points at the tenant domain. Original: ${l.original_href}`}
+                        >↻ host rewritten</span>
+                      )}
                       {l.placement && <span className="text-[8px] text-muted italic">{l.placement}</span>}
                       <button
                         onClick={() => copyText(`<a href="${l.target}">${l.anchor}</a>`, `${s.id}.link.${i}`)}
