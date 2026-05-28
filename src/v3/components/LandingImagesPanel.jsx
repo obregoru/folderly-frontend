@@ -181,6 +181,13 @@ function TabButton({ active, onClick, children }) {
   )
 }
 
+// Camera / phone / OS auto-named files — these names have no
+// semantic value, so we DON'T copy them into alt text on pick.
+// Matches the common camera prefixes (IMG, MOV, VID, DSC, DCIM,
+// PXL — Pixel phone), screenshot patterns, "Untitled", "Photo*",
+// and bare numeric strings. Pattern is case-insensitive.
+const GENERIC_FILENAME_RE = /^(?:img|mov|vid|dsc|dcim|pxl|photo|untitled|screen[\s_-]?shot|capture)[\s_-]?\d+|^\d{5,}$|^image[\s_-]?\d+$/i
+
 function UploadTab({ landingPageId, onSuccess }) {
   const [file, setFile] = useState(null)
   const [altText, setAltText] = useState('')
@@ -188,6 +195,40 @@ function UploadTab({ landingPageId, onSuccess }) {
   const [role, setRole] = useState('inline')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  // Object-URL preview so the operator can confirm the right file
+  // before submit. Revoked on cleanup / file swap to avoid leaks.
+  const [previewUrl, setPreviewUrl] = useState(null)
+  useEffect(() => {
+    if (!file) { setPreviewUrl(null); return }
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
+  // Smart-prefill: when a file is chosen, derive an SEO slug from
+  // the original filename + populate alt text IF the filename looks
+  // semantic (not a generic camera/screenshot auto-name). Both
+  // fields stay editable; we never overwrite operator edits — only
+  // fill when blank.
+  useEffect(() => {
+    if (!file) return
+    const rawBase = file.name.replace(/\.[^.]+$/, '') // strip extension
+    const cleanSlug = rawBase
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    setSeoFilename(prev => prev.trim() || cleanSlug)
+    if (!GENERIC_FILENAME_RE.test(rawBase)) {
+      // Treat underscores + hyphens as word separators; collapse
+      // runs of whitespace; leave casing as-typed.
+      const altSuggestion = rawBase
+        .replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      setAltText(prev => prev.trim() || altSuggestion)
+    }
+  }, [file])
+
   const submit = async () => {
     if (!file || busy) return
     setBusy(true); setErr(null)
@@ -213,19 +254,36 @@ function UploadTab({ landingPageId, onSuccess }) {
       />
       {file && (
         <>
-          <div className="text-[10px] text-muted">Selected: <code>{file.name}</code> ({(file.size / 1024).toFixed(0)} KB)</div>
+          {previewUrl && (
+            <div className="border border-[#e5e5e5] rounded p-1 bg-white">
+              <img
+                src={previewUrl}
+                alt="Preview of selected file"
+                className="block max-w-full max-h-[260px] mx-auto object-contain"
+              />
+            </div>
+          )}
+          <div className="text-[10px] text-muted">
+            <span>Selected: </span>
+            <code className="break-all">{file.name}</code>
+            <span> ({(file.size / 1024).toFixed(0)} KB)</span>
+          </div>
           <label className="block text-[10px]">
-            <span className="text-muted">SEO filename (no extension)</span>
+            <span className="text-muted">SEO filename (no extension) <span className="italic">— pre-filled from original filename, editable</span></span>
             <input
               type="text"
               value={seoFilename}
               onChange={e => setSeoFilename(e.target.value)}
-              placeholder="e.g. perfume-bar-milwaukee-hero (leave blank to derive from original)"
+              placeholder="e.g. perfume-bar-milwaukee-hero"
               className="block w-full text-[10px] font-mono border border-[#e5e5e5] rounded p-1.5 mt-0.5"
             />
           </label>
           <label className="block text-[10px]">
-            <span className="text-muted">Alt text (accessibility + SEO)</span>
+            <span className="text-muted">Alt text (accessibility + SEO)
+              {altText && !GENERIC_FILENAME_RE.test(file.name.replace(/\.[^.]+$/, '')) && (
+                <span className="italic"> — pre-filled from filename, edit if it doesn't describe the image</span>
+              )}
+            </span>
             <input
               type="text"
               value={altText}
