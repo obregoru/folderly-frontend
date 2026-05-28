@@ -7097,6 +7097,75 @@ function PreDeployChecklist({ landingPageId, versionId, proposal, pageImages, li
   )
 }
 
+// Schema-type badges for the Square packet's embed_code section.
+// Renders one clickable chip per @type in the combined @graph.
+// Clicking expands a JSON preview of that entity for review before
+// the operator pastes — confirms the schema is what they expect
+// (no founderOf, no random unknown properties, correct @ids).
+function SchemaEntityBadges({ entities, sectionId }) {
+  const [openIdx, setOpenIdx] = useState(null)
+  // Build a stable color per @type so the operator visually groups
+  // related entities. Hash-based so it's deterministic per type.
+  const typeColor = (t) => {
+    if (!t) return 'bg-[#e5e5e5] text-muted border-[#e5e5e5]'
+    const hash = Array.from(t).reduce((a, c) => a + c.charCodeAt(0), 0)
+    const palette = [
+      'bg-[#fef3c7] text-[#92400e] border-[#d97706]/40',  // amber
+      'bg-[#e0e7ff] text-[#3730a3] border-[#6366f1]/40',  // indigo
+      'bg-[#dcfce7] text-[#166534] border-[#16a34a]/40',  // green
+      'bg-[#fef9c3] text-[#854d0e] border-[#ca8a04]/40',  // yellow
+      'bg-[#fce7f3] text-[#9f1239] border-[#e11d48]/40',  // pink
+      'bg-[#e0f2fe] text-[#075985] border-[#0284c7]/40',  // sky
+      'bg-[#f3e8ff] text-[#6b21a8] border-[#9333ea]/40',  // purple
+    ]
+    return palette[hash % palette.length]
+  }
+
+  return (
+    <div className="space-y-1 mb-1">
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[9px] text-muted font-medium">Schema types in this embed:</span>
+        {entities.map((e, i) => (
+          <button
+            key={i}
+            onClick={() => setOpenIdx(openIdx === i ? null : i)}
+            className={`text-[9px] py-0.5 px-1.5 rounded border cursor-pointer ${typeColor(e['@type'])}`}
+            title={e.name ? `${e['@type']}: ${e.name}` : e['@type']}
+          >
+            {e['@type']}
+            {e.name && (
+              <span className="ml-1 opacity-70 font-normal">— {e.name.length > 28 ? e.name.slice(0, 28) + '…' : e.name}</span>
+            )}
+            <span className="ml-1 opacity-50">{openIdx === i ? '▾' : '▸'}</span>
+          </button>
+        ))}
+      </div>
+      {openIdx !== null && entities[openIdx] && (
+        <details open className="text-[9px] bg-white border border-[#6C5CE7]/40 rounded">
+          <summary className="cursor-pointer py-1 px-2 bg-[#fafbff] flex items-center gap-2">
+            <span className="font-mono font-medium">{entities[openIdx]['@type']}</span>
+            {entities[openIdx]['@id'] && (
+              <span className="text-muted truncate" title={entities[openIdx]['@id']}>
+                {entities[openIdx]['@id']}
+              </span>
+            )}
+            <span className="flex-1" />
+            <button
+              onClick={(ev) => {
+                ev.preventDefault(); ev.stopPropagation()
+                navigator.clipboard.writeText(JSON.stringify(entities[openIdx].jsonld, null, 2)).catch(() => {})
+              }}
+              className="text-[9px] py-0.5 px-1.5 bg-white border border-[#6C5CE7] text-[#6C5CE7] rounded cursor-pointer"
+              title="Copy this individual entity's JSON-LD"
+            >📋 Copy entity</button>
+          </summary>
+          <pre className="p-2 bg-[#fafafa] overflow-auto max-h-[260px] font-mono whitespace-pre-wrap">{JSON.stringify(entities[openIdx].jsonld, null, 2)}</pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
 // Phase 4 (multi-platform): Square packet panel. Replaces the
 // WordPress Deploy block on ecommerce tenants. Generates the
 // 9-section copy/paste packet via the BE, renders each section
@@ -7388,9 +7457,17 @@ function SquarePacketPanel({ landingPageId, versionId, platformCapabilities }) {
               )}
 
               {/* Embed code block (Section 5) — one big textarea
-                  with the full CSS + FAQ HTML + JSON-LD bundle */}
+                  with the full CSS + FAQ HTML + JSON-LD bundle.
+                  Schema-type badges sit above the textarea: one
+                  chip per @type in the combined @graph, click to
+                  expand a per-entity JSON preview. Lets the
+                  operator confirm what's being pasted without
+                  scrolling through the raw embed code. */}
               {s.code && (
                 <div className="border border-[#e5e5e5] bg-white rounded p-1.5 space-y-1">
+                  {Array.isArray(s.entities) && s.entities.length > 0 && (
+                    <SchemaEntityBadges entities={s.entities} sectionId={s.id} />
+                  )}
                   <div className="flex items-center gap-2">
                     <span className="text-[9px] text-muted">Paste into a Square "Embed Code" / "Custom HTML" block at the END of the page body.</span>
                     <div className="flex-1" />
