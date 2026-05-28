@@ -959,6 +959,26 @@ export const updateLandingPageMeta = (landingPageId, fields = {}) =>
     return r.json()
   })
 
+// Surgical per-link href edit. Replaces ONE specific href="<from>"
+// attribute in the most-recent version's body_html (exact match,
+// quoted attribute pattern — won't collide on shared prefixes).
+// Re-parses links_meta server-side. Use for fixing individual
+// stale links after a platform migration (e.g. WP `?page_id=N`
+// URLs that need hand-picked Square slugs).
+export const updateLandingPageLink = (landingPageId, { from_href, to_href }) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/update-link`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ from_href, to_href }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateLandingPageLink failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Bulk find/replace URL prefix across the most-recent version's
 // body_html. Re-parses links_meta server-side so the diff stays
 // consistent. Pass also_update_page_url=true to also rewrite

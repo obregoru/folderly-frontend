@@ -1827,18 +1827,19 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
               patchSourcePage(patch)
             }}
           />
-          <div className="max-h-[200px] overflow-y-auto space-y-0.5">
+          <div className="max-h-[260px] overflow-y-auto space-y-0.5">
             {links.length === 0 && <div className="text-muted italic">No links in body.</div>}
             {links.map((l, i) => (
-              <div key={i} className="flex items-center gap-2 py-0.5 border-b border-[#f0f0f0] last:border-0">
-                <span className={`text-[9px] py-0.5 px-1 rounded font-mono ${
-                  l.type === 'internal' ? 'bg-[#6C5CE7]/10 text-[#6C5CE7]'
-                    : l.type === 'anchor' ? 'bg-[#fef9c3] text-[#854d0e]'
-                    : 'bg-[#e5e5e5] text-muted'
-                }`}>{l.type}</span>
-                <span className="flex-1 truncate" title={l.anchor || '(no anchor text)'}>{l.anchor || <i className="text-muted">(no anchor text)</i>}</span>
-                <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline truncate max-w-[200px]" title={l.href}>{l.href}</a>
-              </div>
+              <EditableLinkRow
+                key={`${l.href}-${i}`}
+                link={l}
+                landingPageId={landing_page_id}
+                onSaved={(result) => patchSourcePage({
+                  links: result.links || [],
+                  headings: result.headings,
+                  body_html: result.body_html,
+                })}
+              />
             ))}
           </div>
         </div>
@@ -4728,6 +4729,91 @@ function MigrateUrlsPanel({ landingPageId, currentPageUrl, onApplied }) {
           {result.page_url_updated ? ` Page URL updated → ${result.page_url}.` : ''}
         </div>
       )}
+    </div>
+  )
+}
+
+// One row of the Links panel — anchor + type chip + href, plus an
+// inline edit affordance. Click pencil → href becomes an input;
+// Save calls POST /content/landing/:id/update-link, which rewrites
+// the literal href="<from>" attribute in body_html (exact match,
+// no prefix collision) and re-parses links_meta. The result patches
+// up to PageWorkspace via onSaved so the whole list re-renders.
+// The new URL doesn't have to exist yet — operator can pre-build
+// links to pages they'll create later.
+function EditableLinkRow({ link, landingPageId, onSaved }) {
+  const l = link
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(l.href || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  useEffect(() => { setDraft(l.href || ''); setError(null) }, [l.href])
+
+  const save = async () => {
+    if (saving) return
+    const next = draft.trim()
+    if (next === (l.href || '')) { setEditing(false); return }
+    setSaving(true); setError(null)
+    try {
+      const r = await api.updateLandingPageLink(landingPageId, { from_href: l.href, to_href: next })
+      if (typeof onSaved === 'function') onSaved(r)
+      setEditing(false)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const typeChip = (
+    <span className={`text-[9px] py-0.5 px-1 rounded font-mono ${
+      l.type === 'internal' ? 'bg-[#6C5CE7]/10 text-[#6C5CE7]'
+        : l.type === 'anchor' ? 'bg-[#fef9c3] text-[#854d0e]'
+        : 'bg-[#e5e5e5] text-muted'
+    }`}>{l.type}</span>
+  )
+
+  return (
+    <div className="py-0.5 border-b border-[#f0f0f0] last:border-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        {typeChip}
+        <span className="flex-1 truncate min-w-0" title={l.anchor || '(no anchor text)'}>
+          {l.anchor || <i className="text-muted">(no anchor text)</i>}
+        </span>
+        {editing ? (
+          <>
+            <input
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setDraft(l.href || ''); setEditing(false); setError(null) } }}
+              autoFocus
+              placeholder="https://poppyandthyme.com/page-slug/"
+              className="text-[9px] font-mono border border-[#6C5CE7]/40 rounded px-1 py-0.5 outline-none focus:border-[#6C5CE7] w-[260px]"
+            />
+            <button
+              onClick={save}
+              disabled={saving || draft.trim() === (l.href || '')}
+              className="text-[9px] py-0.5 px-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            >{saving ? '…' : '✓ Save'}</button>
+            <button
+              onClick={() => { setDraft(l.href || ''); setEditing(false); setError(null) }}
+              className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
+            >Cancel</button>
+          </>
+        ) : (
+          <>
+            <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline truncate max-w-[260px]" title={l.href}>
+              {l.href}
+            </a>
+            <button
+              onClick={() => setEditing(true)}
+              className="text-[9px] py-0 px-1 bg-transparent border-none text-muted hover:text-[#6C5CE7] cursor-pointer"
+              title="Edit this link's href. Replaces the exact href in body_html — won't collide with similar URLs. Destination doesn't need to exist yet."
+            >✏️</button>
+          </>
+        )}
+      </div>
+      {error && <div className="text-[9px] text-[#c0392b] mt-0.5">⚠ {error}</div>}
     </div>
   )
 }
