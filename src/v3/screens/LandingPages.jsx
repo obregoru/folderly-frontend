@@ -1130,6 +1130,24 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
     if (!patch || typeof patch !== 'object') return
     setPage(prev => ({ ...prev, ...patch }))
   }
+
+  // Canonical-URL list for every tenant page + plan slot — feeds the
+  // EditableLinkRow combobox. Lazy: only fetched on first edit
+  // attempt (no point loading slugs for read-only viewing).
+  const [slugsList, setSlugsList] = useState(null)
+  const [slugsLoading, setSlugsLoading] = useState(false)
+  const ensureSlugsLoaded = async () => {
+    if (slugsList || slugsLoading) return
+    setSlugsLoading(true)
+    try {
+      const r = await api.listLandingSlugs()
+      setSlugsList(r.slugs || [])
+    } catch {
+      setSlugsList([])
+    } finally {
+      setSlugsLoading(false)
+    }
+  }
   // Detect whether the page has real, audit-worthy content yet.
   // Freshly-scaffolded pages (Create WP draft from a Sitemap Wizard
   // slot) have only an imported placeholder version (~250 chars).
@@ -1834,6 +1852,8 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
                 key={`${l.href}-${i}`}
                 link={l}
                 landingPageId={landing_page_id}
+                slugs={slugsList || []}
+                onActivate={ensureSlugsLoaded}
                 onSaved={(result) => patchSourcePage({
                   links: result.links || [],
                   headings: result.headings,
@@ -4741,28 +4761,57 @@ function MigrateUrlsPanel({ landingPageId, currentPageUrl, onApplied }) {
 // up to PageWorkspace via onSaved so the whole list re-renders.
 // The new URL doesn't have to exist yet — operator can pre-build
 // links to pages they'll create later.
-function EditableLinkRow({ link, landingPageId, onSaved }) {
+function EditableLinkRow({ link, landingPageId, onSaved, slugs = [], onActivate }) {
   const l = link
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(l.href || '')
+  const [showSuggest, setShowSuggest] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   useEffect(() => { setDraft(l.href || ''); setError(null) }, [l.href])
 
-  const save = async () => {
+  const beginEdit = () => {
+    setEditing(true)
+    setShowSuggest(true)
+    if (typeof onActivate === 'function') onActivate()
+  }
+
+  // Suggestion filter — case-insensitive contains over label OR
+  // canonical URL OR slug. Empty draft shows everything (capped at 20
+  // so the dropdown stays usable on large sites).
+  const filtered = (() => {
+    const q = draft.trim().toLowerCase()
+    if (!Array.isArray(slugs) || slugs.length === 0) return []
+    if (!q) return slugs.slice(0, 20)
+    return slugs.filter(s =>
+      (s.label || '').toLowerCase().includes(q) ||
+      (s.canonical_url || '').toLowerCase().includes(q) ||
+      (s.slug || '').toLowerCase().includes(q)
+    ).slice(0, 20)
+  })()
+
+  const save = async (override) => {
     if (saving) return
-    const next = draft.trim()
-    if (next === (l.href || '')) { setEditing(false); return }
+    const next = (typeof override === 'string' ? override : draft).trim()
+    if (next === (l.href || '')) { setEditing(false); setShowSuggest(false); return }
     setSaving(true); setError(null)
     try {
       const r = await api.updateLandingPageLink(landingPageId, { from_href: l.href, to_href: next })
       if (typeof onSaved === 'function') onSaved(r)
       setEditing(false)
+      setShowSuggest(false)
     } catch (e) {
       setError(e?.message || String(e))
     } finally {
       setSaving(false)
     }
+  }
+
+  const pick = (suggestion) => {
+    setDraft(suggestion.canonical_url)
+    setShowSuggest(false)
+    // Auto-save on pick — feels snappier than "select, then click Save".
+    save(suggestion.canonical_url)
   }
 
   const typeChip = (
@@ -4781,34 +4830,61 @@ function EditableLinkRow({ link, landingPageId, onSaved }) {
           {l.anchor || <i className="text-muted">(no anchor text)</i>}
         </span>
         {editing ? (
-          <>
+          <div className="relative">
             <input
               value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setDraft(l.href || ''); setEditing(false); setError(null) } }}
+              onChange={e => { setDraft(e.target.value); setShowSuggest(true) }}
+              onFocus={() => setShowSuggest(true)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') save()
+                if (e.key === 'Escape') { setDraft(l.href || ''); setEditing(false); setShowSuggest(false); setError(null) }
+              }}
               autoFocus
               placeholder="https://poppyandthyme.com/page-slug/"
-              className="text-[9px] font-mono border border-[#6C5CE7]/40 rounded px-1 py-0.5 outline-none focus:border-[#6C5CE7] w-[260px]"
+              className="text-[9px] font-mono border border-[#6C5CE7]/40 rounded px-1 py-0.5 outline-none focus:border-[#6C5CE7] w-[300px]"
             />
-            <button
-              onClick={save}
-              disabled={saving || draft.trim() === (l.href || '')}
-              className="text-[9px] py-0.5 px-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
-            >{saving ? '…' : '✓ Save'}</button>
-            <button
-              onClick={() => { setDraft(l.href || ''); setEditing(false); setError(null) }}
-              className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
-            >Cancel</button>
-          </>
+            {showSuggest && filtered.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-0.5 bg-white border border-[#6C5CE7]/40 rounded shadow-md max-h-[220px] overflow-y-auto z-20">
+                <div className="text-[8px] text-muted px-1.5 py-0.5 bg-[#fafbff] border-b border-[#e5e5e5]">
+                  {filtered.length} existing destination{filtered.length === 1 ? '' : 's'} — click to use (or keep typing for a custom URL)
+                </div>
+                {filtered.map((s, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => pick(s)}
+                    onMouseDown={e => e.preventDefault()}
+                    className="block w-full text-left px-1.5 py-1 hover:bg-[#fafbff] border-none bg-white cursor-pointer border-b border-[#f0f0f0] last:border-0"
+                  >
+                    <div className="text-[10px] font-medium text-ink truncate">{s.label}</div>
+                    <div className="text-[9px] text-[#6C5CE7] font-mono truncate">{s.canonical_url}</div>
+                    <div className="text-[8px] text-muted">
+                      {s.source === 'both' ? '🔗 page + slot' : s.source === 'page' ? '📄 page only' : '🗺 slot only (not yet built)'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-1 mt-0.5">
+              <button
+                onClick={() => save()}
+                disabled={saving || draft.trim() === (l.href || '')}
+                className="text-[9px] py-0.5 px-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              >{saving ? '…' : '✓ Save'}</button>
+              <button
+                onClick={() => { setDraft(l.href || ''); setEditing(false); setShowSuggest(false); setError(null) }}
+                className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
+              >Cancel</button>
+            </div>
+          </div>
         ) : (
           <>
             <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline truncate max-w-[260px]" title={l.href}>
               {l.href}
             </a>
             <button
-              onClick={() => setEditing(true)}
+              onClick={beginEdit}
               className="text-[9px] py-0 px-1 bg-transparent border-none text-muted hover:text-[#6C5CE7] cursor-pointer"
-              title="Edit this link's href. Replaces the exact href in body_html — won't collide with similar URLs. Destination doesn't need to exist yet."
+              title="Edit this link's href. Suggestions come from existing tenant pages + sitemap slots; or type a custom URL (destination doesn't have to exist yet)."
             >✏️</button>
           </>
         )}

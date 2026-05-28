@@ -959,6 +959,21 @@ export const updateLandingPageMeta = (landingPageId, fields = {}) =>
     return r.json()
   })
 
+// List every landing page + sitemap-plan slot for this tenant with
+// its canonical ecommerce URL. Used by the per-link edit combobox
+// to suggest existing destinations when fixing stale links.
+export const listLandingSlugs = () =>
+  csrfFetch(`${apiBase()}/content/landing/slugs`, {
+    method: 'GET',
+    credentials: 'include',
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `listLandingSlugs failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Surgical per-link href edit. Replaces ONE specific href="<from>"
 // attribute in the most-recent version's body_html (exact match,
 // quoted attribute pattern — won't collide on shared prefixes).
