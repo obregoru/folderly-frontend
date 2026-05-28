@@ -195,6 +195,13 @@ function UploadTab({ landingPageId, onSuccess }) {
   const [role, setRole] = useState('inline')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  // SEO-suggestion state — operator-triggered, results cached for
+  // the lifetime of the panel so re-clicks don't burn extra Claude
+  // calls unless they explicitly refresh.
+  const [suggestBusy, setSuggestBusy] = useState(false)
+  const [suggestErr, setSuggestErr] = useState(null)
+  const [suggestions, setSuggestions] = useState(null) // null | [{filename, alt_text, hint, slot_type}]
+  const [suggestContext, setSuggestContext] = useState('')
   // Object-URL preview so the operator can confirm the right file
   // before submit. Revoked on cleanup / file swap to avoid leaks.
   const [previewUrl, setPreviewUrl] = useState(null)
@@ -243,9 +250,78 @@ function UploadTab({ landingPageId, onSuccess }) {
       setBusy(false)
     }
   }
+
+  const fetchSuggestions = async () => {
+    if (suggestBusy) return
+    setSuggestBusy(true); setSuggestErr(null)
+    try {
+      const r = await api.suggestImageFilenames(landingPageId, { context: suggestContext.trim() })
+      setSuggestions(r.suggestions || [])
+    } catch (e) {
+      setSuggestErr(e?.message || String(e))
+    } finally {
+      setSuggestBusy(false)
+    }
+  }
+
+  const applySuggestion = (s) => {
+    setSeoFilename(s.filename || '')
+    setAltText(s.alt_text || '')
+  }
+
   return (
     <div className="space-y-3">
       <div className="text-[10px] text-muted">Upload a JPG/PNG/WebP from your computer. Stored in Supabase, associated with the tenant. The SEO filename below is what shows in the URL + WP media library — give it a descriptive slug.</div>
+
+      {/* SEO-suggestion panel — operator-triggered. Tailored to the
+          page's title + focus keyword + body excerpt + tenant context.
+          Click a chip to autofill SEO filename + alt text. */}
+      <div className="border border-[#6C5CE7]/30 rounded p-2 bg-[#fafbff] space-y-1.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-medium text-[#6C5CE7]">✨ AI filename suggestions</span>
+          <span className="text-[9px] text-muted flex-1 min-w-[180px]">Based on this page's content + focus keyword. Click any to autofill below.</span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <input
+            type="text"
+            value={suggestContext}
+            onChange={e => setSuggestContext(e.target.value)}
+            placeholder="(optional) what's this shot — e.g. 'hero, candle pour'"
+            className="flex-1 min-w-[200px] text-[10px] border border-[#e5e5e5] rounded px-1.5 py-1 outline-none focus:border-[#6C5CE7]"
+          />
+          <button
+            onClick={fetchSuggestions}
+            disabled={suggestBusy}
+            className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+            title="Asks Claude Haiku for 5-8 filename + alt-text suggestions tailored to this page. Cheap (~$0.001 per call); safe to re-run with different context for different shots."
+          >{suggestBusy ? 'Thinking…' : (suggestions ? '🔄 Regenerate' : '✨ Suggest filenames')}</button>
+        </div>
+        {suggestErr && <div className="text-[9px] text-[#c0392b]">⚠ {suggestErr}</div>}
+        {suggestions && suggestions.length === 0 && (
+          <div className="text-[9px] text-muted italic">No suggestions came back. Try adding context above.</div>
+        )}
+        {suggestions && suggestions.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => applySuggestion(s)}
+                className="text-left p-1.5 bg-white border border-[#e5e5e5] hover:border-[#6C5CE7] hover:bg-[#fafbff] rounded cursor-pointer"
+                title="Click to autofill SEO filename + alt text with these values"
+              >
+                <div className="flex items-center gap-1">
+                  {s.slot_type && (
+                    <span className="text-[8px] py-0.5 px-1 rounded bg-[#e0e7ff] text-[#3730a3] font-mono">{s.slot_type}</span>
+                  )}
+                  <span className="text-[10px] font-mono font-medium text-ink truncate">{s.filename}</span>
+                </div>
+                <div className="text-[9px] text-muted mt-0.5 line-clamp-2">{s.alt_text}</div>
+                {s.hint && <div className="text-[8px] italic text-[#6366f1] mt-0.5">💡 {s.hint}</div>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <input
         type="file"
         accept="image/jpeg,image/png,image/webp,image/gif,image/avif"

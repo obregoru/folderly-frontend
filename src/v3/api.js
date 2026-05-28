@@ -979,6 +979,25 @@ export const generateLandingPageSchemaLatest = (landingPageId) =>
     return r.json()
   })
 
+// On-demand image filename + alt-text suggestions tailored to the
+// page's content + SEO goals. Used by the image-upload dialog so
+// the operator gets descriptive starter values instead of typing
+// from scratch. Pass optional { context } to bias the suggestions
+// toward a specific shot type.
+export const suggestImageFilenames = (landingPageId, { context } = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/suggest-image-filenames`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(context ? { context } : {}),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `suggestImageFilenames failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // List every landing page + sitemap-plan slot for this tenant with
 // its canonical ecommerce URL. Used by the per-link edit combobox
 // to suggest existing destinations when fixing stale links.
