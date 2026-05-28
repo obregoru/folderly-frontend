@@ -1524,16 +1524,15 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-semibold truncate">{page.title || `Post ${page.wp_post_id}`}</div>
-          {page.url && (
-            <a
-              href={page.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[10px] text-[#6C5CE7] underline break-all"
-            >{page.url}</a>
-          )}
+          <EditablePageUrl
+            landingPageId={landing_page_id}
+            currentUrl={page.url || ''}
+            onSaved={(newUrl) => patchSourcePage({ url: newUrl })}
+          />
         </div>
-        <div className="text-[9px] font-mono text-muted whitespace-nowrap">WP #{page.wp_post_id}</div>
+        {page.wp_post_id != null && (
+          <div className="text-[9px] font-mono text-muted whitespace-nowrap">WP #{page.wp_post_id}</div>
+        )}
       </div>
 
       {/* Workflow wizard — 5-step tracker showing what's been done
@@ -1813,19 +1812,35 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
       {/* Links — visible by default since Phase 2 builds on these */}
       <details className="text-[10px] border border-[#e5e5e5] rounded">
         <summary className="cursor-pointer py-1.5 px-2 bg-[#fafafa] font-medium">Links ({links.length}) — preserved on rewrite</summary>
-        <div className="p-2 space-y-0.5 max-h-[200px] overflow-y-auto">
-          {links.length === 0 && <div className="text-muted italic">No links in body.</div>}
-          {links.map((l, i) => (
-            <div key={i} className="flex items-center gap-2 py-0.5 border-b border-[#f0f0f0] last:border-0">
-              <span className={`text-[9px] py-0.5 px-1 rounded font-mono ${
-                l.type === 'internal' ? 'bg-[#6C5CE7]/10 text-[#6C5CE7]'
-                  : l.type === 'anchor' ? 'bg-[#fef9c3] text-[#854d0e]'
-                  : 'bg-[#e5e5e5] text-muted'
-              }`}>{l.type}</span>
-              <span className="flex-1 truncate" title={l.anchor || '(no anchor text)'}>{l.anchor || <i className="text-muted">(no anchor text)</i>}</span>
-              <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline truncate max-w-[200px]" title={l.href}>{l.href}</a>
-            </div>
-          ))}
+        <div className="p-2 space-y-1.5">
+          {/* Bulk URL migration — switch from a WP source domain to
+              the tenant's live domain in one pass. Updates body_html
+              hrefs + re-parses links_meta on the most-recent version
+              + optionally rewrites landing_pages.url itself. Common
+              after a platform switch (WP → Square). */}
+          <MigrateUrlsPanel
+            landingPageId={landing_page_id}
+            currentPageUrl={page.url || ''}
+            onApplied={(result) => {
+              const patch = { links: result.links || [], headings: result.headings, body_html: result.body_html }
+              if (result.page_url_updated && result.page_url) patch.url = result.page_url
+              patchSourcePage(patch)
+            }}
+          />
+          <div className="max-h-[200px] overflow-y-auto space-y-0.5">
+            {links.length === 0 && <div className="text-muted italic">No links in body.</div>}
+            {links.map((l, i) => (
+              <div key={i} className="flex items-center gap-2 py-0.5 border-b border-[#f0f0f0] last:border-0">
+                <span className={`text-[9px] py-0.5 px-1 rounded font-mono ${
+                  l.type === 'internal' ? 'bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                    : l.type === 'anchor' ? 'bg-[#fef9c3] text-[#854d0e]'
+                    : 'bg-[#e5e5e5] text-muted'
+                }`}>{l.type}</span>
+                <span className="flex-1 truncate" title={l.anchor || '(no anchor text)'}>{l.anchor || <i className="text-muted">(no anchor text)</i>}</span>
+                <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-[9px] text-[#6C5CE7] underline truncate max-w-[200px]" title={l.href}>{l.href}</a>
+              </div>
+            ))}
+          </div>
         </div>
       </details>
 
@@ -4558,6 +4573,165 @@ function timeAgoShort(iso) {
 // panel for taking that action. Steps can be done in any order
 // across multiple sessions — the wizard reads state from BE-
 // persisted data, not in-session state alone.
+// Inline-editable canonical page URL. Click pencil → input + save.
+// Persists to landing_pages.url via PATCH /content/landing/:id and
+// patches local page state via onSaved so the rest of the workspace
+// re-renders against the new URL without a workspace reopen.
+function EditablePageUrl({ landingPageId, currentUrl, onSaved }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(currentUrl || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  useEffect(() => { setDraft(currentUrl || ''); setError(null) }, [currentUrl, landingPageId])
+
+  const save = async () => {
+    if (saving) return
+    const trimmed = draft.trim()
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      setError('URL must start with http:// or https://')
+      return
+    }
+    setSaving(true); setError(null)
+    try {
+      const r = await api.updateLandingPageMeta(landingPageId, { url: trimmed })
+      if (typeof onSaved === 'function') onSaved(r.page?.url || trimmed)
+      setEditing(false)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 mt-0.5">
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setDraft(currentUrl || ''); setEditing(false); setError(null) } }}
+          autoFocus
+          placeholder="https://example.com/page-slug/"
+          className="flex-1 text-[10px] font-mono border border-[#6C5CE7]/40 rounded px-1.5 py-0.5 outline-none focus:border-[#6C5CE7]"
+        />
+        <button
+          onClick={save}
+          disabled={saving || draft === (currentUrl || '')}
+          className="text-[9px] py-0.5 px-1.5 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50"
+        >{saving ? 'Saving…' : '✓ Save'}</button>
+        <button
+          onClick={() => { setDraft(currentUrl || ''); setEditing(false); setError(null) }}
+          className="text-[9px] py-0.5 px-1.5 bg-white border border-[#e5e5e5] text-muted rounded cursor-pointer"
+        >Cancel</button>
+        {error && <div className="text-[9px] text-[#c0392b] w-full">{error}</div>}
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-1 mt-0.5">
+      {currentUrl ? (
+        <a href={currentUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#6C5CE7] underline break-all">{currentUrl}</a>
+      ) : (
+        <span className="text-[10px] text-muted italic">(no URL set)</span>
+      )}
+      <button
+        onClick={() => setEditing(true)}
+        className="text-[9px] py-0 px-1 bg-transparent border-none text-muted hover:text-[#6C5CE7] cursor-pointer"
+        title="Edit canonical page URL. Used by audit/propose/breadcrumb generators."
+      >✏️</button>
+    </div>
+  )
+}
+
+// Bulk URL find/replace tool. Operator types the OLD source prefix
+// (e.g. "https://wordpress-1603968-6305296.cloudwaysapps.com") and
+// the NEW target prefix (e.g. "https://poppyandthyme.com"); BE walks
+// the most-recent version's body_html, replaces matching substrings
+// (literal, not regex), and re-parses links_meta. Optionally rewrites
+// the page's canonical URL too. Shows match count + applied state.
+function MigrateUrlsPanel({ landingPageId, currentPageUrl, onApplied }) {
+  // Pre-fill `from` from the current page URL's origin so the common
+  // case (migrate from THIS domain to the tenant domain) is one click.
+  const defaultFrom = (() => {
+    try { return currentPageUrl ? new URL(currentPageUrl).origin : '' } catch { return '' }
+  })()
+  const [from, setFrom] = useState(defaultFrom)
+  const [to, setTo] = useState('')
+  const [alsoPage, setAlsoPage] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const [result, setResult] = useState(null)
+  useEffect(() => { setFrom(defaultFrom); setResult(null); setError(null) }, [defaultFrom, landingPageId])
+
+  const apply = async () => {
+    if (busy) return
+    if (!from.trim()) { setError('Need a "from" URL/prefix.'); return }
+    setBusy(true); setError(null); setResult(null)
+    try {
+      const r = await api.migrateLandingPageUrls(landingPageId, {
+        from: from.trim(),
+        to: to.trim(),
+        also_update_page_url: alsoPage,
+      })
+      setResult(r)
+      if (typeof onApplied === 'function') onApplied(r)
+    } catch (e) {
+      setError(e?.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="border border-[#d97706]/40 bg-[#fff7ed] rounded p-1.5 space-y-1">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[9px] font-medium text-[#9a3412]">🔁 Migrate URLs (bulk find/replace)</span>
+        <span className="text-[9px] text-muted">Swap the source domain on every body link + this page's URL — useful after a platform switch.</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+        <div>
+          <label className="text-[9px] text-muted block">From (source prefix)</label>
+          <input
+            value={from}
+            onChange={e => setFrom(e.target.value)}
+            placeholder="https://old-source.example.com"
+            className="w-full text-[10px] font-mono border border-[#e5e5e5] rounded px-1.5 py-0.5 outline-none focus:border-[#d97706]"
+          />
+        </div>
+        <div>
+          <label className="text-[9px] text-muted block">To (replacement prefix)</label>
+          <input
+            value={to}
+            onChange={e => setTo(e.target.value)}
+            placeholder="https://tenant-target.com"
+            className="w-full text-[10px] font-mono border border-[#e5e5e5] rounded px-1.5 py-0.5 outline-none focus:border-[#d97706]"
+          />
+        </div>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <label className="flex items-center gap-1 text-[9px] text-muted cursor-pointer">
+          <input type="checkbox" checked={alsoPage} onChange={e => setAlsoPage(e.target.checked)} className="cursor-pointer" />
+          Also update this page's canonical URL if it starts with the From prefix
+        </label>
+        <span className="flex-1" />
+        <button
+          onClick={apply}
+          disabled={busy || !from.trim()}
+          className="text-[9px] py-0.5 px-1.5 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-50"
+          title="Run the find/replace + persist. Idempotent — re-running with the same input is safe."
+        >{busy ? 'Working…' : '🔁 Apply migration'}</button>
+      </div>
+      {error && <div className="text-[9px] text-[#c0392b]">⚠ {error}</div>}
+      {result && (
+        <div className="text-[9px] text-[#166534] bg-white border border-[#16a34a]/40 rounded px-1.5 py-1">
+          ✓ {result.matches} match{result.matches === 1 ? '' : 'es'} replaced in body.
+          {result.page_url_updated ? ` Page URL updated → ${result.page_url}.` : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function WorkflowWizard({ page, audit, proposal, history, recoveredProposal, liveCheckResults }) {
   // Step 1 — Audit. Done if last_audited_at on the page row OR an
   // audit was run this session. Plus per-finding state tracking:

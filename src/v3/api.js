@@ -941,6 +941,42 @@ export const updateLandingVersionBody = (landingPageId, versionId, bodyHtml) =>
     return r.json()
   })
 
+// Edit page-level fields on the landing_pages row. Pass any subset
+// of editable fields. Currently supports { url, label }. Used to
+// migrate the page's canonical URL when a tenant switches platforms
+// (WP → Square) and the old WP source URL is no longer correct.
+export const updateLandingPageMeta = (landingPageId, fields = {}) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}`, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(fields),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `updateLandingPageMeta failed (${r.status})`)
+    }
+    return r.json()
+  })
+
+// Bulk find/replace URL prefix across the most-recent version's
+// body_html. Re-parses links_meta server-side so the diff stays
+// consistent. Pass also_update_page_url=true to also rewrite
+// landing_pages.url if it starts with `from`.
+export const migrateLandingPageUrls = (landingPageId, { from, to, also_update_page_url = false }) =>
+  csrfFetch(`${apiBase()}/content/landing/${landingPageId}/migrate-urls`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ from, to, also_update_page_url }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `migrateLandingPageUrls failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // Idempotently prepend an <h1> matching the page's most-recent
 // version.title to body_html. Page-scoped (not version-scoped) —
 // always targets versions[0] so a reload immediately reflects the
