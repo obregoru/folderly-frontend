@@ -979,6 +979,26 @@ export const generateLandingPageSchemaLatest = (landingPageId) =>
     return r.json()
   })
 
+// Tenant-wide bulk find/replace across every landing_page_versions
+// row's body_html. Two-phase: pass apply:false for a dry-run report,
+// apply:true to persist + re-parse links_meta/headings/images.
+// Used to scrub stale URLs (e.g. postyposty.com app references that
+// shouldn't appear in customer-facing content) without touching pages
+// that don't contain the pattern.
+export const bulkHostReplace = ({ from, to, apply = false }) =>
+  csrfFetch(`${apiBase()}/content/landing/host-replace-bulk`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    credentials: 'include',
+    body: JSON.stringify({ from, to, apply }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `bulkHostReplace failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 // On-demand image filename + alt-text suggestions tailored to the
 // page's content + SEO goals. Used by the image-upload dialog so
 // the operator gets descriptive starter values instead of typing

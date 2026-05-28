@@ -42,6 +42,7 @@ export default function LandingPages() {
       emoji: '📝',
     },
     pages: [],
+    tenant_target_url: null,
   })
   // Auto-shows the BackupGuideModal once before the first deploy
   // for this tenant. Acknowledgment persists on tenants.landing_
@@ -1015,6 +1016,17 @@ export default function LandingPages() {
               moment any beacon fires. Collapsed by default since
               this is a setup-once concern. */}
           <CtaSettingsCard />
+
+          {/* Tenant-wide bulk URL cleanup. Dry-run first, then apply.
+              Common use: replace app URLs (postyposty.com) or WP
+              staging hosts that snuck into body content during early
+              propose runs, mapping them to the tenant's live domain. */}
+          {state.pages.length > 0 && (
+            <BulkHostReplacePanel
+              tenantTargetUrl={state.tenant_target_url}
+              onApplied={reload}
+            />
+          )}
 
           {/* Managed pages list — hierarchical (children indented
               under their parent). Parents render first; orphan
@@ -8371,6 +8383,132 @@ function getPageWorkflowState(page) {
 //   • Complete — every step done + deploy is after last audit
 // Each chip shows the matching count so the operator sees at a
 // glance how much work is left site-wide.
+// Tenant-wide host replacement panel. Lives above the Managed
+// pages list. Two-phase workflow:
+//   1. Scan: dry-run that lists every page containing the `from`
+//      pattern + match count. No writes.
+//   2. Apply: runs the literal substring replacement across every
+//      affected page's most-recent version, re-parses links_meta /
+//      headings / images, persists.
+// Pre-fills 'From' with 'postyposty.com' and 'To' with the tenant's
+// target_url — the most common cleanup case. Operator can change
+// either field for other host migrations.
+function BulkHostReplacePanel({ tenantTargetUrl, onApplied }) {
+  const targetOrigin = (() => {
+    try { return tenantTargetUrl ? new URL(tenantTargetUrl).origin : '' } catch { return '' }
+  })()
+  const [from, setFrom] = useState('postyposty.com')
+  const [to, setTo] = useState(targetOrigin)
+  useEffect(() => { setTo(targetOrigin) }, [targetOrigin])
+  const [scanBusy, setScanBusy] = useState(false)
+  const [scanResult, setScanResult] = useState(null) // { scanned_pages, matches_by_page, total_matches, applied, pages_updated }
+  const [scanErr, setScanErr] = useState(null)
+  const [applyBusy, setApplyBusy] = useState(false)
+
+  const scan = async () => {
+    if (scanBusy) return
+    if (!from.trim()) { setScanErr('From is required.'); return }
+    setScanBusy(true); setScanErr(null); setScanResult(null)
+    try {
+      const r = await api.bulkHostReplace({ from: from.trim(), to, apply: false })
+      setScanResult(r)
+    } catch (e) {
+      setScanErr(e?.message || String(e))
+    } finally {
+      setScanBusy(false)
+    }
+  }
+
+  const apply = async () => {
+    if (applyBusy) return
+    if (!scanResult || scanResult.total_matches === 0) return
+    if (!confirm(`Replace ${scanResult.total_matches} occurrence${scanResult.total_matches === 1 ? '' : 's'} of "${from}" with "${to}" across ${scanResult.matches_by_page.length} page${scanResult.matches_by_page.length === 1 ? '' : 's'}?\n\nThis updates the most-recent version of each affected page. The previous version stays in history so you can roll back from a page workspace if needed.\n\nContinue?`)) return
+    setApplyBusy(true); setScanErr(null)
+    try {
+      const r = await api.bulkHostReplace({ from: from.trim(), to, apply: true })
+      setScanResult(r)
+      if (typeof onApplied === 'function') onApplied()
+    } catch (e) {
+      setScanErr(e?.message || String(e))
+    } finally {
+      setApplyBusy(false)
+    }
+  }
+
+  return (
+    <details className="border border-[#d97706]/40 bg-[#fff7ed] rounded">
+      <summary className="cursor-pointer py-1.5 px-2 text-[10px] font-medium flex items-center gap-2">
+        <span>🧹 Tenant-wide URL cleanup</span>
+        <span className="text-[9px] text-muted flex-1">Find/replace across every page's body — useful when an old domain (e.g. postyposty.com or a WP staging URL) leaked into copy.</span>
+        {scanResult && (
+          <span className="text-[9px] font-mono">
+            {scanResult.applied ? `✓ ${scanResult.pages_updated} page${scanResult.pages_updated === 1 ? '' : 's'} updated` : `${scanResult.total_matches} match${scanResult.total_matches === 1 ? '' : 'es'} in ${scanResult.matches_by_page.length} page${scanResult.matches_by_page.length === 1 ? '' : 's'}`}
+          </span>
+        )}
+      </summary>
+      <div className="p-2 space-y-1.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+          <div>
+            <label className="block text-[9px] text-muted">From (substring to match)</label>
+            <input
+              value={from}
+              onChange={e => setFrom(e.target.value)}
+              placeholder="postyposty.com"
+              className="w-full text-[10px] font-mono border border-[#e5e5e5] rounded px-1.5 py-1 outline-none focus:border-[#d97706]"
+            />
+          </div>
+          <div>
+            <label className="block text-[9px] text-muted">To (replacement)</label>
+            <input
+              value={to}
+              onChange={e => setTo(e.target.value)}
+              placeholder={targetOrigin || 'https://your-tenant-domain.com'}
+              className="w-full text-[10px] font-mono border border-[#e5e5e5] rounded px-1.5 py-1 outline-none focus:border-[#d97706]"
+            />
+            {!tenantTargetUrl && (
+              <div className="text-[9px] text-[#c0392b] mt-0.5">⚠ tenant.target_url isn't set — fill manually.</div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={scan}
+            disabled={scanBusy || !from.trim()}
+            className="text-[9px] py-1 px-2 bg-white border border-[#d97706] text-[#d97706] rounded cursor-pointer disabled:opacity-50"
+            title="Dry-run: scans every page's body for the From substring and reports matches without writing anything."
+          >{scanBusy ? 'Scanning…' : '🔍 Scan (dry-run)'}</button>
+          {scanResult && !scanResult.applied && scanResult.total_matches > 0 && (
+            <button
+              onClick={apply}
+              disabled={applyBusy}
+              className="text-[9px] py-1 px-2 bg-[#d97706] text-white border-none rounded cursor-pointer disabled:opacity-50"
+              title="Apply the replacement across every matching page. Persists to the most-recent version of each page; previous versions stay in history for rollback."
+            >{applyBusy ? 'Applying…' : `✨ Apply to ${scanResult.matches_by_page.length} page${scanResult.matches_by_page.length === 1 ? '' : 's'}`}</button>
+          )}
+        </div>
+        {scanErr && <div className="text-[9px] text-[#c0392b]">⚠ {scanErr}</div>}
+        {scanResult && scanResult.total_matches === 0 && (
+          <div className="text-[9px] text-[#16a34a]">✓ No matches across {scanResult.scanned_pages} page{scanResult.scanned_pages === 1 ? '' : 's'}.</div>
+        )}
+        {scanResult && scanResult.matches_by_page.length > 0 && (
+          <div className="bg-white border border-[#e5e5e5] rounded max-h-[200px] overflow-y-auto">
+            {scanResult.matches_by_page.map((m, i) => (
+              <div key={i} className="flex items-center gap-2 px-2 py-1 border-b border-[#f0f0f0] last:border-0">
+                <span className="text-[9px] font-mono py-0.5 px-1 rounded bg-[#fef3c7] text-[#92400e]">{m.count}×</span>
+                <span className="text-[10px] font-medium truncate flex-1">{m.label || `Page ${m.page_id}`}</span>
+                <span className="text-[9px] font-mono text-muted truncate max-w-[260px]" title={m.url}>{m.url || '(no URL)'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {scanResult && scanResult.applied && (
+          <div className="text-[9px] text-muted italic">Reload any open page workspace to see the updated previews + diff. Previous versions stay in history.</div>
+        )}
+      </div>
+    </details>
+  )
+}
+
 function ManagedPagesPanel({ pages, onOpen, defaultPostId, activeLandingPageId }) {
   const [filter, setFilter] = useState('all')
 
