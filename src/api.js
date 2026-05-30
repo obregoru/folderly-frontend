@@ -50,19 +50,27 @@ function csrf() {
 // user doesn't have to manually reload the page after their session
 // was rotated server-side (e.g. silent session refresh, secondary
 // tab login, OAuth-triggered cookie change).
+//
+// Returns one of:
+//   { ok: true }                   — token refreshed; retry succeeds
+//   { ok: false, expired: true }   — /me returned 401; session is GONE
+//   { ok: false, expired: false }  — transient failure (network, 5xx)
 let _csrfRefreshPromise = null
 async function refreshCsrf() {
   if (_csrfRefreshPromise) return _csrfRefreshPromise
   _csrfRefreshPromise = (async () => {
     try {
       const r = await fetch(`${BASE}/api/auth/me`, { credentials: 'include' })
-      if (!r.ok) return false
+      if (r.status === 401) return { ok: false, expired: true }
+      if (!r.ok) return { ok: false, expired: false }
       const data = await r.json().catch(() => null)
       if (data?.csrf_token) {
         _csrfToken = data.csrf_token
-        return true
+        return { ok: true }
       }
-      return false
+      return { ok: false, expired: false }
+    } catch {
+      return { ok: false, expired: false }
     } finally {
       // Clear so the NEXT 403 (much later) can trigger a fresh fetch.
       setTimeout(() => { _csrfRefreshPromise = null }, 0)
@@ -71,10 +79,28 @@ async function refreshCsrf() {
   return _csrfRefreshPromise
 }
 
+// Module-level flag the FE can read to show a "session expired"
+// banner instead of surfacing per-call CSRF errors. Set once
+// when refreshCsrf reports expired=true; cleared on a successful
+// refresh (e.g. after the operator logs back in via the banner).
+let _sessionExpired = false
+export function isSessionExpired() { return _sessionExpired }
+export function clearSessionExpired() { _sessionExpired = false }
+// Fire a window-level event so the app shell can surface a banner /
+// modal without each caller having to know about the flag.
+function dispatchSessionExpired() {
+  _sessionExpired = true
+  try { window.dispatchEvent(new CustomEvent('pp:session-expired')) } catch { /* noop */ }
+}
+
 // fetch wrapper that retries ONCE on 403 "Invalid CSRF token" after
 // rehydrating /me. Use for any state-changing request whose 403 path
 // would otherwise surface a confusing "Invalid CSRF token" error to
 // the user.
+//
+// When /me reports session expiry, dispatches a 'pp:session-expired'
+// window event and returns a synthetic response with a clearer
+// error message so per-call catches show something actionable.
 export async function csrfFetch(url, init) {
   const r = await fetch(url, init)
   if (r.status !== 403) return r
@@ -85,17 +111,28 @@ export async function csrfFetch(url, init) {
   try { body = await cloned.json() } catch { /* not JSON */ }
   if (body?.error !== 'Invalid CSRF token') return r
   const refreshed = await refreshCsrf()
-  if (!refreshed) return r
-  // Re-issue with the fresh token. init.headers may be the result of
-  // h(), csrf(), or a literal — rebuild minimally so we don't lose
-  // a user-provided body type (e.g. FormData).
-  const nextInit = { ...(init || {}) }
-  const prevHeaders = (init && init.headers) || {}
-  nextInit.headers = {
-    ...prevHeaders,
-    'X-CSRF-Token': _csrfToken,
+  if (refreshed.ok) {
+    // Re-issue with the fresh token. init.headers may be the result
+    // of h(), csrf(), or a literal — rebuild minimally so we don't
+    // lose a user-provided body type (e.g. FormData).
+    const nextInit = { ...(init || {}) }
+    const prevHeaders = (init && init.headers) || {}
+    nextInit.headers = {
+      ...prevHeaders,
+      'X-CSRF-Token': _csrfToken,
+    }
+    return fetch(url, nextInit)
   }
-  return fetch(url, nextInit)
+  if (refreshed.expired) {
+    dispatchSessionExpired()
+    // Replace the original response body with a clearer message so
+    // callers that just throw `r.error` show something actionable.
+    return new Response(
+      JSON.stringify({ error: 'Session expired — reload the page to log in again.' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    )
+  }
+  return r
 }
 
 // Health

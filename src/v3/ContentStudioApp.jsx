@@ -45,6 +45,18 @@ function initialScreenFromQuery() {
 export default function ContentStudioApp() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
+  // Session-expired banner shown when csrfFetch detects /api/auth/me
+  // returning 401 — means the session cookie is gone (server restart,
+  // explicit logout elsewhere, cookie expiry). Operator clicks the
+  // banner to reload + log back in. Listening on the window event
+  // dispatched from api.js keeps the wiring decoupled from individual
+  // screens.
+  const [sessionExpired, setSessionExpired] = useState(false)
+  useEffect(() => {
+    const handler = () => setSessionExpired(true)
+    window.addEventListener('pp:session-expired', handler)
+    return () => window.removeEventListener('pp:session-expired', handler)
+  }, [])
   // Honor ?go= on first mount so deep-links from other screens
   // (Sitemap Wizard's Open-in-Pages, for example) route correctly.
   const [screen, setScreen] = useState(initialScreenFromQuery) // 'dashboard' | 'ideation' | 'drafts' | 'schedule' | 'config' | 'landing' | 'sitemap'
@@ -81,6 +93,17 @@ export default function ContentStudioApp() {
 
   return (
     <div className="min-h-screen bg-[#fafafa]">
+      {sessionExpired && (
+        <div className="bg-[#fef2f2] border-b border-[#c0392b]/40 px-4 py-2 flex items-center gap-3">
+          <span className="text-[11px] font-medium text-[#c0392b]">⚠ Session expired</span>
+          <span className="text-[10px] text-[#7f1d1d]">Your login session is no longer valid. Reload to log back in — unsaved edits will be lost.</span>
+          <span className="flex-1" />
+          <button
+            onClick={() => { api.clearSessionExpired && api.clearSessionExpired(); window.location.reload() }}
+            className="text-[10px] py-1 px-2 bg-[#c0392b] text-white border-none rounded cursor-pointer"
+          >🔄 Reload page</button>
+        </div>
+      )}
       <header className="bg-white border-b border-[#e5e5e5] px-4 py-2 flex items-center gap-3">
         <span className="text-[14px] font-bold">📝 Content Studio</span>
         <span className="text-[10px] text-muted">v3 · {api.tenantSlug() || 'no-tenant'}</span>
