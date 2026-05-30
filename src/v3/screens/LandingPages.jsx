@@ -1727,6 +1727,7 @@ function PageWorkspace({ data, requireBackupAck, platformCapabilities }) {
         landingPageId={landing_page_id}
         initialHint={data?.page?.targeted_update_hint || ''}
         currentBufferHtml={proposal?.proposal?.body_html || page?.body_html || ''}
+        pageImages={pageImages}
         onApplied={(version) => {
           // The new version is now the buffer. Set it as the active
           // proposal so ProposalDiff renders against it without
@@ -3651,7 +3652,7 @@ function SchemaTypesAllowlist({ landingPageId }) {
 // the "after" is the new version's body_html. Both render in the
 // same iframe-styled preview the diff section uses, so visual
 // parity is exact.
-function TargetedUpdateEditor({ landingPageId, currentBufferHtml, initialHint, onApplied }) {
+function TargetedUpdateEditor({ landingPageId, currentBufferHtml, initialHint, onApplied, pageImages = null }) {
   const [hint, setHint] = useState(initialHint || '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
