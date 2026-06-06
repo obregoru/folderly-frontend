@@ -8,6 +8,7 @@ import EditorV2 from './screens/EditorV2'
 import SettingsDrawerV2 from './components/SettingsDrawerV2'
 import JobAiLogModal from './components/JobAiLogModal'
 import TenantSwitcher from './components/TenantSwitcher'
+import CampaignBuilderModal from '../components/CampaignBuilderModal'
 
 // Build metadata injected at compile time by Vite (see vite.config.js).
 // Aliased here so JSX can reference simpler names. typeof guard means
@@ -38,6 +39,11 @@ export default function AppV2() {
   const [activeDraftId, setActiveDraftId] = useState(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [aiLogOpen, setAiLogOpen] = useState(false)
+  // Campaign fan-out modal — NOT a navigation surface. Paste a
+  // multi-video brief → N standalone draft jobs land in the normal
+  // drafts list. campaign_id is set server-side for traceability;
+  // the operator never sees a campaign UI.
+  const [campaignModalOpen, setCampaignModalOpen] = useState(false)
   // Draft-name editing state — declared up here so the hooks always run
   // in the same order regardless of auth-checked / user branches below.
   // Moving them after the early returns triggers React error #310
@@ -622,6 +628,16 @@ export default function AppV2() {
         {/* V3 Content Studio link — opens the blog content system in
             a new tab so the user doesn't lose their V2 editor state.
             Same tenant context (auth cookie), separate route. */}
+        {/* Campaign fan-out — standalone shortcut. Paste a multi-video
+            brief → N standalone draft jobs land in the drafts list.
+            NOT a navigation surface; the operator never sees a
+            "campaign" UI. */}
+        <button
+          type="button"
+          onClick={() => setCampaignModalOpen(true)}
+          className="text-[10px] text-[#2D9A5E] border border-[#2D9A5E] rounded py-1 px-2 bg-[#f0faf4] cursor-pointer flex-shrink-0 whitespace-nowrap"
+          title="Paste a multi-video campaign brief and fan out into N standalone draft jobs. The jobs land in the regular drafts list — there is no campaign view to navigate."
+        >✨ Brief</button>
         <a
           href="/content-studio"
           target="_blank"
@@ -826,6 +842,21 @@ export default function AppV2() {
         draftId={activeDraftId}
         onClose={() => setAiLogOpen(false)}
       />
+      {campaignModalOpen && (
+        <CampaignBuilderModal
+          onClose={() => setCampaignModalOpen(false)}
+          onCreated={async (created) => {
+            setCampaignModalOpen(false)
+            // Refresh the drafts list so the N freshly-created standalone
+            // drafts show up. Operator stays on whatever they had open.
+            try {
+              if (jobSync.refreshJobList) await jobSync.refreshJobList()
+              const n = Array.isArray(created?.jobs) ? created.jobs.length : 0
+              if (n > 0) alert(`✓ Created ${n} draft job${n === 1 ? '' : 's'} from "${created?.campaign?.campaign_title || 'brief'}". They're in your Drafts list.`)
+            } catch (e) { console.warn('campaign-created refresh failed:', e?.message) }
+          }}
+        />
+      )}
     </div>
   )
 }
