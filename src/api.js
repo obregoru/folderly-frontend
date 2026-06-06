@@ -187,6 +187,32 @@ export const importMediaToJob = (destJobUuid, payload) =>
     return r.json()
   })
 
+// Campaigns — bulk-create N draft jobs from a pasted multi-video
+// brief. dry_run=true returns a preview without writing; dry_run=
+// false (or omitted via the create wrapper) persists.
+export const previewCampaign = (source_text) =>
+  csrfFetch(api('/campaigns'), {
+    method: 'POST',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify({ source_text, dry_run: true }),
+  }).then(async r => {
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok || body?.error) throw new Error(body?.error || `previewCampaign failed (${r.status})`)
+    return body
+  })
+export const createCampaign = (source_text) =>
+  csrfFetch(api('/campaigns'), {
+    method: 'POST',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify({ source_text, dry_run: false }),
+  }).then(async r => {
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok || body?.error) throw new Error(body?.error || `createCampaign failed (${r.status})`)
+    return body
+  })
+
 // Jobs — persistent session state
 export const listJobs = () => fetch(api('/jobs'), { credentials: 'include' }).then(r => r.json())
 // Soft-deleted jobs ("archived"). Same shape as listJobs but the BE

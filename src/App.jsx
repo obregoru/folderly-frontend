@@ -850,6 +850,16 @@ export default function App() {
               }
             }}
             onNew={() => { if (confirm('Start a new job? Current work is auto-saved.')) clearAll() }}
+            onCampaignCreated={async (created) => {
+              // Refresh the job list so the N freshly-created drafts
+              // appear at the top. Operator stays on whatever they had
+              // open — explicit click required to switch.
+              try {
+                await jobSync.refreshJobs()
+                const n = Array.isArray(created?.jobs) ? created.jobs.length : 0
+                if (n > 0) alert(`✓ Created ${n} draft job${n === 1 ? '' : 's'} from "${created?.campaign?.campaign_title || 'campaign'}". Find them in the Saved drafts list.`)
+              } catch (e) { console.warn('campaign-created refresh failed:', e?.message) }
+            }}
             onArchive={(id) => { if (confirm('Archive this draft?')) jobSync.archiveJob(id) }}
             onRename={async (id, newName) => {
               await api.updateJob(id, { job_name: newName })
