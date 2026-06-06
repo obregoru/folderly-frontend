@@ -19,6 +19,7 @@ import ScheduledPosts from './components/ScheduledPosts'
 import ScheduleModal from './components/ScheduleModal'
 import HistoryModal from './components/HistoryModal'
 import JobList from './components/JobList'
+import CampaignBuilderModal from './components/CampaignBuilderModal'
 import useJobSync from './hooks/useJobSync'
 import RefineModal from './components/RefineModal'
 import AdminPanel from './components/AdminPanel'
@@ -60,6 +61,11 @@ export default function App() {
   const [reviewing, setReviewing] = useState(false)
   const [reviewResult, setReviewResult] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Campaign fan-out — standalone modal, NOT a navigation surface.
+  // Paste a multi-video brief → N standalone draft jobs land in the
+  // normal jobs list. No campaign-centric drill-down anywhere; the
+  // campaign_id pointer is just for trace-back, never UI navigation.
+  const [campaignModalOpen, setCampaignModalOpen] = useState(false)
   const [targetWeek, setTargetWeek] = useState(null)
   const [showLogin, setShowLogin] = useState(false)
 
@@ -779,6 +785,11 @@ export default function App() {
           <span className="text-[11px] text-muted hidden md:inline">
             {connected ? `Connected` : 'Connecting...'}
           </span>
+          <button
+            onClick={() => setCampaignModalOpen(true)}
+            title="Paste a multi-video campaign brief and fan out into N standalone draft jobs. The jobs land in your normal drafts list — there's no campaign drill-down anywhere."
+            className="text-[11px] md:text-[11px] py-2 px-2.5 md:px-3 border border-[#2D9A5E] rounded-sm bg-[#f0faf4] text-[#2D9A5E] cursor-pointer font-sans whitespace-nowrap min-h-[44px] md:min-h-0"
+          >✨ Brief</button>
           <button onClick={() => setScheduleOpen(true)} className="text-[11px] md:text-[11px] py-2 px-2.5 md:px-3 border border-[#6C5CE7] rounded-sm bg-[#f3f0ff] text-[#6C5CE7] cursor-pointer font-sans whitespace-nowrap min-h-[44px] md:min-h-0">Sched</button>
           <button onClick={() => setHistoryOpen(true)} className="text-[11px] md:text-[11px] py-2 px-2.5 md:px-3 border border-border rounded-sm bg-cream cursor-pointer font-sans whitespace-nowrap min-h-[44px] md:min-h-0 hidden sm:block">History</button>
           <span className="text-[10px] py-0.5 px-2 bg-terra-light text-terra rounded-full font-medium hidden md:inline">Beta</span>
@@ -850,16 +861,6 @@ export default function App() {
               }
             }}
             onNew={() => { if (confirm('Start a new job? Current work is auto-saved.')) clearAll() }}
-            onCampaignCreated={async (created) => {
-              // Refresh the job list so the N freshly-created drafts
-              // appear at the top. Operator stays on whatever they had
-              // open — explicit click required to switch.
-              try {
-                await jobSync.refreshJobs()
-                const n = Array.isArray(created?.jobs) ? created.jobs.length : 0
-                if (n > 0) alert(`✓ Created ${n} draft job${n === 1 ? '' : 's'} from "${created?.campaign?.campaign_title || 'campaign'}". Find them in the Saved drafts list.`)
-              } catch (e) { console.warn('campaign-created refresh failed:', e?.message) }
-            }}
             onArchive={(id) => { if (confirm('Archive this draft?')) jobSync.archiveJob(id) }}
             onRename={async (id, newName) => {
               await api.updateJob(id, { job_name: newName })
@@ -1103,6 +1104,22 @@ export default function App() {
 
       {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} />}
       {scheduleOpen && <ScheduleModal onClose={() => setScheduleOpen(false)} />}
+      {campaignModalOpen && (
+        <CampaignBuilderModal
+          onClose={() => setCampaignModalOpen(false)}
+          onCreated={async (created) => {
+            setCampaignModalOpen(false)
+            // Refresh the jobs list so the N freshly-created standalone
+            // drafts appear in the normal Saved drafts list. No nav
+            // happens — operator stays on whatever they had open.
+            try {
+              await jobSync.refreshJobs()
+              const n = Array.isArray(created?.jobs) ? created.jobs.length : 0
+              if (n > 0) alert(`✓ Created ${n} draft job${n === 1 ? '' : 's'} from "${created?.campaign?.campaign_title || 'brief'}". They're in your Saved drafts list.`)
+            } catch (e) { console.warn('campaign-created refresh failed:', e?.message) }
+          }}
+        />
+      )}
       {refineCtx && (
         <RefineModal
           ctx={refineCtx}
