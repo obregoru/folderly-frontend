@@ -885,163 +885,140 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                   <span className="text-[#6C5CE7]/80 font-mono ml-1">· clip-{item._dbFileId}</span>
                 )}
               </div>
-              <button
-                onClick={() => onRemove(item.id)}
-                className="absolute top-1 right-1 w-[18px] h-[18px] rounded-full bg-black/55 text-white text-xs flex items-center justify-center cursor-pointer border-none z-[5]"
-                title="Remove from this draft"
-              >&times;</button>
-              {/* Duplicate — server-side copy of the source storage
-                  object + a new job_files row with all the same per-clip
-                  settings (trim, photo motion/zoom/rotate/offsets, speed,
-                  captions, post_destinations). Lets the user keep an
-                  edited variant alongside the original without re-
-                  uploading from disk. Only visible once the file is
-                  persisted (_dbFileId set). */}
-              {item._dbFileId != null && onDuplicate && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onDuplicate(item) }}
-                  disabled={item._duplicating}
-                  className="absolute top-1 right-6 w-[18px] h-[18px] rounded-full bg-[#6C5CE7]/85 hover:bg-[#6C5CE7] text-white text-[10px] flex items-center justify-center cursor-pointer border-none z-[5] disabled:opacity-50"
-                  title="Duplicate this clip with all its settings"
-                >{item._duplicating ? '…' : '⎘'}</button>
-              )}
-              {/* Skip toggle — when on, VideoMerge filters this clip
-                  from the merge payload. Lets users preview / produce
-                  without a particular clip without removing it. Only
-                  exposed once the file is persisted (_dbFileId set);
-                  the helper expects the BE row to exist. */}
-              {item._dbFileId != null && onToggleSkip && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onToggleSkip(item) }}
-                  className={`absolute top-1 right-11 w-[18px] h-[18px] rounded-full text-white text-[10px] flex items-center justify-center cursor-pointer border-none z-[5] ${
-                    isSkipped
-                      ? 'bg-[#2D9A5E]/85 hover:bg-[#2D9A5E]'
-                      : 'bg-[#c0392b]/70 hover:bg-[#c0392b]'
-                  }`}
-                  title={isSkipped ? 'Include this clip in the merge' : 'Skip this clip from the merge (keeps it in the draft)'}
-                >{isSkipped ? '↻' : '⊘'}</button>
-              )}
-              {/* Split — pop out the subclip extractor so the operator
-                  can carve N moments out of one long take without
-                  re-uploading. Server-side endpoint creates N rows that
-                  share this source's upload_key with their own trim
-                  windows. Video-only and gated on _dbFileId because the
-                  endpoint needs a persisted source row. */}
-              {item._dbFileId != null && isVideo && onSplit && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onSplit(item) }}
-                  className="absolute top-1 right-[64px] w-[18px] h-[18px] rounded-full bg-[#f5a623]/85 hover:bg-[#f5a623] text-white text-[10px] flex items-center justify-center cursor-pointer border-none z-[5]"
-                  title="Split this clip into multiple subclips"
-                >✂</button>
-              )}
-              {/* Force-rotate cycle button. Cameras that record vertical
-                  footage without setting a rotation tag (Sony A6500,
-                  GoPro, DJI, certain XAVC encoders) appear here as
-                  landscape — one click cycles 0° → 90° → 180° → 270°.
-                  The thumbnail + lightbox preview rotates live; the BE
-                  applies a matching transpose filter at merge time. */}
-              {isVideo && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const cur = Number(item._forceRotate) || 0
-                    const next = cur === 0 ? 90 : cur === 90 ? 180 : cur === 180 ? 270 : 0
-                    item._forceRotate = next
-                    try { window.dispatchEvent(new CustomEvent('posty-force-rotate-change', { detail: { itemId: item.id } })) } catch {}
-                  }}
-                  className={`absolute top-1 right-[86px] h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none z-[5] font-medium ${
-                    Number(item._forceRotate) > 0
-                      ? 'bg-[#d97706]/95 hover:bg-[#d97706]'
-                      : 'bg-[#6C5CE7]/60 hover:bg-[#6C5CE7]'
-                  }`}
-                  title={
-                    Number(item._forceRotate) > 0
-                      ? `Force-rotated ${item._forceRotate}° (click to cycle). Preview + merge apply this rotation.`
-                      : 'Force-rotate this clip (use for Sony A6500 / GoPro / DJI vertical files that show as landscape). Cycles 0° → 90° → 180° → 270°.'
-                  }
-                >{Number(item._forceRotate) > 0 ? `⟳${item._forceRotate}` : '⟳'}</button>
-              )}
-              {/* Compress button — re-encodes an existing uploaded
-                  video via the BE (1080p H.264, medium=CRF 23). Auto-
-                  compress at upload kicks in above 48MB, but Sony A6500
-                  XAVC / GoPro / DJI files in the 20-47MB range slip
-                  through and bloat storage. One click shrinks them in
-                  place; the upload_key stays valid. */}
-              {isVideo && item._dbFileId != null && (() => {
-                const dbFileId = item._dbFileId
-                const isCompressing = !!item._compressing
-                const ratio = item._lastCompressRatio
-                return (
+              {/* Action toolbar — single flex container that wraps to
+                  multiple rows when narrow, so buttons never overlap
+                  no matter how many are present. Order is left→right
+                  by frequency-of-use: effects (rotate/reverse/compress)
+                  first, then split/skip/duplicate/remove. Each button
+                  is a fixed-height 18px pill so the rows line up. */}
+              <div className="absolute top-1 right-1 z-[5] flex flex-wrap-reverse gap-1 justify-end max-w-[calc(100%-1.5rem)]">
+                {/* Reverse-play toggle. Hidden when freeze is on — a
+                    still frame has no playback direction. */}
+                {isVideo && !item._freezeFrame && (
                   <button
-                    onClick={async (e) => {
+                    onClick={(e) => {
                       e.stopPropagation()
-                      if (item._compressing) return
-                      if (!confirm('Compress this video? Re-encodes to 1080p H.264 (medium quality). Best for Sony A6500 / GoPro / DJI source files that came out > 20MB.')) return
-                      item._compressing = true
-                      try { window.dispatchEvent(new CustomEvent('posty-file-meta-change', { detail: { itemId: item.id } })) } catch {}
-                      try {
-                        // jobUuid lives on the parent jobs row; pulled
-                        // from the global hooked up by useJobSync.
-                        const jobId = window._postyActiveJobId || null
-                        if (!jobId) { alert('Job not yet saved — save first, then compress.'); item._compressing = false; return }
-                        const r = await api.compressJobFile(jobId, dbFileId, 'medium')
-                        if (r?.no_op) {
-                          alert('Already optimized — compression would have made it larger. Skipped.')
-                        } else if (r?.savings_pct >= 0) {
-                          const before = (r.before_bytes / 1024 / 1024).toFixed(1)
-                          const after  = (r.after_bytes  / 1024 / 1024).toFixed(1)
-                          alert(`✓ Compressed ${before}MB → ${after}MB (${r.savings_pct}% smaller). Reload to see the updated file in the preview.`)
-                          item._lastCompressRatio = r.savings_pct
-                          // The upload_key may have changed (extension swap).
-                          if (r.upload_key) item._uploadKey = r.upload_key
-                          if (r.mime_type) item._mediaType = r.mime_type
-                        }
-                      } catch (err) {
-                        alert(`Compression failed: ${err?.message || err}`)
-                      } finally {
-                        item._compressing = false
-                        try { window.dispatchEvent(new CustomEvent('posty-file-meta-change', { detail: { itemId: item.id } })) } catch {}
-                      }
+                      item._reversePlay = !item._reversePlay
+                      try { window.dispatchEvent(new CustomEvent('posty-reverse-play-change', { detail: { itemId: item.id } })) } catch {}
                     }}
-                    disabled={isCompressing}
-                    className={`absolute top-1 right-[112px] h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none z-[5] font-medium ${
-                      isCompressing
-                        ? 'bg-[#94a3b8]'
-                        : ratio
-                          ? 'bg-[#2D9A5E]/85 hover:bg-[#2D9A5E]'
-                          : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
+                    className={`h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none font-medium leading-none ${
+                      item._reversePlay
+                        ? 'bg-[#be185d]/95 hover:bg-[#be185d]'
+                        : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
                     }`}
-                    title={isCompressing
-                      ? 'Compressing… stay on this tab'
-                      : ratio
-                        ? `Compressed (${ratio}% smaller). Click to compress again.`
-                        : 'Compress this video (re-encode to 1080p H.264 medium). Use for Sony A6500 / GoPro / DJI source files that bloat storage.'}
-                  >{isCompressing ? '⌛' : ratio ? `🗜 ${ratio}%` : '🗜'}</button>
-                )
-              })()}
-              {/* Reverse-play toggle. Hidden when freeze is on — a
-                  still frame has no playback direction. Memory grows
-                  with frame count (reverse buffers all decoded frames),
-                  so intended for short clips. Fires the same event the
-                  VideoMerge button used; useJobSync.saveFileReversePlay
-                  persists it. */}
-              {isVideo && !item._freezeFrame && (
+                    title={item._reversePlay
+                      ? 'Reverse play ON — plays backwards. Click to disable.'
+                      : 'Reverse play: clip plays backwards. Best on short duplicates — reverse buffers all decoded frames.'}
+                  >{item._reversePlay ? '⏪ on' : '⏪'}</button>
+                )}
+                {/* Compress — re-encodes to 1080p H.264 medium. */}
+                {isVideo && item._dbFileId != null && (() => {
+                  const dbFileId = item._dbFileId
+                  const isCompressing = !!item._compressing
+                  const ratio = item._lastCompressRatio
+                  return (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (item._compressing) return
+                        if (!confirm('Compress this video? Re-encodes to 1080p H.264 (medium quality). Best for Sony A6500 / GoPro / DJI source files that came out > 20MB.')) return
+                        item._compressing = true
+                        try { window.dispatchEvent(new CustomEvent('posty-file-meta-change', { detail: { itemId: item.id } })) } catch {}
+                        try {
+                          const jobId = window._postyActiveJobId || null
+                          if (!jobId) { alert('Job not yet saved — save first, then compress.'); item._compressing = false; return }
+                          const r = await api.compressJobFile(jobId, dbFileId, 'medium')
+                          if (r?.no_op) {
+                            alert('Already optimized — compression would have made it larger. Skipped.')
+                          } else if (r?.savings_pct >= 0) {
+                            const before = (r.before_bytes / 1024 / 1024).toFixed(1)
+                            const after  = (r.after_bytes  / 1024 / 1024).toFixed(1)
+                            alert(`✓ Compressed ${before}MB → ${after}MB (${r.savings_pct}% smaller). Reload to see the updated file in the preview.`)
+                            item._lastCompressRatio = r.savings_pct
+                            if (r.upload_key) item._uploadKey = r.upload_key
+                            if (r.mime_type) item._mediaType = r.mime_type
+                          }
+                        } catch (err) {
+                          alert(`Compression failed: ${err?.message || err}`)
+                        } finally {
+                          item._compressing = false
+                          try { window.dispatchEvent(new CustomEvent('posty-file-meta-change', { detail: { itemId: item.id } })) } catch {}
+                        }
+                      }}
+                      disabled={isCompressing}
+                      className={`h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none font-medium leading-none ${
+                        isCompressing
+                          ? 'bg-[#94a3b8]'
+                          : ratio
+                            ? 'bg-[#2D9A5E]/85 hover:bg-[#2D9A5E]'
+                            : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
+                      }`}
+                      title={isCompressing
+                        ? 'Compressing… stay on this tab'
+                        : ratio
+                          ? `Compressed (${ratio}% smaller). Click to compress again.`
+                          : 'Compress this video (re-encode to 1080p H.264 medium). Use for Sony A6500 / GoPro / DJI source files that bloat storage.'}
+                    >{isCompressing ? '⌛' : ratio ? `🗜 ${ratio}%` : '🗜'}</button>
+                  )
+                })()}
+                {/* Force-rotate cycle. */}
+                {isVideo && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const cur = Number(item._forceRotate) || 0
+                      const next = cur === 0 ? 90 : cur === 90 ? 180 : cur === 180 ? 270 : 0
+                      item._forceRotate = next
+                      try { window.dispatchEvent(new CustomEvent('posty-force-rotate-change', { detail: { itemId: item.id } })) } catch {}
+                    }}
+                    className={`h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none font-medium leading-none ${
+                      Number(item._forceRotate) > 0
+                        ? 'bg-[#d97706]/95 hover:bg-[#d97706]'
+                        : 'bg-[#6C5CE7]/60 hover:bg-[#6C5CE7]'
+                    }`}
+                    title={
+                      Number(item._forceRotate) > 0
+                        ? `Force-rotated ${item._forceRotate}° (click to cycle). Preview + merge apply this rotation.`
+                        : 'Force-rotate this clip (use for Sony A6500 / GoPro / DJI vertical files that show as landscape). Cycles 0° → 90° → 180° → 270°.'
+                    }
+                  >{Number(item._forceRotate) > 0 ? `⟳${item._forceRotate}` : '⟳'}</button>
+                )}
+                {/* Split — open the subclip extractor. */}
+                {item._dbFileId != null && isVideo && onSplit && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onSplit(item) }}
+                    className="w-[18px] h-[18px] rounded-full bg-[#f5a623]/85 hover:bg-[#f5a623] text-white text-[10px] flex items-center justify-center cursor-pointer border-none leading-none"
+                    title="Split this clip into multiple subclips"
+                  >✂</button>
+                )}
+                {/* Skip toggle — filters this clip from the merge. */}
+                {item._dbFileId != null && onToggleSkip && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onToggleSkip(item) }}
+                    className={`w-[18px] h-[18px] rounded-full text-white text-[10px] flex items-center justify-center cursor-pointer border-none leading-none ${
+                      isSkipped
+                        ? 'bg-[#2D9A5E]/85 hover:bg-[#2D9A5E]'
+                        : 'bg-[#c0392b]/70 hover:bg-[#c0392b]'
+                    }`}
+                    title={isSkipped ? 'Include this clip in the merge' : 'Skip this clip from the merge (keeps it in the draft)'}
+                  >{isSkipped ? '↻' : '⊘'}</button>
+                )}
+                {/* Duplicate this clip with all settings. */}
+                {item._dbFileId != null && onDuplicate && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDuplicate(item) }}
+                    disabled={item._duplicating}
+                    className="w-[18px] h-[18px] rounded-full bg-[#6C5CE7]/85 hover:bg-[#6C5CE7] text-white text-[10px] flex items-center justify-center cursor-pointer border-none disabled:opacity-50 leading-none"
+                    title="Duplicate this clip with all its settings"
+                  >{item._duplicating ? '…' : '⎘'}</button>
+                )}
+                {/* Remove from this draft. */}
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    item._reversePlay = !item._reversePlay
-                    try { window.dispatchEvent(new CustomEvent('posty-reverse-play-change', { detail: { itemId: item.id } })) } catch {}
-                  }}
-                  className={`absolute top-1 right-[138px] h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none z-[5] font-medium ${
-                    item._reversePlay
-                      ? 'bg-[#be185d]/95 hover:bg-[#be185d]'
-                      : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
-                  }`}
-                  title={item._reversePlay
-                    ? 'Reverse play ON — plays backwards. Click to disable.'
-                    : 'Reverse play: clip plays backwards. Best on short duplicates — reverse buffers all decoded frames.'}
-                >{item._reversePlay ? '⏪ on' : '⏪'}</button>
-              )}
+                  onClick={(e) => { e.stopPropagation(); onRemove(item.id) }}
+                  className="w-[18px] h-[18px] rounded-full bg-black/55 text-white text-xs flex items-center justify-center cursor-pointer border-none leading-none"
+                  title="Remove from this draft"
+                >&times;</button>
+              </div>
               {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
               {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
               {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}
