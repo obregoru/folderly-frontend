@@ -1000,10 +1000,22 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item 
                   className={`text-[10px] py-1 px-2 rounded cursor-pointer font-medium border ${
                     looping
                       ? 'bg-[#c0392b] text-white border-[#c0392b]'
-                      : 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+                      : reversed
+                        ? 'bg-[#be185d] text-white border-[#be185d]'
+                        : 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
                   }`}
-                  title={looping ? 'Stop the 0-0.5s loop' : `Loop the first ${LOOP_LEN.toFixed(1)}s after the trim cut on repeat`}
-                >{looping ? '⏸ Stop loop' : `▶ Loop 0–${LOOP_LEN.toFixed(1)}s`}</button>
+                  title={
+                    looping
+                      ? `Stop the ${reversed ? 'reverse ' : ''}0–${LOOP_LEN.toFixed(1)}s loop`
+                      : reversed
+                        ? `Reverse-loop the last ${LOOP_LEN.toFixed(1)}s of the trim — that's what plays FIRST when the merge reverses this clip.`
+                        : `Loop the first ${LOOP_LEN.toFixed(1)}s after the trim cut on repeat`
+                  }
+                >{looping
+                  ? '⏸ Stop loop'
+                  : reversed
+                    ? `⏪ Loop 0–${LOOP_LEN.toFixed(1)}s (reversed)`
+                    : `▶ Loop 0–${LOOP_LEN.toFixed(1)}s`}</button>
                 <span className="text-[9px] text-muted">
                   {looping ? (reversed ? 'looping (reversed)…' : 'looping…') : (activeFrame != null ? `paused @ ${Math.abs(activeFrame - start).toFixed(1)}s into clip${reversed ? ' (reversed)' : ''}` : 'idle')}
                 </span>
