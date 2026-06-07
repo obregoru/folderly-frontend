@@ -160,6 +160,12 @@ export default function AppV2() {
       console.log(`[AppV2] saving mirror flip: id=${item.id} mirror=${item._mirrorFlip}`)
       jobSyncRef.current?.saveFileMirrorFlip?.(item)
     }
+    const onForceRotateChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving force rotate: id=${item.id} rotate=${item._forceRotate}`)
+      jobSyncRef.current?.saveFileForceRotate?.(item)
+    }
     const onColorEffectChange = (e) => {
       const item = findItem(e.detail?.itemId)
       if (!item) return
@@ -201,6 +207,7 @@ export default function AppV2() {
     window.addEventListener('posty-freeze-frame-change', onFreezeFrameChange)
     window.addEventListener('posty-reverse-play-change', onReversePlayChange)
     window.addEventListener('posty-mirror-flip-change', onMirrorFlipChange)
+    window.addEventListener('posty-force-rotate-change', onForceRotateChange)
     window.addEventListener('posty-color-effect-change', onColorEffectChange)
     window.addEventListener('posty-strobe-change', onStrobeChange)
     window.addEventListener('posty-beat-zoom-change', onBeatZoomChange)
@@ -215,6 +222,7 @@ export default function AppV2() {
       window.removeEventListener('posty-freeze-frame-change', onFreezeFrameChange)
       window.removeEventListener('posty-reverse-play-change', onReversePlayChange)
       window.removeEventListener('posty-mirror-flip-change', onMirrorFlipChange)
+      window.removeEventListener('posty-force-rotate-change', onForceRotateChange)
       window.removeEventListener('posty-color-effect-change', onColorEffectChange)
       window.removeEventListener('posty-strobe-change', onStrobeChange)
       window.removeEventListener('posty-beat-zoom-change', onBeatZoomChange)

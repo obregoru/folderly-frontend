@@ -303,6 +303,24 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip rotation override (0/90/180/270). Lets the operator
+  // force a rotation on cameras (Sony Alpha, GoPro, DJI) that
+  // record vertical footage as 1920×1080 with no rotation tag.
+  // 0/null = auto-detect (current default).
+  const saveFileForceRotate = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      const val = Number(file._forceRotate) || 0
+      await api.updateJobFile(id, dbFileId, {
+        force_rotate: val === 0 ? null : val,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save force rotate failed:', e.message)
+    }
+  }, [])
+
   // Per-clip color preset — null clears, otherwise one of
   // 'bw' | 'inverted' | 'saturated'.
   const saveFileColorEffect = useCallback(async (file) => {
@@ -577,6 +595,10 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             // 'saturated'.
             _reversePlay: !!f.reverse_play,
             _mirrorFlip:  !!f.mirror_flip,
+            // 0 / null = use BE auto-detect; otherwise 90/180/270 force a
+            // transpose filter in the merge chain (Sony A6500 / GoPro /
+            // DJI fix for vertical-but-untagged clips).
+            _forceRotate: Number(f.force_rotate) || 0,
             _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
             _strobe:      !!f.strobe,
             _beatZoom:    !!f.beat_zoom,
@@ -739,6 +761,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileFreezeFrame,
     saveFileReversePlay,
     saveFileMirrorFlip,
+    saveFileForceRotate,
     saveFileColorEffect,
     saveFileStrobe,
     saveFileBeatZoom,
