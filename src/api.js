@@ -256,7 +256,17 @@ export const duplicateJob = (id, opts = {}) => fetch(api(`/jobs/${id}/duplicate`
   return r.json()
 })
 export const addJobFile = (jobId, data) => fetch(api(`/jobs/${jobId}/files`), { method: 'POST', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
-export const updateJobFile = (jobId, fileId, data) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(r => r.json())
+export const updateJobFile = (jobId, fileId, data) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'PUT', headers: h(), credentials: 'include', body: JSON.stringify(data) }).then(async r => {
+  // Previously this swallowed non-OK responses (returned the error JSON
+  // as if it were the row). useJobSync's per-field savers wrap each call
+  // in try/catch and only see the "error" inside the parsed body — never
+  // the HTTP status. A missing-column 500 or validation 400 became
+  // invisible, the FE assumed the save succeeded, and on reload the
+  // field came back null. Throwing on !r.ok surfaces the real status.
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok || body?.error) throw new Error(body?.error || `updateJobFile failed (${r.status})`)
+  return body
+})
 export const deleteJobFile = (jobId, fileId) => fetch(api(`/jobs/${jobId}/files/${fileId}`), { method: 'DELETE', headers: csrf(), credentials: 'include' }).then(r => r.json())
 export const duplicateJobFile = (jobId, fileId) =>
   fetch(api(`/jobs/${jobId}/files/${fileId}/duplicate`), {
