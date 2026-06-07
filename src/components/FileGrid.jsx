@@ -370,12 +370,11 @@ function MediaLightbox({ item, onClose }) {
             // a layout-shift to an inverted box.
             const isQuarter = forceRotate === 90 || forceRotate === 270
             if (isQuarter) {
-              // Outer: 9:16 portrait. Inner: 16:9 landscape, absolute-
-              // centered + rotated to land visible at 9:16 filling the
-              // outer. JS-computed pixel values (not vh+calc) — calc
-              // expressions with negative units were being silently
-              // ignored by the browser, leaving the inner div pinned
-              // to the outer's corner instead of centered.
+              // Mirror the tile's working layout at lightbox scale.
+              // Outer: 9:16 portrait. Inner: 16:9 landscape, flex-
+              // centered with flexShrink:0 so the over-large element
+              // doesn't collapse; rotated around its center so visible
+              // bounds land at 9:16 filling outer exactly.
               const vh = (typeof window !== 'undefined' && window.innerHeight) || 800
               const outerH = Math.floor(vh * 0.8)
               const outerW = Math.floor(outerH * 9 / 16)
@@ -383,22 +382,22 @@ function MediaLightbox({ item, onClose }) {
               const innerH = outerW
               return (
                 <div
-                  className="relative overflow-hidden rounded inline-block"
+                  className="relative overflow-hidden rounded"
                   style={{
                     height: `${outerH}px`,
                     width: `${outerW}px`,
                     maxWidth: '90vw',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   <div
                     style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
                       width: `${innerW}px`,
                       height: `${innerH}px`,
-                      marginLeft: `-${innerW / 2}px`,
-                      marginTop: `-${innerH / 2}px`,
+                      flexShrink: 0,
+                      flexGrow: 0,
                       transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
                     }}
