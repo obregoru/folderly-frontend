@@ -821,16 +821,46 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item 
       setReviewing(false)
     }
   }
+  // Subscribe to reverse-play toggle on this clip so the inspector
+  // re-samples from the END of the trim window when reverse is on.
+  // The "first 0.5s" of a REVERSED clip is the last 0.5s of the
+  // original trim window — that's what plays first.
+  const [reversed, setReversed] = useState(() => !!item?._reversePlay)
+  useEffect(() => {
+    if (!item) return
+    const onChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setReversed(!!item._reversePlay)
+    }
+    window.addEventListener('posty-reverse-play-change', onChange)
+    return () => window.removeEventListener('posty-reverse-play-change', onChange)
+  }, [item])
+
   // Frame offsets are relative to the TRIM START, not the file's
   // origin. The user trimmed the first N seconds off; "first 0.5s of
   // the clip" means the half-second after that cut.
-  const start = Math.max(0, Number(trimStart) || 0)
-  const cap = videoDuration > 0 ? Math.max(0, videoDuration - start) : Infinity
+  // For REVERSED clips, the "first 0.5s" is the last half-second of
+  // the original trim window — that's what plays first when the merge
+  // reverses the segment. FRAMES become a sequence walking backwards
+  // from trimEnd.
+  const trimStartSec = Math.max(0, Number(trimStart) || 0)
+  const trimEndSec = (() => {
+    const e = Number(item?._trimEnd)
+    if (Number.isFinite(e) && e > 0) return e
+    return videoDuration > 0 ? videoDuration : (trimStartSec + 0.5)
+  })()
+  const start = reversed ? trimEndSec : trimStartSec
+  const cap = reversed
+    ? Math.max(0, trimEndSec - trimStartSec)
+    : (videoDuration > 0 ? Math.max(0, videoDuration - start) : Infinity)
   const LOOP_LEN = Math.min(0.5, cap || 0.5)
-  const LOOP_END = start + LOOP_LEN
+  // LOOP_END is where the loop driver wraps. In forward mode, that's
+  // start + LOOP_LEN. In reverse mode, the loop walks the playhead
+  // BACKWARD from start (= trimEnd) toward start - LOOP_LEN.
+  const LOOP_END = reversed ? Math.max(trimStartSec, start - LOOP_LEN) : start + LOOP_LEN
   const FRAMES = [0, 0.1, 0.2, 0.3, 0.4, 0.5]
     .filter(t => t <= LOOP_LEN + 1e-6)
-    .map(t => start + t)
+    .map(t => reversed ? start - t : start + t)
 
   // Stop loop + cleanup when collapsed or unmounted.
   useEffect(() => {
@@ -844,33 +874,58 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item 
     }
   }, [open, looping])
 
-  // Loop driver. Watches currentTime via rAF; when it crosses LOOP_END,
-  // seek back to the trim start. Browsers' built-in <video loop>
-  // attribute can't restrict the loop range, hence this manual driver.
+  // Loop driver. In forward mode: native play + rAF watches
+  // currentTime; when it crosses LOOP_END, seek back to start.
+  // In reverse mode: pause native playback, walk currentTime
+  // BACKWARD via rAF (throttled to ~20fps so the decoder has time
+  // to paint each seeked frame). Same approach as the MediaLightbox
+  // reverse driver.
   useEffect(() => {
     const v = videoRef.current
     if (!v || !looping) return
     let cancelled = false
-    const tick = () => {
-      if (cancelled) return
-      if (v.currentTime >= LOOP_END - 0.01 || v.currentTime < start - 0.01) {
-        try { v.currentTime = start } catch {}
+    if (reversed) {
+      try { v.pause(); v.muted = true; v.currentTime = start } catch {}
+      const SEEK_INTERVAL_MS = 50
+      let lastTick = 0
+      const tick = (now) => {
+        if (cancelled) return
+        if (lastTick === 0) { lastTick = now; loopRafRef.current = requestAnimationFrame(tick); return }
+        const dt = now - lastTick
+        if (dt >= SEEK_INTERVAL_MS) {
+          const newT = v.currentTime - (dt / 1000)
+          if (newT <= LOOP_END + 0.02) {
+            try { v.currentTime = start } catch {}
+          } else {
+            try { v.currentTime = newT } catch {}
+          }
+          lastTick = now
+        }
+        loopRafRef.current = requestAnimationFrame(tick)
       }
       loopRafRef.current = requestAnimationFrame(tick)
+    } else {
+      const tick = () => {
+        if (cancelled) return
+        if (v.currentTime >= LOOP_END - 0.01 || v.currentTime < start - 0.01) {
+          try { v.currentTime = start } catch {}
+        }
+        loopRafRef.current = requestAnimationFrame(tick)
+      }
+      try {
+        v.muted = true
+        v.currentTime = start
+        const p = v.play()
+        if (p && typeof p.then === 'function') p.catch(() => { /* autoplay block */ })
+      } catch {}
+      loopRafRef.current = requestAnimationFrame(tick)
     }
-    try {
-      v.muted = true
-      v.currentTime = start
-      const p = v.play()
-      if (p && typeof p.then === 'function') p.catch(() => { /* autoplay block */ })
-    } catch {}
-    loopRafRef.current = requestAnimationFrame(tick)
     return () => {
       cancelled = true
       if (loopRafRef.current) cancelAnimationFrame(loopRafRef.current)
       try { v.pause() } catch {}
     }
-  }, [looping, start, LOOP_END])
+  }, [looping, start, LOOP_END, reversed])
 
   const seekTo = (t) => {
     setLooping(false)
@@ -950,7 +1005,7 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item 
                   title={looping ? 'Stop the 0-0.5s loop' : `Loop the first ${LOOP_LEN.toFixed(1)}s after the trim cut on repeat`}
                 >{looping ? '⏸ Stop loop' : `▶ Loop 0–${LOOP_LEN.toFixed(1)}s`}</button>
                 <span className="text-[9px] text-muted">
-                  {looping ? 'looping…' : (activeFrame != null ? `paused @ ${(activeFrame - start).toFixed(1)}s into clip` : 'idle')}
+                  {looping ? (reversed ? 'looping (reversed)…' : 'looping…') : (activeFrame != null ? `paused @ ${Math.abs(activeFrame - start).toFixed(1)}s into clip${reversed ? ' (reversed)' : ''}` : 'idle')}
                 </span>
                 {start > 0 && (
                   <span className="text-[9px] text-muted italic ml-auto">
@@ -960,7 +1015,7 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item 
               </div>
               <div className="flex items-center gap-1 flex-wrap">
                 {FRAMES.map((t) => {
-                  const label = (t - start).toFixed(1)
+                  const label = Math.abs(t - start).toFixed(1)
                   return (
                     <button
                       key={t}
