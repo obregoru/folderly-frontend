@@ -373,7 +373,9 @@ function MediaLightbox({ item, onClose }) {
                     height: '80vh',
                     width: `calc(80vh / ${videoAspect})`,
                     maxWidth: '90vw',
-                    display: 'inline-block',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   <video
@@ -384,23 +386,20 @@ function MediaLightbox({ item, onClose }) {
                     disablePictureInPicture
                     playsInline
                     crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
-                    // Pre-rotation dimensions: WIDTH matches the
-                    // wrapper's HEIGHT, HEIGHT matches the wrapper's
-                    // WIDTH. After rotate(90°/270°) the visible
-                    // bounds become (height, width), filling the
-                    // swapped-aspect wrapper. Centered via explicit
-                    // negative offsets — the element is LARGER than
-                    // the wrapper in one axis (its width = wrapper's
-                    // height), and `inset:0 + margin:auto` resolves
-                    // to top:0,left:0 in that case instead of
-                    // negative-margin centering, leaving the rotated
-                    // frame visibly shrunk inside the wrapper.
+                    // flex-centered child in the swapped-aspect
+                    // wrapper. Flex genuinely centers overflowing
+                    // children (the element's pre-rotation width
+                    // exceeds the wrapper width since it equals the
+                    // wrapper's HEIGHT) — both translate(-50%,-50%)
+                    // and inset:0+margin:auto fail on over-large
+                    // children for separate reasons. flexShrink:0
+                    // protects the explicit width/height from being
+                    // squeezed by the flex container.
                     style={{
-                      position: 'absolute',
-                      top: `calc(50% - 0.5 * (80vh / ${videoAspect}))`,
-                      left: `calc(50% - 0.5 * 80vh)`,
                       width: '80vh',
                       height: `calc(80vh / ${videoAspect})`,
+                      flexShrink: 0,
+                      flexGrow: 0,
                       transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
                       display: 'block',
@@ -607,22 +606,16 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         muted playsInline preload="auto"
         // Live zoom + anchor preview matching the BE crop math.
         // transform-origin moves the scaling pivot to the chosen anchor.
-        style={useWrapRotation ? (() => {
-          const preW = height
-          const preH = Math.round(height / aspect)
-          const containerW = preH
-          const containerH = preW
-          return {
-            position: 'absolute',
-            top: `${Math.round((containerH - preH) / 2)}px`,
-            left: `${Math.round((containerW - preW) / 2)}px`,
-            width: `${preW}px`,
-            height: `${preH}px`,
-            transform: tileTransform,
-            transformOrigin: 'center center',
-            display: 'block',
-          }
-        })() : {
+        style={useWrapRotation ? {
+          // flex-centered child in the swapped-aspect wrapper.
+          width: `${height}px`,
+          height: `${Math.round(height / aspect)}px`,
+          flexShrink: 0,
+          flexGrow: 0,
+          transform: tileTransform,
+          transformOrigin: 'center center',
+          display: 'block',
+        } : {
           ...(tileTransform ? { transform: tileTransform, transformOrigin: `${originX}% ${originY}%` } : {}),
         }}
       />
@@ -797,22 +790,15 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             // swapped aspect exactly. Translate centers; rotate +
             // scale chain. Non-rotated path keeps the existing
             // transform-only behavior.
-            style={useWrapRotation ? (() => {
-              const preW = tileHeightPx
-              const preH = Math.round(tileHeightPx / aspect)
-              const containerW = preH
-              const containerH = preW
-              return {
-                position: 'absolute',
-                top: `${Math.round((containerH - preH) / 2)}px`,
-                left: `${Math.round((containerW - preW) / 2)}px`,
-                width: `${preW}px`,
-                height: `${preH}px`,
-                transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
-                transformOrigin: 'center center',
-                display: 'block',
-              }
-            })() : (() => {
+            style={useWrapRotation ? {
+              width: `${tileHeightPx}px`,
+              height: `${Math.round(tileHeightPx / aspect)}px`,
+              flexShrink: 0,
+              flexGrow: 0,
+              transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
+              transformOrigin: 'center center',
+              display: 'block',
+            } : (() => {
               const parts = []
               if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
               if (zoom !== 1) parts.push(`scale(${zoom})`)
