@@ -362,16 +362,18 @@ function MediaLightbox({ item, onClose }) {
             // fall back to the flat-layout path so first paint isn't
             // a layout-shift to an inverted box.
             const isQuarter = forceRotate === 90 || forceRotate === 270
-            const useRotatedLayout = isQuarter && videoAspect && Number.isFinite(videoAspect)
-            if (useRotatedLayout) {
-              // 80vh × (1/aspect) wrapper. calc() lets the browser
-              // recompute on viewport resize without us tracking it.
+            if (isQuarter) {
+              // Hard-code 9:16 wrapper so visible rotated content
+              // matches the export overlay exactly. Pre-rotation
+              // 16:9 element (width=80vh, height=80vh*9/16), after
+              // rotation visible bounds = 80vh*9/16 × 80vh = 9:16
+              // portrait, filling the wrapper.
               return (
                 <div
                   className="relative overflow-hidden rounded"
                   style={{
                     height: '80vh',
-                    width: `calc(80vh / ${videoAspect})`,
+                    width: 'calc(80vh * 9 / 16)',
                     maxWidth: '90vw',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -386,20 +388,12 @@ function MediaLightbox({ item, onClose }) {
                     disablePictureInPicture
                     playsInline
                     crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
-                    // flex-centered child in the swapped-aspect
-                    // wrapper. Flex genuinely centers overflowing
-                    // children (the element's pre-rotation width
-                    // exceeds the wrapper width since it equals the
-                    // wrapper's HEIGHT) — both translate(-50%,-50%)
-                    // and inset:0+margin:auto fail on over-large
-                    // children for separate reasons. flexShrink:0
-                    // protects the explicit width/height from being
-                    // squeezed by the flex container.
                     style={{
                       width: '80vh',
-                      height: `calc(80vh / ${videoAspect})`,
+                      height: 'calc(80vh * 9 / 16)',
                       flexShrink: 0,
                       flexGrow: 0,
+                      objectFit: 'cover',
                       transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
                       display: 'block',
@@ -589,13 +583,18 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   // the rotated frame exactly fills the swapped-aspect container. The
   // 9:16 ExportFrameOverlay then sizes against the rotated bounds and
   // properly fits the rotated content.
-  const useWrapRotation = (forceRotate === 90 || forceRotate === 270) && aspect && Number.isFinite(aspect)
-  const containerWidth = useWrapRotation ? `${Math.round(height / aspect)}px` : undefined
+  // Hard-code post-rotation aspect to 9:16 so visible rotated video
+  // matches the 9:16 export overlay exactly (independent of source
+  // aspect — the editor preview is for the export region).
+  const useWrapRotation = forceRotate === 90 || forceRotate === 270
+  const wrapHeight = useWrapRotation ? 260 : height
+  const wrapWidth = Math.round(wrapHeight * 9 / 16) // 146
+  const containerWidth = useWrapRotation ? `${wrapWidth}px` : undefined
   return (
     <div
       onClick={onClick}
       className={`relative cursor-pointer hover:opacity-80 overflow-hidden flex items-center justify-center ${className || ''}`}
-      style={{ height, width: containerWidth, marginInline: containerWidth ? 'auto' : undefined }}
+      style={{ height: wrapHeight, width: containerWidth, marginInline: containerWidth ? 'auto' : undefined, flexShrink: useWrapRotation ? 0 : undefined }}
     >
       <video
         ref={videoRef}
@@ -607,11 +606,13 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         // Live zoom + anchor preview matching the BE crop math.
         // transform-origin moves the scaling pivot to the chosen anchor.
         style={useWrapRotation ? {
-          // flex-centered child in the swapped-aspect wrapper.
-          width: `${height}px`,
-          height: `${Math.round(height / aspect)}px`,
+          // Pre-rotation 16:9 landscape. After rotate the visible
+          // bounds become 9:16, matching the wrapper exactly.
+          width: `${wrapHeight}px`,
+          height: `${wrapWidth}px`,
           flexShrink: 0,
           flexGrow: 0,
+          objectFit: 'cover',
           transform: tileTransform,
           transformOrigin: 'center center',
           display: 'block',
@@ -750,18 +751,21 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
   // duration controlled, not crop framed.
   // Photo tile aspect matches the export (9:16). Constrained max-width
   // so portrait tiles don't blow up too tall in the grid.
-  // Wrap-rotation pattern (same as VideoThumb + MediaLightbox): when
-  // forceRotate is 90°/270° AND we know the source aspect, give the
-  // container the POST-rotation aspect and the <video> the PRE-
-  // rotation dimensions — translate/rotate around center so the
-  // rotated frame fills the container exactly. The 9:16
-  // ExportFrameOverlay then bounds the rotated content correctly.
-  const useWrapRotation = isVideo && (forceRotate === 90 || forceRotate === 270) && aspect != null && Number.isFinite(aspect)
-  const tileHeightPx = isPortrait ? 260 : 120
+  // Wrap-rotation pattern for force-rotated landscape clips. Hard-
+  // code the post-rotation aspect to 9:16 (the export region the
+  // operator cares about) so the visible rotated video EXACTLY
+  // matches the dashed 9:16 ExportFrameOverlay — independent of the
+  // source's actual aspect (16:9, 4:3, 21:9, etc). For typical 16:9
+  // sources this is the natural fit; for other aspects the video
+  // content stretches to fill the 9:16 region pre-rotation, which is
+  // an acceptable trade-off for an editor preview.
+  const useWrapRotation = isVideo && (forceRotate === 90 || forceRotate === 270)
+  const tileHeightPx = isPortrait || useWrapRotation ? 260 : 120
+  const wrapW = Math.round(tileHeightPx * 9 / 16) // 146
   const tileStyle = isPhoto
     ? { aspectRatio: '9 / 16', maxWidth: '180px', marginInline: 'auto' }
     : useWrapRotation
-      ? { height: tileHeightPx, width: `${Math.round(tileHeightPx / aspect)}px`, marginInline: 'auto' }
+      ? { height: tileHeightPx, width: `${wrapW}px`, marginInline: 'auto', flexShrink: 0 }
       : { height: tileHeightPx }
   const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
   return (
@@ -791,10 +795,14 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             // scale chain. Non-rotated path keeps the existing
             // transform-only behavior.
             style={useWrapRotation ? {
+              // Pre-rotation: 260 wide × 146 tall = 16:9 landscape.
+              // After rotate(90°/270°) the visible bounds become
+              // 146 × 260 = 9:16, matching the export overlay.
               width: `${tileHeightPx}px`,
-              height: `${Math.round(tileHeightPx / aspect)}px`,
+              height: `${wrapW}px`,
               flexShrink: 0,
               flexGrow: 0,
+              objectFit: 'cover',
               transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
               transformOrigin: 'center center',
               display: 'block',
