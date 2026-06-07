@@ -384,21 +384,23 @@ function MediaLightbox({ item, onClose }) {
                     disablePictureInPicture
                     playsInline
                     crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
+                    // Pre-rotation dimensions: the element is sized so
+                    // its layout WIDTH matches the wrapper's HEIGHT,
+                    // and its layout HEIGHT matches the wrapper's
+                    // WIDTH. After rotate(90°/270°) the visible
+                    // bounds become (height, width), so the rotated
+                    // frame ends up exactly filling the swapped-aspect
+                    // wrapper. Source aspect is preserved (width /
+                    // height = videoAspect).
                     style={{
                       position: 'absolute',
                       top: '50%',
                       left: '50%',
-                      height: '80vh',
-                      width: `calc(80vh * ${videoAspect})`,
+                      width: '80vh',
+                      height: `calc(80vh / ${videoAspect})`,
                       transform: `translate(-50%, -50%) rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
                       display: 'block',
-                    }}
-                    onLoadedMetadata={(e) => {
-                      const v = e.currentTarget
-                      if (v?.videoWidth > 0 && v?.videoHeight > 0) {
-                        setVideoAspect(v.videoWidth / v.videoHeight)
-                      }
                     }}
                   />
                   <ExportFrameOverlay />
