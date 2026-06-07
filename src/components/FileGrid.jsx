@@ -210,11 +210,72 @@ function MediaLightbox({ item, onClose }) {
     }
   }, [isImg, item])
 
+  // Reverse-playback driver. HTML5 video.playbackRate = -1 is
+  // unreliable cross-browser (Safari ignores it silently, Firefox
+  // jitters), so we drive playback ourselves: pause the native
+  // <video>, then in a rAF loop manually walk currentTime backward
+  // by (now - lastTick) * speed seconds each frame. Loops from
+  // trimStart back to trimEnd when reaching the start, mirroring
+  // what the BE areverse + concat does at merge time.
+  const [reversePlay, setReversePlay] = useState(() => !!item._reversePlay)
+  useEffect(() => {
+    if (isImg) return
+    const onChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setReversePlay(!!item._reversePlay)
+    }
+    window.addEventListener('posty-reverse-play-change', onChange)
+    return () => window.removeEventListener('posty-reverse-play-change', onChange)
+  }, [item, isImg])
+  useEffect(() => {
+    if (isImg) return
+    const v = videoRef.current
+    if (!v) return
+    if (!reversePlay) return
+    // Take over from the native pipeline. Pause the element so its
+    // native ticker doesn't fight our rAF decrement.
+    try { v.pause() } catch {}
+    const end = item._trimEnd ?? (v.duration || Infinity)
+    const startFloor = item._trimStart || 0
+    // Seek to the end of the trim window so the rewind starts at the
+    // visual ENDING — operators expect reverse-from-end behavior.
+    try { v.currentTime = Math.max(startFloor, Math.min(end - 0.05, v.currentTime || end - 0.05)) } catch {}
+    let cancelled = false
+    let lastTick = 0
+    const tick = (now) => {
+      if (cancelled) return
+      const sp = Math.max(0.1, Number(item._speed) || 1.0)
+      if (lastTick) {
+        const dt = (now - lastTick) / 1000
+        const newT = (v.currentTime || 0) - dt * sp
+        if (newT <= startFloor + 0.02) {
+          try { v.currentTime = Math.max(startFloor, end - 0.05) } catch {}
+        } else {
+          try { v.currentTime = newT } catch {}
+        }
+      }
+      lastTick = now
+      requestAnimationFrame(tick)
+    }
+    const rafId = requestAnimationFrame(tick)
+    return () => {
+      cancelled = true
+      try { cancelAnimationFrame(rafId) } catch {}
+    }
+  }, [isImg, reversePlay, item])
+
   // Enforce trim on the lightbox video: seek to trimStart on play, pause
   // (and reset) when currentTime reaches trimEnd. Uses refs via closure
   // so the latest trim values apply on every tick.
+  //
+  // Skipped when reverse-play is on — that effect drives currentTime
+  // backward via its own rAF loop. Having the forward trim handlers
+  // simultaneously reset to trimStart on every timeupdate would yank
+  // the playhead back to the start and the reverse driver would never
+  // make visible progress.
   useEffect(() => {
     if (isImg) return
+    if (reversePlay) return
     const v = videoRef.current
     if (!v) return
     // Clamp initial play position to the trim start.
@@ -246,7 +307,7 @@ function MediaLightbox({ item, onClose }) {
       v.removeEventListener('timeupdate', onTimeUpdate)
       v.removeEventListener('play', onPlay)
     }
-  }, [isImg])
+  }, [isImg, reversePlay])
 
   const hasTrim = trimStart > 0 || trimEnd != null
 
@@ -272,6 +333,14 @@ function MediaLightbox({ item, onClose }) {
               ref={videoRef}
               src={src}
               controls
+              // Disable native fullscreen + PiP when force-rotate is set:
+              // those modes display the RAW video pixels (not our CSS-
+              // rotated wrapper), so the user gets the wrong orientation
+              // back. Same gate applies during reverse-play, where our
+              // rAF driver and the browser's native player can't share
+              // currentTime cleanly.
+              controlsList={(forceRotate || reversePlay) ? 'nofullscreen nodownload' : undefined}
+              disablePictureInPicture={!!(forceRotate || reversePlay)}
               playsInline
               crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
               className="max-w-full max-h-[80vh] rounded block"
@@ -294,15 +363,19 @@ function MediaLightbox({ item, onClose }) {
               })()}
             />
             <ExportFrameOverlay />
-            {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1) || motion !== 'static') && (
-              <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
-                {hasTrim && <>Trimmed preview: {trimStart.toFixed(1)}s → {trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}</>}
-                {hasTrim && Number(item._speed) > 0 && Number(item._speed) !== 1 && <> · </>}
-                {Number(item._speed) > 0 && Number(item._speed) !== 1 && <>Playing at {Number(item._speed)}×</>}
-                {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1)) && motion !== 'static' && <> · </>}
-                {motion !== 'static' && <>Motion: {motion.replace(/-/g, ' ')}</>}
-              </div>
-            )}
+            {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1) || motion !== 'static' || reversePlay || forceRotate) && (() => {
+              const parts = []
+              if (hasTrim) parts.push(`Trimmed: ${trimStart.toFixed(1)}s → ${trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}`)
+              if (Number(item._speed) > 0 && Number(item._speed) !== 1) parts.push(`Playing at ${Number(item._speed)}×`)
+              if (motion !== 'static') parts.push(`Motion: ${motion.replace(/-/g, ' ')}`)
+              if (reversePlay) parts.push('⏪ Reversed')
+              if (forceRotate) parts.push(`⟳ ${forceRotate}° (no fullscreen)`)
+              return (
+                <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
+                  {parts.join(' · ')}
+                </div>
+              )
+            })()}
           </div>
         )}
       </div>
