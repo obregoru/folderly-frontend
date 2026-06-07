@@ -468,9 +468,35 @@ function looksLikeNetworkError(err) {
   )
 }
 
-export const uploadFile = async (file, folderName, batchId, parsedKeywords, videoThumb, jobId) => {
+export const uploadFile = async (file, folderName, batchId, parsedKeywords, videoThumb, jobId, opts = {}) => {
+  // Client-side pre-compression for large videos. Cuts wire payload
+  // 10-30× on Sony / GoPro / DJI 4K source files, so a ~150 MB clip
+  // uploads as ~5-15 MB and the BE re-encode runs on a much smaller
+  // input. Skipped for non-video files, small files, and any browser
+  // path that throws — never blocks an upload.
+  let preCompressed = null
+  if ((file?.type || '').startsWith('video/')) {
+    try {
+      const { compressVideoForUpload } = await import('./utils/videoCompress')
+      const result = await compressVideoForUpload(file, {
+        onProgress: (frac) => {
+          if (typeof opts.onCompressProgress === 'function') {
+            try { opts.onCompressProgress(frac) } catch {}
+          }
+        },
+      })
+      if (!result.skipped) {
+        console.log(`[upload] client-side compressed ${(result.originalSize/1024/1024).toFixed(1)}MB → ${(result.compressedSize/1024/1024).toFixed(1)}MB (${Math.round((1 - result.compressedSize/result.originalSize) * 100)}% smaller) · ${result.reason}`)
+        preCompressed = result.file
+      } else {
+        console.log(`[upload] client-side compress skipped: ${result.reason}`)
+      }
+    } catch (e) {
+      console.warn('[upload] client-side compress threw — uploading original:', e?.message || e)
+    }
+  }
   const fd = new FormData()
-  fd.append('file', file)
+  fd.append('file', preCompressed || file)
   if (folderName) fd.append('folder_name', folderName)
   if (batchId) fd.append('batch_id', batchId)
   if (jobId) fd.append('job_id', jobId)
