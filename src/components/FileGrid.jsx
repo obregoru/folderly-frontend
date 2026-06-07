@@ -579,28 +579,41 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   if (forceRotate) tileTransformParts.push(`rotate(${forceRotate}deg)`)
   if (zoom !== 1) tileTransformParts.push(`scale(${zoom})`)
   const tileTransform = tileTransformParts.length ? tileTransformParts.join(' ') : undefined
-  // For 90°/270° rotations, the rotated frame is taller than it is
-  // wide (or vice versa). Sizing the <video> as w-full h-full and
-  // applying object-cover would chop off most of the rotated frame
-  // because the underlying box stays at the parent's W×H. Instead,
-  // when rotated, we size the video as height-by-aspect — height
-  // matches the parent's height, width is the post-rotation aspect.
-  const rotatedVideoStyle = (forceRotate === 90 || forceRotate === 270)
-    ? { width: 'auto', height: '100%', display: 'block', margin: '0 auto', objectFit: 'contain' }
-    : null
+  // For 90°/270° rotations: the visible content shape inverts, but the
+  // <video> element's layout box still sits at the source orientation.
+  // Wrap-rotation pattern (same as the lightbox): the outer container
+  // takes the post-rotation aspect ratio, and the <video> is absolute-
+  // positioned at the PRE-rotation dimensions, centered + rotated, so
+  // the rotated frame exactly fills the swapped-aspect container. The
+  // 9:16 ExportFrameOverlay then sizes against the rotated bounds and
+  // properly fits the rotated content.
+  const useWrapRotation = (forceRotate === 90 || forceRotate === 270) && aspect && Number.isFinite(aspect)
+  const containerWidth = useWrapRotation ? `${Math.round(height / aspect)}px` : undefined
   return (
-    <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 overflow-hidden flex items-center justify-center ${className || ''}`} style={{ height }}>
+    <div
+      onClick={onClick}
+      className={`relative cursor-pointer hover:opacity-80 overflow-hidden flex items-center justify-center ${className || ''}`}
+      style={{ height, width: containerWidth, marginInline: containerWidth ? 'auto' : undefined }}
+    >
       <video
         ref={videoRef}
         data-posty-item-id={itemId}
         src={src}
         poster={poster || undefined}
-        className={rotatedVideoStyle ? '' : 'w-full h-full object-cover'}
+        className={useWrapRotation ? '' : 'w-full h-full object-cover'}
         muted playsInline preload="auto"
         // Live zoom + anchor preview matching the BE crop math.
         // transform-origin moves the scaling pivot to the chosen anchor.
-        style={{
-          ...(rotatedVideoStyle || {}),
+        style={useWrapRotation ? {
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: `${height}px`,
+          height: `${Math.round(height / aspect)}px`,
+          transform: `translate(-50%, -50%) ${tileTransform || ''}`.trim(),
+          transformOrigin: 'center center',
+          display: 'block',
+        } : {
           ...(tileTransform ? { transform: tileTransform, transformOrigin: `${originX}% ${originY}%` } : {}),
         }}
       />
@@ -735,17 +748,19 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
   // duration controlled, not crop framed.
   // Photo tile aspect matches the export (9:16). Constrained max-width
   // so portrait tiles don't blow up too tall in the grid.
+  // Wrap-rotation pattern (same as VideoThumb + MediaLightbox): when
+  // forceRotate is 90°/270° AND we know the source aspect, give the
+  // container the POST-rotation aspect and the <video> the PRE-
+  // rotation dimensions — translate/rotate around center so the
+  // rotated frame fills the container exactly. The 9:16
+  // ExportFrameOverlay then bounds the rotated content correctly.
+  const useWrapRotation = isVideo && (forceRotate === 90 || forceRotate === 270) && aspect != null && Number.isFinite(aspect)
+  const tileHeightPx = isPortrait ? 260 : 120
   const tileStyle = isPhoto
     ? { aspectRatio: '9 / 16', maxWidth: '180px', marginInline: 'auto' }
-    : { height: isPortrait ? 260 : 120 }
-  // When rotated 90°/270°, the <video> element's layout box stays the
-  // pre-rotation size (CSS transform happens AFTER layout). Sizing
-  // with width=auto + height=100% lets the rotated frame use the
-  // container's full height without being clipped to the pre-rotate
-  // box.
-  const restoredRotatedStyle = (forceRotate === 90 || forceRotate === 270)
-    ? { width: 'auto', height: '100%', display: 'block', margin: '0 auto', objectFit: 'contain' }
-    : null
+    : useWrapRotation
+      ? { height: tileHeightPx, width: `${Math.round(tileHeightPx / aspect)}px`, marginInline: 'auto' }
+      : { height: tileHeightPx }
   const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
   return (
     <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative overflow-hidden" style={tileStyle}>
@@ -754,7 +769,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
           <video
             data-posty-item-id={item.id}
             src={src}
-            className={restoredRotatedStyle ? '' : 'w-full h-full object-contain'}
+            className={useWrapRotation ? '' : 'w-full h-full object-contain'}
             muted playsInline preload="metadata"
             // Use the first captured trim thumbnail as the poster. iOS Safari
             // won't paint the first frame of a <video> until playback starts,
@@ -768,18 +783,27 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             }}
             onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
             onError={markMissing}
-            // Live zoom + anchor + rotation preview matching the merge-time
-            // semantic. Rotation prepends so it operates on the source
-            // pixels; zoom then magnifies the rotated frame.
-            style={(() => {
+            // Wrap-rotation: pre-rotation dimensions sized so the
+            // post-rotation visible frame matches the container's
+            // swapped aspect exactly. Translate centers; rotate +
+            // scale chain. Non-rotated path keeps the existing
+            // transform-only behavior.
+            style={useWrapRotation ? {
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              width: `${tileHeightPx}px`,
+              height: `${Math.round(tileHeightPx / aspect)}px`,
+              transform: `translate(-50%, -50%) rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
+              transformOrigin: 'center center',
+              display: 'block',
+            } : (() => {
               const parts = []
               if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
               if (zoom !== 1) parts.push(`scale(${zoom})`)
-              const transformStyle = parts.length ? { transform: parts.join(' '), transformOrigin: `${originX}% ${originY}%` } : null
-              if (restoredRotatedStyle || transformStyle) {
-                return { ...(restoredRotatedStyle || {}), ...(transformStyle || {}) }
-              }
-              return undefined
+              return parts.length
+                ? { transform: parts.join(' '), transformOrigin: `${originX}% ${originY}%` }
+                : undefined
             })()}
           />
           <ExportFrameOverlay />
