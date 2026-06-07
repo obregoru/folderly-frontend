@@ -364,41 +364,48 @@ function MediaLightbox({ item, onClose }) {
             const isQuarter = forceRotate === 90 || forceRotate === 270
             if (isQuarter) {
               // Hard-code 9:16 wrapper so visible rotated content
-              // matches the export overlay exactly. Pre-rotation
-              // 16:9 element (width=80vh, height=80vh*9/16), after
-              // rotation visible bounds = 80vh*9/16 × 80vh = 9:16
-              // portrait, filling the wrapper.
+              // matches the export overlay exactly. Outer: 9:16
+              // portrait. Inner rotation wrapper: 16:9 landscape,
+              // absolute-centered + rotated. Video fills inner via
+              // object-fit: cover.
               return (
                 <div
-                  className="relative overflow-hidden rounded"
+                  className="relative overflow-hidden rounded inline-block"
                   style={{
                     height: '80vh',
                     width: 'calc(80vh * 9 / 16)',
                     maxWidth: '90vw',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
                   }}
                 >
-                  <video
-                    ref={videoRef}
-                    src={src}
-                    controls
-                    controlsList="nofullscreen nodownload"
-                    disablePictureInPicture
-                    playsInline
-                    crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
+                  <div
                     style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
                       width: '80vh',
                       height: 'calc(80vh * 9 / 16)',
-                      flexShrink: 0,
-                      flexGrow: 0,
-                      objectFit: 'cover',
+                      marginLeft: 'calc(-40vh)',
+                      marginTop: 'calc(-40vh * 9 / 16)',
                       transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
-                      display: 'block',
                     }}
-                  />
+                  >
+                    <video
+                      ref={videoRef}
+                      src={src}
+                      controls
+                      controlsList="nofullscreen nodownload"
+                      disablePictureInPicture
+                      playsInline
+                      crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        display: 'block',
+                      }}
+                    />
+                  </div>
                   <ExportFrameOverlay />
                   {renderStatusPill()}
                 </div>
@@ -584,42 +591,70 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   // 9:16 ExportFrameOverlay then sizes against the rotated bounds and
   // properly fits the rotated content.
   // Hard-code post-rotation aspect to 9:16 so visible rotated video
-  // matches the 9:16 export overlay exactly (independent of source
-  // aspect — the editor preview is for the export region).
+  // matches the 9:16 export overlay exactly. Use NESTED wrappers:
+  //   outer (this div): 146×260 portrait — what overlay sizes to
+  //   inner (rotation wrapper): 260×146 landscape, absolute-
+  //     positioned + centered, rotated to fill outer
+  //   video: width:100% height:100% of inner with object-fit:cover
+  // This avoids the FlexShrink edge-case where the over-large flex
+  // child was being shrunk below its explicit size — by routing the
+  // video through an inner wrapper that's NOT a flex item.
   const useWrapRotation = forceRotate === 90 || forceRotate === 270
   const wrapHeight = useWrapRotation ? 260 : height
-  const wrapWidth = Math.round(wrapHeight * 9 / 16) // 146
+  const wrapWidth = useWrapRotation ? Math.round(wrapHeight * 9 / 16) : null // 146
   const containerWidth = useWrapRotation ? `${wrapWidth}px` : undefined
   return (
     <div
       onClick={onClick}
-      className={`relative cursor-pointer hover:opacity-80 overflow-hidden flex items-center justify-center ${className || ''}`}
-      style={{ height: wrapHeight, width: containerWidth, marginInline: containerWidth ? 'auto' : undefined, flexShrink: useWrapRotation ? 0 : undefined }}
+      className={`relative cursor-pointer hover:opacity-80 overflow-hidden ${useWrapRotation ? '' : 'flex items-center justify-center '}${className || ''}`}
+      style={{ height: wrapHeight, width: containerWidth, marginInline: containerWidth ? 'auto' : undefined }}
     >
+      {useWrapRotation ? (
+        <div
+          // Inner rotation wrapper: landscape 16:9 PRE-rotation,
+          // centered absolute in the portrait outer, rotated to land
+          // visible at 9:16 portrait filling the outer exactly.
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            width: `${wrapHeight}px`,
+            height: `${wrapWidth}px`,
+            marginLeft: `-${wrapHeight / 2}px`,
+            marginTop: `-${wrapWidth / 2}px`,
+            transform: tileTransform,
+            transformOrigin: 'center center',
+          }}
+        >
+          <video
+            ref={videoRef}
+            data-posty-item-id={itemId}
+            src={src}
+            poster={poster || undefined}
+            muted playsInline preload="auto"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              display: 'block',
+            }}
+          />
+        </div>
+      ) : (
       <video
         ref={videoRef}
         data-posty-item-id={itemId}
         src={src}
         poster={poster || undefined}
-        className={useWrapRotation ? '' : 'w-full h-full object-cover'}
+        className="w-full h-full object-cover"
         muted playsInline preload="auto"
         // Live zoom + anchor preview matching the BE crop math.
         // transform-origin moves the scaling pivot to the chosen anchor.
-        style={useWrapRotation ? {
-          // Pre-rotation 16:9 landscape. After rotate the visible
-          // bounds become 9:16, matching the wrapper exactly.
-          width: `${wrapHeight}px`,
-          height: `${wrapWidth}px`,
-          flexShrink: 0,
-          flexGrow: 0,
-          objectFit: 'cover',
-          transform: tileTransform,
-          transformOrigin: 'center center',
-          display: 'block',
-        } : {
+        style={{
           ...(tileTransform ? { transform: tileTransform, transformOrigin: `${originX}% ${originY}%` } : {}),
         }}
       />
+      )}
       <ExportFrameOverlay />
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <span className="text-white text-[18px] bg-black/50 rounded-full w-8 h-8 flex items-center justify-center">▶</span>
@@ -769,13 +804,51 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
       : { height: tileHeightPx }
   const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
   return (
-    <div onClick={onClick} className="w-full bg-black flex items-center justify-center cursor-pointer hover:opacity-80 relative overflow-hidden" style={tileStyle}>
+    <div onClick={onClick} className={`w-full bg-black ${useWrapRotation ? '' : 'flex items-center justify-center '}cursor-pointer hover:opacity-80 relative overflow-hidden`} style={tileStyle}>
       {isVideo ? (
         <>
+          {useWrapRotation ? (
+            // Nested rotation wrapper: outer is 146×260 portrait
+            // (matches 9:16 overlay); inner is 260×146 landscape,
+            // absolute-centered + rotated, with the <video> filling
+            // 100% via object-fit:cover.
+            <div
+              style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                width: `${tileHeightPx}px`,
+                height: `${wrapW}px`,
+                marginLeft: `-${tileHeightPx / 2}px`,
+                marginTop: `-${wrapW / 2}px`,
+                transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
+                transformOrigin: 'center center',
+              }}
+            >
+              <video
+                data-posty-item-id={item.id}
+                src={src}
+                muted playsInline preload="metadata"
+                poster={Array.isArray(item._trimThumbs) && item._trimThumbs[0] ? item._trimThumbs[0] : undefined}
+                onLoadedMetadata={e => {
+                  const v = e.target
+                  if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+                }}
+                onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
+                onError={markMissing}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  display: 'block',
+                }}
+              />
+            </div>
+          ) : (
           <video
             data-posty-item-id={item.id}
             src={src}
-            className={useWrapRotation ? '' : 'w-full h-full object-contain'}
+            className="w-full h-full object-contain"
             muted playsInline preload="metadata"
             // Use the first captured trim thumbnail as the poster. iOS Safari
             // won't paint the first frame of a <video> until playback starts,
@@ -789,24 +862,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             }}
             onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
             onError={markMissing}
-            // Wrap-rotation: pre-rotation dimensions sized so the
-            // post-rotation visible frame matches the container's
-            // swapped aspect exactly. Translate centers; rotate +
-            // scale chain. Non-rotated path keeps the existing
-            // transform-only behavior.
-            style={useWrapRotation ? {
-              // Pre-rotation: 260 wide × 146 tall = 16:9 landscape.
-              // After rotate(90°/270°) the visible bounds become
-              // 146 × 260 = 9:16, matching the export overlay.
-              width: `${tileHeightPx}px`,
-              height: `${wrapW}px`,
-              flexShrink: 0,
-              flexGrow: 0,
-              objectFit: 'cover',
-              transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
-              transformOrigin: 'center center',
-              display: 'block',
-            } : (() => {
+            style={(() => {
               const parts = []
               if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
               if (zoom !== 1) parts.push(`scale(${zoom})`)
@@ -815,6 +871,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
                 : undefined
             })()}
           />
+          )}
           <ExportFrameOverlay />
           {zoom !== 1 && (
             <div className="absolute bottom-1 right-1 text-[9px] font-medium bg-[#6C5CE7] text-white rounded px-1.5 py-0.5 pointer-events-none">
