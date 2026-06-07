@@ -953,39 +953,6 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                           )
                         })()}
                         {!itemIsPhoto && !item._freezeFrame && (() => {
-                          // Reverse play. Buffers all decoded frames in
-                          // memory so safe only on short clips (intended
-                          // for beat-sync duplicates of ~0.2-0.5s).
-                          // Disabled / hidden when freeze is on — a
-                          // single still has no playback direction.
-                          const isReversed = !!item._reversePlay
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                item._reversePlay = !isReversed
-                                try { window.dispatchEvent(new CustomEvent('posty-reverse-play-change', { detail: { itemId: item.id } })) } catch {}
-                                if (mergedUrl) {
-                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
-                                  setMergedUrl(null)
-                                  mergedBlobRef.current = null
-                                  window._postyMergedVideo = null
-                                }
-                              }}
-                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
-                                isReversed
-                                  ? 'bg-[#fdf2f8] border-[#be185d]/50 text-[#be185d] font-medium'
-                                  : 'bg-white border-border text-muted'
-                              }`}
-                              title={isReversed
-                                ? 'Plays backwards. Tap to disable.'
-                                : 'Reverse play: clip plays backwards. Best on short duplicates — reverse buffers all decoded frames.'}
-                            >
-                              <span className="text-[10px]">{isReversed ? '⏪ Reversed' : '⏪ Reverse'}</span>
-                            </button>
-                          )
-                        })()}
-                        {!itemIsPhoto && !item._freezeFrame && (() => {
                           // Horizontal mirror (hflip). Cheap, combines
                           // with everything except freeze.
                           const isMirrored = !!item._mirrorFlip

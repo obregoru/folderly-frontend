@@ -1019,6 +1019,29 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                   >{isCompressing ? '⌛' : ratio ? `🗜 ${ratio}%` : '🗜'}</button>
                 )
               })()}
+              {/* Reverse-play toggle. Hidden when freeze is on — a
+                  still frame has no playback direction. Memory grows
+                  with frame count (reverse buffers all decoded frames),
+                  so intended for short clips. Fires the same event the
+                  VideoMerge button used; useJobSync.saveFileReversePlay
+                  persists it. */}
+              {isVideo && !item._freezeFrame && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    item._reversePlay = !item._reversePlay
+                    try { window.dispatchEvent(new CustomEvent('posty-reverse-play-change', { detail: { itemId: item.id } })) } catch {}
+                  }}
+                  className={`absolute top-1 right-[138px] h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none z-[5] font-medium ${
+                    item._reversePlay
+                      ? 'bg-[#be185d]/95 hover:bg-[#be185d]'
+                      : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
+                  }`}
+                  title={item._reversePlay
+                    ? 'Reverse play ON — plays backwards. Click to disable.'
+                    : 'Reverse play: clip plays backwards. Best on short duplicates — reverse buffers all decoded frames.'}
+                >{item._reversePlay ? '⏪ on' : '⏪'}</button>
+              )}
               {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
               {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
               {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}
