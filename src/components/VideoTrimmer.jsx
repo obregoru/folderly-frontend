@@ -81,10 +81,42 @@ export default function VideoTrimmer({ item }) {
 
   const [thumbProgress, setThumbProgress] = useState({ done: 0, total: 0 })
 
+  // Track force-rotate so the filmstrip regenerates (with rotated
+  // canvas drawing) when the operator clicks ⟳ on the tile. We also
+  // snapshot the rotation at the time the saved thumbs were captured
+  // so we can detect rotation drift on resume and bust the cache.
+  const [forceRotate, setForceRotate] = useState(() => Number(item._forceRotate) || 0)
+  useEffect(() => {
+    const onRotateChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      const next = Number(item._forceRotate) || 0
+      setForceRotate(next)
+      // The cached thumbs are now stale — clear so the capture effect
+      // re-runs without short-circuiting on the stored array.
+      const savedAt = item._trimThumbsRotation || 0
+      if (next !== savedAt) {
+        item._trimThumbs = []
+        setTrimThumbs([])
+      }
+    }
+    window.addEventListener('posty-force-rotate-change', onRotateChange)
+    return () => window.removeEventListener('posty-force-rotate-change', onRotateChange)
+  }, [item])
+
   useEffect(() => {
     if (videoDuration <= 0) return
     // Skip regeneration if we already have saved thumbs from the job
-    if (Array.isArray(item._trimThumbs) && item._trimThumbs.length > 0) {
+    // AND they were captured at the current rotation. _trimThumbsRotation
+    // is null/undefined for legacy thumbs (pre-rotation feature) — treat
+    // those as matching unless the operator has since set a rotation.
+    const cachedRotation = item._trimThumbsRotation
+    const hasCachedThumbs = Array.isArray(item._trimThumbs) && item._trimThumbs.length > 0
+    const cacheValid = hasCachedThumbs && (
+      cachedRotation == null
+        ? forceRotate === 0
+        : cachedRotation === forceRotate
+    )
+    if (cacheValid) {
       setTrimThumbs(item._trimThumbs)
       setThumbProgress({ done: item._trimThumbs.length, total: item._trimThumbs.length })
       return
@@ -111,8 +143,35 @@ export default function VideoTrimmer({ item }) {
       try { v.currentTime = t } catch { done() }
     })
 
+    // Rotate-aware drawImage. Translates to the canvas center, rotates,
+    // and draws the video centered. For 90°/270° the source dimensions
+    // are effectively swapped, so we draw at (canvas.height × canvas.width)
+    // — those are the rotated canvas's pre-rotation dimensions.
+    const drawRotated = (ctx, video, w, h, deg) => {
+      if (!deg) {
+        ctx.drawImage(video, 0, 0, w, h)
+        return
+      }
+      ctx.save()
+      ctx.translate(w / 2, h / 2)
+      ctx.rotate((deg * Math.PI) / 180)
+      if (deg === 90 || deg === 270) {
+        // Rotated 90°/270° — the source's W maps to the canvas H and
+        // vice versa, so draw at (h × w) centered.
+        ctx.drawImage(video, -h / 2, -w / 2, h, w)
+      } else {
+        ctx.drawImage(video, -w / 2, -h / 2, w, h)
+      }
+      ctx.restore()
+    }
+
     const capture = async () => {
-      const aspect = (v.videoWidth && v.videoHeight) ? v.videoWidth / v.videoHeight : 9 / 16
+      // Source aspect from the decoded video. forceRotate of 90/270
+      // swaps the displayed aspect — bake that into the canvas size
+      // AND rotate the drawn image so the filmstrip matches what the
+      // merge will produce.
+      const rawAspect = (v.videoWidth && v.videoHeight) ? v.videoWidth / v.videoHeight : 9 / 16
+      const aspect = (forceRotate === 90 || forceRotate === 270) ? 1 / rawAspect : rawAspect
       canvas.width = 96
       canvas.height = Math.max(1, Math.round(96 / aspect))
       const ctx = canvas.getContext('2d')
@@ -130,7 +189,7 @@ export default function VideoTrimmer({ item }) {
         await new Promise(r => requestAnimationFrame(r))
         await new Promise(r => requestAnimationFrame(r))
         try {
-          ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+          drawRotated(ctx, v, canvas.width, canvas.height, forceRotate)
           // Sanity-check: if the canvas came back mostly black, the seek
           // didn't actually paint — reuse the previous thumb (or a
           // placeholder) so the strip doesn't go blank.
@@ -176,7 +235,7 @@ export default function VideoTrimmer({ item }) {
         await new Promise(r => requestAnimationFrame(r))
         await new Promise(r => requestAnimationFrame(r))
         try {
-          ctx.drawImage(v, 0, 0, canvas.width, canvas.height)
+          drawRotated(ctx, v, canvas.width, canvas.height, forceRotate)
           const px2 = ctx.getImageData(0, 0, Math.min(10, canvas.width), Math.min(10, canvas.height)).data
           let sum2 = 0
           for (let p = 0; p < px2.length; p += 4) sum2 += px2[p] + px2[p + 1] + px2[p + 2]
@@ -202,6 +261,10 @@ export default function VideoTrimmer({ item }) {
           return null
         }).filter(Boolean)
         item._trimThumbs = finalThumbs
+        // Stash the rotation we captured at so a later rotate-button
+        // click can detect the cache is stale and bust it. Plain thumbs
+        // (legacy) are treated as rotation=0 by the cache-valid check.
+        item._trimThumbsRotation = forceRotate
         try {
           window.dispatchEvent(new CustomEvent('posty-trim-thumbs', {
             detail: { itemId: item.id, thumbs: finalThumbs },
@@ -211,7 +274,7 @@ export default function VideoTrimmer({ item }) {
     }
     capture()
     return () => { cancelled = true }
-  }, [src, videoDuration])
+  }, [src, videoDuration, forceRotate])
 
   // Write-through to item + invalidate cached previews. Also snaps values
   // to the nearest keyframe the browser can actually seek to, so the trim
