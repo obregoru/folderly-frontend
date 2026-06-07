@@ -247,20 +247,27 @@ function MediaLightbox({ item, onClose }) {
     // visual ENDING — operators expect reverse-from-end behavior.
     try { v.currentTime = Math.max(startFloor, Math.min(end - 0.05, v.currentTime || end - 0.05)) } catch {}
     let cancelled = false
+    // Throttle to ~20 fps so the decoder has time to paint each
+    // seeked frame. Setting currentTime at 60fps was decoupling
+    // the audio scrubber from the visible video — the progress
+    // bar moved backward but no frames repainted because the
+    // browser was constantly fast-forwarding through keyframes.
+    const SEEK_INTERVAL_MS = 50
     let lastTick = 0
     const tick = (now) => {
       if (cancelled) return
-      const sp = Math.max(0.1, Number(item._speed) || 1.0)
-      if (lastTick) {
-        const dt = (now - lastTick) / 1000
-        const newT = (v.currentTime || 0) - dt * sp
+      if (lastTick === 0) { lastTick = now; requestAnimationFrame(tick); return }
+      const dt = now - lastTick
+      if (dt >= SEEK_INTERVAL_MS) {
+        const sp = Math.max(0.1, Number(item._speed) || 1.0)
+        const newT = (v.currentTime || 0) - (dt / 1000) * sp
         if (newT <= startFloor + 0.02) {
           try { v.currentTime = Math.max(startFloor, end - 0.05) } catch {}
         } else {
           try { v.currentTime = newT } catch {}
         }
+        lastTick = now
       }
-      lastTick = now
       requestAnimationFrame(tick)
     }
     const rafId = requestAnimationFrame(tick)
@@ -363,17 +370,23 @@ function MediaLightbox({ item, onClose }) {
             // a layout-shift to an inverted box.
             const isQuarter = forceRotate === 90 || forceRotate === 270
             if (isQuarter) {
-              // Hard-code 9:16 wrapper so visible rotated content
-              // matches the export overlay exactly. Outer: 9:16
-              // portrait. Inner rotation wrapper: 16:9 landscape,
-              // absolute-centered + rotated. Video fills inner via
-              // object-fit: cover.
+              // Outer: 9:16 portrait. Inner: 16:9 landscape, absolute-
+              // centered + rotated to land visible at 9:16 filling the
+              // outer. JS-computed pixel values (not vh+calc) — calc
+              // expressions with negative units were being silently
+              // ignored by the browser, leaving the inner div pinned
+              // to the outer's corner instead of centered.
+              const vh = (typeof window !== 'undefined' && window.innerHeight) || 800
+              const outerH = Math.floor(vh * 0.8)
+              const outerW = Math.floor(outerH * 9 / 16)
+              const innerW = outerH
+              const innerH = outerW
               return (
                 <div
                   className="relative overflow-hidden rounded inline-block"
                   style={{
-                    height: '80vh',
-                    width: 'calc(80vh * 9 / 16)',
+                    height: `${outerH}px`,
+                    width: `${outerW}px`,
                     maxWidth: '90vw',
                   }}
                 >
@@ -382,10 +395,10 @@ function MediaLightbox({ item, onClose }) {
                       position: 'absolute',
                       top: '50%',
                       left: '50%',
-                      width: '80vh',
-                      height: 'calc(80vh * 9 / 16)',
-                      marginLeft: 'calc(-40vh)',
-                      marginTop: 'calc(-40vh * 9 / 16)',
+                      width: `${innerW}px`,
+                      height: `${innerH}px`,
+                      marginLeft: `-${innerW / 2}px`,
+                      marginTop: `-${innerH / 2}px`,
                       transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
                     }}
@@ -993,8 +1006,24 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
   const [, setSpeedTick] = useState(0)
   useEffect(() => {
     const onSpeedChange = () => setSpeedTick(t => t + 1)
+    const onReverseChange = () => setSpeedTick(t => t + 1)
+    const onRotateChange = () => setSpeedTick(t => t + 1)
+    const onMetaChange = () => setSpeedTick(t => t + 1)
+    // Per-clip toggles (reverse / rotate / compress) mutate item.* in
+    // place and dispatch their own events — without these listeners
+    // FileGrid wouldn't re-render and the button visuals (⏪ on, ⟳ 270,
+    // 🗜 N%) would stay frozen at the value they had at the previous
+    // render, making the buttons feel unresponsive.
     window.addEventListener('posty-speed-change', onSpeedChange)
-    return () => window.removeEventListener('posty-speed-change', onSpeedChange)
+    window.addEventListener('posty-reverse-play-change', onReverseChange)
+    window.addEventListener('posty-force-rotate-change', onRotateChange)
+    window.addEventListener('posty-file-meta-change', onMetaChange)
+    return () => {
+      window.removeEventListener('posty-speed-change', onSpeedChange)
+      window.removeEventListener('posty-reverse-play-change', onReverseChange)
+      window.removeEventListener('posty-force-rotate-change', onRotateChange)
+      window.removeEventListener('posty-file-meta-change', onMetaChange)
+    }
   }, [])
 
   // Only put the sensors together when we actually have more than one
