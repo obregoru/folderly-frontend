@@ -101,14 +101,20 @@ function MediaLightbox({ item, onClose }) {
     // static reset OR the animated tick. Rotation is prepended so
     // it acts on the source orientation; scale then zooms the
     // rotated frame.
-    const rotateStr = forceRotate ? `rotate(${forceRotate}deg) ` : ''
+    //
+    // EXCEPTION: when we're in the rotation-wrapper path (forceRotate
+    // is 90/270), the WRAPPER DIV rotates the video — applying
+    // rotate() to the video element AS WELL would double-rotate it.
+    // Skip the rotation here and only animate scale/origin.
+    const isQuarterRotated = forceRotate === 90 || forceRotate === 270
+    const rotateStr = (forceRotate && !isQuarterRotated) ? `rotate(${forceRotate}deg) ` : ''
     if (motion === 'static') {
       // Reset to the static framing — clean up any animation residue
       // from a prior non-static motion when the user flips back.
       const z = zoom
       const oX = staticOriginX
       const oY = staticOriginY
-      if (z !== 1 || forceRotate) {
+      if (z !== 1 || (forceRotate && !isQuarterRotated)) {
         v.style.transform = `${rotateStr}${z !== 1 ? `scale(${z})` : ''}`.trim()
         v.style.transformOrigin = `${oX}% ${oY}%`
       } else {
@@ -380,6 +386,11 @@ function MediaLightbox({ item, onClose }) {
               const outerW = Math.floor(outerH * 9 / 16)
               const innerW = outerH
               const innerH = outerW
+              // Absolute positioning with EXPLICIT pixel offsets — flex
+              // centering of an over-large item ended up landing the
+              // rotated frame in the bottom-right of the wrapper in
+              // some browsers, putting the visible content where the
+              // operator expected empty space.
               return (
                 <div
                   className="relative overflow-hidden rounded"
@@ -387,17 +398,15 @@ function MediaLightbox({ item, onClose }) {
                     height: `${outerH}px`,
                     width: `${outerW}px`,
                     maxWidth: '90vw',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
                   }}
                 >
                   <div
                     style={{
+                      position: 'absolute',
+                      top: `${(outerH - innerH) / 2}px`,
+                      left: `${(outerW - innerW) / 2}px`,
                       width: `${innerW}px`,
                       height: `${innerH}px`,
-                      flexShrink: 0,
-                      flexGrow: 0,
                       transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
                     }}
