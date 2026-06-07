@@ -204,7 +204,15 @@ export async function compressVideoForUpload(file, opts = {}) {
     }
     const baseName = (file.name || 'video').replace(/\.[^.]+$/, '');
     const newName = `${baseName}-c${fileExtForMime(mimeType)}`;
-    const compressed = new File([blob], newName, { type: mimeType });
+    // Strip codec parameters from the mime before File construction.
+    // Multer/busboy parses the multipart Content-Type header, and a
+    // value like `video/webm;codecs=vp9,opus` is technically valid but
+    // some parsers / browsers normalize it inconsistently — the
+    // server-side filter saw mimetypes that didn't startsWith('video/')
+    // and rejected the upload. The bare `video/webm` is unambiguous
+    // and ffmpeg auto-detects the codec from the bytes anyway.
+    const cleanMime = mimeType.split(';')[0].trim();
+    const compressed = new File([blob], newName, { type: cleanMime });
     return {
       file: compressed,
       originalSize: file.size,
