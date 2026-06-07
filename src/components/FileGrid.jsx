@@ -384,21 +384,23 @@ function MediaLightbox({ item, onClose }) {
                     disablePictureInPicture
                     playsInline
                     crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
-                    // Pre-rotation dimensions: the element is sized so
-                    // its layout WIDTH matches the wrapper's HEIGHT,
-                    // and its layout HEIGHT matches the wrapper's
-                    // WIDTH. After rotate(90°/270°) the visible
-                    // bounds become (height, width), so the rotated
-                    // frame ends up exactly filling the swapped-aspect
-                    // wrapper. Source aspect is preserved (width /
-                    // height = videoAspect).
+                    // Pre-rotation dimensions: WIDTH matches the
+                    // wrapper's HEIGHT, HEIGHT matches the wrapper's
+                    // WIDTH. After rotate(90°/270°) the visible bounds
+                    // become (height, width), filling the swapped-
+                    // aspect wrapper. Source aspect is preserved.
+                    // Centering uses inset:0 + margin:auto (cleaner
+                    // than translate(-50%,-50%) — that pattern
+                    // composes weirdly with rotate because the
+                    // translate vector ends up applied in rotated
+                    // coordinates).
                     style={{
                       position: 'absolute',
-                      top: '50%',
-                      left: '50%',
+                      inset: 0,
+                      margin: 'auto',
                       width: '80vh',
                       height: `calc(80vh / ${videoAspect})`,
-                      transform: `translate(-50%, -50%) rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
+                      transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
                       transformOrigin: 'center center',
                       display: 'block',
                     }}
@@ -606,11 +608,11 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         // transform-origin moves the scaling pivot to the chosen anchor.
         style={useWrapRotation ? {
           position: 'absolute',
-          top: '50%',
-          left: '50%',
+          inset: 0,
+          margin: 'auto',
           width: `${height}px`,
           height: `${Math.round(height / aspect)}px`,
-          transform: `translate(-50%, -50%) ${tileTransform || ''}`.trim(),
+          transform: tileTransform,
           transformOrigin: 'center center',
           display: 'block',
         } : {
@@ -790,11 +792,11 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             // transform-only behavior.
             style={useWrapRotation ? {
               position: 'absolute',
-              top: '50%',
-              left: '50%',
+              inset: 0,
+              margin: 'auto',
               width: `${tileHeightPx}px`,
               height: `${Math.round(tileHeightPx / aspect)}px`,
-              transform: `translate(-50%, -50%) rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
+              transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
               transformOrigin: 'center center',
               display: 'block',
             } : (() => {
