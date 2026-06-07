@@ -38,6 +38,12 @@ function MediaLightbox({ item, onClose }) {
   const file = item.file
   const isImg = item.isImg || item._mediaType?.startsWith('image/')
   const videoRef = useRef(null)
+  // Video's natural aspect ratio (videoWidth / videoHeight). Captured
+  // on loadedmetadata; needed to compute the post-rotation wrapper
+  // dimensions for 90°/270° rotated clips so the 9:16 export overlay
+  // bounds the rotated content rather than the pre-rotation landscape
+  // box.
+  const [videoAspect, setVideoAspect] = useState(null)
   // Mirror the zoom + anchor live preview from VideoThumb / RestoredMedia
   // so the lightbox shows the same framing the merge will produce. Listens
   // to posty-video-zoom-change so changing the selector elsewhere updates
@@ -311,6 +317,26 @@ function MediaLightbox({ item, onClose }) {
 
   const hasTrim = trimStart > 0 || trimEnd != null
 
+  // Shared status pill — rendered in both the rotated-layout and
+  // flat-layout video branches so the operator always sees the
+  // active modifiers (trim / speed / motion / reverse / rotate)
+  // regardless of which container path is in use.
+  const renderStatusPill = () => {
+    const showPill = hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1) || motion !== 'static' || reversePlay || forceRotate
+    if (!showPill) return null
+    const parts = []
+    if (hasTrim) parts.push(`Trimmed: ${trimStart.toFixed(1)}s → ${trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}`)
+    if (Number(item._speed) > 0 && Number(item._speed) !== 1) parts.push(`Playing at ${Number(item._speed)}×`)
+    if (motion !== 'static') parts.push(`Motion: ${motion.replace(/-/g, ' ')}`)
+    if (reversePlay) parts.push('⏪ Reversed')
+    if (forceRotate) parts.push(`⟳ ${forceRotate}° (no fullscreen)`)
+    return (
+      <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
+        {parts.join(' · ')}
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
       <div className="relative max-w-[90vw] max-h-[85vh]" onClick={e => e.stopPropagation()}>
@@ -320,63 +346,101 @@ function MediaLightbox({ item, onClose }) {
         ) : isImg ? (
           <img src={src} className="max-w-full max-h-[80vh] rounded object-contain" />
         ) : (
-          // Wrap the video in a relative inline-block so the wrapper
-          // hugs the video's rendered size and the 9:16 export-frame
-          // overlay can size to it. Without the wrapper the overlay
-          // would size to the outer modal padding box, which doesn't
-          // match the video. Use overflow-hidden so the zoomed video
-          // is clipped to the wrapper bounds (the visible area
-          // outside the 9:16 outline is still part of the source —
-          // just not the export region).
-          <div className="relative inline-block overflow-hidden rounded">
-            <video
-              ref={videoRef}
-              src={src}
-              controls
-              // Disable native fullscreen + PiP when force-rotate is set:
-              // those modes display the RAW video pixels (not our CSS-
-              // rotated wrapper), so the user gets the wrong orientation
-              // back. Same gate applies during reverse-play, where our
-              // rAF driver and the browser's native player can't share
-              // currentTime cleanly.
-              controlsList={(forceRotate || reversePlay) ? 'nofullscreen nodownload' : undefined}
-              disablePictureInPicture={!!(forceRotate || reversePlay)}
-              playsInline
-              crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
-              className="max-w-full max-h-[80vh] rounded block"
-              // Static-mode transform; animated motion overwrites
-              // .style.transform per-frame in the Ken Burns rAF loop
-              // above. Including the static value here lets the
-              // initial render show the correct framing before the
-              // loop kicks in. Rotation gets chained in BEFORE the
-              // scale so it acts on the source orientation; scale
-              // then zooms the rotated frame.
-              style={(() => {
-                const parts = []
-                if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
-                if (zoom !== 1 && motion === 'static') parts.push(`scale(${zoom})`)
-                if (parts.length === 0) return undefined
-                return {
-                  transform: parts.join(' '),
-                  transformOrigin: zoom !== 1 && motion === 'static' ? `${staticOriginX}% ${staticOriginY}%` : 'center center',
-                }
-              })()}
-            />
-            <ExportFrameOverlay />
-            {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1) || motion !== 'static' || reversePlay || forceRotate) && (() => {
-              const parts = []
-              if (hasTrim) parts.push(`Trimmed: ${trimStart.toFixed(1)}s → ${trimEnd != null ? `${trimEnd.toFixed(1)}s` : 'end'}`)
-              if (Number(item._speed) > 0 && Number(item._speed) !== 1) parts.push(`Playing at ${Number(item._speed)}×`)
-              if (motion !== 'static') parts.push(`Motion: ${motion.replace(/-/g, ' ')}`)
-              if (reversePlay) parts.push('⏪ Reversed')
-              if (forceRotate) parts.push(`⟳ ${forceRotate}° (no fullscreen)`)
+          (() => {
+            // For 90°/270° rotations we wrap the <video> in a
+            // swapped-aspect container so the 9:16 export overlay
+            // (sized to its parent) bounds the ROTATED content. CSS
+            // transform: rotate alone keeps the layout box at the
+            // pre-rotation orientation, which is why a rotated
+            // landscape clip used to overflow the dashed 9:16 outline
+            // horizontally. Strategy:
+            //   - wrapper sized to (post-rotation) dimensions
+            //   - <video> sized to (pre-rotation) dimensions, absolute-
+            //     positioned and rotated about its center, so after
+            //     rotation it fills the wrapper exactly
+            // videoAspect captured on loadedmetadata; until known we
+            // fall back to the flat-layout path so first paint isn't
+            // a layout-shift to an inverted box.
+            const isQuarter = forceRotate === 90 || forceRotate === 270
+            const useRotatedLayout = isQuarter && videoAspect && Number.isFinite(videoAspect)
+            if (useRotatedLayout) {
+              // 80vh × (1/aspect) wrapper. calc() lets the browser
+              // recompute on viewport resize without us tracking it.
               return (
-                <div className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded-full px-2.5 py-1 pointer-events-none">
-                  {parts.join(' · ')}
+                <div
+                  className="relative overflow-hidden rounded"
+                  style={{
+                    height: '80vh',
+                    width: `calc(80vh / ${videoAspect})`,
+                    maxWidth: '90vw',
+                    display: 'inline-block',
+                  }}
+                >
+                  <video
+                    ref={videoRef}
+                    src={src}
+                    controls
+                    controlsList="nofullscreen nodownload"
+                    disablePictureInPicture
+                    playsInline
+                    crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      height: '80vh',
+                      width: `calc(80vh * ${videoAspect})`,
+                      transform: `translate(-50%, -50%) rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
+                      transformOrigin: 'center center',
+                      display: 'block',
+                    }}
+                    onLoadedMetadata={(e) => {
+                      const v = e.currentTarget
+                      if (v?.videoWidth > 0 && v?.videoHeight > 0) {
+                        setVideoAspect(v.videoWidth / v.videoHeight)
+                      }
+                    }}
+                  />
+                  <ExportFrameOverlay />
+                  {renderStatusPill()}
                 </div>
               )
-            })()}
-          </div>
+            }
+            // Flat-layout path (no rotation OR 180° — which doesn't
+            // change the box dimensions).
+            return (
+              <div className="relative inline-block overflow-hidden rounded">
+                <video
+                  ref={videoRef}
+                  src={src}
+                  controls
+                  controlsList={(forceRotate || reversePlay) ? 'nofullscreen nodownload' : undefined}
+                  disablePictureInPicture={!!(forceRotate || reversePlay)}
+                  playsInline
+                  crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
+                  className="max-w-full max-h-[80vh] rounded block"
+                  onLoadedMetadata={(e) => {
+                    const v = e.currentTarget
+                    if (v?.videoWidth > 0 && v?.videoHeight > 0) {
+                      setVideoAspect(v.videoWidth / v.videoHeight)
+                    }
+                  }}
+                  style={(() => {
+                    const parts = []
+                    if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
+                    if (zoom !== 1 && motion === 'static') parts.push(`scale(${zoom})`)
+                    if (parts.length === 0) return undefined
+                    return {
+                      transform: parts.join(' '),
+                      transformOrigin: zoom !== 1 && motion === 'static' ? `${staticOriginX}% ${staticOriginY}%` : 'center center',
+                    }
+                  })()}
+                />
+                <ExportFrameOverlay />
+                {renderStatusPill()}
+              </div>
+            )
+          })()
         )}
       </div>
     </div>
