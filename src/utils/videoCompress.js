@@ -192,10 +192,26 @@ export async function compressVideoForUpload(file, opts = {}) {
     recorder.stop();
     await recordingDone;
 
-    const blob = new Blob(chunks, { type: mimeType });
+    let blob = new Blob(chunks, { type: mimeType });
     if (!blob.size) {
       result.reason = 'recorder produced empty blob';
       return result;
+    }
+    // Patch the WebM Duration field. MediaRecorder doesn't write the
+    // Matroska SegmentInfo Duration element because it doesn't know
+    // the final length at start. ffprobe + browser <video> elements
+    // then read NaN duration, which breaks trim UI + ffmpeg `-t` in
+    // the merge pipeline ("Invalid duration specification: NaN").
+    // fix-webm-duration injects the duration we already know from
+    // the source clip. MP4 outputs (Safari) don't need this.
+    if (mimeType.startsWith('video/webm')) {
+      try {
+        const { default: ysFixWebmDuration } = await import('fix-webm-duration');
+        const durationMs = Math.max(1, Math.round(srcDur * 1000));
+        blob = await ysFixWebmDuration(blob, durationMs, { logger: false });
+      } catch (e) {
+        console.warn('[videoCompress] WebM duration patch failed — falling back to BE 60s default:', e?.message || e);
+      }
     }
     // Inflation guard.
     if (blob.size >= file.size) {
