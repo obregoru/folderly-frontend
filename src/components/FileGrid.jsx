@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import * as api from '../api'
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates, SortableContext, arrayMove, useSortable, rectSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -45,6 +46,10 @@ function MediaLightbox({ item, onClose }) {
   const [offX, setOffX] = useState(() => Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
   const [offY, setOffY] = useState(() => Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
   const [motion, setMotion] = useState(() => typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static')
+  // Operator's per-file force-rotate override. Mirrored into local
+  // state via the posty-force-rotate-change event so toggling on a
+  // tile updates the lightbox in real time.
+  const [forceRotate, setForceRotate] = useState(() => Number(item._forceRotate) || 0)
   useEffect(() => {
     if (isImg) return
     const onChange = (e) => {
@@ -54,8 +59,16 @@ function MediaLightbox({ item, onClose }) {
       setOffY(Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
       setMotion(typeof item._videoMotion === 'string' && item._videoMotion ? item._videoMotion : 'static')
     }
+    const onRotateChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setForceRotate(Number(item._forceRotate) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
-    return () => window.removeEventListener('posty-video-zoom-change', onChange)
+    window.addEventListener('posty-force-rotate-change', onRotateChange)
+    return () => {
+      window.removeEventListener('posty-video-zoom-change', onChange)
+      window.removeEventListener('posty-force-rotate-change', onRotateChange)
+    }
   }, [item, isImg])
   // Static-mode origin only. Animated motion (zoom-in / zoom-out /
   // pan-lr / pan-rl / combined) drives transform-origin per-frame in
@@ -78,14 +91,19 @@ function MediaLightbox({ item, onClose }) {
     if (isImg) return
     const v = videoRef.current
     if (!v) return
+    // Helper to build a combined transform string for either the
+    // static reset OR the animated tick. Rotation is prepended so
+    // it acts on the source orientation; scale then zooms the
+    // rotated frame.
+    const rotateStr = forceRotate ? `rotate(${forceRotate}deg) ` : ''
     if (motion === 'static') {
       // Reset to the static framing — clean up any animation residue
       // from a prior non-static motion when the user flips back.
       const z = zoom
       const oX = staticOriginX
       const oY = staticOriginY
-      if (z !== 1) {
-        v.style.transform = `scale(${z})`
+      if (z !== 1 || forceRotate) {
+        v.style.transform = `${rotateStr}${z !== 1 ? `scale(${z})` : ''}`.trim()
         v.style.transformOrigin = `${oX}% ${oY}%`
       } else {
         v.style.transform = ''
@@ -134,14 +152,14 @@ function MediaLightbox({ item, onClose }) {
       }
       const originY = 50 + offY / 2
 
-      v.style.transform = `scale(${zoomT})`
+      v.style.transform = `${rotateStr}scale(${zoomT})`.trim()
       v.style.transformOrigin = `${originX}% ${originY}%`
 
       rafId = requestAnimationFrame(tick)
     }
     rafId = requestAnimationFrame(tick)
     return () => { if (rafId != null) cancelAnimationFrame(rafId) }
-  }, [isImg, motion, zoom, offX, offY, staticOriginX, staticOriginY, item])
+  }, [isImg, motion, zoom, offX, offY, staticOriginX, staticOriginY, item, forceRotate])
   const [src] = useState(() => {
     if (file instanceof Blob || file instanceof File) return URL.createObjectURL(file)
     // Restored file — prefer Supabase public URL (no auth, no memory pressure)
@@ -261,8 +279,19 @@ function MediaLightbox({ item, onClose }) {
               // .style.transform per-frame in the Ken Burns rAF loop
               // above. Including the static value here lets the
               // initial render show the correct framing before the
-              // loop kicks in.
-              style={zoom !== 1 && motion === 'static' ? { transform: `scale(${zoom})`, transformOrigin: `${staticOriginX}% ${staticOriginY}%` } : undefined}
+              // loop kicks in. Rotation gets chained in BEFORE the
+              // scale so it acts on the source orientation; scale
+              // then zooms the rotated frame.
+              style={(() => {
+                const parts = []
+                if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
+                if (zoom !== 1 && motion === 'static') parts.push(`scale(${zoom})`)
+                if (parts.length === 0) return undefined
+                return {
+                  transform: parts.join(' '),
+                  transformOrigin: zoom !== 1 && motion === 'static' ? `${staticOriginX}% ${staticOriginY}%` : 'center center',
+                }
+              })()}
             />
             <ExportFrameOverlay />
             {(hasTrim || (Number(item._speed) > 0 && Number(item._speed) !== 1) || motion !== 'static') && (
@@ -295,6 +324,7 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   const [zoom, setZoom] = useState(() => Number(item?._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
   const [offX, setOffX] = useState(() => Number.isFinite(Number(item?._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
   const [offY, setOffY] = useState(() => Number.isFinite(Number(item?._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
+  const [forceRotate, setForceRotate] = useState(() => Number(item?._forceRotate) || 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== itemId) return
@@ -302,8 +332,16 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
       setOffX(Number.isFinite(Number(item?._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
       setOffY(Number.isFinite(Number(item?._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
     }
+    const onRotateChange = (e) => {
+      if (e.detail?.itemId !== itemId) return
+      setForceRotate(Number(item?._forceRotate) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
-    return () => window.removeEventListener('posty-video-zoom-change', onChange)
+    window.addEventListener('posty-force-rotate-change', onRotateChange)
+    return () => {
+      window.removeEventListener('posty-video-zoom-change', onChange)
+      window.removeEventListener('posty-force-rotate-change', onRotateChange)
+    }
   }, [itemId, item])
   // transform-origin formula matches the BE crop anchor:
   //   offset = -100 → 0%   (anchor at left/top edge)
@@ -389,6 +427,13 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   const isPortrait = aspect && aspect < 1
   const height = isPortrait ? 260 : 120
 
+  // Build combined transform: rotation first (acts on source pixels),
+  // then scale (zooms the rotated frame). When neither applies, omit
+  // the style so the browser default kicks in.
+  const tileTransformParts = []
+  if (forceRotate) tileTransformParts.push(`rotate(${forceRotate}deg)`)
+  if (zoom !== 1) tileTransformParts.push(`scale(${zoom})`)
+  const tileTransform = tileTransformParts.length ? tileTransformParts.join(' ') : undefined
   return (
     <div onClick={onClick} className={`relative cursor-pointer hover:opacity-80 overflow-hidden ${className || ''}`} style={{ height }}>
       <video
@@ -400,7 +445,7 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         muted playsInline preload="auto"
         // Live zoom + anchor preview matching the BE crop math.
         // transform-origin moves the scaling pivot to the chosen anchor.
-        style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
+        style={tileTransform ? { transform: tileTransform, transformOrigin: `${originX}% ${originY}%` } : undefined}
       />
       <ExportFrameOverlay />
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -477,6 +522,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
   const [zoom, setZoom] = useState(() => Number(item._videoZoom) > 0 ? Number(item._videoZoom) : 1.0)
   const [offX, setOffX] = useState(() => Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
   const [offY, setOffY] = useState(() => Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
+  const [forceRotate, setForceRotate] = useState(() => Number(item._forceRotate) || 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== item.id) return
@@ -484,8 +530,16 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
       setOffX(Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
       setOffY(Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
     }
+    const onRotateChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setForceRotate(Number(item._forceRotate) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
-    return () => window.removeEventListener('posty-video-zoom-change', onChange)
+    window.addEventListener('posty-force-rotate-change', onRotateChange)
+    return () => {
+      window.removeEventListener('posty-video-zoom-change', onChange)
+      window.removeEventListener('posty-force-rotate-change', onRotateChange)
+    }
   }, [item])
   const originX = 50 + offX / 2
   const originY = 50 + offY / 2
@@ -542,8 +596,15 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             }}
             onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
             onError={markMissing}
-            // Live zoom + anchor preview matching the merge-time crop semantic.
-            style={zoom !== 1 ? { transform: `scale(${zoom})`, transformOrigin: `${originX}% ${originY}%` } : undefined}
+            // Live zoom + anchor + rotation preview matching the merge-time
+            // semantic. Rotation prepends so it operates on the source
+            // pixels; zoom then magnifies the rotated frame.
+            style={(() => {
+              const parts = []
+              if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
+              if (zoom !== 1) parts.push(`scale(${zoom})`)
+              return parts.length ? { transform: parts.join(' '), transformOrigin: `${originX}% ${originY}%` } : undefined
+            })()}
           />
           <ExportFrameOverlay />
           {zoom !== 1 && (
@@ -836,6 +897,91 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                   title="Split this clip into multiple subclips"
                 >✂</button>
               )}
+              {/* Force-rotate cycle button. Cameras that record vertical
+                  footage without setting a rotation tag (Sony A6500,
+                  GoPro, DJI, certain XAVC encoders) appear here as
+                  landscape — one click cycles 0° → 90° → 180° → 270°.
+                  The thumbnail + lightbox preview rotates live; the BE
+                  applies a matching transpose filter at merge time. */}
+              {isVideo && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const cur = Number(item._forceRotate) || 0
+                    const next = cur === 0 ? 90 : cur === 90 ? 180 : cur === 180 ? 270 : 0
+                    item._forceRotate = next
+                    try { window.dispatchEvent(new CustomEvent('posty-force-rotate-change', { detail: { itemId: item.id } })) } catch {}
+                  }}
+                  className={`absolute top-1 right-[86px] h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none z-[5] font-medium ${
+                    Number(item._forceRotate) > 0
+                      ? 'bg-[#d97706]/95 hover:bg-[#d97706]'
+                      : 'bg-[#6C5CE7]/60 hover:bg-[#6C5CE7]'
+                  }`}
+                  title={
+                    Number(item._forceRotate) > 0
+                      ? `Force-rotated ${item._forceRotate}° (click to cycle). Preview + merge apply this rotation.`
+                      : 'Force-rotate this clip (use for Sony A6500 / GoPro / DJI vertical files that show as landscape). Cycles 0° → 90° → 180° → 270°.'
+                  }
+                >{Number(item._forceRotate) > 0 ? `⟳${item._forceRotate}` : '⟳'}</button>
+              )}
+              {/* Compress button — re-encodes an existing uploaded
+                  video via the BE (1080p H.264, medium=CRF 23). Auto-
+                  compress at upload kicks in above 48MB, but Sony A6500
+                  XAVC / GoPro / DJI files in the 20-47MB range slip
+                  through and bloat storage. One click shrinks them in
+                  place; the upload_key stays valid. */}
+              {isVideo && item._dbFileId != null && (() => {
+                const dbFileId = item._dbFileId
+                const isCompressing = !!item._compressing
+                const ratio = item._lastCompressRatio
+                return (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      if (item._compressing) return
+                      if (!confirm('Compress this video? Re-encodes to 1080p H.264 (medium quality). Best for Sony A6500 / GoPro / DJI source files that came out > 20MB.')) return
+                      item._compressing = true
+                      try { window.dispatchEvent(new CustomEvent('posty-file-meta-change', { detail: { itemId: item.id } })) } catch {}
+                      try {
+                        // jobUuid lives on the parent jobs row; pulled
+                        // from the global hooked up by useJobSync.
+                        const jobId = window._postyActiveJobId || null
+                        if (!jobId) { alert('Job not yet saved — save first, then compress.'); item._compressing = false; return }
+                        const r = await api.compressJobFile(jobId, dbFileId, 'medium')
+                        if (r?.no_op) {
+                          alert('Already optimized — compression would have made it larger. Skipped.')
+                        } else if (r?.savings_pct >= 0) {
+                          const before = (r.before_bytes / 1024 / 1024).toFixed(1)
+                          const after  = (r.after_bytes  / 1024 / 1024).toFixed(1)
+                          alert(`✓ Compressed ${before}MB → ${after}MB (${r.savings_pct}% smaller). Reload to see the updated file in the preview.`)
+                          item._lastCompressRatio = r.savings_pct
+                          // The upload_key may have changed (extension swap).
+                          if (r.upload_key) item._uploadKey = r.upload_key
+                          if (r.mime_type) item._mediaType = r.mime_type
+                        }
+                      } catch (err) {
+                        alert(`Compression failed: ${err?.message || err}`)
+                      } finally {
+                        item._compressing = false
+                        try { window.dispatchEvent(new CustomEvent('posty-file-meta-change', { detail: { itemId: item.id } })) } catch {}
+                      }
+                    }}
+                    disabled={isCompressing}
+                    className={`absolute top-1 right-[112px] h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none z-[5] font-medium ${
+                      isCompressing
+                        ? 'bg-[#94a3b8]'
+                        : ratio
+                          ? 'bg-[#2D9A5E]/85 hover:bg-[#2D9A5E]'
+                          : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
+                    }`}
+                    title={isCompressing
+                      ? 'Compressing… stay on this tab'
+                      : ratio
+                        ? `Compressed (${ratio}% smaller). Click to compress again.`
+                        : 'Compress this video (re-encode to 1080p H.264 medium). Use for Sony A6500 / GoPro / DJI source files that bloat storage.'}
+                  >{isCompressing ? '⌛' : ratio ? `🗜 ${ratio}%` : '🗜'}</button>
+                )
+              })()}
               {item.status === 'loading' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-sage/90 text-white">Loading...</div>}
               {item.status === 'done' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-tk/90 text-white">Done</div>}
               {item.status === 'error' && <div className="absolute bottom-5 left-0 right-0 text-center text-[9px] font-medium py-0.5 bg-terra/90 text-white">Error</div>}

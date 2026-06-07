@@ -213,6 +213,21 @@ export const createCampaign = (source_text) =>
     return body
   })
 
+// On-demand re-encode of an uploaded video file. Used to shrink
+// Sony A6500 / XAVC / GoPro clips in the 20-47 MB range that
+// slipped past the auto-compress threshold at upload time.
+export const compressJobFile = (jobId, fileId, quality = 'medium') =>
+  csrfFetch(api(`/jobs/${encodeURIComponent(jobId)}/files/${encodeURIComponent(fileId)}/compress`), {
+    method: 'POST',
+    headers: h(),
+    credentials: 'include',
+    body: JSON.stringify({ quality }),
+  }).then(async r => {
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok || body?.error) throw new Error(body?.error || `compressJobFile failed (${r.status})`)
+    return body
+  })
+
 // Jobs — persistent session state
 export const listJobs = () => fetch(api('/jobs'), { credentials: 'include' }).then(r => r.json())
 // Soft-deleted jobs ("archived"). Same shape as listJobs but the BE

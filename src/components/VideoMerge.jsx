@@ -1013,46 +1013,6 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                             </button>
                           )
                         })()}
-                        {!itemIsPhoto && (() => {
-                          // Per-clip force rotation override. Auto-detect
-                          // handles iPhone/QuickTime correctly via the
-                          // display matrix; this is for cameras (Sony
-                          // A6500 / GoPro / DJI / certain mirrorless)
-                          // that record vertical footage as 1920×1080
-                          // without ANY rotation tag, so the merge
-                          // pipeline treats them as landscape. Clicking
-                          // cycles 0° → 90° → 180° → 270° → 0°. Applied
-                          // BEFORE crop/scale so the 9:16 export crops
-                          // around the rotated frame correctly.
-                          const rot = Number(item._forceRotate) || 0
-                          const next = rot === 0 ? 90 : rot === 90 ? 180 : rot === 180 ? 270 : 0
-                          const label = rot === 0 ? '⟳ Rotate' : `⟳ ${rot}°`
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                item._forceRotate = next
-                                try { window.dispatchEvent(new CustomEvent('posty-force-rotate-change', { detail: { itemId: item.id } })) } catch {}
-                                if (mergedUrl) {
-                                  try { URL.revokeObjectURL(mergedUrl) } catch {}
-                                  setMergedUrl(null)
-                                  mergedBlobRef.current = null
-                                  window._postyMergedVideo = null
-                                }
-                              }}
-                              className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
-                                rot !== 0
-                                  ? 'bg-[#fef3c7] border-[#d97706]/50 text-[#92400e] font-medium'
-                                  : 'bg-white border-border text-muted'
-                              }`}
-                              title={rot === 0
-                                ? 'Force rotation. Use when the merge treats a vertical clip as landscape (Sony Alpha, GoPro, DJI — these cameras skip the rotation tag iPhones set). Click to cycle 0° → 90° → 180° → 270°.'
-                                : `Currently force-rotated ${rot}°. Click for ${next === 0 ? 'no rotation (auto)' : next + '°'}.`}
-                            >
-                              <span className="text-[10px]">{label}</span>
-                            </button>
-                          )
-                        })()}
                         {!itemIsPhoto && !item._freezeFrame && (() => {
                           // Color preset. null = no effect. Dropdown
                           // because there are multiple presets, not a
