@@ -780,6 +780,20 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item 
   const [activeFrame, setActiveFrame] = useState(null) // 0.0 | 0.1 ... 0.5 | null
   const [looping, setLooping] = useState(false)
   const loopRafRef = useRef(null)
+  // Track the per-file rotation override so the inspector's <video>
+  // matches the merge orientation. Subscribes to the same event the
+  // tile + lightbox use so the inspector flips instantly when the
+  // operator clicks ⟳ on the tile.
+  const [forceRotate, setForceRotate] = useState(() => Number(item?._forceRotate) || 0)
+  useEffect(() => {
+    if (!item) return
+    const onChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setForceRotate(Number(item._forceRotate) || 0)
+    }
+    window.addEventListener('posty-force-rotate-change', onChange)
+    return () => window.removeEventListener('posty-force-rotate-change', onChange)
+  }, [item])
   // TikTok-tuned vision analysis state. Held inside the inspector so
   // the user can run it on demand and the result stays visible while
   // they iterate on the clip.
@@ -885,19 +899,44 @@ function FirstHalfSecondInspector({ src, trimStart = 0, videoDuration = 0, item 
       {open && (
         <div className="mt-1 space-y-1.5">
           <div className="flex items-start gap-2">
-            <video
-              ref={videoRef}
-              src={src}
-              muted
-              playsInline
-              preload="auto"
-              crossOrigin={src.startsWith('blob:') ? undefined : 'anonymous'}
-              className="w-[120px] h-[180px] bg-black rounded object-contain flex-shrink-0"
-              onLoadedMetadata={() => {
-                const v = videoRef.current
-                if (v) try { v.currentTime = start } catch {}
-              }}
-            />
+            <div className="w-[120px] h-[180px] bg-black rounded overflow-hidden flex items-center justify-center flex-shrink-0">
+              <video
+                ref={videoRef}
+                src={src}
+                muted
+                playsInline
+                preload="auto"
+                crossOrigin={src.startsWith('blob:') ? undefined : 'anonymous'}
+                onLoadedMetadata={() => {
+                  const v = videoRef.current
+                  if (v) try { v.currentTime = start } catch {}
+                }}
+                // When rotated 90°/270° the element's layout box stays
+                // at the pre-rotation size — sizing the video as
+                // height-by-aspect with object-contain lets the rotated
+                // frame fit the parent without being clipped to its
+                // pre-rotation box (same trick as the tile + lightbox).
+                className={
+                  forceRotate === 90 || forceRotate === 270
+                    ? ''
+                    : 'w-[120px] h-[180px] object-contain'
+                }
+                style={(() => {
+                  const isQuarter = forceRotate === 90 || forceRotate === 270
+                  const base = isQuarter
+                    ? { width: '180px', height: '120px', objectFit: 'contain', display: 'block' }
+                    : null
+                  if (forceRotate) {
+                    return {
+                      ...(base || {}),
+                      transform: `rotate(${forceRotate}deg)`,
+                      transformOrigin: 'center center',
+                    }
+                  }
+                  return base || undefined
+                })()}
+              />
+            </div>
             <div className="flex-1 space-y-1.5">
               <div className="flex items-center gap-1.5">
                 <button
