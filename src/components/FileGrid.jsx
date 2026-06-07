@@ -386,18 +386,19 @@ function MediaLightbox({ item, onClose }) {
                     crossOrigin={src && !src.startsWith('blob:') ? 'anonymous' : undefined}
                     // Pre-rotation dimensions: WIDTH matches the
                     // wrapper's HEIGHT, HEIGHT matches the wrapper's
-                    // WIDTH. After rotate(90°/270°) the visible bounds
-                    // become (height, width), filling the swapped-
-                    // aspect wrapper. Source aspect is preserved.
-                    // Centering uses inset:0 + margin:auto (cleaner
-                    // than translate(-50%,-50%) — that pattern
-                    // composes weirdly with rotate because the
-                    // translate vector ends up applied in rotated
-                    // coordinates).
+                    // WIDTH. After rotate(90°/270°) the visible
+                    // bounds become (height, width), filling the
+                    // swapped-aspect wrapper. Centered via explicit
+                    // negative offsets — the element is LARGER than
+                    // the wrapper in one axis (its width = wrapper's
+                    // height), and `inset:0 + margin:auto` resolves
+                    // to top:0,left:0 in that case instead of
+                    // negative-margin centering, leaving the rotated
+                    // frame visibly shrunk inside the wrapper.
                     style={{
                       position: 'absolute',
-                      inset: 0,
-                      margin: 'auto',
+                      top: `calc(50% - 0.5 * (80vh / ${videoAspect}))`,
+                      left: `calc(50% - 0.5 * 80vh)`,
                       width: '80vh',
                       height: `calc(80vh / ${videoAspect})`,
                       transform: `rotate(${forceRotate}deg)${zoom !== 1 && motion === 'static' ? ` scale(${zoom})` : ''}`,
@@ -606,16 +607,22 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         muted playsInline preload="auto"
         // Live zoom + anchor preview matching the BE crop math.
         // transform-origin moves the scaling pivot to the chosen anchor.
-        style={useWrapRotation ? {
-          position: 'absolute',
-          inset: 0,
-          margin: 'auto',
-          width: `${height}px`,
-          height: `${Math.round(height / aspect)}px`,
-          transform: tileTransform,
-          transformOrigin: 'center center',
-          display: 'block',
-        } : {
+        style={useWrapRotation ? (() => {
+          const preW = height
+          const preH = Math.round(height / aspect)
+          const containerW = preH
+          const containerH = preW
+          return {
+            position: 'absolute',
+            top: `${Math.round((containerH - preH) / 2)}px`,
+            left: `${Math.round((containerW - preW) / 2)}px`,
+            width: `${preW}px`,
+            height: `${preH}px`,
+            transform: tileTransform,
+            transformOrigin: 'center center',
+            display: 'block',
+          }
+        })() : {
           ...(tileTransform ? { transform: tileTransform, transformOrigin: `${originX}% ${originY}%` } : {}),
         }}
       />
@@ -790,16 +797,22 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             // swapped aspect exactly. Translate centers; rotate +
             // scale chain. Non-rotated path keeps the existing
             // transform-only behavior.
-            style={useWrapRotation ? {
-              position: 'absolute',
-              inset: 0,
-              margin: 'auto',
-              width: `${tileHeightPx}px`,
-              height: `${Math.round(tileHeightPx / aspect)}px`,
-              transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
-              transformOrigin: 'center center',
-              display: 'block',
-            } : (() => {
+            style={useWrapRotation ? (() => {
+              const preW = tileHeightPx
+              const preH = Math.round(tileHeightPx / aspect)
+              const containerW = preH
+              const containerH = preW
+              return {
+                position: 'absolute',
+                top: `${Math.round((containerH - preH) / 2)}px`,
+                left: `${Math.round((containerW - preW) / 2)}px`,
+                width: `${preW}px`,
+                height: `${preH}px`,
+                transform: `rotate(${forceRotate}deg)${zoom !== 1 ? ` scale(${zoom})` : ''}`,
+                transformOrigin: 'center center',
+                display: 'block',
+              }
+            })() : (() => {
               const parts = []
               if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
               if (zoom !== 1) parts.push(`scale(${zoom})`)
