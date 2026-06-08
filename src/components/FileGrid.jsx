@@ -1,4 +1,41 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+
+// Compute a CSS `filter` value that approximates the merge's
+// ffmpeg colortemperature + exposure for the editor preview.
+// Inputs: temp -100…+100 (cool→warm), expo -100…+100 (dark→bright).
+// CSS doesn't have a true colortemperature filter, so we lean on
+// sepia + hue-rotate + saturate to nudge warmth in either direction.
+// The result is close enough to give the operator a sense of the
+// final tint; the merge's ffmpeg filter is what ships.
+function tempExposureFilter(temp, expo) {
+  const t = Math.max(-100, Math.min(100, Number(temp) || 0))
+  const e = Math.max(-100, Math.min(100, Number(expo) || 0))
+  const parts = []
+  if (t > 0) {
+    // Warmer: sepia tints orange; hue-rotate pulls it toward red.
+    const sepia = Math.min(0.4, t * 0.004)
+    const hue = -8 * (t / 100)
+    parts.push(`sepia(${sepia.toFixed(2)})`)
+    parts.push(`hue-rotate(${hue.toFixed(0)}deg)`)
+    parts.push(`saturate(${(1 + t * 0.002).toFixed(2)})`)
+  } else if (t < 0) {
+    // Cooler: invert-hue trick — sepia then rotate ~180° puts the
+    // warm sepia into the blue range.
+    const at = Math.abs(t)
+    const sepia = Math.min(0.35, at * 0.0035)
+    const hue = 180 + 15 * (at / 100)
+    parts.push(`sepia(${sepia.toFixed(2)})`)
+    parts.push(`hue-rotate(${hue.toFixed(0)}deg)`)
+    parts.push(`saturate(${(1 + at * 0.002).toFixed(2)})`)
+  }
+  if (e !== 0) {
+    // CSS brightness: 1.0 = neutral. Map ±100 → ±0.5 so the preview
+    // stays usable (extreme values clip badly in the browser).
+    parts.push(`brightness(${(1 + e * 0.005).toFixed(2)})`)
+  }
+  return parts.length ? parts.join(' ') : undefined
+}
+
 import * as api from '../api'
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { sortableKeyboardCoordinates, SortableContext, arrayMove, useSortable, rectSortingStrategy } from '@dnd-kit/sortable'
@@ -56,6 +93,8 @@ function MediaLightbox({ item, onClose }) {
   // state via the posty-force-rotate-change event so toggling on a
   // tile updates the lightbox in real time.
   const [forceRotate, setForceRotate] = useState(() => Number(item._forceRotate) || 0)
+  const [colorTemp, setColorTemp] = useState(() => Number(item._colorTemp) || 0)
+  const [exposure, setExposure] = useState(() => Number(item._exposure) || 0)
   useEffect(() => {
     if (isImg) return
     const onChange = (e) => {
@@ -69,13 +108,26 @@ function MediaLightbox({ item, onClose }) {
       if (e.detail?.itemId !== item.id) return
       setForceRotate(Number(item._forceRotate) || 0)
     }
+    const onColorTempChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setColorTemp(Number(item._colorTemp) || 0)
+    }
+    const onExposureChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setExposure(Number(item._exposure) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
     window.addEventListener('posty-force-rotate-change', onRotateChange)
+    window.addEventListener('posty-color-temp-change', onColorTempChange)
+    window.addEventListener('posty-exposure-change', onExposureChange)
     return () => {
       window.removeEventListener('posty-video-zoom-change', onChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
+      window.removeEventListener('posty-color-temp-change', onColorTempChange)
+      window.removeEventListener('posty-exposure-change', onExposureChange)
     }
   }, [item, isImg])
+  const tempExpoFilter = tempExposureFilter(colorTemp, exposure)
   // Static-mode origin only. Animated motion (zoom-in / zoom-out /
   // pan-lr / pan-rl / combined) drives transform-origin per-frame in
   // the rAF loop below; staticOriginX/Y is the fallback for the
@@ -357,7 +409,7 @@ function MediaLightbox({ item, onClose }) {
         {!src ? (
           <div className="text-white text-[13px] p-8">No preview available — file needs to be re-uploaded</div>
         ) : isImg ? (
-          <img src={src} className="max-w-full max-h-[80vh] rounded object-contain" />
+          <img src={src} className="max-w-full max-h-[80vh] rounded object-contain" style={tempExpoFilter ? { filter: tempExpoFilter } : undefined} />
         ) : (
           (() => {
             // For 90°/270° rotations we wrap the <video> in a
@@ -424,6 +476,7 @@ function MediaLightbox({ item, onClose }) {
                         height: '100%',
                         objectFit: 'cover',
                         display: 'block',
+                        filter: tempExpoFilter,
                       }}
                     />
                   </div>
@@ -455,11 +508,14 @@ function MediaLightbox({ item, onClose }) {
                     const parts = []
                     if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
                     if (zoom !== 1 && motion === 'static') parts.push(`scale(${zoom})`)
-                    if (parts.length === 0) return undefined
-                    return {
-                      transform: parts.join(' '),
-                      transformOrigin: zoom !== 1 && motion === 'static' ? `${staticOriginX}% ${staticOriginY}%` : 'center center',
-                    }
+                    const base = parts.length
+                      ? {
+                          transform: parts.join(' '),
+                          transformOrigin: zoom !== 1 && motion === 'static' ? `${staticOriginX}% ${staticOriginY}%` : 'center center',
+                        }
+                      : {}
+                    if (tempExpoFilter) base.filter = tempExpoFilter
+                    return Object.keys(base).length ? base : undefined
                   })()}
                 />
                 <ExportFrameOverlay />
@@ -488,6 +544,8 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   const [offX, setOffX] = useState(() => Number.isFinite(Number(item?._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
   const [offY, setOffY] = useState(() => Number.isFinite(Number(item?._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
   const [forceRotate, setForceRotate] = useState(() => Number(item?._forceRotate) || 0)
+  const [colorTemp, setColorTemp] = useState(() => Number(item?._colorTemp) || 0)
+  const [exposure, setExposure] = useState(() => Number(item?._exposure) || 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== itemId) return
@@ -499,13 +557,26 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
       if (e.detail?.itemId !== itemId) return
       setForceRotate(Number(item?._forceRotate) || 0)
     }
+    const onColorTempChange = (e) => {
+      if (e.detail?.itemId !== itemId) return
+      setColorTemp(Number(item?._colorTemp) || 0)
+    }
+    const onExposureChange = (e) => {
+      if (e.detail?.itemId !== itemId) return
+      setExposure(Number(item?._exposure) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
     window.addEventListener('posty-force-rotate-change', onRotateChange)
+    window.addEventListener('posty-color-temp-change', onColorTempChange)
+    window.addEventListener('posty-exposure-change', onExposureChange)
     return () => {
       window.removeEventListener('posty-video-zoom-change', onChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
+      window.removeEventListener('posty-color-temp-change', onColorTempChange)
+      window.removeEventListener('posty-exposure-change', onExposureChange)
     }
   }, [itemId, item])
+  const tempExpoFilter = tempExposureFilter(colorTemp, exposure)
   // transform-origin formula matches the BE crop anchor:
   //   offset = -100 → 0%   (anchor at left/top edge)
   //   offset =    0 → 50%  (center)
@@ -666,6 +737,7 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
               height: '100%',
               objectFit: 'cover',
               display: 'block',
+              filter: tempExpoFilter,
             }}
           />
         </div>
@@ -681,6 +753,7 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         // transform-origin moves the scaling pivot to the chosen anchor.
         style={{
           ...(tileTransform ? { transform: tileTransform, transformOrigin: `${originX}% ${originY}%` } : {}),
+          filter: tempExpoFilter,
         }}
       />
       )}
@@ -760,6 +833,8 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
   const [offX, setOffX] = useState(() => Number.isFinite(Number(item._videoOffsetX)) ? Number(item._videoOffsetX) : 0)
   const [offY, setOffY] = useState(() => Number.isFinite(Number(item._videoOffsetY)) ? Number(item._videoOffsetY) : 0)
   const [forceRotate, setForceRotate] = useState(() => Number(item._forceRotate) || 0)
+  const [colorTemp, setColorTemp] = useState(() => Number(item._colorTemp) || 0)
+  const [exposure, setExposure] = useState(() => Number(item._exposure) || 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== item.id) return
@@ -771,13 +846,26 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
       if (e.detail?.itemId !== item.id) return
       setForceRotate(Number(item._forceRotate) || 0)
     }
+    const onColorTempChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setColorTemp(Number(item._colorTemp) || 0)
+    }
+    const onExposureChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setExposure(Number(item._exposure) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
     window.addEventListener('posty-force-rotate-change', onRotateChange)
+    window.addEventListener('posty-color-temp-change', onColorTempChange)
+    window.addEventListener('posty-exposure-change', onExposureChange)
     return () => {
       window.removeEventListener('posty-video-zoom-change', onChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
+      window.removeEventListener('posty-color-temp-change', onColorTempChange)
+      window.removeEventListener('posty-exposure-change', onExposureChange)
     }
   }, [item])
+  const tempExpoFilter = tempExposureFilter(colorTemp, exposure)
   const originX = 50 + offX / 2
   const originY = 50 + offY / 2
   // Local fallback for the case where the BE didn't yet flag the row
@@ -874,6 +962,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
                   height: '100%',
                   objectFit: 'cover',
                   display: 'block',
+                  filter: tempExpoFilter,
                 }}
               />
             </div>
@@ -899,9 +988,11 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
               const parts = []
               if (forceRotate) parts.push(`rotate(${forceRotate}deg)`)
               if (zoom !== 1) parts.push(`scale(${zoom})`)
-              return parts.length
+              const base = parts.length
                 ? { transform: parts.join(' '), transformOrigin: `${originX}% ${originY}%` }
-                : undefined
+                : {}
+              if (tempExpoFilter) base.filter = tempExpoFilter
+              return Object.keys(base).length ? base : undefined
             })()}
           />
           )}
@@ -935,6 +1026,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
                   transform: `rotate(${r}deg) scale(${z}) translate(${-ox}%, ${-oy}%)`,
                   transformOrigin: 'center center',
                   imageOrientation: 'from-image',
+                  filter: tempExpoFilter,
                 }}
                 onLoad={e => { if (aspect == null && e.target.naturalWidth && e.target.naturalHeight) setAspect(e.target.naturalWidth / e.target.naturalHeight) }}
                 onError={markMissing}
@@ -1024,11 +1116,18 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
   // _speed and re-renders. Without this the badge would only update
   // when something ELSE triggered a FileGrid re-render.
   const [, setSpeedTick] = useState(0)
+  // Per-tile open/close state for the color-temperature slider panel.
+  // Keyed by item.id so opening one tile's slider doesn't affect others.
+  const [tempPanelOpen, setTempPanelOpen] = useState(() => ({}))
+  const toggleTempPanel = useCallback((id) => {
+    setTempPanelOpen(prev => ({ ...prev, [id]: !prev[id] }))
+  }, [])
   useEffect(() => {
     const onSpeedChange = () => setSpeedTick(t => t + 1)
     const onReverseChange = () => setSpeedTick(t => t + 1)
     const onRotateChange = () => setSpeedTick(t => t + 1)
     const onMetaChange = () => setSpeedTick(t => t + 1)
+    const onTempChange = () => setSpeedTick(t => t + 1)
     // Per-clip toggles (reverse / rotate / compress) mutate item.* in
     // place and dispatch their own events — without these listeners
     // FileGrid wouldn't re-render and the button visuals (⏪ on, ⟳ 270,
@@ -1038,11 +1137,13 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
     window.addEventListener('posty-reverse-play-change', onReverseChange)
     window.addEventListener('posty-force-rotate-change', onRotateChange)
     window.addEventListener('posty-file-meta-change', onMetaChange)
+    window.addEventListener('posty-color-temp-change', onTempChange)
     return () => {
       window.removeEventListener('posty-speed-change', onSpeedChange)
       window.removeEventListener('posty-reverse-play-change', onReverseChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
       window.removeEventListener('posty-file-meta-change', onMetaChange)
+      window.removeEventListener('posty-color-temp-change', onTempChange)
     }
   }, [])
 
@@ -1261,6 +1362,25 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                     }
                   >{Number(item._forceRotate) > 0 ? `⟳${item._forceRotate}` : '⟳'}</button>
                 )}
+                {/* Color temperature + exposure toggle. Opens an
+                    inline slider panel under the tile. Pill turns
+                    on when ANY adjustment is active. */}
+                {item._dbFileId != null && (() => {
+                  const t = Number(item._colorTemp) || 0
+                  const e = Number(item._exposure) || 0
+                  const isAdjusted = t !== 0 || e !== 0
+                  return (
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); toggleTempPanel(item.id) }}
+                      className={`h-[18px] px-1.5 rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none font-medium leading-none ${
+                        isAdjusted ? 'bg-[#0ea5e9]/95 hover:bg-[#0ea5e9]' : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
+                      }`}
+                      title={isAdjusted
+                        ? `Color temp ${t > 0 ? '+' : ''}${t}, exposure ${e > 0 ? '+' : ''}${e}. Click to adjust.`
+                        : 'Adjust color temperature + exposure to color-match this clip to the rest of the timeline.'}
+                    >{isAdjusted ? '🎨•' : '🎨'}</button>
+                  )
+                })()}
                 {/* Split — open the subclip extractor. */}
                 {item._dbFileId != null && isVideo && onSplit && (
                   <button
@@ -1303,6 +1423,66 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
             </div>
             {/* Trim bar right under its video — hidden when the source
                 file is missing (no point trying to seek into a dead URL). */}
+            {/* Color temperature + exposure inline panel. Toggled by
+                the 🎨 pill above; mutates item._colorTemp / item._exposure
+                in place and dispatches posty-color-temp-change /
+                posty-exposure-change so AppV2 persists the values.
+                A FileGrid-level tick listener forces re-render so the
+                CSS filter on tile + lightbox previews updates live. */}
+            {tempPanelOpen[item.id] && (
+              <div className="px-2 py-1.5 bg-[#f5f5f5] border-t border-border space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-muted w-12 flex-shrink-0">🌡 Temp</span>
+                  <input
+                    type="range"
+                    min={-100}
+                    max={100}
+                    step={1}
+                    defaultValue={Number(item._colorTemp) || 0}
+                    onChange={(ev) => {
+                      const v = Number(ev.target.value) || 0
+                      item._colorTemp = v
+                      try { window.dispatchEvent(new CustomEvent('posty-color-temp-change', { detail: { itemId: item.id } })) } catch {}
+                    }}
+                    className="flex-1 h-1 accent-[#0ea5e9] cursor-pointer"
+                  />
+                  <span className="text-[9px] font-mono text-muted w-8 text-right tabular-nums">{Number(item._colorTemp) > 0 ? '+' : ''}{Number(item._colorTemp) || 0}</span>
+                  <button
+                    onClick={() => {
+                      item._colorTemp = 0
+                      try { window.dispatchEvent(new CustomEvent('posty-color-temp-change', { detail: { itemId: item.id } })) } catch {}
+                    }}
+                    className="text-[9px] text-[#0ea5e9] bg-transparent border-none cursor-pointer p-0"
+                    title="Reset temperature to neutral"
+                  >reset</button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-muted w-12 flex-shrink-0">☀ Expo</span>
+                  <input
+                    type="range"
+                    min={-100}
+                    max={100}
+                    step={1}
+                    defaultValue={Number(item._exposure) || 0}
+                    onChange={(ev) => {
+                      const v = Number(ev.target.value) || 0
+                      item._exposure = v
+                      try { window.dispatchEvent(new CustomEvent('posty-exposure-change', { detail: { itemId: item.id } })) } catch {}
+                    }}
+                    className="flex-1 h-1 accent-[#0ea5e9] cursor-pointer"
+                  />
+                  <span className="text-[9px] font-mono text-muted w-8 text-right tabular-nums">{Number(item._exposure) > 0 ? '+' : ''}{Number(item._exposure) || 0}</span>
+                  <button
+                    onClick={() => {
+                      item._exposure = 0
+                      try { window.dispatchEvent(new CustomEvent('posty-exposure-change', { detail: { itemId: item.id } })) } catch {}
+                    }}
+                    className="text-[9px] text-[#0ea5e9] bg-transparent border-none cursor-pointer p-0"
+                    title="Reset exposure to neutral"
+                  >reset</button>
+                </div>
+              </div>
+            )}
             {isVideo && VideoTrimmer && !item._storageMissing && <VideoTrimmer item={item} />}
             {isImg && PhotoDurationBar && !item._storageMissing && <PhotoDurationBar item={item} />}
           </>

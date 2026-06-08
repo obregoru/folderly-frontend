@@ -321,6 +321,34 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip color temperature shift. -100 (cool) … 0 (neutral) … +100 (warm).
+  const saveFileColorTemp = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      const raw = Number(file._colorTemp) || 0
+      const v = Math.max(-100, Math.min(100, Math.round(raw)))
+      await api.updateJobFile(id, dbFileId, { color_temp: v })
+    } catch (e) {
+      console.error('[useJobSync] save color temp failed:', e.message)
+    }
+  }, [])
+
+  // Per-clip exposure shift. -100 (darker) … 0 (neutral) … +100 (brighter).
+  const saveFileExposure = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      const raw = Number(file._exposure) || 0
+      const v = Math.max(-100, Math.min(100, Math.round(raw)))
+      await api.updateJobFile(id, dbFileId, { exposure: v })
+    } catch (e) {
+      console.error('[useJobSync] save exposure failed:', e.message)
+    }
+  }, [])
+
   // Per-clip color preset — null clears, otherwise one of
   // 'bw' | 'inverted' | 'saturated'.
   const saveFileColorEffect = useCallback(async (file) => {
@@ -599,6 +627,12 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             // transpose filter in the merge chain (Sony A6500 / GoPro /
             // DJI fix for vertical-but-untagged clips).
             _forceRotate: Number(f.force_rotate) || 0,
+            // -100 (cool) … 0 (neutral) … +100 (warm). Operator's
+            // per-clip color temperature shift; the merge applies an
+            // ffmpeg colortemperature filter to match clips shot
+            // under different lighting.
+            _colorTemp:   Math.max(-100, Math.min(100, Math.round(Number(f.color_temp) || 0))),
+            _exposure:    Math.max(-100, Math.min(100, Math.round(Number(f.exposure) || 0))),
             _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
             _strobe:      !!f.strobe,
             _beatZoom:    !!f.beat_zoom,
@@ -762,6 +796,8 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileReversePlay,
     saveFileMirrorFlip,
     saveFileForceRotate,
+    saveFileColorTemp,
+    saveFileExposure,
     saveFileColorEffect,
     saveFileStrobe,
     saveFileBeatZoom,

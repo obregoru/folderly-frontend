@@ -172,6 +172,18 @@ export default function AppV2() {
       console.log(`[AppV2] saving color effect: id=${item.id} effect=${item._colorEffect}`)
       jobSyncRef.current?.saveFileColorEffect?.(item)
     }
+    const onColorTempChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving color temp: id=${item.id} temp=${item._colorTemp}`)
+      jobSyncRef.current?.saveFileColorTemp?.(item)
+    }
+    const onExposureChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      console.log(`[AppV2] saving exposure: id=${item.id} exposure=${item._exposure}`)
+      jobSyncRef.current?.saveFileExposure?.(item)
+    }
     const onStrobeChange = (e) => {
       const item = findItem(e.detail?.itemId)
       if (!item) return
@@ -209,6 +221,8 @@ export default function AppV2() {
     window.addEventListener('posty-mirror-flip-change', onMirrorFlipChange)
     window.addEventListener('posty-force-rotate-change', onForceRotateChange)
     window.addEventListener('posty-color-effect-change', onColorEffectChange)
+    window.addEventListener('posty-color-temp-change', onColorTempChange)
+    window.addEventListener('posty-exposure-change', onExposureChange)
     window.addEventListener('posty-strobe-change', onStrobeChange)
     window.addEventListener('posty-beat-zoom-change', onBeatZoomChange)
     window.addEventListener('posty-volume-change', onVolumeChange)
@@ -224,6 +238,8 @@ export default function AppV2() {
       window.removeEventListener('posty-mirror-flip-change', onMirrorFlipChange)
       window.removeEventListener('posty-force-rotate-change', onForceRotateChange)
       window.removeEventListener('posty-color-effect-change', onColorEffectChange)
+      window.removeEventListener('posty-color-temp-change', onColorTempChange)
+      window.removeEventListener('posty-exposure-change', onExposureChange)
       window.removeEventListener('posty-strobe-change', onStrobeChange)
       window.removeEventListener('posty-beat-zoom-change', onBeatZoomChange)
       window.removeEventListener('posty-volume-change', onVolumeChange)
