@@ -202,15 +202,57 @@ export async function compressVideoForUpload(file, opts = {}) {
     // the final length at start. ffprobe + browser <video> elements
     // then read NaN duration, which breaks trim UI + ffmpeg `-t` in
     // the merge pipeline ("Invalid duration specification: NaN").
-    // fix-webm-duration injects the duration we already know from
-    // the source clip. MP4 outputs (Safari) don't need this.
+    //
+    // We use the ACTUAL encoded duration from a probe load of the
+    // blob — not the source's `video.duration` — because MediaRecorder
+    // occasionally encodes slightly less than the source playback
+    // time (dropped final frame, tab throttling, etc). If we patched
+    // with srcDur on a stream that actually ends earlier, the merge's
+    // input -ss could seek past end-of-stream and produce a 0×0
+    // output → concat-filter fails with "matches no streams."
     if (mimeType.startsWith('video/webm')) {
       try {
-        const { default: ysFixWebmDuration } = await import('fix-webm-duration');
-        const durationMs = Math.max(1, Math.round(srcDur * 1000));
-        blob = await ysFixWebmDuration(blob, durationMs, { logger: false });
+        // Step 1: probe the produced blob's real duration. Browsers
+        // can report Infinity for live-recorded WebM until they fully
+        // scan the file via a seek-to-large-time + seekback hack.
+        let actualSec = srcDur
+        try {
+          const probeUrl = URL.createObjectURL(blob)
+          const pv = document.createElement('video')
+          pv.src = probeUrl
+          pv.preload = 'metadata'
+          pv.muted = true
+          await new Promise((resolve) => {
+            const finish = () => resolve()
+            pv.addEventListener('loadedmetadata', () => {
+              if (Number.isFinite(pv.duration) && pv.duration > 0) {
+                actualSec = pv.duration
+                finish()
+              } else {
+                // Trigger Chrome's hidden duration-resolution path
+                pv.currentTime = 1e10
+                pv.addEventListener('durationchange', () => {
+                  if (Number.isFinite(pv.duration) && pv.duration > 0) {
+                    actualSec = pv.duration
+                    finish()
+                  }
+                })
+                setTimeout(finish, 3000)
+              }
+            })
+            pv.addEventListener('error', finish)
+            setTimeout(finish, 3000)
+          })
+          try { URL.revokeObjectURL(probeUrl) } catch {}
+        } catch {
+          // probe failed — fall back to srcDur
+        }
+        const { default: ysFixWebmDuration } = await import('fix-webm-duration')
+        const durationMs = Math.max(1, Math.round(actualSec * 1000))
+        blob = await ysFixWebmDuration(blob, durationMs, { logger: false })
+        console.log(`[videoCompress] WebM duration patched: src=${srcDur.toFixed(2)}s actual=${actualSec.toFixed(2)}s`)
       } catch (e) {
-        console.warn('[videoCompress] WebM duration patch failed — falling back to BE 60s default:', e?.message || e);
+        console.warn('[videoCompress] WebM duration patch failed — falling back to BE 60s default:', e?.message || e)
       }
     }
     // Inflation guard.
