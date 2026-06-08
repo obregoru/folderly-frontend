@@ -1,39 +1,53 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
 // Compute a CSS `filter` value that approximates the merge's
-// ffmpeg colortemperature + exposure for the editor preview.
-// Inputs: temp -100…+100 (cool→warm), expo -100…+100 (dark→bright).
-// CSS doesn't have a true colortemperature filter, so we lean on
-// sepia + hue-rotate + saturate to nudge warmth in either direction.
-// The result is close enough to give the operator a sense of the
-// final tint; the merge's ffmpeg filter is what ships.
-function tempExposureFilter(temp, expo) {
+// ffmpeg colortemperature + exposure + eq color-grade for the editor
+// preview. All five inputs use the same -100…+100 scale:
+//   temp:       sepia + hue-rotate (CSS has no true colortemperature)
+//   expo:       brightness()
+//   contrast:   contrast()
+//   saturation: saturate() (multiplicative with temp's saturation tweak)
+//   gamma:      brightness() + contrast() combo (CSS has no gamma filter)
+// The result is approximate but close enough to show the operator
+// which direction the grade is heading; the merge's ffmpeg filters
+// are what ship to the final video.
+function colorGradeFilter({ temp = 0, expo = 0, contrast = 0, saturation = 0, gamma = 0 } = {}) {
   const t = Math.max(-100, Math.min(100, Number(temp) || 0))
   const e = Math.max(-100, Math.min(100, Number(expo) || 0))
+  const c = Math.max(-100, Math.min(100, Number(contrast) || 0))
+  const s = Math.max(-100, Math.min(100, Number(saturation) || 0))
+  const g = Math.max(-100, Math.min(100, Number(gamma) || 0))
   const parts = []
+  // Temperature (warm/cool tint via sepia + hue-rotate).
   if (t > 0) {
-    // Warmer: sepia tints orange; hue-rotate pulls it toward red.
-    const sepia = Math.min(0.4, t * 0.004)
-    const hue = -8 * (t / 100)
-    parts.push(`sepia(${sepia.toFixed(2)})`)
-    parts.push(`hue-rotate(${hue.toFixed(0)}deg)`)
-    parts.push(`saturate(${(1 + t * 0.002).toFixed(2)})`)
+    parts.push(`sepia(${Math.min(0.4, t * 0.004).toFixed(2)})`)
+    parts.push(`hue-rotate(${(-8 * t / 100).toFixed(0)}deg)`)
   } else if (t < 0) {
-    // Cooler: invert-hue trick — sepia then rotate ~180° puts the
-    // warm sepia into the blue range.
     const at = Math.abs(t)
-    const sepia = Math.min(0.35, at * 0.0035)
-    const hue = 180 + 15 * (at / 100)
-    parts.push(`sepia(${sepia.toFixed(2)})`)
-    parts.push(`hue-rotate(${hue.toFixed(0)}deg)`)
-    parts.push(`saturate(${(1 + at * 0.002).toFixed(2)})`)
+    parts.push(`sepia(${Math.min(0.35, at * 0.0035).toFixed(2)})`)
+    parts.push(`hue-rotate(${(180 + 15 * at / 100).toFixed(0)}deg)`)
   }
-  if (e !== 0) {
-    // CSS brightness: 1.0 = neutral. Map ±100 → ±0.5 so the preview
-    // stays usable (extreme values clip badly in the browser).
-    parts.push(`brightness(${(1 + e * 0.005).toFixed(2)})`)
+  // Exposure (brightness).
+  if (e !== 0) parts.push(`brightness(${(1 + e * 0.005).toFixed(2)})`)
+  // Contrast.
+  if (c !== 0) parts.push(`contrast(${(1 + c * 0.005).toFixed(2)})`)
+  // Saturation (multiplies with temp's slight saturation tweak).
+  if (s !== 0) parts.push(`saturate(${Math.max(0, 1 + s * 0.01).toFixed(2)})`)
+  // Gamma (faked with brightness + contrast since CSS has no gamma).
+  // Positive gamma lifts midtones; we approximate by a small
+  // brightness boost paired with a contrast reduction so highlights
+  // don't blow out.
+  if (g !== 0) {
+    parts.push(`brightness(${(1 + g * 0.003).toFixed(2)})`)
+    parts.push(`contrast(${(1 - Math.abs(g) * 0.002).toFixed(2)})`)
   }
   return parts.length ? parts.join(' ') : undefined
+}
+
+// Legacy alias kept until existing call sites migrate. Maps the
+// two old positional args into the new options object.
+function tempExposureFilter(temp, expo) {
+  return colorGradeFilter({ temp, expo })
 }
 
 import * as api from '../api'
@@ -95,6 +109,9 @@ function MediaLightbox({ item, onClose }) {
   const [forceRotate, setForceRotate] = useState(() => Number(item._forceRotate) || 0)
   const [colorTemp, setColorTemp] = useState(() => Number(item._colorTemp) || 0)
   const [exposure, setExposure] = useState(() => Number(item._exposure) || 0)
+  const [contrast, setContrast] = useState(() => Number(item._contrast) || 0)
+  const [saturation, setSaturation] = useState(() => Number(item._saturation) || 0)
+  const [gamma, setGamma] = useState(() => Number(item._gamma) || 0)
   useEffect(() => {
     if (isImg) return
     const onChange = (e) => {
@@ -116,18 +133,26 @@ function MediaLightbox({ item, onClose }) {
       if (e.detail?.itemId !== item.id) return
       setExposure(Number(item._exposure) || 0)
     }
+    const onGradeChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setContrast(Number(item._contrast) || 0)
+      setSaturation(Number(item._saturation) || 0)
+      setGamma(Number(item._gamma) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
     window.addEventListener('posty-force-rotate-change', onRotateChange)
     window.addEventListener('posty-color-temp-change', onColorTempChange)
     window.addEventListener('posty-exposure-change', onExposureChange)
+    window.addEventListener('posty-grade-change', onGradeChange)
     return () => {
       window.removeEventListener('posty-video-zoom-change', onChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
       window.removeEventListener('posty-color-temp-change', onColorTempChange)
       window.removeEventListener('posty-exposure-change', onExposureChange)
+      window.removeEventListener('posty-grade-change', onGradeChange)
     }
   }, [item, isImg])
-  const tempExpoFilter = tempExposureFilter(colorTemp, exposure)
+  const tempExpoFilter = colorGradeFilter({ temp: colorTemp, expo: exposure, contrast, saturation, gamma })
   // Static-mode origin only. Animated motion (zoom-in / zoom-out /
   // pan-lr / pan-rl / combined) drives transform-origin per-frame in
   // the rAF loop below; staticOriginX/Y is the fallback for the
@@ -546,6 +571,9 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   const [forceRotate, setForceRotate] = useState(() => Number(item?._forceRotate) || 0)
   const [colorTemp, setColorTemp] = useState(() => Number(item?._colorTemp) || 0)
   const [exposure, setExposure] = useState(() => Number(item?._exposure) || 0)
+  const [contrast, setContrast] = useState(() => Number(item?._contrast) || 0)
+  const [saturation, setSaturation] = useState(() => Number(item?._saturation) || 0)
+  const [gamma, setGamma] = useState(() => Number(item?._gamma) || 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== itemId) return
@@ -565,18 +593,26 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
       if (e.detail?.itemId !== itemId) return
       setExposure(Number(item?._exposure) || 0)
     }
+    const onGradeChange = (e) => {
+      if (e.detail?.itemId !== itemId) return
+      setContrast(Number(item?._contrast) || 0)
+      setSaturation(Number(item?._saturation) || 0)
+      setGamma(Number(item?._gamma) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
     window.addEventListener('posty-force-rotate-change', onRotateChange)
     window.addEventListener('posty-color-temp-change', onColorTempChange)
     window.addEventListener('posty-exposure-change', onExposureChange)
+    window.addEventListener('posty-grade-change', onGradeChange)
     return () => {
       window.removeEventListener('posty-video-zoom-change', onChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
       window.removeEventListener('posty-color-temp-change', onColorTempChange)
       window.removeEventListener('posty-exposure-change', onExposureChange)
+      window.removeEventListener('posty-grade-change', onGradeChange)
     }
   }, [itemId, item])
-  const tempExpoFilter = tempExposureFilter(colorTemp, exposure)
+  const tempExpoFilter = colorGradeFilter({ temp: colorTemp, expo: exposure, contrast, saturation, gamma })
   // transform-origin formula matches the BE crop anchor:
   //   offset = -100 → 0%   (anchor at left/top edge)
   //   offset =    0 → 50%  (center)
@@ -835,6 +871,9 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
   const [forceRotate, setForceRotate] = useState(() => Number(item._forceRotate) || 0)
   const [colorTemp, setColorTemp] = useState(() => Number(item._colorTemp) || 0)
   const [exposure, setExposure] = useState(() => Number(item._exposure) || 0)
+  const [contrast, setContrast] = useState(() => Number(item._contrast) || 0)
+  const [saturation, setSaturation] = useState(() => Number(item._saturation) || 0)
+  const [gamma, setGamma] = useState(() => Number(item._gamma) || 0)
   useEffect(() => {
     const onChange = (e) => {
       if (e.detail?.itemId !== item.id) return
@@ -854,18 +893,26 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
       if (e.detail?.itemId !== item.id) return
       setExposure(Number(item._exposure) || 0)
     }
+    const onGradeChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setContrast(Number(item._contrast) || 0)
+      setSaturation(Number(item._saturation) || 0)
+      setGamma(Number(item._gamma) || 0)
+    }
     window.addEventListener('posty-video-zoom-change', onChange)
     window.addEventListener('posty-force-rotate-change', onRotateChange)
     window.addEventListener('posty-color-temp-change', onColorTempChange)
     window.addEventListener('posty-exposure-change', onExposureChange)
+    window.addEventListener('posty-grade-change', onGradeChange)
     return () => {
       window.removeEventListener('posty-video-zoom-change', onChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
       window.removeEventListener('posty-color-temp-change', onColorTempChange)
       window.removeEventListener('posty-exposure-change', onExposureChange)
+      window.removeEventListener('posty-grade-change', onGradeChange)
     }
   }, [item])
-  const tempExpoFilter = tempExposureFilter(colorTemp, exposure)
+  const tempExpoFilter = colorGradeFilter({ temp: colorTemp, expo: exposure, contrast, saturation, gamma })
   const originX = 50 + offX / 2
   const originY = 50 + offY / 2
   // Local fallback for the case where the BE didn't yet flag the row
@@ -1128,6 +1175,7 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
     const onRotateChange = () => setSpeedTick(t => t + 1)
     const onMetaChange = () => setSpeedTick(t => t + 1)
     const onTempChange = () => setSpeedTick(t => t + 1)
+    const onGradeChange = () => setSpeedTick(t => t + 1)
     // Per-clip toggles (reverse / rotate / compress) mutate item.* in
     // place and dispatch their own events — without these listeners
     // FileGrid wouldn't re-render and the button visuals (⏪ on, ⟳ 270,
@@ -1138,12 +1186,16 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
     window.addEventListener('posty-force-rotate-change', onRotateChange)
     window.addEventListener('posty-file-meta-change', onMetaChange)
     window.addEventListener('posty-color-temp-change', onTempChange)
+    window.addEventListener('posty-exposure-change', onTempChange)
+    window.addEventListener('posty-grade-change', onGradeChange)
     return () => {
       window.removeEventListener('posty-speed-change', onSpeedChange)
       window.removeEventListener('posty-reverse-play-change', onReverseChange)
       window.removeEventListener('posty-force-rotate-change', onRotateChange)
       window.removeEventListener('posty-file-meta-change', onMetaChange)
       window.removeEventListener('posty-color-temp-change', onTempChange)
+      window.removeEventListener('posty-exposure-change', onTempChange)
+      window.removeEventListener('posty-grade-change', onGradeChange)
     }
   }, [])
 
@@ -1362,13 +1414,16 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                     }
                   >{Number(item._forceRotate) > 0 ? `⟳${item._forceRotate}` : '⟳'}</button>
                 )}
-                {/* Color temperature + exposure toggle. Opens an
-                    inline slider panel under the tile. Pill turns
-                    on when ANY adjustment is active. */}
+                {/* Color grade panel toggle: 5-lever editor opens
+                    below the tile. Pill shows • when ANY adjustment
+                    is non-zero. */}
                 {item._dbFileId != null && (() => {
                   const t = Number(item._colorTemp) || 0
                   const e = Number(item._exposure) || 0
-                  const isAdjusted = t !== 0 || e !== 0
+                  const c = Number(item._contrast) || 0
+                  const s = Number(item._saturation) || 0
+                  const g = Number(item._gamma) || 0
+                  const isAdjusted = t !== 0 || e !== 0 || c !== 0 || s !== 0 || g !== 0
                   return (
                     <button
                       onClick={(ev) => { ev.stopPropagation(); toggleTempPanel(item.id) }}
@@ -1376,8 +1431,8 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                         isAdjusted ? 'bg-[#0ea5e9]/95 hover:bg-[#0ea5e9]' : 'bg-[#94a3b8]/85 hover:bg-[#64748b]'
                       }`}
                       title={isAdjusted
-                        ? `Color temp ${t > 0 ? '+' : ''}${t}, exposure ${e > 0 ? '+' : ''}${e}. Click to adjust.`
-                        : 'Adjust color temperature + exposure to color-match this clip to the rest of the timeline.'}
+                        ? `Color graded — temp ${t > 0 ? '+' : ''}${t}, expo ${e > 0 ? '+' : ''}${e}, contrast ${c > 0 ? '+' : ''}${c}, saturation ${s > 0 ? '+' : ''}${s}, gamma ${g > 0 ? '+' : ''}${g}. Click to adjust.`
+                        : 'Color grade: adjust temperature, exposure, contrast, saturation, and gamma to match this clip to the rest of the timeline.'}
                     >{isAdjusted ? '🎨•' : '🎨'}</button>
                   )
                 })()}
@@ -1423,66 +1478,145 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
             </div>
             {/* Trim bar right under its video — hidden when the source
                 file is missing (no point trying to seek into a dead URL). */}
-            {/* Color temperature + exposure inline panel. Toggled by
-                the 🎨 pill above; mutates item._colorTemp / item._exposure
-                in place and dispatches posty-color-temp-change /
-                posty-exposure-change so AppV2 persists the values.
-                A FileGrid-level tick listener forces re-render so the
-                CSS filter on tile + lightbox previews updates live. */}
-            {tempPanelOpen[item.id] && (
-              <div className="px-2 py-1.5 bg-[#f5f5f5] border-t border-border space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] text-muted w-12 flex-shrink-0">🌡 Temp</span>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={100}
-                    step={1}
-                    defaultValue={Number(item._colorTemp) || 0}
-                    onChange={(ev) => {
-                      const v = Number(ev.target.value) || 0
-                      item._colorTemp = v
-                      try { window.dispatchEvent(new CustomEvent('posty-color-temp-change', { detail: { itemId: item.id } })) } catch {}
-                    }}
-                    className="flex-1 h-1 accent-[#0ea5e9] cursor-pointer"
-                  />
-                  <span className="text-[9px] font-mono text-muted w-8 text-right tabular-nums">{Number(item._colorTemp) > 0 ? '+' : ''}{Number(item._colorTemp) || 0}</span>
-                  <button
-                    onClick={() => {
-                      item._colorTemp = 0
-                      try { window.dispatchEvent(new CustomEvent('posty-color-temp-change', { detail: { itemId: item.id } })) } catch {}
-                    }}
-                    className="text-[9px] text-[#0ea5e9] bg-transparent border-none cursor-pointer p-0"
-                    title="Reset temperature to neutral"
-                  >reset</button>
+            {/* Color grade inline panel. Toggled by the 🎨 pill;
+                mutates item._colorTemp / _exposure / _contrast /
+                _saturation / _gamma in place and dispatches the
+                matching events so AppV2 persists. A FileGrid-level
+                tick listener forces re-render so the CSS filter on
+                tile + lightbox previews updates live. */}
+            {tempPanelOpen[item.id] && (() => {
+              // Helper: render one slider row. Single source of truth
+              // for layout + behavior keeps the JSX below readable.
+              const sliderRow = ({ label, prop, eventName, eventDetail }) => {
+                const value = Number(item[prop]) || 0
+                return (
+                  <div key={prop} className="flex items-center gap-2">
+                    <span className="text-[9px] text-muted w-14 flex-shrink-0">{label}</span>
+                    <input
+                      type="range"
+                      min={-100}
+                      max={100}
+                      step={1}
+                      defaultValue={value}
+                      onChange={(ev) => {
+                        const v = Number(ev.target.value) || 0
+                        item[prop] = v
+                        try {
+                          window.dispatchEvent(new CustomEvent(eventName, {
+                            detail: { itemId: item.id, ...(eventDetail || {}) },
+                          }))
+                        } catch {}
+                      }}
+                      className="flex-1 h-1 accent-[#0ea5e9] cursor-pointer"
+                    />
+                    <span className="text-[9px] font-mono text-muted w-8 text-right tabular-nums">{value > 0 ? '+' : ''}{value}</span>
+                    <button
+                      onClick={() => {
+                        item[prop] = 0
+                        try {
+                          window.dispatchEvent(new CustomEvent(eventName, {
+                            detail: { itemId: item.id, ...(eventDetail || {}) },
+                          }))
+                        } catch {}
+                      }}
+                      className="text-[9px] text-[#0ea5e9] bg-transparent border-none cursor-pointer p-0"
+                      title={`Reset ${label}`}
+                    >reset</button>
+                  </div>
+                )
+              }
+              // iPhone-Photos-style presets. Each is a snapshot of
+              // all 5 sliders that the operator can apply in one tap
+              // then fine-tune. Values picked to mimic the look-and-
+              // feel of the named iOS filter; numbers are intentionally
+              // mild so the operator can still see the underlying clip.
+              const PRESETS = [
+                { name: 'Neutral',         temp: 0,   expo: 0,   contrast: 0,   saturation: 0,    gamma: 0   },
+                { name: 'Vivid',           temp: 0,   expo: 10,  contrast: 15,  saturation: 35,   gamma: 0   },
+                { name: 'Vivid Warm',      temp: 25,  expo: 10,  contrast: 15,  saturation: 35,   gamma: 0   },
+                { name: 'Vivid Cool',      temp: -25, expo: 10,  contrast: 15,  saturation: 35,   gamma: 0   },
+                { name: 'Dramatic',        temp: 0,   expo: -5,  contrast: 40,  saturation: -10,  gamma: -10 },
+                { name: 'Dramatic Warm',   temp: 20,  expo: -5,  contrast: 40,  saturation: -5,   gamma: -10 },
+                { name: 'Dramatic Cool',   temp: -20, expo: -5,  contrast: 40,  saturation: -5,   gamma: -10 },
+                { name: 'Bright',          temp: 5,   expo: 25,  contrast: -10, saturation: 5,    gamma: 20  },
+                { name: 'Mono',            temp: 0,   expo: 0,   contrast: 20,  saturation: -100, gamma: 0   },
+                { name: 'Silvertone',      temp: -10, expo: -5,  contrast: 15,  saturation: -85,  gamma: 0   },
+                { name: 'Noir',            temp: 0,   expo: -10, contrast: 50,  saturation: -100, gamma: -15 },
+              ]
+              const applyPreset = (p) => {
+                item._colorTemp = p.temp
+                item._exposure = p.expo
+                item._contrast = p.contrast
+                item._saturation = p.saturation
+                item._gamma = p.gamma
+                try {
+                  window.dispatchEvent(new CustomEvent('posty-color-temp-change', { detail: { itemId: item.id } }))
+                  window.dispatchEvent(new CustomEvent('posty-exposure-change', { detail: { itemId: item.id } }))
+                  window.dispatchEvent(new CustomEvent('posty-grade-change', { detail: { itemId: item.id, field: 'contrast' } }))
+                  window.dispatchEvent(new CustomEvent('posty-grade-change', { detail: { itemId: item.id, field: 'saturation' } }))
+                  window.dispatchEvent(new CustomEvent('posty-grade-change', { detail: { itemId: item.id, field: 'gamma' } }))
+                } catch {}
+              }
+              // Active preset = first one whose values match exactly.
+              // Manual slider changes will desync so no preset shows
+              // active — the operator can re-apply or tweak.
+              const tNow = Number(item._colorTemp) || 0
+              const eNow = Number(item._exposure) || 0
+              const cNow = Number(item._contrast) || 0
+              const sNow = Number(item._saturation) || 0
+              const gNow = Number(item._gamma) || 0
+              const activePreset = PRESETS.find(p =>
+                p.temp === tNow && p.expo === eNow && p.contrast === cNow && p.saturation === sNow && p.gamma === gNow
+              )
+              return (
+                <div className="px-2 py-1.5 bg-[#f5f5f5] border-t border-border space-y-1">
+                  <div className="flex items-center gap-1 flex-wrap pb-0.5 border-b border-border/50">
+                    <span className="text-[9px] text-muted font-medium mr-1">Presets:</span>
+                    {PRESETS.map(p => {
+                      const isActive = activePreset?.name === p.name
+                      return (
+                        <button
+                          key={p.name}
+                          type="button"
+                          onClick={() => applyPreset(p)}
+                          className={`text-[9px] px-1.5 py-0.5 rounded cursor-pointer border ${
+                            isActive
+                              ? 'bg-[#0ea5e9] text-white border-[#0ea5e9] font-medium'
+                              : 'bg-white text-ink border-border hover:border-[#0ea5e9]/50'
+                          }`}
+                          title={`Apply ${p.name} preset — sets temp ${p.temp > 0 ? '+' : ''}${p.temp}, expo ${p.expo > 0 ? '+' : ''}${p.expo}, contrast ${p.contrast > 0 ? '+' : ''}${p.contrast}, saturation ${p.saturation > 0 ? '+' : ''}${p.saturation}, gamma ${p.gamma > 0 ? '+' : ''}${p.gamma}. You can fine-tune any value after.`}
+                        >{p.name}</button>
+                      )
+                    })}
+                  </div>
+                  {sliderRow({ label: '🌡 Temp',     prop: '_colorTemp',  eventName: 'posty-color-temp-change' })}
+                  {sliderRow({ label: '☀ Expo',     prop: '_exposure',   eventName: 'posty-exposure-change' })}
+                  {sliderRow({ label: '◐ Contrast', prop: '_contrast',   eventName: 'posty-grade-change', eventDetail: { field: 'contrast' } })}
+                  {sliderRow({ label: '🌈 Satur.',  prop: '_saturation', eventName: 'posty-grade-change', eventDetail: { field: 'saturation' } })}
+                  {sliderRow({ label: '◑ Gamma',    prop: '_gamma',      eventName: 'posty-grade-change', eventDetail: { field: 'gamma' } })}
+                  <div className="flex justify-end pt-0.5">
+                    <button
+                      onClick={() => {
+                        item._colorTemp = 0
+                        item._exposure = 0
+                        item._contrast = 0
+                        item._saturation = 0
+                        item._gamma = 0
+                        try {
+                          window.dispatchEvent(new CustomEvent('posty-color-temp-change', { detail: { itemId: item.id } }))
+                          window.dispatchEvent(new CustomEvent('posty-exposure-change', { detail: { itemId: item.id } }))
+                          window.dispatchEvent(new CustomEvent('posty-grade-change', { detail: { itemId: item.id, field: 'contrast' } }))
+                          window.dispatchEvent(new CustomEvent('posty-grade-change', { detail: { itemId: item.id, field: 'saturation' } }))
+                          window.dispatchEvent(new CustomEvent('posty-grade-change', { detail: { itemId: item.id, field: 'gamma' } }))
+                        } catch {}
+                      }}
+                      className="text-[9px] text-[#c0392b] bg-transparent border-none cursor-pointer p-0"
+                      title="Reset all 5 color-grade values to neutral"
+                    >reset all</button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] text-muted w-12 flex-shrink-0">☀ Expo</span>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={100}
-                    step={1}
-                    defaultValue={Number(item._exposure) || 0}
-                    onChange={(ev) => {
-                      const v = Number(ev.target.value) || 0
-                      item._exposure = v
-                      try { window.dispatchEvent(new CustomEvent('posty-exposure-change', { detail: { itemId: item.id } })) } catch {}
-                    }}
-                    className="flex-1 h-1 accent-[#0ea5e9] cursor-pointer"
-                  />
-                  <span className="text-[9px] font-mono text-muted w-8 text-right tabular-nums">{Number(item._exposure) > 0 ? '+' : ''}{Number(item._exposure) || 0}</span>
-                  <button
-                    onClick={() => {
-                      item._exposure = 0
-                      try { window.dispatchEvent(new CustomEvent('posty-exposure-change', { detail: { itemId: item.id } })) } catch {}
-                    }}
-                    className="text-[9px] text-[#0ea5e9] bg-transparent border-none cursor-pointer p-0"
-                    title="Reset exposure to neutral"
-                  >reset</button>
-                </div>
-              </div>
-            )}
+              )
+            })()}
             {isVideo && VideoTrimmer && !item._storageMissing && <VideoTrimmer item={item} />}
             {isImg && PhotoDurationBar && !item._storageMissing && <PhotoDurationBar item={item} />}
           </>

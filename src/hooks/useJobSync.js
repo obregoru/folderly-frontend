@@ -349,6 +349,24 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Generic saver for the contrast/saturation/gamma triad — same
+  // -100…0…+100 scale, just three different columns. Caller passes
+  // the field name ('contrast' | 'saturation' | 'gamma') and the
+  // file; the value is read off the matching item._field property.
+  const saveFileGrade = useCallback(async (file, field) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    const key = field === 'contrast' ? '_contrast' : field === 'saturation' ? '_saturation' : '_gamma'
+    try {
+      const raw = Number(file[key]) || 0
+      const v = Math.max(-100, Math.min(100, Math.round(raw)))
+      await api.updateJobFile(id, dbFileId, { [field]: v })
+    } catch (e) {
+      console.error(`[useJobSync] save ${field} failed:`, e.message)
+    }
+  }, [])
+
   // Per-clip color preset — null clears, otherwise one of
   // 'bw' | 'inverted' | 'saturated'.
   const saveFileColorEffect = useCallback(async (file) => {
@@ -633,6 +651,9 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             // under different lighting.
             _colorTemp:   Math.max(-100, Math.min(100, Math.round(Number(f.color_temp) || 0))),
             _exposure:    Math.max(-100, Math.min(100, Math.round(Number(f.exposure) || 0))),
+            _contrast:    Math.max(-100, Math.min(100, Math.round(Number(f.contrast) || 0))),
+            _saturation:  Math.max(-100, Math.min(100, Math.round(Number(f.saturation) || 0))),
+            _gamma:       Math.max(-100, Math.min(100, Math.round(Number(f.gamma) || 0))),
             _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
             _strobe:      !!f.strobe,
             _beatZoom:    !!f.beat_zoom,
@@ -798,6 +819,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileForceRotate,
     saveFileColorTemp,
     saveFileExposure,
+    saveFileGrade,
     saveFileColorEffect,
     saveFileStrobe,
     saveFileBeatZoom,

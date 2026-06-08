@@ -184,6 +184,15 @@ export default function AppV2() {
       console.log(`[AppV2] saving exposure: id=${item.id} exposure=${item._exposure}`)
       jobSyncRef.current?.saveFileExposure?.(item)
     }
+    const onGradeChange = (e) => {
+      const item = findItem(e.detail?.itemId)
+      if (!item) return
+      const field = e.detail?.field
+      if (!['contrast', 'saturation', 'gamma'].includes(field)) return
+      const key = field === 'contrast' ? '_contrast' : field === 'saturation' ? '_saturation' : '_gamma'
+      console.log(`[AppV2] saving ${field}: id=${item.id} ${field}=${item[key]}`)
+      jobSyncRef.current?.saveFileGrade?.(item, field)
+    }
     const onStrobeChange = (e) => {
       const item = findItem(e.detail?.itemId)
       if (!item) return
@@ -223,6 +232,7 @@ export default function AppV2() {
     window.addEventListener('posty-color-effect-change', onColorEffectChange)
     window.addEventListener('posty-color-temp-change', onColorTempChange)
     window.addEventListener('posty-exposure-change', onExposureChange)
+    window.addEventListener('posty-grade-change', onGradeChange)
     window.addEventListener('posty-strobe-change', onStrobeChange)
     window.addEventListener('posty-beat-zoom-change', onBeatZoomChange)
     window.addEventListener('posty-volume-change', onVolumeChange)
@@ -240,6 +250,7 @@ export default function AppV2() {
       window.removeEventListener('posty-color-effect-change', onColorEffectChange)
       window.removeEventListener('posty-color-temp-change', onColorTempChange)
       window.removeEventListener('posty-exposure-change', onExposureChange)
+      window.removeEventListener('posty-grade-change', onGradeChange)
       window.removeEventListener('posty-strobe-change', onStrobeChange)
       window.removeEventListener('posty-beat-zoom-change', onBeatZoomChange)
       window.removeEventListener('posty-volume-change', onVolumeChange)
