@@ -24,8 +24,26 @@ function colorGradeFilter({ temp = 0, expo = 0, contrast = 0, saturation = 0, ga
     parts.push(`hue-rotate(${(-8 * t / 100).toFixed(0)}deg)`)
   } else if (t < 0) {
     const at = Math.abs(t)
-    parts.push(`sepia(${Math.min(0.35, at * 0.0035).toFixed(2)})`)
-    parts.push(`hue-rotate(${(180 + 15 * at / 100).toFixed(0)}deg)`)
+    // CSS can't do a true colortemperature filter, so cool tints
+    // use the `sepia + hue-rotate(~195°)` trick. The catch is that
+    // hue-rotate ALWAYS applies, even when sepia rounds to zero —
+    // so at low strength (t = -1) we used to slam a 180° rotation
+    // onto a near-original image and the result was an
+    // inverted-color "everything is blue" preview.
+    //
+    // Piecewise fix: under at=20, lean on saturation only (the
+    // operator's brain reads "less warm" without needing a tint).
+    // At at>=20 the sepia is finally strong enough that pairing
+    // it with hue-rotate produces an actual cool tint, not a
+    // hue-inversion of the original.
+    if (at < 20) {
+      parts.push(`saturate(${(1 - at * 0.005).toFixed(2)})`)
+    } else {
+      const sepiaAmount = Math.min(0.3, (at - 10) * 0.004)
+      parts.push(`sepia(${sepiaAmount.toFixed(2)})`)
+      parts.push('hue-rotate(195deg)')
+      parts.push(`saturate(${(1 + at * 0.002).toFixed(2)})`)
+    }
   }
   // Exposure (brightness).
   if (e !== 0) parts.push(`brightness(${(1 + e * 0.005).toFixed(2)})`)
