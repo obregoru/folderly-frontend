@@ -350,7 +350,24 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                         <button onClick={() => onCancel(p.uuid)} className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer ml-auto">Cancel</button>
                       </div>
                     ) : p.status === 'failed' && p.error_message ? (
-                      <div className="mt-1.5 text-[9px] text-[#c0392b] truncate" title={p.error_message}>{p.error_message}</div>
+                      // Full failure reason — don't truncate, the
+                      // operator needs to actually read it to know
+                      // what to fix. Wrap onto multiple lines if it's
+                      // long. Click-to-copy so they can paste the
+                      // message into a support thread.
+                      <div
+                        className="mt-1.5 text-[9px] text-[#c0392b] cursor-pointer break-words whitespace-pre-wrap bg-[#fdf2f1] border border-[#c0392b]/30 rounded px-1.5 py-1"
+                        title="Click to copy"
+                        onClick={(ev) => {
+                          ev.stopPropagation()
+                          try { navigator.clipboard?.writeText(p.error_message) } catch {}
+                        }}
+                      >❌ {p.error_message}</div>
+                    ) : p.status === 'failed' ? (
+                      // Failed but BE didn't capture a message —
+                      // surface that explicitly so the operator
+                      // knows it wasn't just a hidden tooltip.
+                      <div className="mt-1.5 text-[9px] text-[#c0392b] italic">❌ Failed (no error detail captured)</div>
                     ) : null}
                   </div>
                 )
