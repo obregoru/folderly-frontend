@@ -225,13 +225,19 @@ export default function ChannelsPanelV2({ draftId, jobSync, files, settings }) {
 
   const buildMedia = async () => {
     if (hasMerge) {
-      let base64 = mergeMeta.base64
-      if (!base64) {
-        const blob = mergeMeta.blob || await (await fetch(mergeMeta.url)).blob()
-        base64 = await toBase64(blob)
-        try { window._postyMergedVideo = { ...mergeMeta, base64 } } catch {}
-      }
-      return { image_base64: base64, upload_key: null, media_type: 'video/mp4' }
+      // We used to base64-encode the merged blob here, but the
+      // bake step (renderFinal) below ALWAYS replaces image_base64
+      // with the baked upload_key — so the encode was never used,
+      // it was just a slow no-op for video. Worse: `toBase64` is an
+      // image-only helper (`new Image()`); on a video blob the image
+      // loader fires its `onerror` Event and that Event was being
+      // thrown all the way up the stack as `[object Event]`, masking
+      // the real reason scheduling failed and breaking every
+      // hasMerge scheduling flow.
+      //
+      // Just return the video metadata; the bake step fills in
+      // upload_key right after this.
+      return { image_base64: null, upload_key: null, media_type: 'video/mp4' }
     }
     if (hasSingleVideo) {
       const v = videoFiles[0]
@@ -450,7 +456,22 @@ export default function ChannelsPanelV2({ draftId, jobSync, files, settings }) {
         setSchedErr(`Schedule failed: ${e.message}${skipped.length ? ` · plus skipped ${skipped.join(', ')}` : ''}`)
       }
     } catch (e) {
-      setSchedErr(e.message || String(e))
+      // Don't let an Event slip through to the operator as
+      // "[object Event]" — pull out target/type when it's an Event,
+      // otherwise fall back to message/string.
+      let msg
+      if (e instanceof Event) {
+        const t = e.target
+        const detail = t?.error?.message || t?.src || t?.tagName || e.type || 'unknown'
+        msg = `${e.type || 'error'} event: ${detail}`
+      } else if (e?.message) {
+        msg = e.message
+      } else if (typeof e === 'string') {
+        msg = e
+      } else {
+        msg = (() => { try { return JSON.stringify(e) } catch { return String(e) } })()
+      }
+      setSchedErr(msg)
     } finally {
       setScheduling(false)
     }
