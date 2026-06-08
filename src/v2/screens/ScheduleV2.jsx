@@ -110,6 +110,10 @@ export default function ScheduleV2() {
   const [error, setError] = useState(null)
   const [editingUuid, setEditingUuid] = useState(null)
   const [editingCaption, setEditingCaption] = useState('')
+  // UUID of the row whose "what will actually post" preview is open.
+  // Single-slot — opening another row collapses the previous one so
+  // we don't end up with 8 videos playing at once.
+  const [previewUuid, setPreviewUuid] = useState(null)
 
   const reload = () => {
     setLoading(true); setError(null)
@@ -353,6 +357,11 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                     ) : isPending ? (
                       <div className="flex gap-1 mt-1.5 flex-wrap">
                         <button onClick={() => startEdit(p)} className="text-[9px] text-muted bg-white border border-[#e5e5e5] rounded py-0.5 px-1.5 cursor-pointer">Edit caption</button>
+                        <button
+                          onClick={() => setPreviewUuid(previewUuid === p.uuid ? null : p.uuid)}
+                          className="text-[9px] bg-white border border-[#e5e5e5] rounded py-0.5 px-1.5 cursor-pointer"
+                          title="See the exact media + caption that the scheduler will send to the platform"
+                        >{previewUuid === p.uuid ? '▾ Hide preview' : '👁 Preview what will post'}</button>
                         <button onClick={() => onCancel(p.uuid)} className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer ml-auto">Cancel</button>
                       </div>
                     ) : p.status === 'failed' ? (
@@ -385,6 +394,11 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                             className="text-[9px] py-0.5 px-1.5 bg-[#2D9A5E] text-white border-none rounded cursor-pointer font-medium"
                             title="Re-queue this post for 1 minute from now"
                           >↻ Retry</button>
+                          <button
+                            onClick={() => setPreviewUuid(previewUuid === p.uuid ? null : p.uuid)}
+                            className="text-[9px] py-0.5 px-1.5 bg-white text-muted border border-[#e5e5e5] rounded cursor-pointer"
+                            title="See the exact media + caption that the scheduler will send to the platform"
+                          >{previewUuid === p.uuid ? '▾ Hide preview' : '👁 Preview'}</button>
                           <button
                             onClick={() => startEdit(p)}
                             className="text-[9px] py-0.5 px-1.5 bg-white text-muted border border-[#e5e5e5] rounded cursor-pointer"
@@ -419,6 +433,9 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                         </div>
                       </div>
                     ) : null}
+                    {previewUuid === p.uuid && (
+                      <SchedulePreviewPanel post={p} />
+                    )}
                   </div>
                 )
               })}
@@ -426,6 +443,88 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
           </div>
         )
       })}
+    </div>
+  )
+}
+
+// Inline panel that shows the EXACT media + caption + title the
+// scheduler will send to the platform. Sources straight from the
+// scheduled_posts row — image_url (public Supabase URL of image_key)
+// + caption + title — so what's displayed here is byte-identical
+// to what the poster will read at fire time.
+//
+// For multi-line captions like YouTube/Blog (which the FE composes
+// as JSON of {title, description, tags}), we parse JSON first so
+// the operator sees the actual structured payload, not the raw
+// JSON blob.
+function SchedulePreviewPanel({ post }) {
+  const url = post?.image_url || null
+  const mt = (post?.media_type || '').toLowerCase()
+  const isVideo = mt.startsWith('video/')
+  const isImage = mt.startsWith('image/')
+  let displayTitle = post?.title || null
+  let displayBody  = post?.caption || ''
+  let displayTags  = null
+  try {
+    const parsed = JSON.parse(post?.caption || 'null')
+    if (parsed && typeof parsed === 'object') {
+      displayTitle = parsed.title || displayTitle
+      displayBody  = parsed.description || parsed.text || displayBody
+      displayTags  = Array.isArray(parsed.tags) ? parsed.tags : null
+    }
+  } catch { /* plain string caption — use as-is */ }
+  return (
+    <div className="mt-2 border border-[#e5e5e5] rounded bg-[#fafafa] p-2 space-y-2">
+      <div className="text-[9px] text-muted uppercase tracking-wide font-medium">What the scheduler will actually post</div>
+      {url ? (
+        <div className="flex justify-center bg-black rounded overflow-hidden">
+          {isVideo ? (
+            <video
+              src={url}
+              controls
+              playsInline
+              style={{ maxHeight: '50vh', maxWidth: '100%' }}
+            />
+          ) : isImage ? (
+            <img
+              src={url}
+              alt=""
+              style={{ maxHeight: '50vh', maxWidth: '100%', objectFit: 'contain' }}
+            />
+          ) : (
+            <div className="text-white p-3 text-[10px]">Unknown media type: {mt || '(none)'}</div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-[#fef3c7] border border-[#d97706]/40 rounded p-2 text-[10px] text-[#92400e]">
+          <span className="font-medium">No media attached.</span> This post will fail at upload time on platforms that require media (TikTok, Reels, Shorts).
+        </div>
+      )}
+      {displayTitle && (
+        <div>
+          <div className="text-[9px] text-muted uppercase tracking-wide font-medium mb-0.5">Title</div>
+          <div className="text-[11px] font-medium break-words whitespace-pre-wrap bg-white border border-[#e5e5e5] rounded px-2 py-1">{displayTitle}</div>
+        </div>
+      )}
+      {displayBody && (
+        <div>
+          <div className="text-[9px] text-muted uppercase tracking-wide font-medium mb-0.5">Caption / description</div>
+          <div className="text-[10px] break-words whitespace-pre-wrap bg-white border border-[#e5e5e5] rounded px-2 py-1">{displayBody}</div>
+        </div>
+      )}
+      {displayTags && displayTags.length > 0 && (
+        <div>
+          <div className="text-[9px] text-muted uppercase tracking-wide font-medium mb-0.5">Tags</div>
+          <div className="text-[10px] flex flex-wrap gap-1">
+            {displayTags.map((t, i) => (
+              <span key={i} className="bg-white border border-[#e5e5e5] rounded px-1.5 py-0.5">#{String(t).replace(/^#/, '')}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="text-[9px] text-muted">
+        Platform: <span className="font-mono">{post?.platform}</span> · Scheduled: {post?.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : '—'}
+      </div>
     </div>
   )
 }
