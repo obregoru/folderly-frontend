@@ -9,7 +9,7 @@
 // In v1 music REPLACES voiceover at merge time (fork 3a). The
 // panel surfaces that so the operator isn't surprised.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import * as api from '../../api'
 
 // File → base64 (no fetch round-trip, no FormData). Same shape
@@ -608,6 +608,14 @@ export default function MusicPanelV2({ draftId, jobSync }) {
           onReanalyze={handleReanalyze}
           reanalyzing={reanalyzing}
           audioRef={audioRef}
+        />
+      )}
+
+      {music && (
+        <MusicVolumePanel
+          draftId={draftId}
+          music={music}
+          onVolumeChange={(v) => setMusic(prev => prev ? { ...prev, volume: v } : prev)}
         />
       )}
 
@@ -2246,6 +2254,184 @@ function SnapPlanTable({ plan, cuts }) {
           })()}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// MusicVolumePanel — volume slider for the music track + audio-only
+// live preview that plays music + primary voiceover together so the
+// operator can balance the mix BEFORE re-merging. Both audio elements
+// loop; volume sliders mutate audio.volume directly so changes are
+// audible in real time.
+//
+// Persists music_volume to jobs.music_volume via PUT /jobs/:id with a
+// debounced save (slider drag fires onChange every pixel — without
+// debouncing we'd hammer the BE). VO volume is preview-local only;
+// it doesn't ship to the export. The export's VO volume is the
+// per-segment `volume` from voiceover_settings.
+function MusicVolumePanel({ draftId, music, onVolumeChange }) {
+  const [vol, setVol] = useState(() => Number.isFinite(Number(music?.volume)) ? Number(music.volume) : 100)
+  const [voPreviewVol, setVoPreviewVol] = useState(100)
+  const [playing, setPlaying] = useState(false)
+  const [err, setErr] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const musicAudioRef = useRef(null)
+  const voAudioRef = useRef(null)
+  const saveTimerRef = useRef(null)
+
+  // Re-sync from props when the parent's music payload reloads
+  // (e.g. after a re-fetch following upload).
+  useEffect(() => {
+    const next = Number.isFinite(Number(music?.volume)) ? Number(music.volume) : 100
+    setVol(next)
+  }, [music?.volume])
+
+  // Push the FE slider value into the live <audio> elements so
+  // dragging is audible immediately.
+  useEffect(() => {
+    if (musicAudioRef.current) musicAudioRef.current.volume = Math.max(0, Math.min(1, vol / 100))
+  }, [vol])
+  useEffect(() => {
+    if (voAudioRef.current) voAudioRef.current.volume = Math.max(0, Math.min(1, voPreviewVol / 100))
+  }, [voPreviewVol])
+
+  // Debounced save — slider drag fires onChange every pixel; without
+  // throttling we'd send a PUT per frame. 400ms after the last change
+  // we persist the final value via api.updateJob.
+  const queueSave = useCallback((nextVol) => {
+    if (!draftId) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
+      setSaving(true)
+      try {
+        await api.updateJob(draftId, { music_volume: Math.max(0, Math.min(200, Math.round(nextVol))) })
+        onVolumeChange?.(nextVol)
+      } catch (e) {
+        setErr(e?.message || 'save failed')
+      } finally {
+        setSaving(false)
+      }
+    }, 400)
+  }, [draftId, onVolumeChange])
+
+  const togglePlay = () => {
+    const m = musicAudioRef.current
+    const v = voAudioRef.current
+    if (!m && !v) return
+    if (playing) {
+      try { m?.pause() } catch {}
+      try { v?.pause() } catch {}
+      setPlaying(false)
+    } else {
+      try {
+        if (m) { m.currentTime = 0; m.play().catch(() => {}) }
+        if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+      } catch {}
+      setPlaying(true)
+    }
+  }
+
+  // Stop on unmount so the audio doesn't keep running after the
+  // operator navigates away from the music panel.
+  useEffect(() => {
+    return () => {
+      try { musicAudioRef.current?.pause() } catch {}
+      try { voAudioRef.current?.pause() } catch {}
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [])
+
+  const hasVoUrl = !!music?.voiceover_url
+
+  return (
+    <div className="rounded border border-border bg-white p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium">🎚 Music volume</span>
+        <span className="text-[9px] text-muted">applied at export</span>
+        {saving && <span className="text-[9px] text-muted ml-auto">saving…</span>}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="range"
+          min={0}
+          max={200}
+          step={1}
+          value={vol}
+          onChange={(e) => {
+            const next = Number(e.target.value) || 0
+            setVol(next)
+            queueSave(next)
+          }}
+          className="flex-1 h-1 accent-[#6C5CE7] cursor-pointer"
+        />
+        <span className="text-[10px] font-mono tabular-nums w-10 text-right">{vol}%</span>
+        <button
+          type="button"
+          onClick={() => { setVol(100); queueSave(100) }}
+          className="text-[9px] text-[#6C5CE7] bg-transparent border-none cursor-pointer p-0"
+          title="Reset music volume to 100% (original)"
+        >reset</button>
+      </div>
+
+      <div className="border-t border-border pt-2">
+        <div className="flex items-center gap-2 mb-1">
+          <button
+            type="button"
+            onClick={togglePlay}
+            className={`text-[10px] py-1 px-2 rounded font-medium cursor-pointer border ${
+              playing
+                ? 'bg-[#c0392b] text-white border-[#c0392b]'
+                : 'bg-[#6C5CE7] text-white border-[#6C5CE7]'
+            }`}
+            title="Play music + voiceover together (both loop). Use the sliders to balance volume in real time."
+          >{playing ? '⏸ Stop preview' : '▶ Preview mix'}</button>
+          <span className="text-[9px] text-muted flex-1">
+            Loops music {hasVoUrl ? '+ primary voiceover' : '(no primary voiceover yet)'} so you can balance live. VO slider is preview-only.
+          </span>
+        </div>
+        {hasVoUrl && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[9px] text-muted w-12">🗣 VO</span>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              step={1}
+              value={voPreviewVol}
+              onChange={(e) => setVoPreviewVol(Number(e.target.value) || 0)}
+              className="flex-1 h-1 accent-[#2D9A5E] cursor-pointer"
+            />
+            <span className="text-[10px] font-mono tabular-nums w-10 text-right">{voPreviewVol}%</span>
+            <span className="text-[8px] text-muted italic">preview only</span>
+          </div>
+        )}
+        {err && <div className="text-[9px] text-[#c0392b] mt-1">{err}</div>}
+        {/* Hidden audio elements driven by the buttons above. We use
+            two <audio> tags rather than the Web Audio API so the
+            volume slider can mutate audio.volume directly — simpler
+            than building gain nodes for a quick balance check. */}
+        {music?.track_url && (
+          <audio
+            ref={musicAudioRef}
+            src={music.track_url}
+            loop
+            preload="metadata"
+            crossOrigin="anonymous"
+            onEnded={() => setPlaying(false)}
+            style={{ display: 'none' }}
+          />
+        )}
+        {hasVoUrl && (
+          <audio
+            ref={voAudioRef}
+            src={music.voiceover_url}
+            loop
+            preload="metadata"
+            crossOrigin="anonymous"
+            style={{ display: 'none' }}
+          />
+        )}
+      </div>
     </div>
   )
 }
