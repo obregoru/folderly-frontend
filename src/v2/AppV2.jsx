@@ -699,6 +699,14 @@ export default function AppV2() {
             : 'Fetching backend commit from /api/health…'}
         >BE {beCommit || '…'}</button>
         <TenantSwitcher user={user} />
+        {/* Escape hatch back to the original V1 app. Same path,
+            just `?real=1`. Useful when a V2 regression blocks the
+            operator and they need to ship something now. */}
+        <a
+          href={`${window.location.pathname}?real=1`}
+          className="text-[9px] font-mono text-muted bg-[#fafafa] border border-[#e5e5e5] rounded px-1.5 py-0.5 cursor-pointer flex-shrink-0 no-underline"
+          title="Open the original V1 app in this tab. Useful as a fallback while V2 settles."
+        >V1</a>
         <button
           onClick={() => setSettingsOpen(true)}
           className="text-[18px] text-ink bg-transparent border-none cursor-pointer px-1 leading-none flex-shrink-0"

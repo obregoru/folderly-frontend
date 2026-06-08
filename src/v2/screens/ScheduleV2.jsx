@@ -20,10 +20,28 @@ import * as api from '../../api'
 // the month day-detail list.
 function chipColors(p) {
   const s = p?.status || 'pending'
+  // Manual-notify path: scheduler couldn't auto-post (platform not
+  // connected) so it sent a push notification and marked the row
+  // 'posted' with post_result.manual=true. That's NOT the same as
+  // "uploaded to the platform" — color it amber so the operator
+  // can't confuse a "go post this yourself" with a real success.
+  if (s === 'posted' && isManualNotify(post)) return { bg: 'bg-[#d97706]/10', border: 'border-[#d97706]', dot: 'bg-[#d97706]', textClass: 'text-[#d97706]' }
   if (s === 'posted') return { bg: 'bg-[#2D9A5E]/10', border: 'border-[#2D9A5E]', dot: 'bg-[#2D9A5E]', textClass: 'text-[#2D9A5E]' }
   if (s === 'failed') return { bg: 'bg-[#c0392b]/10', border: 'border-[#c0392b]', dot: 'bg-[#c0392b]', textClass: 'text-[#c0392b]' }
   if (s === 'cancelled') return { bg: 'bg-[#e5e5e5]', border: 'border-muted', dot: 'bg-muted', textClass: 'text-muted' }
   return { bg: 'bg-[#6C5CE7]/10', border: 'border-[#6C5CE7]', dot: 'bg-[#6C5CE7]', textClass: 'text-[#6C5CE7]' }
+}
+
+// post_result is JSONB from the BE. The manual-notify path on the
+// scheduler stores `{manual: true, notified: true}` when the
+// platform isn't connected. The poster path stores a real result
+// object (e.g. {video_id, url} for YouTube). Treat anything with
+// `manual === true` as a "not actually posted" signal.
+function isManualNotify(post) {
+  try {
+    const r = typeof post?.post_result === 'string' ? JSON.parse(post.post_result) : post?.post_result
+    return r?.manual === true
+  } catch { return false }
 }
 
 const STATUS_TEXT = {
@@ -36,8 +54,10 @@ const STATUS_TEXT = {
 function StatusPill({ post, size = 'sm' }) {
   const s = post?.status || 'pending'
   const c = chipColors(post)
-  const text = STATUS_TEXT[s] || s
+  const manual = s === 'posted' && isManualNotify(post)
+  const text = manual ? 'Push sent' : (STATUS_TEXT[s] || s)
   const title = s === 'failed' && post?.error_message ? post.error_message
+              : manual ? 'Scheduler couldn\'t auto-post (platform not connected). A push notification was sent — post manually from the native app, then click Mark posted.'
               : s === 'posted' && post?.posted_at ? `Posted ${new Date(post.posted_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
               : undefined
   const padding = size === 'xs' ? 'py-[1px] px-1' : 'py-0.5 px-1.5'
@@ -366,6 +386,49 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                           title="See the exact media + caption that the scheduler will send to the platform"
                         >{previewUuid === p.uuid ? '▾ Hide preview' : '👁 Preview what will post'}</button>
                         <button onClick={() => onCancel(p.uuid)} className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer ml-auto">Cancel</button>
+                      </div>
+                    ) : p.status === 'posted' && isManualNotify(p) ? (
+                      // Phantom-posted: scheduler sent a push notification
+                      // (platform wasn't connected) and marked the row
+                      // 'posted', but nothing actually shipped. Make that
+                      // VERY clear with an explanatory box + a Retry
+                      // button that re-pends the row so the real poster
+                      // runs once the operator has connected the platform.
+                      <div className="mt-1.5 space-y-1.5">
+                        <div className="text-[9px] text-[#d97706] bg-[#fef3c7] border border-[#d97706]/40 rounded px-1.5 py-1 break-words">
+                          ⚠️ <span className="font-medium">Not actually posted to {p.platform}.</span> The scheduler sent a push notification asking you to post manually (the platform wasn\'t connected at fire time). Connect {p.platform} in Settings, then ↻ Retry to actually upload via the API.
+                        </div>
+                        <div className="flex gap-1 flex-wrap">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await api.retryScheduledPost(p.uuid)
+                                reload()
+                              } catch (e) {
+                                alert(`Retry failed: ${e?.message || e}`)
+                              }
+                            }}
+                            className="text-[9px] py-0.5 px-1.5 bg-[#2D9A5E] text-white border-none rounded cursor-pointer font-medium"
+                            title="Re-queue this post for 1 minute from now. Connect the platform first."
+                          >↻ Retry (real upload)</button>
+                          <button
+                            onClick={() => setPreviewUuid(previewUuid === p.uuid ? null : p.uuid)}
+                            className="text-[9px] py-0.5 px-1.5 bg-white text-muted border border-[#e5e5e5] rounded cursor-pointer"
+                          >{previewUuid === p.uuid ? '▾ Hide preview' : '👁 Preview'}</button>
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`If you DID post this to ${p.platform} manually, mark it as truly posted so it stops showing this warning.`)) return
+                              try {
+                                await api.markScheduledPostPosted(p.uuid)
+                                reload()
+                              } catch (e) {
+                                alert(`Mark posted failed: ${e?.message || e}`)
+                              }
+                            }}
+                            className="text-[9px] py-0.5 px-1.5 bg-white text-muted border border-[#e5e5e5] rounded cursor-pointer"
+                            title="Confirm you posted manually so this row clears the warning"
+                          >✓ I posted it manually</button>
+                        </div>
                       </div>
                     ) : p.status === 'failed' ? (
                       <div className="mt-1.5 space-y-1.5">
