@@ -119,12 +119,18 @@ export default function ScheduleV2() {
     // see what shipped on each day alongside what's queued.
     const from = new Date(anchor); from.setDate(from.getDate() - 30); from.setHours(0, 0, 0, 0)
     const to = new Date(anchor); to.setDate(to.getDate() + 30); to.setHours(23, 59, 59, 999)
-    const listCall = api.getScheduledPosts({
-      status: 'pending',
-      from: from.toISOString(),
-      to: to.toISOString(),
-      limit: 200,
-    }).then(r => Array.isArray(r) ? r : (r?.posts || r?.rows || []))
+    // Include BOTH pending and failed in the list view — failed posts
+    // are actionable (retry / mark-posted / cancel) and the operator
+    // can't act on them if we hide them. Two parallel calls because
+    // the BE filter is single-valued; merging client-side preserves
+    // the chronological order from each.
+    const listCall = Promise.all([
+      api.getScheduledPosts({ status: 'pending', from: from.toISOString(), to: to.toISOString(), limit: 200 }),
+      api.getScheduledPosts({ status: 'failed',  from: from.toISOString(), to: to.toISOString(), limit: 200 }),
+    ]).then(([pending, failed]) => {
+      const toArr = (r) => Array.isArray(r) ? r : (r?.posts || r?.rows || [])
+      return [...toArr(pending), ...toArr(failed)]
+    })
     const calCall = api.getCalendar(from.toISOString(), to.toISOString())
       .then(r => {
         // calendar returns { scheduled: [...], history: [...] } — merge
@@ -349,25 +355,69 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                         <button onClick={() => startEdit(p)} className="text-[9px] text-muted bg-white border border-[#e5e5e5] rounded py-0.5 px-1.5 cursor-pointer">Edit caption</button>
                         <button onClick={() => onCancel(p.uuid)} className="text-[9px] text-[#c0392b] bg-white border border-[#c0392b] rounded py-0.5 px-1.5 cursor-pointer ml-auto">Cancel</button>
                       </div>
-                    ) : p.status === 'failed' && p.error_message ? (
-                      // Full failure reason — don't truncate, the
-                      // operator needs to actually read it to know
-                      // what to fix. Wrap onto multiple lines if it's
-                      // long. Click-to-copy so they can paste the
-                      // message into a support thread.
-                      <div
-                        className="mt-1.5 text-[9px] text-[#c0392b] cursor-pointer break-words whitespace-pre-wrap bg-[#fdf2f1] border border-[#c0392b]/30 rounded px-1.5 py-1"
-                        title="Click to copy"
-                        onClick={(ev) => {
-                          ev.stopPropagation()
-                          try { navigator.clipboard?.writeText(p.error_message) } catch {}
-                        }}
-                      >❌ {p.error_message}</div>
                     ) : p.status === 'failed' ? (
-                      // Failed but BE didn't capture a message —
-                      // surface that explicitly so the operator
-                      // knows it wasn't just a hidden tooltip.
-                      <div className="mt-1.5 text-[9px] text-[#c0392b] italic">❌ Failed (no error detail captured)</div>
+                      <div className="mt-1.5 space-y-1.5">
+                        {p.error_message ? (
+                          // Full failure reason — don't truncate, the
+                          // operator needs to actually read it to know
+                          // what to fix. Click-to-copy for support.
+                          <div
+                            className="text-[9px] text-[#c0392b] cursor-pointer break-words whitespace-pre-wrap bg-[#fdf2f1] border border-[#c0392b]/30 rounded px-1.5 py-1"
+                            title="Click to copy"
+                            onClick={(ev) => {
+                              ev.stopPropagation()
+                              try { navigator.clipboard?.writeText(p.error_message) } catch {}
+                            }}
+                          >❌ {p.error_message}</div>
+                        ) : (
+                          <div className="text-[9px] text-[#c0392b] italic">❌ Failed (no error detail captured)</div>
+                        )}
+                        <div className="flex gap-1 flex-wrap">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await api.retryScheduledPost(p.uuid)
+                                load()
+                              } catch (e) {
+                                alert(`Retry failed: ${e?.message || e}`)
+                              }
+                            }}
+                            className="text-[9px] py-0.5 px-1.5 bg-[#2D9A5E] text-white border-none rounded cursor-pointer font-medium"
+                            title="Re-queue this post for 1 minute from now"
+                          >↻ Retry</button>
+                          <button
+                            onClick={() => startEdit(p)}
+                            className="text-[9px] py-0.5 px-1.5 bg-white text-muted border border-[#e5e5e5] rounded cursor-pointer"
+                            title="Edit the caption before retry"
+                          >Edit caption</button>
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Mark this ${p.platform} post as posted manually? Use this if you posted it from the native app and want to clear the failed state.`)) return
+                              try {
+                                await api.markScheduledPostPosted(p.uuid)
+                                load()
+                              } catch (e) {
+                                alert(`Mark posted failed: ${e?.message || e}`)
+                              }
+                            }}
+                            className="text-[9px] py-0.5 px-1.5 bg-white text-muted border border-[#e5e5e5] rounded cursor-pointer"
+                            title="If you posted this manually, mark it as done so it stops showing as failed"
+                          >✓ Mark posted</button>
+                          <button
+                            onClick={async () => {
+                              if (!confirm('Delete this failed post?')) return
+                              try {
+                                await api.deleteScheduledPost(p.uuid)
+                                load()
+                              } catch (e) {
+                                alert(`Delete failed: ${e?.message || e}`)
+                              }
+                            }}
+                            className="text-[9px] py-0.5 px-1.5 bg-white text-[#c0392b] border border-[#c0392b] rounded cursor-pointer ml-auto"
+                            title="Permanently delete this scheduled post"
+                          >Delete</button>
+                        </div>
+                      </div>
                     ) : null}
                   </div>
                 )
