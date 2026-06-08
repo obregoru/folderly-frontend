@@ -44,6 +44,12 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
   // toggles govern each segment individually. Persisted on
   // voiceover_settings.hideCaptions.
   const [hideCaptions, setHideCaptions] = useState(false)
+  // Job-level mute_clip_audio toggle. When on, the merge sets every
+  // clip's volume to 0 so the merged file is silent — operator wants
+  // voiceover to be the only audio on the export. Persisted to the
+  // jobs row (column added in migration 149).
+  const [muteClipAudio, setMuteClipAudio] = useState(false)
+  const [muteSaving, setMuteSaving] = useState(false)
   // Write-from-content flow state
   const [scriptMode, setScriptMode] = useState('complement')
   const [scriptLen, setScriptLen] = useState('medium')
@@ -83,6 +89,9 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // Seed the job-level hideCaptions switch from saved state. Old
       // jobs that never set it get the default (false = captions on).
       if (typeof vo.hideCaptions === 'boolean') setHideCaptions(vo.hideCaptions)
+      // Seed the mute_clip_audio toggle. Lives directly on the jobs
+      // row (not in voiceover_settings), so we read it off the job.
+      if (typeof job.mute_clip_audio === 'boolean') setMuteClipAudio(job.mute_clip_audio)
       const segs = Array.isArray(vo.segments) ? vo.segments : []
       const nextDefault = vo.voiceId || voiceId
       setSegments(segs.map(s => ({
@@ -984,6 +993,50 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
           default) lets each segment be individually suppressed via
           its own toggle. Independent from the voiceover audio mix:
           turning this off never mutes the voice track. */}
+      {/* Job-level toggle: silence ALL source-clip audio. Use case:
+          operator's voiceover is the only audio they want on the
+          export. Saves directly to jobs.mute_clip_audio (migration
+          149) — the next merge applies volume=0 to every clip. */}
+      <label
+        className={`flex items-start gap-2 rounded border p-2 cursor-pointer text-[11px] ${
+          muteClipAudio
+            ? 'bg-[#fdf2f1] border-[#c0392b]/40'
+            : 'bg-[#f5f5f5] border-border'
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={muteClipAudio}
+          onChange={async (e) => {
+            const next = e.target.checked
+            setMuteClipAudio(next)
+            if (!draftId) return
+            setMuteSaving(true)
+            try {
+              await api.updateJob(draftId, { mute_clip_audio: next })
+            } catch (err) {
+              console.error('[VoiceoverPanelV2] mute_clip_audio save failed:', err?.message)
+              setMuteClipAudio(!next) // revert on failure
+            } finally {
+              setMuteSaving(false)
+            }
+          }}
+          disabled={muteSaving}
+          className="mt-0.5"
+        />
+        <div className="flex-1 min-w-0">
+          <div className="font-medium">
+            {muteClipAudio ? '🔇 Clip audio MUTED for this job' : '🔊 Clip audio plays on the merge'}
+          </div>
+          <div className="text-[9px] text-muted mt-0.5">
+            {muteClipAudio
+              ? 'Every source clip is silenced at merge time — voiceover (if any) is the only audio on the export. Re-merge after toggling.'
+              : 'Each clip\'s original audio plays through the merge. Turn this on if you want the voiceover to be the only sound on the final video.'}
+            {muteSaving ? ' (saving…)' : ''}
+          </div>
+        </div>
+      </label>
+
       <label
         className={`flex items-start gap-2 rounded border p-2 cursor-pointer text-[11px] ${
           hideCaptions
