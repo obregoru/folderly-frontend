@@ -621,9 +621,17 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
   // child was being shrunk below its explicit size — by routing the
   // video through an inner wrapper that's NOT a flex item.
   const useWrapRotation = forceRotate === 90 || forceRotate === 270
-  const wrapHeight = useWrapRotation ? 260 : height
-  const wrapWidth = useWrapRotation ? Math.round(wrapHeight * 9 / 16) : null // 146
-  const containerWidth = useWrapRotation ? `${wrapWidth}px` : undefined
+  // Any portrait tile (natively portrait source OR force-rotated
+  // landscape source) gets the 9:16 container so the video doesn't
+  // sit letterboxed in a wide landscape box. iPhone/Android vertical
+  // clips were rendering in a 16:9 landscape container with the
+  // portrait content shown centered + letterboxed; the dashed 9:16
+  // overlay then sat inside that landscape area instead of bounding
+  // the entire visible video.
+  const isNarrowPortrait = isPortrait && !useWrapRotation
+  const wrapHeight = useWrapRotation || isNarrowPortrait ? 260 : height
+  const wrapWidth = (useWrapRotation || isNarrowPortrait) ? Math.round(wrapHeight * 9 / 16) : null // 146
+  const containerWidth = (useWrapRotation || isNarrowPortrait) ? `${wrapWidth}px` : undefined
   return (
     <div
       onClick={onClick}
@@ -816,11 +824,15 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
   // content stretches to fill the 9:16 region pre-rotation, which is
   // an acceptable trade-off for an editor preview.
   const useWrapRotation = isVideo && (forceRotate === 90 || forceRotate === 270)
+  // Any portrait video tile gets a 9:16 container, not just force-
+  // rotated ones — iPhone vertical clips were rendering in a 16:9
+  // landscape box with the portrait content letterboxed.
+  const isNarrowPortraitVid = isVideo && isPortrait && !useWrapRotation
   const tileHeightPx = isPortrait || useWrapRotation ? 260 : 120
   const wrapW = Math.round(tileHeightPx * 9 / 16) // 146
   const tileStyle = isPhoto
     ? { aspectRatio: '9 / 16', maxWidth: '180px', marginInline: 'auto' }
-    : useWrapRotation
+    : (useWrapRotation || isNarrowPortraitVid)
       ? { height: tileHeightPx, width: `${wrapW}px`, marginInline: 'auto', flexShrink: 0 }
       : { height: tileHeightPx }
   const src = item._publicUrl || `${import.meta.env.VITE_API_URL || ''}/api/t/${item._tenantSlug || ''}/upload/serve?key=${encodeURIComponent(item._uploadKey)}`
