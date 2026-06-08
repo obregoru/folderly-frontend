@@ -257,6 +257,9 @@ export default function ScheduleV2() {
               cancelEdit={() => setEditingUuid(null)}
               onCancel={cancel}
               onCancelGroup={cancelGroup}
+              previewUuid={previewUuid}
+              setPreviewUuid={setPreviewUuid}
+              reload={reload}
             />
           )}
           {view === 'week' && <WeekView byDate={byDateCalendar} anchor={anchor} setAnchor={setAnchor} />}
@@ -267,7 +270,7 @@ export default function ScheduleV2() {
   )
 }
 
-function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, startEdit, commitEdit, cancelEdit, onCancel, onCancelGroup }) {
+function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, startEdit, commitEdit, cancelEdit, onCancel, onCancelGroup, previewUuid, setPreviewUuid, reload }) {
   const dates = Object.keys(byDate).sort()
   if (dates.length === 0) {
     return <div className="text-[11px] text-muted italic text-center py-8 bg-white border border-[#e5e5e5] rounded-lg">No scheduled posts in this window.</div>
@@ -386,7 +389,7 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                             onClick={async () => {
                               try {
                                 await api.retryScheduledPost(p.uuid)
-                                load()
+                                reload()
                               } catch (e) {
                                 alert(`Retry failed: ${e?.message || e}`)
                               }
@@ -409,7 +412,7 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                               if (!confirm(`Mark this ${p.platform} post as posted manually? Use this if you posted it from the native app and want to clear the failed state.`)) return
                               try {
                                 await api.markScheduledPostPosted(p.uuid)
-                                load()
+                                reload()
                               } catch (e) {
                                 alert(`Mark posted failed: ${e?.message || e}`)
                               }
@@ -422,7 +425,7 @@ function ListView({ byDate, editingUuid, editingCaption, setEditingCaption, star
                               if (!confirm('Delete this failed post?')) return
                               try {
                                 await api.deleteScheduledPost(p.uuid)
-                                load()
+                                reload()
                               } catch (e) {
                                 alert(`Delete failed: ${e?.message || e}`)
                               }
