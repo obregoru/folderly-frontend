@@ -560,6 +560,22 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
       const job = await api.getJob(id)
       if (!job || job.error) throw new Error(job?.error || 'Job not found')
 
+      // Clear cross-job state BEFORE we set the new job id. The
+      // merged-video + voiceover blobs ride on window globals so
+      // the FinalPreview and VoiceoverRecorder can read them without
+      // a prop chain — but the old loadJob only OVERWROTE these
+      // globals when the new job had its own merge / VO. Loading a
+      // campaign-created draft (no merge yet) used to inherit the
+      // previously-viewed job's merge, which is what made every
+      // campaign job appear to contain ddd126d0's clips.
+      try {
+        if (window._postyMergedVideo?.url) URL.revokeObjectURL(window._postyMergedVideo.url)
+        if (window._postyVoiceoverAudio?.url) URL.revokeObjectURL(window._postyVoiceoverAudio.url)
+      } catch {}
+      window._postyMergedVideo = null
+      window._postyVoiceoverAudio = null
+      try { window.dispatchEvent(new CustomEvent('posty-merge-change')) } catch {}
+
       // Set active job
       setJobId(job.uuid || job.id)
       sessionStorage.setItem('posty_active_job', job.uuid || job.id)
