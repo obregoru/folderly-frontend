@@ -1188,13 +1188,63 @@ export const mergeNoMusic = async (files, jobUuid, { transition = 'none', transi
 // Merge 2+ trimmed video clips into a single MP4 with optional transitions
 // clips: [{ video_base64, trim_start, trim_end }], transition: string, transition_duration: number
 export const mergeVideos = async (clips, transition = 'none', transitionDuration = 1, jobId = null) => {
+  // Wrap fetch with:
+  //   1. An explicit AbortController so the request can time out with
+  //      a readable message instead of leaving the browser to throw an
+  //      ambiguous "TypeError: Failed to fetch" after some opaque
+  //      proxy timeout (Cloudflare ~100s, Railway ~5min, browser
+  //      varies). 5 minutes is comfortably above what a 20-clip
+  //      merge needs but short enough that the operator isn't left
+  //      staring at a hung spinner.
+  //   2. A TypeError catch so the truly-network case ("Failed to
+  //      fetch": DNS, CORS, connection severed) surfaces a useful
+  //      message — "BE may have crashed or the request was cut by
+  //      Railway / Cloudflare. Check Railway logs for OOM" — rather
+  //      than the raw browser string.
+  const MERGE_TIMEOUT_MS = 5 * 60 * 1000;
+  const fetchWithTimeout = async (url, opts, label) => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), MERGE_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...opts, signal: controller.signal });
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        throw new Error(`${label} timed out after ${Math.round(MERGE_TIMEOUT_MS/60000)} min — the merge is probably still running on the server but the browser stopped waiting. Try fewer clips, or wait and refresh the job to see if it landed.`);
+      }
+      if (e?.message === 'Failed to fetch' || e?.name === 'TypeError') {
+        throw new Error(`${label} network error — the BE may have crashed mid-merge (Railway OOM) or the request was cut by Cloudflare / the load balancer. Check Railway logs for the container status.`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
+  };
+
   // Step 1: POST clips → server merges and saves to /tmp + Supabase (if job_id), returns merge_id
-  const resp = await fetch(api('/post/merge-videos'), { method: 'POST', headers: { ...csrf(), 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ clips, transition, transition_duration: transitionDuration, job_id: jobId }) })
+  const resp = await fetchWithTimeout(
+    api('/post/merge-videos'),
+    {
+      method: 'POST',
+      headers: { ...csrf(), 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ clips, transition, transition_duration: transitionDuration, job_id: jobId }),
+    },
+    'Merge',
+  );
   if (!resp.ok) {
-    let msg = 'Merge failed'
+    let msg = `Merge failed (HTTP ${resp.status})`;
     try {
       const text = await resp.text()
-      try { msg = JSON.parse(text).error || msg } catch { msg = text.slice(0, 200) || msg }
+      try {
+        const parsed = JSON.parse(text);
+        // Surface BE's structured error fields. Some merge errors
+        // have `error` + `detail`; show both so the operator can
+        // see "Concat-filter failed" + ffmpeg's last 500 chars of
+        // stderr without digging through Railway logs.
+        msg = [parsed.error, parsed.detail].filter(Boolean).join(' — ') || msg;
+      } catch {
+        msg = text.slice(0, 500) || msg;
+      }
     } catch {}
     throw new Error(msg)
   }
@@ -1202,8 +1252,12 @@ export const mergeVideos = async (clips, transition = 'none', transitionDuration
   if (!merge_id) throw new Error('Merge failed: no merge ID returned')
 
   // Step 2: GET the merged video as a binary download
-  const dlResp = await fetch(api(`/post/merge-download/${merge_id}`), { credentials: 'include' })
-  if (!dlResp.ok) throw new Error('Failed to download merged video')
+  const dlResp = await fetchWithTimeout(
+    api(`/post/merge-download/${merge_id}`),
+    { credentials: 'include' },
+    'Merge download',
+  );
+  if (!dlResp.ok) throw new Error(`Failed to download merged video (HTTP ${dlResp.status})`);
   const blob = await dlResp.blob()
   if (blob.size < 1000) throw new Error('Merge produced empty or corrupt video')
   return URL.createObjectURL(blob)
