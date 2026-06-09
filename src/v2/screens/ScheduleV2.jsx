@@ -25,7 +25,7 @@ function chipColors(p) {
   // 'posted' with post_result.manual=true. That's NOT the same as
   // "uploaded to the platform" — color it amber so the operator
   // can't confuse a "go post this yourself" with a real success.
-  if (s === 'posted' && isManualNotify(post)) return { bg: 'bg-[#d97706]/10', border: 'border-[#d97706]', dot: 'bg-[#d97706]', textClass: 'text-[#d97706]' }
+  if (s === 'posted' && isManualNotify(p)) return { bg: 'bg-[#d97706]/10', border: 'border-[#d97706]', dot: 'bg-[#d97706]', textClass: 'text-[#d97706]' }
   if (s === 'posted') return { bg: 'bg-[#2D9A5E]/10', border: 'border-[#2D9A5E]', dot: 'bg-[#2D9A5E]', textClass: 'text-[#2D9A5E]' }
   if (s === 'failed') return { bg: 'bg-[#c0392b]/10', border: 'border-[#c0392b]', dot: 'bg-[#c0392b]', textClass: 'text-[#c0392b]' }
   if (s === 'cancelled') return { bg: 'bg-[#e5e5e5]', border: 'border-muted', dot: 'bg-muted', textClass: 'text-muted' }
