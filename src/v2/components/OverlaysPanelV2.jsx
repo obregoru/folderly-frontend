@@ -512,12 +512,51 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         />}
       </div>
 
+      {/* Five overlay slots in sequential play order:
+          opening → earlyMiddle → middle → lateMiddle → closing.
+          The three "main" slots (opening/middle/closing) ship with
+          full per-slot style controls (RichTextEditor, SlotStyleFold);
+          the two "extra" slots (earlyMiddle/lateMiddle) are plain
+          text inputs that inherit all style from the default block
+          above. kind:'rich' vs kind:'plain' selects which UI to
+          render — the iteration order is what the operator actually
+          sees on the timeline. */}
       <div className="space-y-2">
         {[
-          { key: 'opening', label: 'Opening (first 0-2s)', runs: openingRuns, setRuns: setOpeningRuns, placeholder: 'POV: your birthday just got a signature scent' },
-          { key: 'middle',  label: 'Middle (optional)',     runs: middleRuns,  setRuns: setMiddleRuns,  placeholder: 'You made it together' },
-          { key: 'closing', label: 'Closing (last 1-2s)',   runs: closingRuns, setRuns: setClosingRuns, placeholder: 'Only at Poppy & Thyme' },
+          { kind: 'rich',  key: 'opening',     label: 'Opening (first 0-2s)',                          runs: openingRuns, setRuns: setOpeningRuns, placeholder: 'POV: your birthday just got a signature scent' },
+          { kind: 'plain', key: 'earlyMiddle', label: 'Early middle (between opening and middle)',     text: earlyMiddleText, setText: setEarlyMiddleText, start: earlyMiddleStartTime, setStart: setEarlyMiddleStartTime, dur: earlyMiddleDuration, setDur: setEarlyMiddleDuration, placeholder: 'Quick reinforcement after the hook' },
+          { kind: 'rich',  key: 'middle',      label: 'Middle (optional)',                              runs: middleRuns,  setRuns: setMiddleRuns,  placeholder: 'You made it together' },
+          { kind: 'plain', key: 'lateMiddle',  label: 'Late middle (between middle and closing)',      text: lateMiddleText,  setText: setLateMiddleText,  start: lateMiddleStartTime,  setStart: setLateMiddleStartTime,  dur: lateMiddleDuration,  setDur: setLateMiddleDuration,  placeholder: 'Late beat before the close' },
+          { kind: 'rich',  key: 'closing',     label: 'Closing (last 1-2s)',                            runs: closingRuns, setRuns: setClosingRuns, placeholder: 'Only at Poppy & Thyme' },
         ].map(slot => {
+          if (slot.kind === 'plain') {
+            // Plain text slot — earlyMiddle / lateMiddle. Mirrors
+            // Middle's timing model (start + duration) but skips the
+            // RichTextEditor and per-slot style picker. Empty text
+            // disables the slot at render time.
+            return (
+              <div key={slot.key}>
+                <label className="text-[10px] text-muted">{slot.label}</label>
+                <input
+                  type="text"
+                  value={slot.text}
+                  onChange={e => slot.setText(e.target.value)}
+                  placeholder={slot.placeholder}
+                  className="w-full text-[11px] border border-[#e5e5e5] rounded py-1 px-2 bg-white"
+                />
+                <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
+                  <label>Start at:</label>
+                  <DecimalInput value={slot.start} onChange={slot.setStart} />
+                  <span>s · </span>
+                  <label>Duration:</label>
+                  <DecimalInput value={slot.dur} onChange={slot.setDur} />
+                  <span>s</span>
+                  <span className="italic ml-2">Styles inherit from default block above.</span>
+                </div>
+              </div>
+            )
+          }
+          // Rich (main) slot — opening / middle / closing.
           const ss = slotStyles[slot.key] || {}
           return (
             <div key={slot.key}>
@@ -576,39 +615,11 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         })}
       </div>
 
-      {/* earlyMiddle + lateMiddle — extra text slots that sit between
-          the three main slots above. They mirror Middle's timing
-          model (start + duration) but inherit ALL style from the
-          default block above (no per-slot style picker for these,
-          keeps the panel uncluttered). Empty text disables the slot
-          at render time. */}
-      <div className="space-y-2 pt-2 border-t border-[#e5e5e5]">
-        <div className="text-[10px] font-medium text-muted">Extra overlay slots</div>
-        {[
-          { key: 'earlyMiddle', label: 'Early middle (between opening and middle)', text: earlyMiddleText, setText: setEarlyMiddleText, start: earlyMiddleStartTime, setStart: setEarlyMiddleStartTime, dur: earlyMiddleDuration, setDur: setEarlyMiddleDuration, placeholder: 'Quick reinforcement after the hook' },
-          { key: 'lateMiddle',  label: 'Late middle (between middle and closing)',  text: lateMiddleText,  setText: setLateMiddleText,  start: lateMiddleStartTime,  setStart: setLateMiddleStartTime,  dur: lateMiddleDuration,  setDur: setLateMiddleDuration,  placeholder: 'Late beat before the close' },
-        ].map(slot => (
-          <div key={slot.key}>
-            <label className="text-[10px] text-muted">{slot.label}</label>
-            <input
-              type="text"
-              value={slot.text}
-              onChange={e => slot.setText(e.target.value)}
-              placeholder={slot.placeholder}
-              className="w-full text-[11px] border border-[#e5e5e5] rounded py-1 px-2 bg-white"
-            />
-            <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-              <label>Start at:</label>
-              <DecimalInput value={slot.start} onChange={slot.setStart} />
-              <span>s · </span>
-              <label>Duration:</label>
-              <DecimalInput value={slot.dur} onChange={slot.setDur} />
-              <span>s</span>
-              <span className="italic ml-2">Styles inherit from default block above.</span>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* earlyMiddle + lateMiddle used to live in a separate "Extra
+          overlay slots" block at the bottom of this panel. They now
+          render inside the main slot map above in their natural play
+          order (opening → earlyMiddle → middle → lateMiddle → closing)
+          so the editor reads top-to-bottom like the timeline. */}
 
       <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">
         Preview shown live on the video above. Each slot's Y can override the global slider — leave a slot's Y blank (italic <em>=global</em>) to inherit; type 0–100 to lock that slot to its own vertical position.
