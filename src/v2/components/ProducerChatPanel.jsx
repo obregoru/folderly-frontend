@@ -270,12 +270,26 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
     setProducingFromChat(true)
     setProduceChatError(null)
     setProduceChatSuccess(null)
-    const conversionPrompt = (
-      "Convert YOUR LATEST SUGGESTIONS in this conversation into a single complete ```final-package fenced JSON block " +
-      "covering all six channels. IGNORE any saved footage analysis or earlier analysis turns — the operator has " +
-      "iterated on top of those, so reflect ONLY what we last discussed in this chat. Do not add prose outside the " +
-      "final-package block. If a field hasn't been discussed, use a sensible default consistent with the latest direction."
-    )
+    // Explicit prompt — earlier wording was too loose and the
+    // producer returned a generic ```json fence with wrong channel
+    // keys (youtube_shorts / google_business). Repeat the hard
+    // contract rules from the system prompt's FORMAT CONTRACT so
+    // the AI can't drift, even mid-conversation.
+    const conversionPrompt = [
+      "Convert YOUR LATEST SUGGESTIONS in this conversation into the standard structured final-package.",
+      "",
+      "IGNORE any saved footage analysis or earlier analysis turns — the operator has iterated on top of those, so reflect ONLY what we last discussed in this chat. If a field hasn't been discussed, use a sensible default consistent with the latest direction.",
+      "",
+      "STRICT FORMAT — the parser rejects violations:",
+      "1. Wrap the JSON in a fence whose opener is EXACTLY ```final-package — NOT ```json, NOT ```javascript, NOT a bare ```.",
+      "2. channels keys MUST be exactly: tiktok, instagram, facebook, youtube, google, blog. NOT youtube_shorts, NOT google_business, NOT any other variant.",
+      "3. voiceover[].start and .end are NUMBERS in seconds (e.g. 0, 2.4) — NOT strings like \"0:00\" or \"0:02.5\".",
+      "4. Per-channel shape: tiktok/instagram/facebook → {caption, hashtags[]}; youtube → {caption, title, hashtags[]}; google → {caption}; blog → {title, content}.",
+      "5. hashtags is an ARRAY of strings (e.g. [\"#a\",\"#b\"]).",
+      "6. Cover all six channels by default. Output the JSON EXACTLY ONCE inside the fence. No prose outside the fence.",
+      "",
+      "If any of your previous suggestions used a different format, normalize them to the contract above when emitting.",
+    ].join("\n")
     const next = [...messages, { role: 'user', content: conversionPrompt }]
     setMessages(next)
     setStreaming(true)
