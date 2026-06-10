@@ -53,7 +53,7 @@ export function parseFinalPackage(text) {
   if (strictMatch) {
     const body = strictMatch[1].trim()
     if (body) {
-      try { return JSON.parse(body) } catch { /* fall through */ }
+      try { return coerceFinalPackage(JSON.parse(body)) } catch { /* fall through */ }
     }
   }
   // Fallback: producer drifted to ```json or bare ``` (happens
@@ -74,7 +74,7 @@ export function parseFinalPackage(text) {
     if (!body) continue
     let parsed
     try { parsed = JSON.parse(body) } catch { continue }
-    if (looksLikeFinalPackage(parsed)) return parsed
+    if (looksLikeFinalPackage(parsed)) return coerceFinalPackage(parsed)
   }
   return null
 }
@@ -87,6 +87,122 @@ function looksLikeFinalPackage(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false
   const RECOGNIZED = ['voice', 'overrides', 'hooks', 'voiceover', 'overlays', 'media', 'channels']
   return RECOGNIZED.some(k => k in obj)
+}
+
+// Coerce common AI drift patterns into the canonical schema shape.
+// Run BEFORE validation. Keeps us from rejecting fundamentally-
+// correct packages over predictable formatting variance:
+//
+//   - overlays as array of {position, text, ...} (LLM-natural)
+//     → object keyed by position name ("opening"/"middle"/"closing")
+//   - voiceover[].start / .end as "M:SS"/"M:SS.s"/"SS.s" strings
+//     → numeric seconds
+//   - channels with youtube_shorts / google_business keys
+//     → youtube / google
+//   - channel hashtags as space-separated string → array
+//
+// Mutates a deep clone of the input so callers keep their original.
+export function coerceFinalPackage(pkg) {
+  if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) return pkg
+  let out
+  try { out = JSON.parse(JSON.stringify(pkg)) } catch { return pkg }
+
+  // ── overlays: array → object keyed by position ──
+  if (Array.isArray(out.overlays)) {
+    const obj = {}
+    for (const item of out.overlays) {
+      if (!item || typeof item !== 'object') continue
+      const pos = String(item.position || item.slot || '').toLowerCase()
+      if (pos !== 'opening' && pos !== 'middle' && pos !== 'closing') continue
+      const { position: _p, slot: _s, ...rest } = item
+      // Coerce string start ("0:05") into numeric startTime
+      if (typeof rest.start === 'string') {
+        const sec = parseTimecodeToSeconds(rest.start)
+        if (sec != null && rest.startTime == null) rest.startTime = sec
+        delete rest.start
+      }
+      obj[pos] = rest
+    }
+    if (Object.keys(obj).length > 0) out.overlays = obj
+  }
+
+  // ── voiceover: stringy timestamps → numeric seconds ──
+  if (Array.isArray(out.voiceover)) {
+    out.voiceover = out.voiceover.map(seg => {
+      if (!seg || typeof seg !== 'object') return seg
+      const next = { ...seg }
+      if (typeof next.start === 'string') {
+        const sec = parseTimecodeToSeconds(next.start)
+        if (sec != null) next.start = sec
+      }
+      if (typeof next.end === 'string') {
+        const sec = parseTimecodeToSeconds(next.end)
+        if (sec != null) next.end = sec
+      }
+      // Drop AI-only fields the schema doesn't care about — they'd
+      // trip the "unknown keys" path in validation otherwise.
+      delete next.word_count
+      return next
+    })
+  }
+
+  // ── channels: alias keys → canonical keys ──
+  if (out.channels && typeof out.channels === 'object' && !Array.isArray(out.channels)) {
+    const aliasMap = {
+      youtube_shorts: 'youtube',
+      youtube_short: 'youtube',
+      yt_shorts: 'youtube',
+      yt: 'youtube',
+      google_business: 'google',
+      google_business_profile: 'google',
+      gbp: 'google',
+      ig: 'instagram',
+      fb: 'facebook',
+      tt: 'tiktok',
+    }
+    const remapped = {}
+    for (const [k, v] of Object.entries(out.channels)) {
+      const canon = aliasMap[k] || k
+      // Last-write wins if both alias and canonical present.
+      remapped[canon] = v
+    }
+    // Per-channel coercion: hashtags string → array; drop hashtag_count.
+    for (const key of Object.keys(remapped)) {
+      const ch = remapped[key]
+      if (!ch || typeof ch !== 'object') continue
+      if (typeof ch.hashtags === 'string') {
+        ch.hashtags = ch.hashtags.split(/\s+/).filter(Boolean)
+      }
+      delete ch.hashtag_count
+    }
+    out.channels = remapped
+  }
+
+  // ── Strip top-level fields the AI tacked on (video, totals…) ──
+  for (const k of Object.keys(out)) {
+    if (!['voice','overrides','hooks','voiceover','overlays','media','channels','version'].includes(k)) {
+      delete out[k]
+    }
+  }
+
+  return out
+}
+
+// "0:00" / "1:23.5" / "12.4" / "45" → seconds (number). Returns
+// null when the string can't be interpreted.
+function parseTimecodeToSeconds(s) {
+  if (typeof s !== 'string') return null
+  const trimmed = s.trim()
+  if (!trimmed) return null
+  // Plain numeric ("12.4")
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed)
+  // M:SS or M:SS.s
+  const m = trimmed.match(/^(\d+):(\d+(?:\.\d+)?)$/)
+  if (m) return Number(m[1]) * 60 + Number(m[2])
+  // H:MM:SS or H:MM:SS.s
+  const h = trimmed.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/)
+  if (h) return Number(h[1]) * 3600 + Number(h[2]) * 60 + Number(h[3])
+  return null
 }
 
 // Shape + range + type checks. Returns { ok, errors[] }. errors are
