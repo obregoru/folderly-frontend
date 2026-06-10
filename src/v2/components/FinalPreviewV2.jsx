@@ -257,6 +257,21 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     if ((overlays.middleText || overlays.middleRuns?.length) && t >= midStart && t < midStart + midDur) {
       return { text: overlays.middleText, runs: overlays.middleRuns || null, slot: 'middle' }
     }
+    // earlyMiddle + lateMiddle — text-only slots that fire from
+    // their persisted startTime for their duration. Last-write-wins
+    // ordering if windows overlap: earlier checks earlier slot, so
+    // these come AFTER the three main slots so a manual middle/etc
+    // setting wins on overlap. Empty text disables the slot.
+    const emStart = Number(overlays.earlyMiddleStartTime) || 0
+    const emDur   = Number(overlays.earlyMiddleDuration)  || 0
+    if (overlays.earlyMiddleText && String(overlays.earlyMiddleText).trim() && t >= emStart && t < emStart + emDur) {
+      return { text: overlays.earlyMiddleText, runs: null, slot: 'earlyMiddle' }
+    }
+    const lmStart = Number(overlays.lateMiddleStartTime) || 0
+    const lmDur   = Number(overlays.lateMiddleDuration)  || 0
+    if (overlays.lateMiddleText && String(overlays.lateMiddleText).trim() && t >= lmStart && t < lmStart + lmDur) {
+      return { text: overlays.lateMiddleText, runs: null, slot: 'lateMiddle' }
+    }
     if ((overlays.closingText || overlays.closingRuns?.length) && duration > 0 && t >= duration - closeDur) {
       return { text: overlays.closingText, runs: overlays.closingRuns || null, slot: 'closing' }
     }
@@ -300,7 +315,7 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
   const isVideoSource = source?.type === 'video' || source?.type === 'playlist'
   const showCaptionSlider = isVideoSource && draftId && mergedUrl
   const showOverlaySlider = isVideoSource && draftId && jobSync && (
-    overlays?.openingText || overlays?.middleText || overlays?.closingText
+    overlays?.openingText || overlays?.middleText || overlays?.closingText || overlays?.earlyMiddleText || overlays?.lateMiddleText
   )
 
   return (

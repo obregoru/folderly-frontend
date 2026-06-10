@@ -112,8 +112,16 @@ export function coerceFinalPackage(pkg) {
     const obj = {}
     for (const item of out.overlays) {
       if (!item || typeof item !== 'object') continue
-      const pos = String(item.position || item.slot || '').toLowerCase()
-      if (pos !== 'opening' && pos !== 'middle' && pos !== 'closing') continue
+      // Position names from LLM drift — normalize lowercase, handle
+      // snake_case + camelCase + space variants for the two new slots.
+      const posRaw = String(item.position || item.slot || '').toLowerCase().replace(/[\s_-]/g, '')
+      let pos
+      if (posRaw === 'opening' || posRaw === 'open') pos = 'opening'
+      else if (posRaw === 'earlymiddle' || posRaw === 'middle1' || posRaw === 'firstmid' || posRaw === 'earlymid') pos = 'earlyMiddle'
+      else if (posRaw === 'middle' || posRaw === 'middle2' || posRaw === 'centermid' || posRaw === 'mid') pos = 'middle'
+      else if (posRaw === 'latemiddle' || posRaw === 'middle3' || posRaw === 'lastmid' || posRaw === 'latemid') pos = 'lateMiddle'
+      else if (posRaw === 'closing' || posRaw === 'close' || posRaw === 'end') pos = 'closing'
+      else continue
       const { position: _p, slot: _s, ...rest } = item
       // Coerce string start ("0:05") into numeric startTime
       if (typeof rest.start === 'string') {
@@ -369,7 +377,7 @@ function checkVoiceover(arr, errors) {
 
 function checkOverlays(o, errors) {
   if (!isPlainObject(o)) { errors.push('overlays must be an object'); return }
-  for (const slot of ['opening', 'middle', 'closing']) {
+  for (const slot of ['opening', 'earlyMiddle', 'middle', 'lateMiddle', 'closing']) {
     if (o[slot] === undefined) continue
     const v = o[slot]
     if (!isPlainObject(v)) { errors.push(`overlays.${slot} must be an object`); continue }

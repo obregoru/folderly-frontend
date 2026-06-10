@@ -38,6 +38,17 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [middleStartTime, setMiddleStartTime] = useState(4)
   const [middleDuration, setMiddleDuration] = useState(3)
   const [closingDuration, setClosingDuration] = useState(3)
+  // Two extra "middle-like" slots — earlyMiddle (between opening and
+  // middle) and lateMiddle (between middle and closing). Same shape
+  // as middle (text + startTime + duration). They inherit all style
+  // from the default block (no per-slot style overrides for the new
+  // slots; the operator can tweak the default if they need to).
+  const [earlyMiddleText, setEarlyMiddleText] = useState('')
+  const [earlyMiddleStartTime, setEarlyMiddleStartTime] = useState(2)
+  const [earlyMiddleDuration, setEarlyMiddleDuration] = useState(3)
+  const [lateMiddleText, setLateMiddleText] = useState('')
+  const [lateMiddleStartTime, setLateMiddleStartTime] = useState(8)
+  const [lateMiddleDuration, setLateMiddleDuration] = useState(3)
   const [fontSize, setFontSize] = useState(48)
   const [fontFamily, setFontFamily] = useState('sans-serif')
   const [fontColor, setFontColor] = useState('#ffffff')
@@ -136,6 +147,12 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.middleStartTime != null) setMiddleStartTime(o.middleStartTime)
         if (o.middleDuration) setMiddleDuration(o.middleDuration)
         if (o.closingDuration) setClosingDuration(o.closingDuration)
+        if (o.earlyMiddleText) setEarlyMiddleText(o.earlyMiddleText)
+        if (o.earlyMiddleStartTime != null) setEarlyMiddleStartTime(o.earlyMiddleStartTime)
+        if (o.earlyMiddleDuration) setEarlyMiddleDuration(o.earlyMiddleDuration)
+        if (o.lateMiddleText) setLateMiddleText(o.lateMiddleText)
+        if (o.lateMiddleStartTime != null) setLateMiddleStartTime(o.lateMiddleStartTime)
+        if (o.lateMiddleDuration) setLateMiddleDuration(o.lateMiddleDuration)
         if (o.storyFontSize) setFontSize(o.storyFontSize)
         if (o.storyFontFamily) setFontFamily(o.storyFontFamily)
         if (o.storyFontColor) setFontColor(o.storyFontColor)
@@ -237,6 +254,11 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       middleRuns:  middleRuns?.length  ? middleRuns  : null,
       closingRuns: closingRuns?.length ? closingRuns : null,
       openingDuration, middleStartTime, middleDuration, closingDuration,
+      // earlyMiddle + lateMiddle — text-only slots that mirror
+      // middle's timing model. Empty text effectively disables the
+      // slot (the BE skips cues where text is blank).
+      earlyMiddleText, earlyMiddleStartTime: Number(earlyMiddleStartTime) || 0, earlyMiddleDuration: Number(earlyMiddleDuration) || 3,
+      lateMiddleText,  lateMiddleStartTime:  Number(lateMiddleStartTime)  || 0, lateMiddleDuration:  Number(lateMiddleDuration)  || 3,
       storyFontSize: Number(fontSize) || 48,
       storyFontFamily: fontFamily,
       storyFontColor: fontColor,
@@ -298,7 +320,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, boxConfig, haloEnabled, slotStyles, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, earlyMiddleText, earlyMiddleStartTime, earlyMiddleDuration, lateMiddleText, lateMiddleStartTime, lateMiddleDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, boxConfig, haloEnabled, slotStyles, loaded])
 
   // Wipe every per-slot override so all three slots inherit the
   // current default style. Used by the explicit "Apply to all
@@ -552,6 +574,40 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
             </div>
           )
         })}
+      </div>
+
+      {/* earlyMiddle + lateMiddle — extra text slots that sit between
+          the three main slots above. They mirror Middle's timing
+          model (start + duration) but inherit ALL style from the
+          default block above (no per-slot style picker for these,
+          keeps the panel uncluttered). Empty text disables the slot
+          at render time. */}
+      <div className="space-y-2 pt-2 border-t border-[#e5e5e5]">
+        <div className="text-[10px] font-medium text-muted">Extra overlay slots</div>
+        {[
+          { key: 'earlyMiddle', label: 'Early middle (between opening and middle)', text: earlyMiddleText, setText: setEarlyMiddleText, start: earlyMiddleStartTime, setStart: setEarlyMiddleStartTime, dur: earlyMiddleDuration, setDur: setEarlyMiddleDuration, placeholder: 'Quick reinforcement after the hook' },
+          { key: 'lateMiddle',  label: 'Late middle (between middle and closing)',  text: lateMiddleText,  setText: setLateMiddleText,  start: lateMiddleStartTime,  setStart: setLateMiddleStartTime,  dur: lateMiddleDuration,  setDur: setLateMiddleDuration,  placeholder: 'Late beat before the close' },
+        ].map(slot => (
+          <div key={slot.key}>
+            <label className="text-[10px] text-muted">{slot.label}</label>
+            <input
+              type="text"
+              value={slot.text}
+              onChange={e => slot.setText(e.target.value)}
+              placeholder={slot.placeholder}
+              className="w-full text-[11px] border border-[#e5e5e5] rounded py-1 px-2 bg-white"
+            />
+            <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
+              <label>Start at:</label>
+              <DecimalInput value={slot.start} onChange={slot.setStart} />
+              <span>s · </span>
+              <label>Duration:</label>
+              <DecimalInput value={slot.dur} onChange={slot.setDur} />
+              <span>s</span>
+              <span className="italic ml-2">Styles inherit from default block above.</span>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="text-[9px] text-muted italic pt-1 border-t border-[#e5e5e5]">

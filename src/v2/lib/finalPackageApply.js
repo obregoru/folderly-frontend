@@ -121,10 +121,20 @@ export async function applyOverlays(pkg, draftId, currentJob) {
     next.openingText = pkg.overlays.opening.text || ''
     if (pkg.overlays.opening.duration != null) next.openingDuration = Number(pkg.overlays.opening.duration)
   }
+  if (pkg.overlays.earlyMiddle) {
+    next.earlyMiddleText = pkg.overlays.earlyMiddle.text || ''
+    if (pkg.overlays.earlyMiddle.duration != null) next.earlyMiddleDuration = Number(pkg.overlays.earlyMiddle.duration)
+    if (pkg.overlays.earlyMiddle.startTime != null) next.earlyMiddleStartTime = Number(pkg.overlays.earlyMiddle.startTime)
+  }
   if (pkg.overlays.middle) {
     next.middleText = pkg.overlays.middle.text || ''
     if (pkg.overlays.middle.duration != null) next.middleDuration = Number(pkg.overlays.middle.duration)
     if (pkg.overlays.middle.startTime != null) next.middleStartTime = Number(pkg.overlays.middle.startTime)
+  }
+  if (pkg.overlays.lateMiddle) {
+    next.lateMiddleText = pkg.overlays.lateMiddle.text || ''
+    if (pkg.overlays.lateMiddle.duration != null) next.lateMiddleDuration = Number(pkg.overlays.lateMiddle.duration)
+    if (pkg.overlays.lateMiddle.startTime != null) next.lateMiddleStartTime = Number(pkg.overlays.lateMiddle.startTime)
   }
   if (pkg.overlays.closing) {
     next.closingText = pkg.overlays.closing.text || ''
