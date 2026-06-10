@@ -45,16 +45,48 @@ const VALID_MARKETING = new Set(['low', 'medium', 'high', ''])
 // null when no block is present (or when JSON.parse throws).
 export function parseFinalPackage(text) {
   if (typeof text !== 'string' || !text) return null
-  const re = /```\s*final-package\s*\n([\s\S]*?)```/i
-  const m = text.match(re)
-  if (!m) return null
-  const body = m[1].trim()
-  if (!body) return null
-  try {
-    return JSON.parse(body)
-  } catch {
-    return null
+  // Try the strict fence first — that's what the producer is
+  // instructed to emit. When it complies (90%+ of normal chat
+  // turns), we land here and skip the fallbacks.
+  const strictRe = /```\s*final-package\s*\n([\s\S]*?)```/i
+  const strictMatch = text.match(strictRe)
+  if (strictMatch) {
+    const body = strictMatch[1].trim()
+    if (body) {
+      try { return JSON.parse(body) } catch { /* fall through */ }
+    }
   }
+  // Fallback: producer drifted to ```json or bare ``` (happens
+  // mid-conversation despite the system prompt — the "Lock in"
+  // conversion turn especially trips this). We're conservative:
+  // only accept a JSON fence whose top-level keys look like our
+  // schema — otherwise we'd pick up unrelated JSON the producer
+  // dumped earlier in the reply (e.g. a JSON example it showed
+  // the operator) and confuse the review modal.
+  const fallbackRes = [
+    /```\s*json\s*\n([\s\S]*?)```/i,
+    /```\s*\n(\{[\s\S]*?\})\s*```/,
+  ]
+  for (const re of fallbackRes) {
+    const m = text.match(re)
+    if (!m) continue
+    const body = m[1].trim()
+    if (!body) continue
+    let parsed
+    try { parsed = JSON.parse(body) } catch { continue }
+    if (looksLikeFinalPackage(parsed)) return parsed
+  }
+  return null
+}
+
+// Lightweight discriminator — returns true when the parsed object
+// has at least one of our known top-level keys. validateFinalPackage
+// downstream will reject anything that's structurally wrong, so we
+// can be permissive here without false-positives.
+function looksLikeFinalPackage(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false
+  const RECOGNIZED = ['voice', 'overrides', 'hooks', 'voiceover', 'overlays', 'media', 'channels']
+  return RECOGNIZED.some(k => k in obj)
 }
 
 // Shape + range + type checks. Returns { ok, errors[] }. errors are

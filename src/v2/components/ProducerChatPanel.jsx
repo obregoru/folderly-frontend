@@ -320,8 +320,14 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           ts: Date.now(),
         })
       } else {
+        // Include a snippet so we can iterate without asking the
+        // operator to copy/paste. Look for any fenced block first
+        // (so the snippet is useful), otherwise the head of the
+        // reply.
+        const fenceMatch = reply.match(/```[\s\S]*?```/)
+        const snippet = (fenceMatch?.[0] || reply).slice(0, 400)
         setProduceChatError(
-          "Producer didn't return a parseable final-package block. Try again, or use 'Apply latest reply (per-field)' below as a fallback."
+          `Producer didn't return a parseable final-package block. Try again, or use 'Apply latest reply (per-field)' below as a fallback.\n\nReply snippet:\n${snippet}${reply.length > 400 || (fenceMatch && fenceMatch[0].length > 400) ? '…' : ''}`
         )
       }
     } catch (e) {
@@ -849,7 +855,7 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
             </div>
           )}
           {produceChatError && (
-            <div className="text-[9px] text-[#c0392b] mt-0.5">{produceChatError}</div>
+            <div className="text-[9px] text-[#c0392b] mt-0.5 whitespace-pre-wrap break-words font-mono">{produceChatError}</div>
           )}
         </div>
         <button
