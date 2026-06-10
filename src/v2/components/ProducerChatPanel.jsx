@@ -239,6 +239,87 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
   // 📦 Final-package-detected button somewhere on the panel — easy
   // to miss after a 30-60s wait.
   const [produceFootageSuccess, setProduceFootageSuccess] = useState(null)
+  // "Produce package from CHAT" — distinct from Produce-from-Footage.
+  // The footage path ignores chat history and re-derives from the saved
+  // analysis + frames. This path does the opposite: it tells the
+  // producer to convert ITS OWN LATEST SUGGESTIONS in this chat into a
+  // structured final-package JSON block, explicitly telling it to
+  // ignore prior footage analysis. Use case: the operator iterated in
+  // chat (overriding what footage analysis would have said), and now
+  // wants the package to reflect that final agreement — not anything
+  // upstream.
+  //
+  // Flow:
+  //   1. Append a synthetic user turn with the conversion request
+  //   2. Stream the producer reply (same producerChat endpoint the
+  //      regular send() uses, so chat history is the context)
+  //   3. After stream ends, parse the reply for a final-package block
+  //   4. If found → open the FinalPackageReview modal automatically
+  //   5. If not → surface a clear error so the operator can retry
+  const [producingFromChat, setProducingFromChat] = useState(false)
+  const [produceChatError, setProduceChatError] = useState(null)
+  const [produceChatSuccess, setProduceChatSuccess] = useState(null)
+  const produceFromChat = async () => {
+    if (!draftId || streaming || producingFromChat || producingFromFootage) return
+    if (!lastAssistant) {
+      setProduceChatError(
+        'No producer reply yet in this chat. Have a conversation first (or pull in an analysis with the Import buttons below), then click this to lock in the last agreed direction as a final package.'
+      )
+      return
+    }
+    setProducingFromChat(true)
+    setProduceChatError(null)
+    setProduceChatSuccess(null)
+    const conversionPrompt = (
+      "Convert YOUR LATEST SUGGESTIONS in this conversation into a single complete ```final-package fenced JSON block " +
+      "covering all six channels. IGNORE any saved footage analysis or earlier analysis turns — the operator has " +
+      "iterated on top of those, so reflect ONLY what we last discussed in this chat. Do not add prose outside the " +
+      "final-package block. If a field hasn't been discussed, use a sensible default consistent with the latest direction."
+    )
+    const next = [...messages, { role: 'user', content: conversionPrompt }]
+    setMessages(next)
+    setStreaming(true)
+    setStreamText('')
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    try {
+      const { fullText, error } = await api.producerChat(draftId, {
+        messages: next,
+        signal: ctrl.signal,
+        onChunk: (_, full) => setStreamText(full),
+      })
+      if (error) {
+        setProduceChatError(error)
+        return
+      }
+      const reply = fullText || ''
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      setStreamText('')
+      // The finalPackage useMemo will pick up the new lastAssistant on
+      // next render. We also parse-and-open here so the operator
+      // doesn't have to spot the auto-detected button further down.
+      const parsedPkg = parseFinalPackage(reply)
+      if (parsedPkg) {
+        setReviewOpen(true)
+        setProduceChatSuccess({
+          msg: '✓ Package generated from your chat suggestions — review modal opened.',
+          ts: Date.now(),
+        })
+      } else {
+        setProduceChatError(
+          "Producer didn't return a parseable final-package block. Try again, or use 'Apply latest reply (per-field)' below as a fallback."
+        )
+      }
+    } catch (e) {
+      if (e?.name !== 'AbortError') setProduceChatError(e?.message || String(e))
+      setStreamText('')
+    } finally {
+      setProducingFromChat(false)
+      setStreaming(false)
+      abortRef.current = null
+    }
+  }
+
   const produceFromFootage = async () => {
     if (!draftId || streaming || producingFromFootage) return
     setProducingFromFootage(true)
@@ -714,6 +795,61 @@ export default function ProducerChatPanel({ draftId, jobSync, files }) {
           : produceFootageSuccess
             ? '🎬 Produce again'
             : '🎬 Produce'}</button>
+      </div>
+
+      {/* Produce-from-CHAT — the operator iterated in chat (overriding
+          what footage analysis would have said) and wants the final
+          package to reflect that last agreed direction, ignoring any
+          earlier analysis. Sibling to the footage box above but uses
+          the chat history as the source of truth. */}
+      <div
+        className={`flex items-stretch gap-2 rounded border p-2 text-[10px] ${
+          produceChatError
+            ? 'bg-[#fdf2f1] border-[#c0392b]/40'
+            : produceChatSuccess
+              ? 'bg-[#e8f5ed] border-[#2D9A5E]/40'
+              : 'bg-[#f3f0ff] border-[#6C5CE7]/40'
+        }`}
+      >
+        <div className="flex-1 min-w-0">
+          <div className={`font-medium ${produceChatSuccess ? 'text-[#0a4d2c]' : 'text-[#6C5CE7]'}`}>
+            {producingFromChat
+              ? '⏳ Converting your chat suggestions into a final package…'
+              : produceChatSuccess
+                ? produceChatSuccess.msg
+                : '💬 Lock in latest chat suggestions as final package'}
+          </div>
+          {!producingFromChat && !produceChatSuccess && (
+            <div className="text-[9px] text-[#6C5CE7]/80 mt-0.5">
+              Tells the producer to convert <span className="font-medium">its latest reply in this conversation</span> into a structured final-package — explicitly ignoring saved footage analysis. Use when you've iterated in chat and the final agreement is here, not in any earlier analysis.
+            </div>
+          )}
+          {producingFromChat && (
+            <div className="text-[9px] text-[#6C5CE7]/80 mt-0.5">
+              The review modal will open automatically when the producer is done.
+            </div>
+          )}
+          {produceChatSuccess && !reviewOpen && (
+            <div className="text-[9px] text-[#0a4d2c]/80 mt-0.5">
+              Modal closed. Use the "📦 Final package detected" button below or click "Lock in" again to regenerate.
+            </div>
+          )}
+          {produceChatError && (
+            <div className="text-[9px] text-[#c0392b] mt-0.5">{produceChatError}</div>
+          )}
+        </div>
+        <button
+          onClick={produceFromChat}
+          disabled={!draftId || streaming || producingFromChat || producingFromFootage || !lastAssistant}
+          className="text-[10px] py-1 px-2 bg-[#6C5CE7] text-white border-none rounded cursor-pointer disabled:opacity-50 font-medium whitespace-nowrap self-center"
+          title={lastAssistant
+            ? "Send a turn asking the producer to convert its latest suggestions into a final-package JSON block, then auto-open the review modal."
+            : "Producer hasn't replied yet in this chat — start a conversation first."}
+        >{producingFromChat
+          ? 'Producing…'
+          : produceChatSuccess
+            ? '💬 Re-lock'
+            : '💬 Lock in'}</button>
       </div>
 
       {/* Import-from-full-video. Four buttons — each pulls the saved
