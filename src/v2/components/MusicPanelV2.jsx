@@ -2271,10 +2271,15 @@ function SnapPlanTable({ plan, cuts }) {
 // per-segment `volume` from voiceover_settings.
 function MusicVolumePanel({ draftId, music, onVolumeChange }) {
   const [vol, setVol] = useState(() => Number.isFinite(Number(music?.volume)) ? Number(music.volume) : 100)
+  // Mix mode controls whether the music REPLACES the clip audio or
+  // is MIXED with it. Hydrated from job.music_mix_mode; default
+  // 'replace' preserves the long-standing behavior.
+  const [mixMode, setMixMode] = useState(() => music?.mix_mode === 'mix' ? 'mix' : 'replace')
   const [voPreviewVol, setVoPreviewVol] = useState(100)
   const [playing, setPlaying] = useState(false)
   const [err, setErr] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [savingMode, setSavingMode] = useState(false)
   const musicAudioRef = useRef(null)
   const voAudioRef = useRef(null)
   const saveTimerRef = useRef(null)
@@ -2285,6 +2290,9 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
     const next = Number.isFinite(Number(music?.volume)) ? Number(music.volume) : 100
     setVol(next)
   }, [music?.volume])
+  useEffect(() => {
+    setMixMode(music?.mix_mode === 'mix' ? 'mix' : 'replace')
+  }, [music?.mix_mode])
 
   // Push the FE slider value into the live <audio> elements so
   // dragging is audible immediately.
@@ -2343,9 +2351,65 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
 
   const hasVoUrl = !!music?.voiceover_url
 
+  // Switch mix mode and persist. Optimistic update + revert on
+  // failure so the radio buttons feel snappy.
+  const setMixModeAndSave = async (next) => {
+    if (next !== 'replace' && next !== 'mix') return
+    const prev = mixMode
+    setMixMode(next)
+    if (!draftId) return
+    setSavingMode(true)
+    try {
+      await api.updateJob(draftId, { music_mix_mode: next })
+    } catch (e) {
+      setErr(`mix mode save failed: ${e?.message || e}`)
+      setMixMode(prev) // revert
+    } finally {
+      setSavingMode(false)
+    }
+  }
+
   return (
     <div className="rounded border border-border bg-white p-3 space-y-2">
-      <div className="flex items-center gap-2">
+      {/* Mix mode toggle. 'replace' is legacy default — music drops
+          clip audio entirely. 'mix' amix's both at their individual
+          volumes (per-clip + music volume slider). Wins points when
+          operator wants ambient room sound + bgm or VO + bgm. */}
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-[11px] font-medium">🎛 Music mode</span>
+          {savingMode && <span className="text-[9px] text-muted">saving…</span>}
+        </div>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setMixModeAndSave('replace')}
+            className={`flex-1 text-[10px] py-1 px-2 rounded border cursor-pointer ${
+              mixMode === 'replace'
+                ? 'bg-[#6C5CE7] text-white border-[#6C5CE7] font-medium'
+                : 'bg-white text-ink border-border hover:border-[#6C5CE7]/50'
+            }`}
+            title="Music REPLACES the clip audio. The export plays only the music track over the video."
+          >🔇 Replace clip audio</button>
+          <button
+            type="button"
+            onClick={() => setMixModeAndSave('mix')}
+            className={`flex-1 text-[10px] py-1 px-2 rounded border cursor-pointer ${
+              mixMode === 'mix'
+                ? 'bg-[#2D9A5E] text-white border-[#2D9A5E] font-medium'
+                : 'bg-white text-ink border-border hover:border-[#2D9A5E]/50'
+            }`}
+            title="Music MIXES with the clip audio. Each clip's volume slider controls its level; this music-volume slider controls the music's level."
+          >🔊 Mix with clip audio</button>
+        </div>
+        <div className="text-[9px] text-muted mt-1">
+          {mixMode === 'mix'
+            ? 'Both clip audio and music play together. Use per-clip volume sliders + this music slider to balance.'
+            : 'Only the music plays — clip audio is dropped at export time.'}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 pt-1 border-t border-border">
         <span className="text-[11px] font-medium">🎚 Music volume</span>
         <span className="text-[9px] text-muted">applied at export</span>
         {saving && <span className="text-[9px] text-muted ml-auto">saving…</span>}
