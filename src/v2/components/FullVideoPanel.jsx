@@ -225,7 +225,15 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
     setRefreshing(true)
     setSlot(platform, { analyzing: true, err: null, stage: 'rendering final…', hydratedFromDisk: false })
     try {
-      const renderResult = await api.renderFinal({ jobUuid: draftId })
+      // forceRerender=true tells the BE to skip the fingerprint cache
+      // read and produce a fresh render — even if the fingerprint
+      // would match. Use case here: operator hit Re-analyze and got
+      // the same stale result, which suggests the cached final is
+      // out of date relative to the current state but the fingerprint
+      // hash thinks it's a match. The BE still writes the new render
+      // to final_media_keys + final_media_fingerprint so subsequent
+      // callers see the fresh entry.
+      const renderResult = await api.renderFinal({ jobUuid: draftId, forceRerender: true })
       // Notify the rest of the editor (Channels, AudioMixLog, etc.)
       // that a fresh final landed — same shape FinalPreviewV2 dispatches
       // so listeners stay in sync.

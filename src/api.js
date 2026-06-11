@@ -974,7 +974,7 @@ export const stripFinalAudio = ({ jobUuid, finalKeys } = {}) =>
     return r.json()
   })
 
-export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime, preview, previewSeconds, sourceVideoKey } = {}) =>
+export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime, preview, previewSeconds, sourceVideoKey, forceRerender } = {}) =>
   fetch(api('/post/render-final'), {
     method: 'POST',
     headers: { ...csrf(), 'Content-Type': 'application/json' },
@@ -993,6 +993,12 @@ export const renderFinal = ({ jobUuid, primaryAudioBase64, primaryAudioStartTime
       // key (e.g. a no-music variant produced by mergeNoMusic). Skips
       // the cache so the result doesn't clobber the canonical final.
       source_video_key: sourceVideoKey || undefined,
+      // force_rerender: BE skips the fingerprint cache READ even when
+      // the fingerprint would match, but STILL writes the new render
+      // to final_media_keys + final_media_fingerprint. Use for the
+      // "🎬 Render + Re-analyze" path when the cached final is
+      // suspected to be stale even though state hasn't changed.
+      force_rerender: forceRerender === true,
     }),
   }).then(async r => {
     // Defensive: handle both shapes (status-coded and 200 + body.error).
