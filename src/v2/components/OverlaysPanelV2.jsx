@@ -131,6 +131,24 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     })
   }
 
+  // Flush pending overlay save on page-unload so a font pick that
+  // happened within the last 800ms (debounce window) reaches the BE
+  // before the browser kills the tab. Operator reported font
+  // selections "aren't saving" — most likely cause was an unload
+  // before the debounce fired. flushPendingSave is sync-ish: it
+  // calls the BE PUT; the browser usually waits long enough for the
+  // request to leave the wire on a normal navigation.
+  useEffect(() => {
+    if (!jobSync?.flushPendingSave) return
+    const onUnload = () => { try { jobSync.flushPendingSave() } catch {} }
+    window.addEventListener('beforeunload', onUnload)
+    window.addEventListener('pagehide', onUnload)
+    return () => {
+      window.removeEventListener('beforeunload', onUnload)
+      window.removeEventListener('pagehide', onUnload)
+    }
+  }, [jobSync])
+
   // Seed state from the job's overlay_settings once on mount.
   useEffect(() => {
     if (!draftId) return
