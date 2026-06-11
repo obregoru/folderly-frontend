@@ -381,20 +381,27 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
       )}
 
       {slot.finalIsNewer && (
-        <div className="text-[12px] rounded p-2.5 flex items-start gap-2 bg-[#fdf2f1] border-2 border-[#c0392b] text-[#8a1f15]">
-          <div className="flex-1">
-            <div className="font-bold mb-0.5">⛔ Your final mp4 is newer than this analysis</div>
-            <div className="text-[11px] leading-snug">
-              You've rendered the final since these frames were captured. The frames + scores below reflect the OLDER mp4. Click below to re-run the analysis against your current final.
-            </div>
+        <div className="text-[12px] rounded p-2.5 bg-[#fdf2f1] border-2 border-[#c0392b] text-[#8a1f15] space-y-2">
+          <div className="font-bold">⛔ Your final mp4 is newer than this analysis</div>
+          <div className="text-[11px] leading-snug">
+            You've rendered the final since these frames were captured — they reflect the OLDER mp4. Use the buttons below to re-run against the current final. If 🔄 Re-analyze still shows old frames, the BE's final-media cache may be holding a stale fingerprint — 🎬 Render + Re-analyze forces a fresh render before reading.
           </div>
-          <button
-            type="button"
-            onClick={() => run(active)}
-            disabled={slot.analyzing}
-            className="text-[10px] font-bold py-1.5 px-2.5 bg-[#c0392b] text-white rounded border-none cursor-pointer disabled:opacity-50 whitespace-nowrap self-start"
-            title="Reads the current final mp4 and replaces these frames + scores."
-          >🔄 Re-analyze now</button>
+          <div className="flex gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => run(active)}
+              disabled={slot.analyzing || refreshing}
+              className="text-[10px] font-bold py-1.5 px-2.5 bg-[#c0392b] text-white rounded border-none cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              title="Reads the current final mp4 and replaces these frames + scores."
+            >🔄 Re-analyze now</button>
+            <button
+              type="button"
+              onClick={() => renderAndReanalyze(active)}
+              disabled={slot.analyzing || refreshing}
+              className="text-[10px] font-bold py-1.5 px-2.5 bg-[#6C5CE7] text-white rounded border-none cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              title="Re-renders the final mp4 from your current overlay / VO / caption settings then re-analyzes. Use this if plain Re-analyze keeps returning stale frames."
+            >🎬 Render + Re-analyze</button>
+          </div>
         </div>
       )}
 
@@ -440,29 +447,48 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
         </div>
       )}
 
-      {slot.analysis && (
+      {slot.analysis && slot.finalIsNewer && (
+        // Stale analysis — every score, verdict, suggestion, and
+        // timeline note below describes the OLD final's content
+        // (overlays, voiceover, captions, etc.). Don't render any of
+        // that text or the operator will read it as if it applies to
+        // the current 11s mp4 they just exported. Replace the entire
+        // analysis block with a clear placeholder + re-analyze cta.
+        // Frames are still shown (dimmed) further down so the
+        // operator can compare against what they had previously.
+        <div className="border-2 border-[#c0392b] rounded p-3 bg-[#fdf2f1] space-y-2">
+          <div className="text-[11px] font-bold text-[#8a1f15] uppercase tracking-wide text-center">Previous analysis hidden</div>
+          <div className="text-[11px] text-[#8a1f15] leading-snug text-center">
+            The saved score, suggestions, verdict, and timeline notes describe
+            an earlier export — not your current final. They're being hidden
+            so they don't mislead the next decision you make.
+          </div>
+          <div className="flex gap-1.5 flex-wrap justify-center pt-1">
+            <button
+              type="button"
+              onClick={() => run(active)}
+              disabled={slot.analyzing || refreshing}
+              className="text-[10px] font-bold py-1.5 px-2.5 bg-[#c0392b] text-white rounded border-none cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              title="Reads the current final mp4 and replaces this hidden analysis with a fresh one."
+            >🔄 Re-analyze now</button>
+            <button
+              type="button"
+              onClick={() => renderAndReanalyze(active)}
+              disabled={slot.analyzing || refreshing}
+              className="text-[10px] font-bold py-1.5 px-2.5 bg-[#6C5CE7] text-white rounded border-none cursor-pointer disabled:opacity-50 whitespace-nowrap"
+              title="Re-renders the final mp4 from your current overlay / VO / caption settings then re-analyzes. Use this if plain Re-analyze keeps returning stale frames."
+            >🎬 Render + Re-analyze</button>
+          </div>
+        </div>
+      )}
+      {slot.analysis && !slot.finalIsNewer && (
         <>
-          {/* When the final mp4 has been re-rendered since this
-              analysis was captured, dim + label every piece of data
-              below so the operator can't mistake the OLD scores /
-              duration / frames for the current video. The actionable
-              red "Re-analyze now" banner sits above (line ~383). */}
-          <div className={`border border-[#e5e5e5] rounded p-2 bg-[#fafafa] space-y-2 ${slot.finalIsNewer ? 'opacity-60 grayscale relative' : ''}`}>
-            {slot.finalIsNewer && (
-              <div className="absolute top-1 right-1 text-[9px] font-bold text-[#c0392b] bg-white border border-[#c0392b] rounded px-1.5 py-0.5 uppercase tracking-wide">
-                Outdated
-              </div>
-            )}
+          <div className="border border-[#e5e5e5] rounded p-2 bg-[#fafafa] space-y-2">
             <div className="flex items-baseline gap-3 flex-wrap">
               <div className="text-[24px] font-bold text-[#6C5CE7] leading-none">{slot.analysis.overall_score}/10</div>
               <div className="text-[11px] text-muted flex-1">
                 {slot.meta?.duration_sec != null && (
-                  <>
-                    {slot.finalIsNewer
-                      ? <><span className="line-through">{slot.meta.duration_sec.toFixed(1)}s</span> <span className="text-[#c0392b] font-medium">(stale — current final differs)</span></>
-                      : <>{slot.meta.duration_sec.toFixed(1)}s · {slot.meta.frames_used} frames · {slot.meta.source_kind}</>
-                    }
-                  </>
+                  <>{slot.meta.duration_sec.toFixed(1)}s · {slot.meta.frames_used} frames · {slot.meta.source_kind}</>
                 )}
               </div>
             </div>
