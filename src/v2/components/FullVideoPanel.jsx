@@ -143,6 +143,7 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
                 duration_sec: r.duration_sec,
                 frames_used: r.frames_used,
                 source_kind: r.source_kind,
+                source_filename: r.source_filename || null,
                 analyzedAt: r.analyzedAt,
                 finalRenderedAt: r.final_rendered_at || null,
               },
@@ -201,6 +202,7 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
           duration_sec: r.duration_sec,
           frames_used: r.frames_used,
           source_kind: r.source_kind,
+          source_filename: r.source_filename || null,
           analyzedAt: new Date().toISOString(),
         },
         thumbs: Array.isArray(r.frame_thumbs) ? r.frame_thumbs : [],
@@ -249,6 +251,7 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
           duration_sec: r.duration_sec,
           frames_used: r.frames_used,
           source_kind: r.source_kind,
+          source_filename: r.source_filename || null,
           analyzedAt: new Date().toISOString(),
         },
         thumbs: Array.isArray(r.frame_thumbs) ? r.frame_thumbs : [],
@@ -500,6 +503,16 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
                 )}
               </div>
             </div>
+            {slot.meta?.source_filename && (
+              // Surfaces which mp4 storage key the analyzer actually
+              // read. When the operator suspects the analysis is
+              // describing a stale video, this line tells them
+              // whether the BE picked up the fresh file they
+              // expected or is still pointing at an older render.
+              <div className="text-[9px] text-muted font-mono truncate" title={slot.meta.source_filename}>
+                📁 {slot.meta.source_filename}
+              </div>
+            )}
             {slot.analysis.verdict && (
               <div className="text-[12px] font-medium text-ink">{slot.analysis.verdict}</div>
             )}
