@@ -158,7 +158,14 @@ export default function EditorV2({
         <div style={{ display: safeActiveTool === 'voiceover' ? 'block' : 'none' }}>
           <VoiceoverPanelV2 previewRef={previewRef} settings={settings} jobSync={jobSync} draftId={draftId} />
         </div>
-        {safeActiveTool === 'overlays' && <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} previewRef={previewRef} />}
+        {/* Overlays panel keeps mounted (display toggle) — every tab
+            switch used to unmount + remount + re-fetch getJob, which
+            the operator perceived as "fields take 5s to populate"
+            because each cold mount re-hydrated state from scratch.
+            Same display-toggle pattern Voiceover uses above. */}
+        <div style={{ display: safeActiveTool === 'overlays' ? 'block' : 'none' }}>
+          <OverlaysPanelV2 jobSync={jobSync} draftId={draftId} previewRef={previewRef} />
+        </div>
         {safeActiveTool === 'music' && <MusicPanelV2 draftId={draftId} jobSync={jobSync} />}
         {safeActiveTool === 'captions' && <PostTextPanelV2 jobSync={jobSync} draftId={draftId} files={files} settings={settings} />}
         {safeActiveTool === 'channels' && <ChannelsPanelV2 draftId={draftId} jobSync={jobSync} files={files} settings={settings} />}
