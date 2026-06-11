@@ -442,12 +442,27 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
 
       {slot.analysis && (
         <>
-          <div className="border border-[#e5e5e5] rounded p-2 bg-[#fafafa] space-y-2">
+          {/* When the final mp4 has been re-rendered since this
+              analysis was captured, dim + label every piece of data
+              below so the operator can't mistake the OLD scores /
+              duration / frames for the current video. The actionable
+              red "Re-analyze now" banner sits above (line ~383). */}
+          <div className={`border border-[#e5e5e5] rounded p-2 bg-[#fafafa] space-y-2 ${slot.finalIsNewer ? 'opacity-60 grayscale relative' : ''}`}>
+            {slot.finalIsNewer && (
+              <div className="absolute top-1 right-1 text-[9px] font-bold text-[#c0392b] bg-white border border-[#c0392b] rounded px-1.5 py-0.5 uppercase tracking-wide">
+                Outdated
+              </div>
+            )}
             <div className="flex items-baseline gap-3 flex-wrap">
               <div className="text-[24px] font-bold text-[#6C5CE7] leading-none">{slot.analysis.overall_score}/10</div>
               <div className="text-[11px] text-muted flex-1">
                 {slot.meta?.duration_sec != null && (
-                  <>{slot.meta.duration_sec.toFixed(1)}s · {slot.meta.frames_used} frames · {slot.meta.source_kind}</>
+                  <>
+                    {slot.finalIsNewer
+                      ? <><span className="line-through">{slot.meta.duration_sec.toFixed(1)}s</span> <span className="text-[#c0392b] font-medium">(stale — current final differs)</span></>
+                      : <>{slot.meta.duration_sec.toFixed(1)}s · {slot.meta.frames_used} frames · {slot.meta.source_kind}</>
+                    }
+                  </>
                 )}
               </div>
             </div>
@@ -526,10 +541,12 @@ export default function FullVideoPanel({ draftId, jobSync, previewRef }) {
           )}
 
           {slot.thumbs.length > 0 && (
-            <details className="border border-[#e5e5e5] rounded p-2" open>
+            <details className={`border border-[#e5e5e5] rounded p-2 ${slot.finalIsNewer ? 'opacity-60 grayscale' : ''}`} open>
               <summary className="text-[10px] font-medium cursor-pointer text-muted uppercase tracking-wide flex items-center gap-2">
                 <span>Frames the AI reviewed ({slot.thumbs.length})</span>
-                <span className="text-[8px] text-[#2D9A5E] font-bold normal-case tracking-normal">SAVED</span>
+                {slot.finalIsNewer
+                  ? <span className="text-[8px] text-[#c0392b] font-bold normal-case tracking-normal">OUTDATED — from a previous final</span>
+                  : <span className="text-[8px] text-[#2D9A5E] font-bold normal-case tracking-normal">SAVED</span>}
                 <span className="text-[9px] text-muted normal-case tracking-normal italic">shift+click a frame to seek preview, click to enlarge</span>
               </summary>
               <div className="mt-2 grid grid-cols-4 gap-1">
