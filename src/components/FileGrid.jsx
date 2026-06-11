@@ -1515,7 +1515,13 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                       min={-100}
                       max={100}
                       step={1}
-                      defaultValue={value}
+                      // Controlled — was `defaultValue` which is one-shot at
+                      // mount. After a reset (item[prop] = 0) the slider
+                      // thumb would stay where the operator last dragged it
+                      // even though the displayed value re-read as "+0",
+                      // making the panel look broken. Now the thumb tracks
+                      // item[prop] on every re-render.
+                      value={value}
                       onChange={(ev) => {
                         const v = Number(ev.target.value) || 0
                         item[prop] = v
