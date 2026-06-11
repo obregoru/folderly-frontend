@@ -1396,10 +1396,16 @@ function formatJobStateForProducer(job) {
   const openingDur = Number(overlay.openingDuration) || 3
   const middleDur = Number(overlay.middleDuration) || 3
   const closingDur = Number(overlay.closingDuration) || 3
+  const earlyStart = Number(overlay.earlyMiddleStartTime)
+  const earlyDur   = Number(overlay.earlyMiddleDuration) || 3
+  const lateStart  = Number(overlay.lateMiddleStartTime)
+  const lateDur    = Number(overlay.lateMiddleDuration)  || 3
   const overlayLines = []
-  if (overlay.openingText) overlayLines.push(`Opening (0 → ${fmtSec(openingDur)}): "${overlay.openingText}"`)
-  if (overlay.middleText) overlayLines.push(`Middle  (${Number.isFinite(middleStart) ? fmtSec(middleStart) : '?'} → ${Number.isFinite(middleStart) ? fmtSec(middleStart + middleDur) : '?'}): "${overlay.middleText}"`)
-  if (overlay.closingText) overlayLines.push(`Closing (${fmtSec(closingDur)} before end → end): "${overlay.closingText}"`)
+  if (overlay.openingText) overlayLines.push(`Opening      (0 → ${fmtSec(openingDur)}): "${overlay.openingText}"`)
+  if (overlay.earlyMiddleText) overlayLines.push(`EarlyMiddle  (${Number.isFinite(earlyStart) ? fmtSec(earlyStart) : '?'} → ${Number.isFinite(earlyStart) ? fmtSec(earlyStart + earlyDur) : '?'}): "${overlay.earlyMiddleText}"`)
+  if (overlay.middleText) overlayLines.push(`Middle       (${Number.isFinite(middleStart) ? fmtSec(middleStart) : '?'} → ${Number.isFinite(middleStart) ? fmtSec(middleStart + middleDur) : '?'}): "${overlay.middleText}"`)
+  if (overlay.lateMiddleText) overlayLines.push(`LateMiddle   (${Number.isFinite(lateStart) ? fmtSec(lateStart) : '?'} → ${Number.isFinite(lateStart) ? fmtSec(lateStart + lateDur) : '?'}): "${overlay.lateMiddleText}"`)
+  if (overlay.closingText) overlayLines.push(`Closing      (${fmtSec(closingDur)} before end → end): "${overlay.closingText}"`)
   if (overlayLines.length > 0) {
     lines.push('=== On-screen overlays ===')
     overlayLines.forEach(l => lines.push(l))
@@ -1444,7 +1450,7 @@ function formatJobStateForProducer(job) {
   // next move. We only emit this section when we know the total
   // length (totalEstSec) AND we have something to compare against
   // (timed VO segments, or any overlay slot used).
-  if (totalEstSec > 0.1 && (timedSegments.length > 0 || overlay.openingText || overlay.middleText || overlay.closingText)) {
+  if (totalEstSec > 0.1 && (timedSegments.length > 0 || overlay.openingText || overlay.middleText || overlay.closingText || overlay.earlyMiddleText || overlay.lateMiddleText)) {
     lines.push('=== Coverage & gaps ===')
     lines.push(`Estimated total length: ~${fmt2(totalEstSec)}s`)
     // Voiceover coverage (timed segments only — primary VO plays
@@ -1497,7 +1503,9 @@ function formatJobStateForProducer(job) {
     // propose copy for them.
     const overlayEmpty = []
     if (!overlay.openingText) overlayEmpty.push('opening')
+    if (!overlay.earlyMiddleText) overlayEmpty.push('earlyMiddle')
     if (!overlay.middleText) overlayEmpty.push('middle')
+    if (!overlay.lateMiddleText) overlayEmpty.push('lateMiddle')
     if (!overlay.closingText) overlayEmpty.push('closing')
     if (overlayEmpty.length === 0) {
       lines.push('All three overlay slots are filled — only suggest changes if a slot is genuinely weak.')

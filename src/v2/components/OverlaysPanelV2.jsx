@@ -39,16 +39,17 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   const [middleDuration, setMiddleDuration] = useState(3)
   const [closingDuration, setClosingDuration] = useState(3)
   // Two extra "middle-like" slots — earlyMiddle (between opening and
-  // middle) and lateMiddle (between middle and closing). Same shape
-  // as middle (text + startTime + duration). They inherit all style
-  // from the default block (no per-slot style overrides for the new
-  // slots; the operator can tweak the default if they need to).
+  // middle) and lateMiddle (between middle and closing). Full parity
+  // with the three main slots now: rich-text runs[] is the source of
+  // truth and the *Text field is a flat-fallback kept in sync.
   const [earlyMiddleText, setEarlyMiddleText] = useState('')
   const [earlyMiddleStartTime, setEarlyMiddleStartTime] = useState(2)
   const [earlyMiddleDuration, setEarlyMiddleDuration] = useState(3)
+  const [earlyMiddleRuns, setEarlyMiddleRuns] = useState(null)
   const [lateMiddleText, setLateMiddleText] = useState('')
   const [lateMiddleStartTime, setLateMiddleStartTime] = useState(8)
   const [lateMiddleDuration, setLateMiddleDuration] = useState(3)
+  const [lateMiddleRuns, setLateMiddleRuns] = useState(null)
   const [fontSize, setFontSize] = useState(48)
   const [fontFamily, setFontFamily] = useState('sans-serif')
   const [fontColor, setFontColor] = useState('#ffffff')
@@ -87,7 +88,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   // box has the same shape as the panel-level boxConfig.
   // halo: boolean — overrides the panel-level haloEnabled. true =
   // halo on, false = halo off, undefined = inherit panel default.
-  const [slotStyles, setSlotStyles] = useState({ opening: {}, middle: {}, closing: {} })
+  const [slotStyles, setSlotStyles] = useState({ opening: {}, earlyMiddle: {}, middle: {}, lateMiddle: {}, closing: {} })
 
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -150,9 +151,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         if (o.earlyMiddleText) setEarlyMiddleText(o.earlyMiddleText)
         if (o.earlyMiddleStartTime != null) setEarlyMiddleStartTime(o.earlyMiddleStartTime)
         if (o.earlyMiddleDuration) setEarlyMiddleDuration(o.earlyMiddleDuration)
+        if (Array.isArray(o.earlyMiddleRuns) && o.earlyMiddleRuns.length > 0) setEarlyMiddleRuns(o.earlyMiddleRuns)
+        else if (o.earlyMiddleText) setEarlyMiddleRuns([{ text: o.earlyMiddleText }])
         if (o.lateMiddleText) setLateMiddleText(o.lateMiddleText)
         if (o.lateMiddleStartTime != null) setLateMiddleStartTime(o.lateMiddleStartTime)
         if (o.lateMiddleDuration) setLateMiddleDuration(o.lateMiddleDuration)
+        if (Array.isArray(o.lateMiddleRuns) && o.lateMiddleRuns.length > 0) setLateMiddleRuns(o.lateMiddleRuns)
+        else if (o.lateMiddleText) setLateMiddleRuns([{ text: o.lateMiddleText }])
         if (o.storyFontSize) setFontSize(o.storyFontSize)
         if (o.storyFontFamily) setFontFamily(o.storyFontFamily)
         if (o.storyFontColor) setFontColor(o.storyFontColor)
@@ -201,9 +206,11 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           return out
         }
         setSlotStyles({
-          opening: buildSlotStyle('opening'),
-          middle:  buildSlotStyle('middle'),
-          closing: buildSlotStyle('closing'),
+          opening:     buildSlotStyle('opening'),
+          earlyMiddle: buildSlotStyle('earlyMiddle'),
+          middle:      buildSlotStyle('middle'),
+          lateMiddle:  buildSlotStyle('lateMiddle'),
+          closing:     buildSlotStyle('closing'),
         })
 
         setLoaded(true)
@@ -235,6 +242,18 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     if (t !== closingText) setClosingText(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closingRuns, loaded])
+  useEffect(() => {
+    if (!loaded) return
+    const t = earlyMiddleRuns?.length ? runsToFlatText(earlyMiddleRuns) : ''
+    if (t !== earlyMiddleText) setEarlyMiddleText(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earlyMiddleRuns, loaded])
+  useEffect(() => {
+    if (!loaded) return
+    const t = lateMiddleRuns?.length ? runsToFlatText(lateMiddleRuns) : ''
+    if (t !== lateMiddleText) setLateMiddleText(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lateMiddleRuns, loaded])
 
   // Debounced save on any change — same pattern as legacy app.
   useEffect(() => {
@@ -254,11 +273,13 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       middleRuns:  middleRuns?.length  ? middleRuns  : null,
       closingRuns: closingRuns?.length ? closingRuns : null,
       openingDuration, middleStartTime, middleDuration, closingDuration,
-      // earlyMiddle + lateMiddle — text-only slots that mirror
-      // middle's timing model. Empty text effectively disables the
-      // slot (the BE skips cues where text is blank).
+      // earlyMiddle + lateMiddle — full-rich slots that mirror
+      // middle's timing + style model. Empty text effectively
+      // disables the slot (the BE skips cues where text is blank).
       earlyMiddleText, earlyMiddleStartTime: Number(earlyMiddleStartTime) || 0, earlyMiddleDuration: Number(earlyMiddleDuration) || 3,
       lateMiddleText,  lateMiddleStartTime:  Number(lateMiddleStartTime)  || 0, lateMiddleDuration:  Number(lateMiddleDuration)  || 3,
+      earlyMiddleRuns: earlyMiddleRuns?.length ? earlyMiddleRuns : null,
+      lateMiddleRuns:  lateMiddleRuns?.length  ? lateMiddleRuns  : null,
       storyFontSize: Number(fontSize) || 48,
       storyFontFamily: fontFamily,
       storyFontColor: fontColor,
@@ -277,36 +298,48 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
       // export pipeline reads these directly when the per-slot key
       // is set; otherwise it falls back to the default of the same
       // name. Each object is sparse: missing fields = inherit.
-      openingStyle: slotStyles.opening || {},
-      middleStyle:  slotStyles.middle  || {},
-      closingStyle: slotStyles.closing || {},
+      openingStyle:     slotStyles.opening     || {},
+      earlyMiddleStyle: slotStyles.earlyMiddle || {},
+      middleStyle:      slotStyles.middle      || {},
+      lateMiddleStyle:  slotStyles.lateMiddle  || {},
+      closingStyle:     slotStyles.closing     || {},
 
       // Legacy mirror — old BE/FE consumers read these flat keys.
       // Keep them in sync so a deploy carrying the new code can
       // still serve a session running the old code (and vice-versa).
       // null = "no override, use overlayYPct / storyFontColor / size".
       openingYPct:      slotStyles.opening?.yPct      != null ? Number(slotStyles.opening.yPct)      : null,
+      earlyMiddleYPct:  slotStyles.earlyMiddle?.yPct  != null ? Number(slotStyles.earlyMiddle.yPct)  : null,
       middleYPct:       slotStyles.middle?.yPct       != null ? Number(slotStyles.middle.yPct)       : null,
+      lateMiddleYPct:   slotStyles.lateMiddle?.yPct   != null ? Number(slotStyles.lateMiddle.yPct)   : null,
       closingYPct:      slotStyles.closing?.yPct      != null ? Number(slotStyles.closing.yPct)      : null,
-      openingFontColor: slotStyles.opening?.fontColor || null,
-      middleFontColor:  slotStyles.middle?.fontColor  || null,
-      closingFontColor: slotStyles.closing?.fontColor || null,
-      openingFontSize:  slotStyles.opening?.fontSize  != null ? Number(slotStyles.opening.fontSize)  : null,
-      middleFontSize:   slotStyles.middle?.fontSize   != null ? Number(slotStyles.middle.fontSize)   : null,
-      closingFontSize:  slotStyles.closing?.fontSize  != null ? Number(slotStyles.closing.fontSize)  : null,
+      openingFontColor:     slotStyles.opening?.fontColor     || null,
+      earlyMiddleFontColor: slotStyles.earlyMiddle?.fontColor || null,
+      middleFontColor:      slotStyles.middle?.fontColor      || null,
+      lateMiddleFontColor:  slotStyles.lateMiddle?.fontColor  || null,
+      closingFontColor:     slotStyles.closing?.fontColor     || null,
+      openingFontSize:      slotStyles.opening?.fontSize      != null ? Number(slotStyles.opening.fontSize)      : null,
+      earlyMiddleFontSize:  slotStyles.earlyMiddle?.fontSize  != null ? Number(slotStyles.earlyMiddle.fontSize)  : null,
+      middleFontSize:       slotStyles.middle?.fontSize       != null ? Number(slotStyles.middle.fontSize)       : null,
+      lateMiddleFontSize:   slotStyles.lateMiddle?.fontSize   != null ? Number(slotStyles.lateMiddle.fontSize)   : null,
+      closingFontSize:      slotStyles.closing?.fontSize      != null ? Number(slotStyles.closing.fontSize)      : null,
       // Flat per-slot box keys — mirrors slotStyles.{slot}.box so the
       // FE preview's OverlayText (reads style?.{slot}Box) and the BE
       // render-final route (reads overlay.{slot}Box) get the box
       // override without having to peek into the nested style obj.
-      openingBox: slotStyles.opening?.box || null,
-      middleBox:  slotStyles.middle?.box  || null,
-      closingBox: slotStyles.closing?.box || null,
+      openingBox:     slotStyles.opening?.box     || null,
+      earlyMiddleBox: slotStyles.earlyMiddle?.box || null,
+      middleBox:      slotStyles.middle?.box      || null,
+      lateMiddleBox:  slotStyles.lateMiddle?.box  || null,
+      closingBox:     slotStyles.closing?.box     || null,
       // Per-slot halo override. true/false explicit; undefined =
       // "inherit panel haloEnabled" (so the FE preview can fall back
       // when reading style.{slot}Halo ?? style.storyHalo).
-      openingHalo: typeof slotStyles.opening?.halo === 'boolean' ? slotStyles.opening.halo : null,
-      middleHalo:  typeof slotStyles.middle?.halo  === 'boolean' ? slotStyles.middle.halo  : null,
-      closingHalo: typeof slotStyles.closing?.halo === 'boolean' ? slotStyles.closing.halo : null,
+      openingHalo:     typeof slotStyles.opening?.halo     === 'boolean' ? slotStyles.opening.halo     : null,
+      earlyMiddleHalo: typeof slotStyles.earlyMiddle?.halo === 'boolean' ? slotStyles.earlyMiddle.halo : null,
+      middleHalo:      typeof slotStyles.middle?.halo      === 'boolean' ? slotStyles.middle.halo      : null,
+      lateMiddleHalo:  typeof slotStyles.lateMiddle?.halo  === 'boolean' ? slotStyles.lateMiddle.halo  : null,
+      closingHalo:     typeof slotStyles.closing?.halo     === 'boolean' ? slotStyles.closing.halo     : null,
     }
     jobSync.saveOverlaySettings?.(payload)
     // Broadcast to FinalPreviewV2 so the overlay preview updates live.
@@ -320,7 +353,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
     const t = setTimeout(() => setSaved(false), 1500)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, earlyMiddleText, earlyMiddleStartTime, earlyMiddleDuration, lateMiddleText, lateMiddleStartTime, lateMiddleDuration, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, boxConfig, haloEnabled, slotStyles, loaded])
+  }, [openingText, middleText, closingText, openingRuns, middleRuns, closingRuns, openingDuration, middleStartTime, middleDuration, closingDuration, earlyMiddleText, earlyMiddleStartTime, earlyMiddleDuration, earlyMiddleRuns, lateMiddleText, lateMiddleStartTime, lateMiddleDuration, lateMiddleRuns, fontSize, fontFamily, fontColor, fontOutline, outlineWidth, lineHeight, letterSpacing, overlayYPct, boxConfig, haloEnabled, slotStyles, loaded])
 
   // Wipe every per-slot override so all three slots inherit the
   // current default style. Used by the explicit "Apply to all
@@ -330,7 +363,7 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   // empty-object form which serializes to the same shape as a fresh
   // job so no orphan keys survive.
   const applyDefaultsToAllSlots = () => {
-    setSlotStyles({ opening: {}, middle: {}, closing: {} })
+    setSlotStyles({ opening: {}, earlyMiddle: {}, middle: {}, lateMiddle: {}, closing: {} })
   }
 
   // Scrub the shared FinalPreview <video> so the user can see their
@@ -523,11 +556,11 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
           sees on the timeline. */}
       <div className="space-y-2">
         {[
-          { kind: 'rich',  key: 'opening',     label: 'Opening (first 0-2s)',                          runs: openingRuns, setRuns: setOpeningRuns, placeholder: 'POV: your birthday just got a signature scent' },
-          { kind: 'plain', key: 'earlyMiddle', label: 'Early middle (between opening and middle)',     text: earlyMiddleText, setText: setEarlyMiddleText, start: earlyMiddleStartTime, setStart: setEarlyMiddleStartTime, dur: earlyMiddleDuration, setDur: setEarlyMiddleDuration, placeholder: 'Quick reinforcement after the hook' },
-          { kind: 'rich',  key: 'middle',      label: 'Middle (optional)',                              runs: middleRuns,  setRuns: setMiddleRuns,  placeholder: 'You made it together' },
-          { kind: 'plain', key: 'lateMiddle',  label: 'Late middle (between middle and closing)',      text: lateMiddleText,  setText: setLateMiddleText,  start: lateMiddleStartTime,  setStart: setLateMiddleStartTime,  dur: lateMiddleDuration,  setDur: setLateMiddleDuration,  placeholder: 'Late beat before the close' },
-          { kind: 'rich',  key: 'closing',     label: 'Closing (last 1-2s)',                            runs: closingRuns, setRuns: setClosingRuns, placeholder: 'Only at Poppy & Thyme' },
+          { kind: 'rich', key: 'opening',     label: 'Opening (first 0-2s)',                     runs: openingRuns,     setRuns: setOpeningRuns,     placeholder: 'POV: your birthday just got a signature scent' },
+          { kind: 'rich', key: 'earlyMiddle', label: 'Early middle (between opening and middle)', runs: earlyMiddleRuns, setRuns: setEarlyMiddleRuns, placeholder: 'Quick reinforcement after the hook' },
+          { kind: 'rich', key: 'middle',      label: 'Middle (optional)',                         runs: middleRuns,      setRuns: setMiddleRuns,      placeholder: 'You made it together' },
+          { kind: 'rich', key: 'lateMiddle',  label: 'Late middle (between middle and closing)',  runs: lateMiddleRuns,  setRuns: setLateMiddleRuns,  placeholder: 'Late beat before the close' },
+          { kind: 'rich', key: 'closing',     label: 'Closing (last 1-2s)',                       runs: closingRuns,     setRuns: setClosingRuns,     placeholder: 'Only at Poppy & Thyme' },
         ].map(slot => {
           if (slot.kind === 'plain') {
             // Plain text slot — earlyMiddle / lateMiddle. Mirrors
@@ -573,25 +606,58 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
               />
               <ResetColorsLink runs={slot.runs} setRuns={slot.setRuns} />
               <div className="flex items-center gap-2 mt-1 text-[9px] text-muted">
-                {slot.key === 'middle' ? (
-                  <>
-                    <label>Start at:</label>
-                    <DecimalInput value={middleStartTime} onChange={setMiddleStartTime} />
-                    <span>s · </span>
-                    <label>Duration:</label>
-                    <DecimalInput value={middleDuration} onChange={setMiddleDuration} />
-                    <span>s</span>
-                  </>
-                ) : (
-                  <>
-                    <label>Duration:</label>
-                    <DecimalInput
-                      value={slot.key === 'opening' ? openingDuration : closingDuration}
-                      onChange={slot.key === 'opening' ? setOpeningDuration : setClosingDuration}
-                    />
-                    <span>s</span>
-                  </>
-                )}
+                {(() => {
+                  // Middle-like slots get Start + Duration; opening/
+                  // closing get Duration only (their position is
+                  // implicit — opening at 0, closing N seconds before
+                  // end).
+                  if (slot.key === 'middle') {
+                    return (
+                      <>
+                        <label>Start at:</label>
+                        <DecimalInput value={middleStartTime} onChange={setMiddleStartTime} />
+                        <span>s · </span>
+                        <label>Duration:</label>
+                        <DecimalInput value={middleDuration} onChange={setMiddleDuration} />
+                        <span>s</span>
+                      </>
+                    )
+                  }
+                  if (slot.key === 'earlyMiddle') {
+                    return (
+                      <>
+                        <label>Start at:</label>
+                        <DecimalInput value={earlyMiddleStartTime} onChange={setEarlyMiddleStartTime} />
+                        <span>s · </span>
+                        <label>Duration:</label>
+                        <DecimalInput value={earlyMiddleDuration} onChange={setEarlyMiddleDuration} />
+                        <span>s</span>
+                      </>
+                    )
+                  }
+                  if (slot.key === 'lateMiddle') {
+                    return (
+                      <>
+                        <label>Start at:</label>
+                        <DecimalInput value={lateMiddleStartTime} onChange={setLateMiddleStartTime} />
+                        <span>s · </span>
+                        <label>Duration:</label>
+                        <DecimalInput value={lateMiddleDuration} onChange={setLateMiddleDuration} />
+                        <span>s</span>
+                      </>
+                    )
+                  }
+                  return (
+                    <>
+                      <label>Duration:</label>
+                      <DecimalInput
+                        value={slot.key === 'opening' ? openingDuration : closingDuration}
+                        onChange={slot.key === 'opening' ? setOpeningDuration : setClosingDuration}
+                      />
+                      <span>s</span>
+                    </>
+                  )
+                })()}
               </div>
               {/* Always-visible per-slot Y position. Lives inline with
                   the slot's duration / text editor — earlier the only
