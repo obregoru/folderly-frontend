@@ -264,13 +264,13 @@ const FinalPreviewV2 = forwardRef(function FinalPreviewV2({ files, restoredMerge
     // setting wins on overlap. Empty text disables the slot.
     const emStart = Number(overlays.earlyMiddleStartTime) || 0
     const emDur   = Number(overlays.earlyMiddleDuration)  || 0
-    if (overlays.earlyMiddleText && String(overlays.earlyMiddleText).trim() && t >= emStart && t < emStart + emDur) {
-      return { text: overlays.earlyMiddleText, runs: null, slot: 'earlyMiddle' }
+    if ((overlays.earlyMiddleText || overlays.earlyMiddleRuns?.length) && t >= emStart && t < emStart + emDur) {
+      return { text: overlays.earlyMiddleText, runs: overlays.earlyMiddleRuns || null, slot: 'earlyMiddle' }
     }
     const lmStart = Number(overlays.lateMiddleStartTime) || 0
     const lmDur   = Number(overlays.lateMiddleDuration)  || 0
-    if (overlays.lateMiddleText && String(overlays.lateMiddleText).trim() && t >= lmStart && t < lmStart + lmDur) {
-      return { text: overlays.lateMiddleText, runs: null, slot: 'lateMiddle' }
+    if ((overlays.lateMiddleText || overlays.lateMiddleRuns?.length) && t >= lmStart && t < lmStart + lmDur) {
+      return { text: overlays.lateMiddleText, runs: overlays.lateMiddleRuns || null, slot: 'lateMiddle' }
     }
     if ((overlays.closingText || overlays.closingRuns?.length) && duration > 0 && t >= duration - closeDur) {
       return { text: overlays.closingText, runs: overlays.closingRuns || null, slot: 'closing' }

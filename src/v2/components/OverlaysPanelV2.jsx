@@ -2,6 +2,12 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import RichTextEditor from './RichTextEditor'
 import { runsToFlatText } from './RichRunsEditor'
 import WatermarkSection from './WatermarkSection'
+// Static import — the panel's hydration useEffect was using
+// `import('../../api')` which forces the api chunk to download
+// + parse before getJob() can fire. On a cold mount that adds a
+// noticeable delay before the overlay text/duration fields populate.
+// Static import means the chunk is already in the main bundle.
+import * as api from '../../api'
 
 // Lazy-load the font picker chunk so the 52-font catalog isn't pulled
 // on initial panel mount — only when the user actually opens the
@@ -128,9 +134,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
   // Seed state from the job's overlay_settings once on mount.
   useEffect(() => {
     if (!draftId) return
-    import('../../api').then(({ getJob }) => {
-      getJob(draftId).then(job => {
-        const o = job?.overlay_settings || {}
+    let cancelled = false
+    api.getJob(draftId).then(job => {
+      if (cancelled) return
+      const o = job?.overlay_settings || {}
         if (o.openingText) setOpeningText(o.openingText)
         if (o.middleText) setMiddleText(o.middleText)
         if (o.closingText) setClosingText(o.closingText)
@@ -214,8 +221,10 @@ export default function OverlaysPanelV2({ jobSync, draftId, previewRef }) {
         })
 
         setLoaded(true)
-      }).catch(() => setLoaded(true))
+    }).catch(() => {
+      if (!cancelled) setLoaded(true)
     })
+    return () => { cancelled = true }
   }, [draftId])
 
   // Keep the *Text fields in sync with the runs[] arrays so the
