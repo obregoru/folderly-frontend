@@ -212,6 +212,25 @@ export const createCampaign = (source_text) =>
     if (!r.ok || body?.error) throw new Error(body?.error || `createCampaign failed (${r.status})`)
     return body
   })
+// List past campaign briefs for this tenant (newest first).
+// Lightweight payload — title, tagline, created_at, job_count.
+// Full brief text comes back via getCampaign(id).
+export const listCampaigns = (limit) =>
+  fetch(api('/campaigns' + (limit ? `?limit=${encodeURIComponent(limit)}` : '')), { credentials: 'include' })
+    .then(async r => {
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok || body?.error) throw new Error(body?.error || `listCampaigns failed (${r.status})`)
+      return Array.isArray(body?.campaigns) ? body.campaigns : []
+    })
+// Full campaign details — source_text + linked jobs. Used by the
+// "📚 Past briefs" detail view.
+export const getCampaign = (id) =>
+  fetch(api(`/campaigns/${encodeURIComponent(id)}`), { credentials: 'include' })
+    .then(async r => {
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok || body?.error) throw new Error(body?.error || `getCampaign failed (${r.status})`)
+      return body
+    })
 
 // On-demand re-encode of an uploaded video file. Used to shrink
 // Sony A6500 / XAVC / GoPro clips in the 20-47 MB range that

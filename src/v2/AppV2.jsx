@@ -9,6 +9,7 @@ import SettingsDrawerV2 from './components/SettingsDrawerV2'
 import JobAiLogModal from './components/JobAiLogModal'
 import TenantSwitcher from './components/TenantSwitcher'
 import CampaignBuilderModal from '../components/CampaignBuilderModal'
+import PastBriefsModal from '../components/PastBriefsModal'
 
 // Build metadata injected at compile time by Vite (see vite.config.js).
 // Aliased here so JSX can reference simpler names. typeof guard means
@@ -44,6 +45,7 @@ export default function AppV2() {
   // drafts list. campaign_id is set server-side for traceability;
   // the operator never sees a campaign UI.
   const [campaignModalOpen, setCampaignModalOpen] = useState(false)
+  const [pastBriefsOpen, setPastBriefsOpen] = useState(false)
   // Draft-name editing state — declared up here so the hooks always run
   // in the same order regardless of auth-checked / user branches below.
   // Moving them after the early returns triggers React error #310
@@ -673,6 +675,12 @@ export default function AppV2() {
           className="text-[10px] text-[#2D9A5E] border border-[#2D9A5E] rounded py-1 px-2 bg-[#f0faf4] cursor-pointer flex-shrink-0 whitespace-nowrap"
           title="Paste a multi-video campaign brief and fan out into N standalone draft jobs. The jobs land in the regular drafts list — there is no campaign view to navigate."
         >✨ Brief</button>
+        <button
+          type="button"
+          onClick={() => setPastBriefsOpen(true)}
+          className="text-[10px] text-[#2D9A5E] border border-[#2D9A5E]/40 rounded py-1 px-2 bg-white cursor-pointer flex-shrink-0 whitespace-nowrap"
+          title="Look at past campaign briefs you've pasted. Read the source brief, copy it, and jump to any draft job it spawned."
+        >📚 Past briefs</button>
         <a
           href="/content-studio"
           target="_blank"
@@ -885,6 +893,17 @@ export default function AppV2() {
         draftId={activeDraftId}
         onClose={() => setAiLogOpen(false)}
       />
+      {pastBriefsOpen && (
+        <PastBriefsModal
+          onClose={() => setPastBriefsOpen(false)}
+          onJumpToDraft={(jobUuid) => {
+            // Navigate the editor to the chosen draft. Mirrors the
+            // same setActiveDraftId pattern the drafts list uses.
+            setMode('drafts')
+            setActiveDraftId(jobUuid)
+          }}
+        />
+      )}
       {campaignModalOpen && (
         <CampaignBuilderModal
           onClose={() => setCampaignModalOpen(false)}
