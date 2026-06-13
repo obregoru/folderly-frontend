@@ -1454,6 +1454,67 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                     >{isAdjusted ? '🎨•' : '🎨'}</button>
                   )
                 })()}
+                {/* Per-clip TRANSITION-IN — controls the boundary
+                    FROM the previous clip INTO this one. Single
+                    select packs type + duration into one option so
+                    the tile toolbar stays compact. Inherit (default)
+                    falls back to the merge-level global. First clip
+                    in the merge ignores this server-side. */}
+                {item._dbFileId != null && (() => {
+                  const tIn = (typeof item._transitionIn === 'string' && item._transitionIn) ? item._transitionIn : ''
+                  const tDur = Number.isFinite(Number(item._transitionInDuration))
+                    ? Number(item._transitionInDuration)
+                    : null
+                  // Pack type + duration into a single option value
+                  // ("crossfade|0.5"). Inherit is just empty.
+                  const currentKey = tIn ? `${tIn}|${tDur != null ? tDur : ''}` : ''
+                  const hasOverride = !!tIn
+                  return (
+                    <label
+                      className={`h-[18px] flex items-center px-1.5 rounded-full text-[9px] cursor-pointer border-none font-medium leading-none ${
+                        hasOverride
+                          ? 'bg-[#d97706]/95 hover:bg-[#d97706] text-white'
+                          : 'bg-[#94a3b8]/85 hover:bg-[#64748b] text-white'
+                      }`}
+                      title={hasOverride
+                        ? `Transition in: ${tIn}${tDur != null ? ` ${tDur}s` : ''} — overrides the merge-level global.`
+                        : 'Per-clip transition into this clip from the previous one. Inherit uses the merge-level global. First clip in the merge ignores this.'}
+                    >
+                      <span className="mr-0.5">↪</span>
+                      <select
+                        value={currentKey}
+                        onChange={e => {
+                          const v = e.target.value
+                          if (!v) {
+                            item._transitionIn = null
+                            item._transitionInDuration = null
+                          } else {
+                            const [type, dur] = v.split('|')
+                            item._transitionIn = type
+                            item._transitionInDuration = dur === '' ? null : Number(dur)
+                          }
+                          try {
+                            window.dispatchEvent(new CustomEvent('posty-transition-change', { detail: { itemId: item.id } }))
+                          } catch {}
+                        }}
+                        className="text-[9px] border-none bg-transparent cursor-pointer outline-none text-white"
+                      >
+                        <option value="" className="text-ink">Inherit</option>
+                        <option value="none|" className="text-ink">Hard cut</option>
+                        <option value="crossfade|0.3" className="text-ink">Crossfade 0.3s</option>
+                        <option value="crossfade|0.5" className="text-ink">Crossfade 0.5s</option>
+                        <option value="crossfade|1" className="text-ink">Crossfade 1s</option>
+                        <option value="crossfade|1.5" className="text-ink">Crossfade 1.5s</option>
+                        <option value="fade_black|0.5" className="text-ink">Fade black 0.5s</option>
+                        <option value="fade_black|1" className="text-ink">Fade black 1s</option>
+                        <option value="wipe_left|0.5" className="text-ink">Wipe left 0.5s</option>
+                        <option value="wipe_left|1" className="text-ink">Wipe left 1s</option>
+                        <option value="slide_left|0.5" className="text-ink">Slide left 0.5s</option>
+                        <option value="slide_left|1" className="text-ink">Slide left 1s</option>
+                      </select>
+                    </label>
+                  )
+                })()}
                 {/* Split — open the subclip extractor. */}
                 {item._dbFileId != null && isVideo && onSplit && (
                   <button
