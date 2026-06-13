@@ -26,6 +26,10 @@ export default function MediaLibraryPicker({ destJobUuid, onPicked, onClose, kin
   // if the user picks several without closing the modal.
   const [importStatus, setImportStatus] = useState({})
   const [activeKind, setActiveKind] = useState(kind)
+  // upload_key of the tile currently showing an inline video preview.
+  // Only one previews at a time so multiple <video> elements don't
+  // contend for the audio output or hammer Supabase egress.
+  const [previewKey, setPreviewKey] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -123,20 +127,40 @@ export default function MediaLibraryPicker({ destJobUuid, onPicked, onClose, kin
                 const importing = status === 'importing'
                 const done = status === 'done'
                 const failed = status === 'error'
+                const isPreviewing = previewKey === it.upload_key
+                const canPreview = it.is_video && !!it.media_url
                 return (
-                  <button
+                  <div
                     key={it.upload_key}
-                    type="button"
-                    onClick={() => importItem(it)}
-                    disabled={importing || done}
-                    className={`group block text-left bg-[#fafafa] border rounded overflow-hidden cursor-pointer transition disabled:cursor-default ${
+                    className={`group block bg-[#fafafa] border rounded overflow-hidden transition ${
                       done ? 'border-[#2D9A5E]'
                         : failed ? 'border-[#c0392b]'
                         : 'border-[#e5e5e5] hover:border-[#6C5CE7]'
                     }`}
                   >
-                    <div className="relative aspect-square bg-black flex items-center justify-center text-white">
-                      {it.thumb_url ? (
+                    {/* Thumb area — click to import (unless previewing
+                        a video; native <video> controls handle their
+                        own clicks). */}
+                    <div
+                      onClick={() => {
+                        if (isPreviewing) return
+                        if (importing || done) return
+                        importItem(it)
+                      }}
+                      className={`relative aspect-square bg-black flex items-center justify-center text-white ${
+                        isPreviewing || importing || done ? '' : 'cursor-pointer'
+                      }`}
+                    >
+                      {isPreviewing && it.media_url ? (
+                        <video
+                          src={it.media_url}
+                          controls
+                          autoPlay
+                          playsInline
+                          className="w-full h-full object-contain bg-black"
+                          onClick={e => e.stopPropagation()}
+                        />
+                      ) : it.thumb_url ? (
                         <img
                           src={it.thumb_url}
                           alt={it.filename}
@@ -146,12 +170,12 @@ export default function MediaLibraryPicker({ destJobUuid, onPicked, onClose, kin
                         <span className="text-[24px] opacity-60">{it.is_video ? '🎬' : '🖼️'}</span>
                       )}
                       {/* Type tag in corner */}
-                      <span className="absolute top-1 left-1 text-[9px] bg-black/60 text-white rounded px-1 py-0.5">
+                      <span className="absolute top-1 left-1 text-[9px] bg-black/60 text-white rounded px-1 py-0.5 pointer-events-none">
                         {it.is_video ? 'video' : it.is_image ? 'photo' : 'media'}
                       </span>
                       {/* Status overlay during/after import */}
                       {(importing || done || failed) && (
-                        <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                        <div className="absolute inset-0 bg-black/55 flex items-center justify-center pointer-events-none">
                           <span className="text-[12px] font-medium">
                             {importing ? 'Copying…' : done ? '✓ Imported' : '✕ Failed'}
                           </span>
@@ -162,11 +186,30 @@ export default function MediaLibraryPicker({ destJobUuid, onPicked, onClose, kin
                       <div className="text-[10px] font-medium truncate" title={it.filename}>
                         {it.filename}
                       </div>
-                      <div className="text-[9px] text-muted truncate">
-                        from {it.job_name || 'untitled draft'}
+                      <div className="flex items-center justify-between gap-1 mt-0.5">
+                        <div className="text-[9px] text-muted truncate flex-1 min-w-0">
+                          from {it.job_name || 'untitled draft'}
+                        </div>
+                        {canPreview && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPreviewKey(isPreviewing ? null : it.upload_key)
+                            }}
+                            className={`shrink-0 text-[9px] py-0.5 px-1.5 rounded border cursor-pointer leading-none ${
+                              isPreviewing
+                                ? 'border-[#6C5CE7] bg-[#6C5CE7]/10 text-[#6C5CE7]'
+                                : 'border-[#e5e5e5] bg-white text-muted hover:border-[#6C5CE7] hover:text-[#6C5CE7]'
+                            }`}
+                            title={isPreviewing ? 'Hide preview' : 'Preview video'}
+                          >
+                            {isPreviewing ? '✕ Hide' : '▶ Preview'}
+                          </button>
+                        )}
                       </div>
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </div>
