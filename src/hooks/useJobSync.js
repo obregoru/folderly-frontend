@@ -367,6 +367,32 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip transition-in override. Persists `transition_in` (the
+  // type enum or null = inherit) and `transition_in_duration` (the
+  // seconds value or null = inherit) for the boundary leading INTO
+  // this clip from the previous one. First clip's value is meaningless
+  // (no previous boundary) but we still persist it harmlessly so the
+  // FE doesn't have to special-case index 0.
+  const saveFileTransitionIn = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      const tIn = (typeof file._transitionIn === 'string' && file._transitionIn)
+        ? file._transitionIn : null
+      const dur = Number.isFinite(Number(file._transitionInDuration))
+        && Number(file._transitionInDuration) >= 0.10
+        && Number(file._transitionInDuration) <= 2.00
+        ? Number(file._transitionInDuration) : null
+      await api.updateJobFile(id, dbFileId, {
+        transition_in: tIn,
+        transition_in_duration: dur,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save transition_in failed:', e.message)
+    }
+  }, [])
+
   // Per-clip color preset — null clears, otherwise one of
   // 'bw' | 'inverted' | 'saturated'.
   const saveFileColorEffect = useCallback(async (file) => {
@@ -673,6 +699,12 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
             _strobe:      !!f.strobe,
             _beatZoom:    !!f.beat_zoom,
+            // Per-clip transition-in override. null = inherit merge-
+            // level global; 'none' explicitly forces a hard cut at
+            // the boundary INTO this clip.
+            _transitionIn: typeof f.transition_in === 'string' && f.transition_in ? f.transition_in : null,
+            _transitionInDuration: Number.isFinite(Number(f.transition_in_duration))
+              ? Number(f.transition_in_duration) : null,
             _restored: true,
             _tenantSlug: api.tenantSlug(),
             _uploadKey: f.upload_key,
@@ -836,6 +868,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileColorTemp,
     saveFileExposure,
     saveFileGrade,
+    saveFileTransitionIn,
     saveFileColorEffect,
     saveFileStrobe,
     saveFileBeatZoom,

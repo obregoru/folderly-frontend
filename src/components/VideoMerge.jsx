@@ -579,6 +579,12 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             color_effect: item._colorEffect || null,
             strobe:       !!item._strobe,
             beat_zoom:    !!item._beatZoom,
+            // Per-clip transition-in override. null = inherit the
+            // merge-level global. First clip's value is ignored by
+            // the BE (no previous boundary).
+            transition_in: (typeof item._transitionIn === 'string' && item._transitionIn) ? item._transitionIn : null,
+            transition_in_duration: Number.isFinite(Number(item._transitionInDuration))
+              ? Number(item._transitionInDuration) : null,
             // B-roll insert overlay. When insert_host_idx is set, the
             // BE places this clip's video on top of that host clip at
             // insert_at_sec; the host's audio plays through unchanged.
@@ -1126,6 +1132,94 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
                             </label>
                           )
                         })()}
+                    {/* Per-clip TRANSITION-IN picker — controls the
+                        boundary BETWEEN this clip and the previous
+                        one. Inherit (empty value) falls back to the
+                        merge-level global. First clip has no
+                        previous, so the picker is locked to "(start)". */}
+                    {item._dbFileId != null && (() => {
+                      const isFirst = pos === 0
+                      const tIn = isFirst ? '' : (typeof item._transitionIn === 'string' ? item._transitionIn : '')
+                      const tDur = isFirst ? '' : (Number.isFinite(Number(item._transitionInDuration))
+                        ? String(Number(item._transitionInDuration))
+                        : '')
+                      const hasOverride = !!tIn || !!tDur
+                      return (
+                        <label
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer ${
+                            isFirst
+                              ? 'bg-[#fafafa] border-border text-muted cursor-default'
+                              : hasOverride
+                                ? 'bg-[#fff7e6] border-[#d97706]/50 text-[#d97706] font-medium'
+                                : 'bg-white border-border text-muted'
+                          }`}
+                          title={isFirst
+                            ? 'First clip — no transition to the previous clip exists.'
+                            : 'Per-clip transition INTO this clip from the previous one. Leave on Inherit to use the merge-level global below.'}
+                        >
+                          <span className="text-[10px]">{isFirst ? '↪ (start)' : '↪ Transition'}</span>
+                          {!isFirst && (
+                            <>
+                              <select
+                                value={tIn}
+                                onChange={e => {
+                                  const next = e.target.value || null
+                                  item._transitionIn = next
+                                  // 'none' on the per-clip explicitly forces hard
+                                  // cut here even if the global is a crossfade.
+                                  try {
+                                    jobSync?.saveFileTransitionIn?.(item)
+                                  } catch {}
+                                  if (mergedUrl) {
+                                    try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                    setMergedUrl(null)
+                                    mergedBlobRef.current = null
+                                    window._postyMergedVideo = null
+                                  }
+                                }}
+                                className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+                              >
+                                <option value="">Inherit</option>
+                                <option value="none">Hard cut</option>
+                                <option value="crossfade">Crossfade</option>
+                                <option value="fade_black">Fade black</option>
+                                <option value="wipe_left">Wipe left</option>
+                                <option value="slide_left">Slide left</option>
+                              </select>
+                              {/* Duration picker — only meaningful when a
+                                  non-none transition is selected. Always
+                                  visible so the operator can pre-set it. */}
+                              <select
+                                value={tDur}
+                                onChange={e => {
+                                  const next = e.target.value === '' ? null : Number(e.target.value)
+                                  item._transitionInDuration = next
+                                  try {
+                                    jobSync?.saveFileTransitionIn?.(item)
+                                  } catch {}
+                                  if (mergedUrl) {
+                                    try { URL.revokeObjectURL(mergedUrl) } catch {}
+                                    setMergedUrl(null)
+                                    mergedBlobRef.current = null
+                                    window._postyMergedVideo = null
+                                  }
+                                }}
+                                className="text-[10px] border-none bg-transparent cursor-pointer outline-none"
+                                title="Per-clip transition duration in seconds. Inherit (empty) uses the merge-level global below."
+                              >
+                                <option value="">—</option>
+                                <option value="0.3">0.3s</option>
+                                <option value="0.5">0.5s</option>
+                                <option value="0.75">0.75s</option>
+                                <option value="1">1s</option>
+                                <option value="1.5">1.5s</option>
+                                <option value="2">2s</option>
+                              </select>
+                            </>
+                          )}
+                        </label>
+                      )
+                    })()}
                     <div className="flex gap-0.5">
                       {/* Reset effects — wipes every effect flag on this
                           clip in one PUT. Shown only when at least one
