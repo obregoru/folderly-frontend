@@ -662,7 +662,7 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
         const c = document.createElement('canvas')
         c.width = Math.min(w, 300)
         c.height = Math.round(c.width * h / w)
-        const ctx = c.getContext('2d')
+        const ctx = c.getContext('2d', { willReadFrequently: true })
         ctx.drawImage(v, 0, 0, c.width, c.height)
         const sw = Math.min(c.width, 10), sh = Math.min(c.height, 10)
         const pixels = ctx.getImageData(0, 0, sw, sh).data

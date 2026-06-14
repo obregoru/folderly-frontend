@@ -56,7 +56,7 @@ function pickOutputMime(mime, hasTransparency) {
 // only need to know if ANY pixel is non-opaque.
 function hasAlpha(canvas) {
   try {
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
     const w = canvas.width, h = canvas.height
     // Stride sample — every Nth pixel, where N is chosen so we read
     // ~10k samples regardless of size.

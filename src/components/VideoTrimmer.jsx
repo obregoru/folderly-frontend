@@ -174,7 +174,7 @@ export default function VideoTrimmer({ item }) {
       const aspect = (forceRotate === 90 || forceRotate === 270) ? 1 / rawAspect : rawAspect
       canvas.width = 96
       canvas.height = Math.max(1, Math.round(96 / aspect))
-      const ctx = canvas.getContext('2d')
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
       const thumbs = []
       // Sample at the exact proportional times so thumbnails visually align
       // with the trim handles (which map 0–100% to 0–duration linearly).
