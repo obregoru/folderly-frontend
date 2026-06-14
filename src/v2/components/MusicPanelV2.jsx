@@ -2288,6 +2288,19 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
   const musicAudioRef = useRef(null)
   const voAudioRef = useRef(null)
   const saveTimerRef = useRef(null)
+  // Web Audio plumbing for the reversed-preview path. The plain
+  // <audio> element can't play in reverse, so when reverse=true we
+  // decode the track once, flip each channel's samples in place,
+  // and play that buffer via an AudioBufferSourceNode + GainNode.
+  // Everything stays null until the operator hits play with reverse
+  // enabled — cheap when reverse is off.
+  const audioCtxRef = useRef(null)
+  const gainNodeRef = useRef(null)
+  const reverseSourceRef = useRef(null)
+  // Cache key the reversed buffer was decoded against, so we
+  // re-decode only when the underlying url/trim window changes.
+  const reverseBufferRef = useRef({ key: null, buffer: null })
+  const [reverseDecoding, setReverseDecoding] = useState(false)
 
   // Re-sync from props when the parent's music payload reloads
   // (e.g. after a re-fetch following upload).
@@ -2306,6 +2319,11 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
   // dragging is audible immediately.
   useEffect(() => {
     if (musicAudioRef.current) musicAudioRef.current.volume = Math.max(0, Math.min(1, vol / 100))
+    // Mirror the volume into the reversed-preview GainNode so
+    // dragging the slider during reverse play is audible too.
+    if (gainNodeRef.current) {
+      try { gainNodeRef.current.gain.value = Math.max(0, Math.min(2, vol / 100)) } catch {}
+    }
   }, [vol])
   useEffect(() => {
     if (voAudioRef.current) voAudioRef.current.volume = Math.max(0, Math.min(1, voPreviewVol / 100))
@@ -2330,21 +2348,127 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
     }, 400)
   }, [draftId, onVolumeChange])
 
-  const togglePlay = () => {
+  // Stop whatever is currently playing — forward <audio> elements,
+  // reversed Web Audio source, or both. Idempotent: safe to call when
+  // nothing's playing.
+  const stopAllPreview = useCallback(() => {
+    try { musicAudioRef.current?.pause() } catch {}
+    try { voAudioRef.current?.pause() } catch {}
+    if (reverseSourceRef.current) {
+      try { reverseSourceRef.current.stop() } catch {}
+      try { reverseSourceRef.current.disconnect() } catch {}
+      reverseSourceRef.current = null
+    }
+  }, [])
+
+  // Decode + reverse the trimmed music slice. Caches by url+trim
+  // so toggling pause/play doesn't re-fetch the audio every time.
+  // Returns null on any failure so the caller can fall back to the
+  // forward preview rather than silently breaking play.
+  const getReversedBuffer = useCallback(async () => {
+    const url = music?.track_url
+    if (!url) return null
+    const tStart = Number.isFinite(Number(music?.trim_start)) ? Number(music.trim_start) : 0
+    const tEnd = Number.isFinite(Number(music?.trim_end)) ? Number(music.trim_end) : null
+    const cacheKey = `${url}|${tStart}|${tEnd}`
+    if (reverseBufferRef.current.key === cacheKey && reverseBufferRef.current.buffer) {
+      return reverseBufferRef.current.buffer
+    }
+    setReverseDecoding(true)
+    try {
+      if (!audioCtxRef.current) {
+        const Ctx = window.AudioContext || window.webkitAudioContext
+        if (!Ctx) return null
+        audioCtxRef.current = new Ctx()
+      }
+      const ctx = audioCtxRef.current
+      const resp = await fetch(url, { credentials: 'include' })
+      if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`)
+      const arrBuf = await resp.arrayBuffer()
+      const decoded = await ctx.decodeAudioData(arrBuf.slice(0))
+      // Determine slice bounds in samples. Out-of-range values clamp
+      // to the full buffer so an over-eager trim doesn't crash decode.
+      const sr = decoded.sampleRate
+      const totalSamples = decoded.length
+      const startSample = Math.max(0, Math.min(totalSamples, Math.floor(tStart * sr)))
+      const endSample = tEnd !== null && tEnd > tStart
+        ? Math.max(startSample, Math.min(totalSamples, Math.floor(tEnd * sr)))
+        : totalSamples
+      const sliceLen = endSample - startSample
+      if (sliceLen <= 0) return null
+      // Build the reversed buffer channel-by-channel. AudioBuffer
+      // doesn't expose a "reverse" — we copy out, reverse the
+      // Float32Array, and copy back into a fresh AudioBuffer.
+      const out = ctx.createBuffer(decoded.numberOfChannels, sliceLen, sr)
+      for (let ch = 0; ch < decoded.numberOfChannels; ch++) {
+        const src = decoded.getChannelData(ch).subarray(startSample, endSample)
+        const dst = new Float32Array(sliceLen)
+        for (let i = 0; i < sliceLen; i++) dst[i] = src[sliceLen - 1 - i]
+        out.copyToChannel(dst, ch)
+      }
+      reverseBufferRef.current = { key: cacheKey, buffer: out }
+      return out
+    } catch (e) {
+      setErr(`reverse preview failed: ${e?.message || e}`)
+      return null
+    } finally {
+      setReverseDecoding(false)
+    }
+  }, [music?.track_url, music?.trim_start, music?.trim_end])
+
+  const togglePlay = async () => {
     const m = musicAudioRef.current
     const v = voAudioRef.current
-    if (!m && !v) return
+    if (!m && !v && !reverse) return
     if (playing) {
-      try { m?.pause() } catch {}
-      try { v?.pause() } catch {}
+      stopAllPreview()
       setPlaying(false)
-    } else {
-      try {
-        if (m) { m.currentTime = 0; m.play().catch(() => {}) }
-        if (v) { v.currentTime = 0; v.play().catch(() => {}) }
-      } catch {}
-      setPlaying(true)
+      return
     }
+    // Reverse path: decode-and-flip music through Web Audio, keep
+    // the VO on its <audio> element (VO isn't affected by the music
+    // reverse toggle). The forward <audio> stays paused so the
+    // operator only hears the reversed track + (optional) VO.
+    if (reverse) {
+      const buf = await getReversedBuffer()
+      if (!buf) {
+        // Fall back to forward preview if decode failed so the
+        // button doesn't appear broken.
+        try {
+          if (m) { m.currentTime = 0; m.play().catch(() => {}) }
+          if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+        } catch {}
+        setPlaying(true)
+        return
+      }
+      try {
+        const ctx = audioCtxRef.current
+        if (ctx.state === 'suspended') { try { await ctx.resume() } catch {} }
+        if (!gainNodeRef.current) {
+          gainNodeRef.current = ctx.createGain()
+          gainNodeRef.current.connect(ctx.destination)
+        }
+        gainNodeRef.current.gain.value = Math.max(0, Math.min(2, vol / 100))
+        const src = ctx.createBufferSource()
+        src.buffer = buf
+        src.loop = true
+        src.connect(gainNodeRef.current)
+        src.onended = () => { /* loop=true so this only fires on stop */ }
+        src.start(0)
+        reverseSourceRef.current = src
+        if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+        setPlaying(true)
+      } catch (e) {
+        setErr(`reverse playback failed: ${e?.message || e}`)
+      }
+      return
+    }
+    // Forward path: legacy <audio>-element preview.
+    try {
+      if (m) { m.currentTime = 0; m.play().catch(() => {}) }
+      if (v) { v.currentTime = 0; v.play().catch(() => {}) }
+    } catch {}
+    setPlaying(true)
   }
 
   // Stop on unmount so the audio doesn't keep running after the
@@ -2353,6 +2477,24 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
     return () => {
       try { musicAudioRef.current?.pause() } catch {}
       try { voAudioRef.current?.pause() } catch {}
+      // Reverse-preview Web Audio teardown: stop the source, drop the
+      // GainNode, close the AudioContext. Browsers cap the number of
+      // active AudioContexts per page, so leaking one on every panel
+      // mount eventually breaks audio entirely.
+      if (reverseSourceRef.current) {
+        try { reverseSourceRef.current.stop() } catch {}
+        try { reverseSourceRef.current.disconnect() } catch {}
+        reverseSourceRef.current = null
+      }
+      if (gainNodeRef.current) {
+        try { gainNodeRef.current.disconnect() } catch {}
+        gainNodeRef.current = null
+      }
+      if (audioCtxRef.current) {
+        try { audioCtxRef.current.close() } catch {}
+        audioCtxRef.current = null
+      }
+      reverseBufferRef.current = { key: null, buffer: null }
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
   }, [])
@@ -2360,12 +2502,20 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
   const hasVoUrl = !!music?.voiceover_url
 
   // Toggle whole-track reverse and persist. Optimistic + revert on
-  // failure, same pattern as the mix-mode toggle. Note: reverse is
-  // applied at render time only — there's no live audio preview for
-  // it in the panel; the operator hears the result on next merge.
+  // failure, same pattern as the mix-mode toggle. The live preview
+  // listens to this flag via togglePlay; when it flips mid-play we
+  // stop the current source so the next play hits the right branch.
   const setReverseAndSave = async (next) => {
     const prev = reverse
     setReverse(next)
+    // Flipping the toggle while audio is playing would otherwise
+    // leave the previous direction playing until the operator hits
+    // stop — confusing. Just stop; they can press play to hear the
+    // new direction.
+    if (playing) {
+      stopAllPreview()
+      setPlaying(false)
+    }
     if (!draftId) return
     setSavingReverse(true)
     try {
@@ -2450,9 +2600,10 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
           />
           <span className="text-[11px] font-medium">⏪ Reverse music track</span>
           {savingReverse && <span className="text-[9px] text-muted">saving…</span>}
+          {reverseDecoding && <span className="text-[9px] text-muted">decoding…</span>}
         </label>
         <div className="text-[9px] text-muted mt-1">
-          Plays the trimmed slice backwards at export. Live preview still plays forward.
+          Plays the trimmed slice backwards. Press ▶ Preview mix to hear it; first play decodes the audio (one-time).
         </div>
       </div>
 
