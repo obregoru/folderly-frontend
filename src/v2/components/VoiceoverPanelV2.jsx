@@ -89,6 +89,18 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // Seed the job-level hideCaptions switch from saved state. Old
       // jobs that never set it get the default (false = captions on).
       if (typeof vo.hideCaptions === 'boolean') setHideCaptions(vo.hideCaptions)
+      // Seed the mix mode + original-volume slider from saved state.
+      // These were silently dropped on every save before, which made
+      // the replace/mix radio and the volume slider look like dead
+      // controls — the BE never saw the operator's choice, defaulted
+      // to 'mix' at 30% origVol every time, and the downloaded video
+      // always carried the original clip audio.
+      if (vo.mix_mode === 'replace' || vo.mix_mode === 'mix' || vo.mix_mode === 'duck') {
+        setMixMode(vo.mix_mode)
+      }
+      if (Number.isFinite(Number(vo.original_volume))) {
+        setOrigVolume(Math.max(0, Math.min(100, Number(vo.original_volume))))
+      }
       // Seed the mute_clip_audio toggle. Lives directly on the jobs
       // row (not in voiceover_settings), so we read it off the job.
       if (typeof job.mute_clip_audio === 'boolean') setMuteClipAudio(job.mute_clip_audio)
@@ -225,6 +237,14 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
       // false saves the "captions on" choice so the legacy default
       // doesn't silently creep back in.
       hideCaptions: !!hideCaptions,
+      // Persist the replace/mix toggle + the original-volume slider
+      // so render-final actually honors them. Without this, the BE
+      // saw mix_mode=undefined → fell through to 'mix' default with
+      // 30% original volume regardless of operator choice.
+      mix_mode: mixMode === 'replace' ? 'replace'
+              : mixMode === 'duck'    ? 'duck'
+              : 'mix',
+      original_volume: Math.max(0, Math.min(100, Number(origVolume) || 0)),
     })
     // Tell the live preview to refetch its cues. Same pattern
     // OverlaysPanelV2 uses with 'posty-overlay-change'. Without this,
@@ -235,7 +255,7 @@ export default function VoiceoverPanelV2({ previewRef, settings, jobSync, draftI
         detail: { segments: clean, hideCaptions: !!hideCaptions },
       }))
     } catch { /* fine — browser without CustomEvent */ }
-  }, [segments, voiceId, hideCaptions, segLoaded, saveVoiceoverSettingsFn])
+  }, [segments, voiceId, hideCaptions, mixMode, origVolume, segLoaded, saveVoiceoverSettingsFn])
 
   // Keep primary audio URL in sync with its blob
   useEffect(() => {
