@@ -2354,14 +2354,24 @@ function ScriptTab({ text, setText, voiceId, hasElevenLabs, runningScript, draft
 export function parseScript(raw) {
   const text = String(raw || '')
   if (!text.trim()) return { primary: '', segments: [] }
-  const re = /\[(\d{1,2}):(\d{2}(?:\.\d+)?)\]\s*/g
+  // Accept both [M:SS(.ms)?] (mm:ss with optional millis) and
+  // [SS(.ms)?] (raw seconds with optional fraction). The minutes
+  // group is optional, which lets operators paste either
+  // [0:03] or [3.00] without re-formatting. The seconds-only
+  // form was being silently dropped — the parser returned
+  // hits=[] and the entire script became one primary block,
+  // which is why a [0.00]/[3.00]/[7.00]/[11.00] paste turned
+  // into a single TTS render instead of four segments.
+  const re = /\[(?:(\d{1,2}):)?(\d{1,3}(?:\.\d+)?)\]\s*/g
   const hits = []
   let m
   while ((m = re.exec(text)) !== null) {
+    const minutes = m[1] != null ? parseInt(m[1], 10) : 0
+    const seconds = parseFloat(m[2])
     hits.push({
       index: m.index,
       end: m.index + m[0].length,
-      time: parseInt(m[1], 10) * 60 + parseFloat(m[2]),
+      time: minutes * 60 + seconds,
     })
   }
   if (hits.length === 0) return { primary: text.trim(), segments: [] }
