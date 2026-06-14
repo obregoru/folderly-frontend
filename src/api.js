@@ -1748,6 +1748,21 @@ export const setJobMusicReverseLoops = (jobUuid, reverseLoops) =>
     return r.json()
   })
 
+// Reverse the imported music TRACK itself (not the loop duplicates).
+// When true, swapAudio prepends areverse to the music filter chain
+// so the trimmed slice plays backwards in the rendered video.
+export const setJobMusicReverse = (jobUuid, reverse) =>
+  fetch(api(`/jobs/${jobUuid}/music/reverse`), {
+    method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',
+    body: JSON.stringify({ reverse: !!reverse }),
+  }).then(async r => {
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}))
+      throw new Error(e.error || `setJobMusicReverse failed (${r.status})`)
+    }
+    return r.json()
+  })
+
 export const setJobMusicMirrorLoops = (jobUuid, mirrorLoops) =>
   fetch(api(`/jobs/${jobUuid}/music/mirror-loops`), {
     method: 'PATCH', headers: { ...h(), ...csrf() }, credentials: 'include',

@@ -2275,6 +2275,11 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
   // is MIXED with it. Hydrated from job.music_mix_mode; default
   // 'replace' preserves the long-standing behavior.
   const [mixMode, setMixMode] = useState(() => music?.mix_mode === 'mix' ? 'mix' : 'replace')
+  // Reverse the music TRACK itself — applied after the trim window
+  // in swapAudio. Independent from the loop-duplicate reverse, which
+  // only flips duplicated clip footage.
+  const [reverse, setReverse] = useState(() => !!music?.reverse)
+  const [savingReverse, setSavingReverse] = useState(false)
   const [voPreviewVol, setVoPreviewVol] = useState(100)
   const [playing, setPlaying] = useState(false)
   const [err, setErr] = useState(null)
@@ -2293,6 +2298,9 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
   useEffect(() => {
     setMixMode(music?.mix_mode === 'mix' ? 'mix' : 'replace')
   }, [music?.mix_mode])
+  useEffect(() => {
+    setReverse(!!music?.reverse)
+  }, [music?.reverse])
 
   // Push the FE slider value into the live <audio> elements so
   // dragging is audible immediately.
@@ -2351,6 +2359,25 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
 
   const hasVoUrl = !!music?.voiceover_url
 
+  // Toggle whole-track reverse and persist. Optimistic + revert on
+  // failure, same pattern as the mix-mode toggle. Note: reverse is
+  // applied at render time only — there's no live audio preview for
+  // it in the panel; the operator hears the result on next merge.
+  const setReverseAndSave = async (next) => {
+    const prev = reverse
+    setReverse(next)
+    if (!draftId) return
+    setSavingReverse(true)
+    try {
+      await api.setJobMusicReverse(draftId, next)
+    } catch (e) {
+      setErr(`reverse save failed: ${e?.message || e}`)
+      setReverse(prev) // revert
+    } finally {
+      setSavingReverse(false)
+    }
+  }
+
   // Switch mix mode and persist. Optimistic update + revert on
   // failure so the radio buttons feel snappy.
   const setMixModeAndSave = async (next) => {
@@ -2406,6 +2433,26 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
           {mixMode === 'mix'
             ? 'Both clip audio and music play together. Use per-clip volume sliders + this music slider to balance.'
             : 'Only the music plays — clip audio is dropped at export time.'}
+        </div>
+      </div>
+
+      {/* Reverse the imported music track. Persists to the BE; the
+          live <audio> preview in this panel still plays forward
+          since the reverse is applied at render time by swapAudio.
+          Operator hears the reversed slice in the next merge. */}
+      <div className="pt-1 border-t border-border">
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={reverse}
+            onChange={(e) => setReverseAndSave(e.target.checked)}
+            className="accent-[#6C5CE7] cursor-pointer"
+          />
+          <span className="text-[11px] font-medium">⏪ Reverse music track</span>
+          {savingReverse && <span className="text-[9px] text-muted">saving…</span>}
+        </label>
+        <div className="text-[9px] text-muted mt-1">
+          Plays the trimmed slice backwards at export. Live preview still plays forward.
         </div>
       </div>
 
