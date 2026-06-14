@@ -2382,7 +2382,13 @@ function MusicVolumePanel({ draftId, music, onVolumeChange }) {
         audioCtxRef.current = new Ctx()
       }
       const ctx = audioCtxRef.current
-      const resp = await fetch(url, { credentials: 'include' })
+      // No credentials — the music URL is the Supabase public-bucket
+      // URL, which serves `Access-Control-Allow-Origin: *`. That
+      // wildcard is incompatible with credentials:'include' (the
+      // browser rejects with CORS), and the public bucket doesn't
+      // need auth anyway. Same crossOrigin: 'anonymous' the <audio>
+      // tag uses.
+      const resp = await fetch(url)
       if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`)
       const arrBuf = await resp.arrayBuffer()
       const decoded = await ctx.decodeAudioData(arrBuf.slice(0))
