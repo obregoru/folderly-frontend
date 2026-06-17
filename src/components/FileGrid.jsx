@@ -1155,6 +1155,43 @@ function ImageThumb({ file, zoom, rotate, offsetX, offsetY, onClick }) {
 //
 // IMPORTANT: useSortable must only be called inside a DndContext subtree,
 // otherwise iOS Safari (and some other browsers) throw / blank the page.
+// Per-clip stabilization toggle. Holds local state mirroring
+// item._deshake so clicking re-renders the pill. Listens for the
+// shared posty-deshake-change event so external mutations (e.g.
+// the apply-snap flow) also bring the pill in sync.
+function DeshakePill({ item }) {
+  const [deshake, setDeshake] = useState(() => !!item._deshake)
+  useEffect(() => {
+    const onChange = (e) => {
+      if (e.detail?.itemId !== item.id) return
+      setDeshake(!!item._deshake)
+    }
+    window.addEventListener('posty-deshake-change', onChange)
+    return () => window.removeEventListener('posty-deshake-change', onChange)
+  }, [item])
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        const next = !deshake
+        setDeshake(next)
+        item._deshake = next
+        try {
+          window.dispatchEvent(new CustomEvent('posty-deshake-change', { detail: { itemId: item.id } }))
+        } catch {}
+      }}
+      className={`h-[18px] rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none leading-none font-medium ${
+        deshake
+          ? 'bg-[#0ea5e9] hover:bg-[#0284c7] px-1.5'
+          : 'bg-[#94a3b8]/75 hover:bg-[#64748b] w-[18px]'
+      }`}
+      title={deshake
+        ? 'Image stabilization: ON (deshake filter applied at merge time). Click to turn off.'
+        : 'Toggle image stabilization (deshake) for walking / handheld shots. Adds ~10–30% render time per clip.'}
+    >{deshake ? '🪶 STAB' : '🪶'}</button>
+  )
+}
+
 // We only mount this component when reorder is actually enabled so the
 // hook is always reachable from a matching DndContext.
 function SortableTile({ item, children }) {
@@ -1515,35 +1552,13 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                     </label>
                   )
                 })()}
-                {/* Image stabilization (deshake). Per-clip ffmpeg
-                    deshake in the merge normalize step — smooths
-                    walking / handheld footage. Videos only; pointless
-                    on stills. Toggling sets _deshake on the item AND
-                    dispatches an event so AppV2 persists it via the
-                    job-files PUT. When ON the pill widens to an
-                    obvious labeled badge so the operator can scan
-                    a long timeline and see which clips are stabilized
-                    at a glance — same pattern as the rotated/skipped
-                    pills. */}
-                {item._dbFileId != null && isVideo && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      item._deshake = !item._deshake
-                      try {
-                        window.dispatchEvent(new CustomEvent('posty-deshake-change', { detail: { itemId: item.id } }))
-                      } catch {}
-                    }}
-                    className={`h-[18px] rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none leading-none font-medium ${
-                      item._deshake
-                        ? 'bg-[#0ea5e9] hover:bg-[#0284c7] px-1.5'
-                        : 'bg-[#94a3b8]/75 hover:bg-[#64748b] w-[18px]'
-                    }`}
-                    title={item._deshake
-                      ? 'Image stabilization: ON (deshake filter applied at merge time). Click to turn off.'
-                      : 'Toggle image stabilization (deshake) for walking / handheld shots. Adds ~10–30% render time per clip.'}
-                  >{item._deshake ? '🪶 STAB' : '🪶'}</button>
-                )}
+                {/* Image stabilization (deshake) — extracted as its own
+                    tiny component so it can hold local React state.
+                    Without that, mutating item._deshake doesn't
+                    re-render the pill (the className/text depend on
+                    a mutable object field React can't observe), and
+                    the operator clicked but saw nothing change. */}
+                {item._dbFileId != null && isVideo && <DeshakePill item={item} />}
                 {/* Split — open the subclip extractor. */}
                 {item._dbFileId != null && isVideo && onSplit && (
                   <button
