@@ -1542,11 +1542,7 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                     walking / handheld footage. Videos only; pointless
                     on stills. Toggling sets _deshake on the item AND
                     dispatches an event so AppV2 persists it via the
-                    job-files PUT. When ON the pill widens to an
-                    obvious labeled badge so the operator can scan
-                    a long timeline and see which clips are stabilized
-                    at a glance — same pattern as the rotated/skipped
-                    pills. */}
+                    job-files PUT. */}
                 {item._dbFileId != null && isVideo && (
                   <button
                     onClick={(e) => {
@@ -1556,15 +1552,15 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                         window.dispatchEvent(new CustomEvent('posty-deshake-change', { detail: { itemId: item.id } }))
                       } catch {}
                     }}
-                    className={`h-[18px] rounded-full text-white text-[9px] flex items-center justify-center cursor-pointer border-none leading-none font-medium ${
+                    className={`w-[18px] h-[18px] rounded-full text-white text-[10px] flex items-center justify-center cursor-pointer border-none leading-none ${
                       item._deshake
-                        ? 'bg-[#0ea5e9] hover:bg-[#0284c7] px-1.5'
-                        : 'bg-[#94a3b8]/75 hover:bg-[#64748b] w-[18px]'
+                        ? 'bg-[#0ea5e9]/95 hover:bg-[#0ea5e9]'
+                        : 'bg-[#94a3b8]/75 hover:bg-[#64748b]'
                     }`}
                     title={item._deshake
-                      ? 'Image stabilization: ON (deshake filter applied at merge time). Click to turn off.'
+                      ? 'Image stabilization: ON (deshake filter applied at merge time)'
                       : 'Toggle image stabilization (deshake) for walking / handheld shots. Adds ~10–30% render time per clip.'}
-                  >{item._deshake ? '🪶 STAB' : '🪶'}</button>
+                  >🪶</button>
                 )}
                 {/* Split — open the subclip extractor. */}
                 {item._dbFileId != null && isVideo && onSplit && (
