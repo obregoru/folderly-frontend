@@ -438,6 +438,23 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     }
   }, [])
 
+  // Per-clip image stabilization (deshake). Persists to
+  // job_files.deshake; the merge route reads it and the lib/video
+  // normalize step prepends a deshake filter to the clip's video
+  // chain when true.
+  const saveFileDeshake = useCallback(async (file) => {
+    const id = jobIdRef.current
+    const dbFileId = fileIdMapRef.current[file.id]
+    if (!id || !dbFileId) return
+    try {
+      await api.updateJobFile(id, dbFileId, {
+        deshake: !!file._deshake,
+      })
+    } catch (e) {
+      console.error('[useJobSync] save deshake failed:', e.message)
+    }
+  }, [])
+
   // Save Ken Burns motion for a still photo. Used when the photo is part
   // of a video merge (photo-to-video-segment). Column already exists on
   // job_files and the PUT /jobs/:id/files/:fileId handler accepts it.
@@ -699,6 +716,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
             _colorEffect: typeof f.color_effect === 'string' && f.color_effect ? f.color_effect : null,
             _strobe:      !!f.strobe,
             _beatZoom:    !!f.beat_zoom,
+            _deshake:     !!f.deshake,
             // Per-clip transition-in override. null = inherit merge-
             // level global; 'none' explicitly forces a hard cut at
             // the boundary INTO this clip.
@@ -872,6 +890,7 @@ export default function useJobSync({ files, setFiles, userHint, setUserHint, set
     saveFileColorEffect,
     saveFileStrobe,
     saveFileBeatZoom,
+    saveFileDeshake,
     saveFileVideoZoom,
     saveFileInsertOverlay,
     saveFileSkip,
