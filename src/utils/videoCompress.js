@@ -32,20 +32,28 @@ const MAX_EDGE = 1920;                  // clamp longer edge (1080p)
 const TARGET_FPS = 30;
 const TARGET_BITRATE = 5_000_000;       // 5 Mbps — visually clean for 1080p
 
-// Probe what mimeType MediaRecorder will actually accept. Browsers
-// differ widely: Chrome/Edge prefer webm/vp9, Safari only does mp4
-// in some versions, Firefox vp8. Return the first supported entry
-// in PREFERRED_TYPES, or '' if none.
+// Probe what mimeType MediaRecorder will actually accept. The order
+// here was the source of a "tile won't preview" bug — Chrome happily
+// emits webm/vp9 which is the densest option, but the resulting
+// file's specific VP9 profile played back unreliably across the
+// operator's browsers (Safari especially), even though the file
+// was valid (ffmpeg merged it fine). MP4 + H.264 is the only codec
+// combination that's universally playable in every modern browser,
+// so we try it first now and fall back to webm only if MediaRecorder
+// doesn't have an mp4 encoder (older Chrome). Result: every newly-
+// compressed clip uploads as something every browser can render
+// in the tile preview AND lightbox.
 function pickMimeType() {
   if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
   const PREFERRED_TYPES = [
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2', // Safari + Chrome 124+ + every preview surface
+    'video/mp4;codecs=avc1.42E01E',
+    'video/mp4',
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp9',
     'video/webm;codecs=vp8,opus',
     'video/webm;codecs=vp8',
     'video/webm',
-    'video/mp4;codecs=avc1.42E01E,mp4a.40.2', // Safari iOS
-    'video/mp4',
   ];
   for (const t of PREFERRED_TYPES) {
     if (MediaRecorder.isTypeSupported(t)) return t;
