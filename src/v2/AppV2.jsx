@@ -219,12 +219,6 @@ export default function AppV2() {
       console.log(`[AppV2] saving transition_in: id=${item.id} type=${item._transitionIn} dur=${item._transitionInDuration}`)
       jobSyncRef.current?.saveFileTransitionIn?.(item)
     }
-    const onDeshakeChange = (e) => {
-      const item = findItem(e.detail?.itemId)
-      if (!item) return
-      console.log(`[AppV2] saving deshake: id=${item.id} deshake=${item._deshake}`)
-      jobSyncRef.current?.saveFileDeshake?.(item)
-    }
     // Fires after BE-side mutations that changed the file set
     // out-of-band — e.g. DELETE /music removes loop-duplicate
     // job_files rows. We re-hydrate by re-loading the active job
@@ -251,7 +245,6 @@ export default function AppV2() {
     window.addEventListener('posty-beat-zoom-change', onBeatZoomChange)
     window.addEventListener('posty-volume-change', onVolumeChange)
     window.addEventListener('posty-transition-change', onTransitionChange)
-    window.addEventListener('posty-deshake-change', onDeshakeChange)
     window.addEventListener('posty-files-changed', onFilesChanged)
     return () => {
       window.removeEventListener('posty-trim-change', onTrimChange)
@@ -271,7 +264,6 @@ export default function AppV2() {
       window.removeEventListener('posty-beat-zoom-change', onBeatZoomChange)
       window.removeEventListener('posty-volume-change', onVolumeChange)
       window.removeEventListener('posty-transition-change', onTransitionChange)
-      window.removeEventListener('posty-deshake-change', onDeshakeChange)
       window.removeEventListener('posty-files-changed', onFilesChanged)
     }
   }, [])

@@ -579,10 +579,6 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             color_effect: item._colorEffect || null,
             strobe:       !!item._strobe,
             beat_zoom:    !!item._beatZoom,
-            // Per-clip image stabilization (deshake). When true the
-            // BE normalize step prepends an ffmpeg deshake filter so
-            // walking / handheld shots smooth out before scale+pad.
-            deshake:      !!item._deshake,
             // Per-clip transition-in override. null = inherit the
             // merge-level global. First clip's value is ignored by
             // the BE (no previous boundary).

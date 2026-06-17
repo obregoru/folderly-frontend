@@ -1515,31 +1515,6 @@ export default function FileGrid({ files, onRemove, onReorder, onDuplicate, onSp
                     </label>
                   )
                 })()}
-                {/* Image stabilization (deshake). Per-clip ffmpeg
-                    deshake in the merge normalize step — smooths
-                    walking / handheld footage. Videos only; pointless
-                    on stills. Toggling sets _deshake on the item AND
-                    dispatches an event so AppV2 persists it via the
-                    job-files PUT. */}
-                {item._dbFileId != null && isVideo && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      item._deshake = !item._deshake
-                      try {
-                        window.dispatchEvent(new CustomEvent('posty-deshake-change', { detail: { itemId: item.id } }))
-                      } catch {}
-                    }}
-                    className={`w-[18px] h-[18px] rounded-full text-white text-[10px] flex items-center justify-center cursor-pointer border-none leading-none ${
-                      item._deshake
-                        ? 'bg-[#0ea5e9]/95 hover:bg-[#0ea5e9]'
-                        : 'bg-[#94a3b8]/75 hover:bg-[#64748b]'
-                    }`}
-                    title={item._deshake
-                      ? 'Image stabilization: ON (deshake filter applied at merge time)'
-                      : 'Toggle image stabilization (deshake) for walking / handheld shots. Adds ~10–30% render time per clip.'}
-                  >🪶</button>
-                )}
                 {/* Split — open the subclip extractor. */}
                 {item._dbFileId != null && isVideo && onSplit && (
                   <button
