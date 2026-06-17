@@ -678,6 +678,13 @@ function VideoThumb({ file, onClick, className, itemId, item }) {
     // muted + playsInline (already set below) satisfy autoplay policy.
     const onMeta = async () => {
       readAspect()
+      // Capture source duration on the file object so the merge
+      // payload's trim_end fallback has a value even when the
+      // operator hasn't opened the trim bar. Mirrors the same
+      // seed in the restored-tile <video> below.
+      if (Number.isFinite(v.duration) && v.duration > 0 && !Number(file._videoDuration)) {
+        file._videoDuration = v.duration
+      }
       try {
         v.muted = true
         const p = v.play()
@@ -1019,6 +1026,14 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
                 onLoadedMetadata={e => {
                   const v = e.target
                   if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+                  // Seed _videoDuration on the item so the merge
+                  // payload can default trim_end to the full clip
+                  // when the operator never opened the trim bar.
+                  // Without this, _trimEnd stays null after a page
+                  // reload and the BE guard rejects the merge.
+                  if (Number.isFinite(v.duration) && v.duration > 0 && !Number(item._videoDuration)) {
+                    item._videoDuration = v.duration
+                  }
                 }}
                 onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
                 onError={markMissing}
@@ -1046,6 +1061,13 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             onLoadedMetadata={e => {
               const v = e.target
               if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+              // Same duration seed as the rotated branch above —
+              // every restored video tile records its source
+              // duration on its first metadata load so the merge
+              // fallback always has a value to default trim_end to.
+              if (Number.isFinite(v.duration) && v.duration > 0 && !Number(item._videoDuration)) {
+                item._videoDuration = v.duration
+              }
             }}
             onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
             onError={markMissing}
