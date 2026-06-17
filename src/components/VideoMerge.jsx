@@ -545,7 +545,19 @@ export default function VideoMerge({ videoFiles, jobId, onMerged, onReorder, res
             upload_key: uploadKey,
             media_type: item.file?.type || item._mediaType || 'video/mp4',
             trim_start: item._trimStart || 0,
-            trim_end: item._trimEnd ?? null,
+            trim_end: item._trimEnd
+              ?? (Number.isFinite(Number(item._videoDuration)) && Number(item._videoDuration) > 0
+                  ? Number(item._videoDuration)
+                  : null),
+            // Fall back to the discovered source duration when the
+            // operator dragged the trim-end handle to the very end
+            // (VideoTrimmer normalizes that to null = "no override").
+            // Without this, the BE's null-trim guard rejects clips
+            // whose trim window legitimately spans the whole source.
+            // _videoDuration is populated by the tile's <video>
+            // loadedmetadata handler; if it's still unknown we leave
+            // trim_end null and the guard will surface the real
+            // problem (the source didn't load) instead of masking it.
             speed: Number(item._speed) > 0 ? Number(item._speed) : 1.0,
             // Per-clip audio volume. 1 = original; > 1 boosts quiet
             // source audio so it isn't drowned out by TTS / music
