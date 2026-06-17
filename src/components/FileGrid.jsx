@@ -940,15 +940,32 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
   // Also call onStorageMissing so the parent can lift the flag into
   // the files state — that's what unmounts VideoTrimmer + suppresses
   // re-fetches on subsequent renders.
+  //
+  // markMissing got too eager: a SINGLE onError event on the tile's
+  // <video> permanently flipped the tile to the "Source missing"
+  // placeholder, even when the failure was transient (Supabase
+  // rate-limit during a heavy reload, network blip, or a redundant
+  // src reset during a trim edit). Operator saw the warning right
+  // after dragging the trim bar even though the file was clearly
+  // present. We now require either:
+  //   - the BE explicitly flagged the row as storage_missing, OR
+  //   - the <video> errored AT LEAST TWICE without ever firing
+  //     a loadedmetadata in between (true source-missing case).
+  // Counter resets after a successful metadata load so a trim
+  // edit that briefly reloads the element doesn't accumulate.
+  const errorCountRef = useRef(0)
   const [loadFailed, setLoadFailed] = useState(!!item._storageMissing)
   const markMissing = () => {
     if (loadFailed) return
+    errorCountRef.current += 1
+    if (errorCountRef.current < 2) return // retry budget
     item._storageMissing = true
     setLoadFailed(true)
     if (typeof onStorageMissing === 'function') {
       try { onStorageMissing(item.id) } catch {}
     }
   }
+  const markLoaded = () => { errorCountRef.current = 0 }
   if (loadFailed) {
     return <MissingSourcePlaceholder item={item} onClick={onClick} onReplace={onReplaceSource} />
   }
@@ -1019,6 +1036,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
                 onLoadedMetadata={e => {
                   const v = e.target
                   if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+                  markLoaded()
                 }}
                 onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
                 onError={markMissing}
@@ -1046,6 +1064,7 @@ function RestoredMedia({ item, isVideo, onClick, onStorageMissing, onReplaceSour
             onLoadedMetadata={e => {
               const v = e.target
               if (aspect == null && v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
+              markLoaded()
             }}
             onLoadedData={e => { try { e.target.currentTime = item._trimStart || 0.5 } catch {} }}
             onError={markMissing}
